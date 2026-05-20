@@ -1,0 +1,27 @@
+bung
+
+---
+
+can you review the context being loaded in on session start?
+
+---
+
+ok can you help me  fix this for codex, works fine in pi
+
+---
+
+same for the post tool hook which outputs tokenjuice info, it's proper clunky and ugly to read
+
+---
+
+let this import:
+  - Result: Codex still gets shared agent-scripts/AGENTS.md, but nested imports like @SOUL.md / @HOW-I-WORK.md stay as pointers instead of expanding
+    into startup context.
+
+---
+
+can you check my current context usage in this chat, 17% how many tokens is that?
+
+---
+
+my auto compaction is set for around 200k tokens so that would make sense
