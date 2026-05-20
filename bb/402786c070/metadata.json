@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "bb402786c070",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-memory/README.md",
+    "extensions/pi-memory/index.ts",
+    "extensions/pi-memory/package.json",
+    "extensions/pi-memory/prompts/extract-prompt.md",
+    "extensions/pi-memory/skills/pi-memory-save/SKILL.md",
+    "extensions/pi-memory/src/gate.ts",
+    "extensions/pi-memory/src/util.ts",
+    "extensions/pi-memory/test/gate.test.ts",
+    "extensions/pi-memory/test/unit.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/bb/402786c070/0/metadata.json",
+      "transcript": "/bb/402786c070/0/full.jsonl",
+      "content_hash": "/bb/402786c070/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
