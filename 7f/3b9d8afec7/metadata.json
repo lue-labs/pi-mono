@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "7f3b9d8afec7",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-memory/src/util.ts",
+    "extensions/pi-semantic-grep/.gitignore",
+    "extensions/pi-semantic-grep/.node-version",
+    "extensions/pi-semantic-grep/.nvmrc",
+    "extensions/pi-semantic-grep/AGENTS.md",
+    "extensions/pi-semantic-grep/LICENSE",
+    "extensions/pi-semantic-grep/README.md",
+    "extensions/pi-semantic-grep/package-lock.json",
+    "extensions/pi-semantic-grep/package.json",
+    "extensions/pi-semantic-grep/src/config.ts",
+    "extensions/pi-semantic-grep/src/db.ts",
+    "extensions/pi-semantic-grep/src/embeddings.ts",
+    "extensions/pi-semantic-grep/src/files.ts",
+    "extensions/pi-semantic-grep/src/index.ts",
+    "extensions/pi-semantic-grep/src/indexer.ts",
+    "extensions/pi-semantic-grep/src/pi-types.d.ts",
+    "extensions/pi-semantic-grep/src/root.ts",
+    "extensions/pi-semantic-grep/src/search.ts",
+    "extensions/pi-semantic-grep/src/worker.ts",
+    "extensions/pi-semantic-grep/tsconfig.json",
+    "package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7f/3b9d8afec7/0/metadata.json",
+      "transcript": "/7f/3b9d8afec7/0/full.jsonl",
+      "content_hash": "/7f/3b9d8afec7/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
