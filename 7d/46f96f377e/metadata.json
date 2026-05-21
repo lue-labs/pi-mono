@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "7d46f96f377e",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "packages/pi-agent-ui/package.json",
+    "packages/pi-agents/package.json",
+    "packages/pi-observability/package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7d/46f96f377e/0/metadata.json",
+      "transcript": "/7d/46f96f377e/0/full.jsonl",
+      "content_hash": "/7d/46f96f377e/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
