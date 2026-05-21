@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "03d485ce684e",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-workflow/package.json",
+    "extensions/pi-workflow/src/index.ts",
+    "extensions/pi-workflow/test/sandbox.test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/03/d485ce684e/0/metadata.json",
+      "transcript": "/03/d485ce684e/0/full.jsonl",
+      "content_hash": "/03/d485ce684e/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "03d485ce684e",
+  "session_id": "019e4770-dd4a-7611-bc24-18ac00fb5fc9",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T10:01:55.75787Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-workflow/package.json",
+    "extensions/pi-workflow/src/index.ts",
+    "extensions/pi-workflow/test/sandbox.test.mjs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "2d4afe8776a9",
+  "checkpoint_transcript_start": 64,
+  "transcript_lines_at_start": 64,
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T10:01:55.745495Z",
+    "agent_lines": 225,
+    "agent_removed": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 225,
+    "total_lines_changed": 229,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
