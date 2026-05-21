@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "80fa3ae60976",
+  "session_id": "019e4770-dd4a-7611-bc24-18ac00fb5fc9",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T12:07:39.258103Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/testing-local-advisor-autoresearch-pilot.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "2d4afe8776a9",
+  "checkpoint_transcript_start": 64,
+  "transcript_lines_at_start": 64,
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T12:07:39.242801Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 83,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 83,
+    "total_lines_changed": 83,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
