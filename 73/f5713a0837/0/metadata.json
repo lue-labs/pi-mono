@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "73f5713a0837",
+  "session_id": "019e4770-dd4a-7611-bc24-18ac00fb5fc9",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T12:08:01.75836Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/goals/goal-2026-05-18T08-39-11Z.md",
+    "docs/goals/goal-2026-05-18T08-50-26Z.md",
+    "docs/goals/goal-2026-05-18T13-59-44Z.md",
+    "docs/goals/goal-2026-05-19T11-28-40Z.md",
+    "docs/goals/goal-2026-05-19T11-40-04Z.md",
+    "docs/goals/goal-2026-05-20T09-16-48Z.md",
+    "docs/goals/goal-2026-05-20T09-43-53Z.md",
+    "docs/goals/goal-2026-05-20T10-05-03Z.md",
+    "docs/goals/goal-2026-05-20T10-11-05Z-explore-guidance.md",
+    "docs/goals/goal-2026-05-20T10-11-05Z.md",
+    "docs/goals/goal-2026-05-20T10-13-21Z.md",
+    "docs/goals/goal-2026-05-20T10-15-21Z.md",
+    "docs/goals/goal-2026-05-20T10-37-56Z.md",
+    "docs/goals/goal-2026-05-20T10-47-34Z.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "2d4afe8776a9",
+  "checkpoint_transcript_start": 64,
+  "transcript_lines_at_start": 64,
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T12:08:01.744777Z",
+    "agent_lines": 3551,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3551,
+    "total_lines_changed": 3551,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
