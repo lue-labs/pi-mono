@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "c5fe36114445",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/usage-soft-cap/README.md",
+    "extensions/usage-soft-cap/index.mjs",
+    "extensions/usage-soft-cap/test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c5/fe36114445/0/metadata.json",
+      "transcript": "/c5/fe36114445/0/full.jsonl",
+      "content_hash": "/c5/fe36114445/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
