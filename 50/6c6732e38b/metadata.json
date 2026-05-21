@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "506c6732e38b",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/dream-memory/src/active-memory.ts",
+    "extensions/dream-memory/src/cli/dream.ts",
+    "extensions/dream-memory/src/dream/runner.ts",
+    "extensions/dream-memory/src/extension.ts",
+    "extensions/dream-memory/src/lib/pi-model.ts",
+    "extensions/dream-memory/src/store.ts",
+    "extensions/dream-memory/tests/active-memory.spec.ts",
+    "extensions/dream-memory/tests/cli-dream.spec.ts",
+    "extensions/dream-memory/tests/extension-active-recall-timing.spec.ts",
+    "extensions/dream-memory/tests/runner-stale-lock.spec.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/50/6c6732e38b/0/metadata.json",
+      "transcript": "/50/6c6732e38b/0/full.jsonl",
+      "content_hash": "/50/6c6732e38b/0/content_hash.txt",
+      "prompt": "/50/6c6732e38b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 206308,
+    "cache_read_tokens": 202356,
+    "output_tokens": 520,
+    "api_call_count": 5
+  }
+}
