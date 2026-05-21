@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "de0afd24b5dd",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/task-tools/README.md",
+    "extensions/task-tools/package.json",
+    "extensions/task-tools/src/index.ts",
+    "extensions/task-tools/src/schema.ts",
+    "extensions/task-tools/src/store.ts",
+    "extensions/task-tools/test-load.mjs",
+    "extensions/task-tools/tsconfig.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/de/0afd24b5dd/0/metadata.json",
+      "transcript": "/de/0afd24b5dd/0/full.jsonl",
+      "content_hash": "/de/0afd24b5dd/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
