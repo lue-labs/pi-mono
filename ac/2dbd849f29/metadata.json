@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "ac2dbd849f29",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "CONTEXT.md",
+    "docs/adr/0001-profile-names-avoid-slim-collision.md",
+    "docs/adr/0002-harness-profile-intentionally-minimal.md",
+    "docs/adr/0003-multi-package-my-pi-instead-of-fork-core-profile-schema.md",
+    "docs/adr/0004-fork-hygiene-extract-via-existing-hooks.md",
+    "docs/pi-fork-patch-inventory.md",
+    "docs/pi-runtime-profiles.md",
+    "docs/plans/fork-hygiene-audit.md",
+    "docs/plans/modular-pi-runtime-plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ac/2dbd849f29/0/metadata.json",
+      "transcript": "/ac/2dbd849f29/0/full.jsonl",
+      "content_hash": "/ac/2dbd849f29/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "ac2dbd849f29",
+  "session_id": "019e4770-dd4a-7611-bc24-18ac00fb5fc9",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T11:20:31.349086Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "CONTEXT.md",
+    "docs/adr/0001-profile-names-avoid-slim-collision.md",
+    "docs/adr/0002-harness-profile-intentionally-minimal.md",
+    "docs/adr/0003-multi-package-my-pi-instead-of-fork-core-profile-schema.md",
+    "docs/adr/0004-fork-hygiene-extract-via-existing-hooks.md",
+    "docs/pi-fork-patch-inventory.md",
+    "docs/pi-runtime-profiles.md",
+    "docs/plans/fork-hygiene-audit.md",
+    "docs/plans/modular-pi-runtime-plan.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "2d4afe8776a9",
+  "checkpoint_transcript_start": 64,
+  "transcript_lines_at_start": 64,
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T11:20:31.336538Z",
+    "agent_lines": 852,
+    "agent_removed": 22,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 852,
+    "total_lines_changed": 874,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
