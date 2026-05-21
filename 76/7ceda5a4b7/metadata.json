@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "767ceda5a4b7",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/cache-break-followup-2026-05-18.md",
+    "docs/cache-break-investigation-2026-05-16.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/76/7ceda5a4b7/0/metadata.json",
+      "transcript": "/76/7ceda5a4b7/0/full.jsonl",
+      "content_hash": "/76/7ceda5a4b7/0/content_hash.txt",
+      "prompt": "/76/7ceda5a4b7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 206308,
+    "cache_read_tokens": 202356,
+    "output_tokens": 520,
+    "api_call_count": 5
+  }
+}
