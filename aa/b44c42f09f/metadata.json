@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "aab44c42f09f",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/agent-view/README.md",
+    "extensions/agent-view/package.json",
+    "extensions/agent-view/src/background.ts",
+    "extensions/agent-view/src/cli.ts",
+    "extensions/agent-view/src/component.ts",
+    "extensions/agent-view/src/index.ts",
+    "extensions/agent-view/src/sessions.ts",
+    "extensions/agent-view/src/theme.ts",
+    "extensions/agent-view/src/types.ts",
+    "extensions/agent-view/test-load.mjs",
+    "extensions/agent-view/tsconfig.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/aa/b44c42f09f/0/metadata.json",
+      "transcript": "/aa/b44c42f09f/0/full.jsonl",
+      "content_hash": "/aa/b44c42f09f/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
