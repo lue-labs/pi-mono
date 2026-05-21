@@ -1,0 +1,5 @@
+can you runa  test edit tool and diff so I can see the tui
+
+---
+
+remove all of this
