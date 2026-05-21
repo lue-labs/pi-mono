@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "18442da19ace",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/issues/modular-pi-runtime/01-commit-prd-and-docs-baseline.md",
+    "docs/issues/modular-pi-runtime/02-add-profile-package-validator.md",
+    "docs/issues/modular-pi-runtime/03-create-package-manifests.md",
+    "docs/issues/modular-pi-runtime/04-wire-macbook-full-profile.md",
+    "docs/issues/modular-pi-runtime/05-core-hooks-b1-lifecycle-rendering.md",
+    "docs/issues/modular-pi-runtime/06-core-hooks-b2-b3-agent-run-registries.md",
+    "docs/issues/modular-pi-runtime/07-pi-agents-headless-tracer.md",
+    "docs/issues/modular-pi-runtime/08-core-hooks-b4-telemetry.md",
+    "docs/issues/modular-pi-runtime/09-pi-observability-fake-exporters.md",
+    "docs/issues/modular-pi-runtime/10-pi-observability-signoz-opik.md",
+    "docs/issues/modular-pi-runtime/11-core-hooks-b5-tui.md",
+    "docs/issues/modular-pi-runtime/12-pi-agent-ui-zoom-tracer.md",
+    "docs/issues/modular-pi-runtime/13-wire-openclaw-harness.md",
+    "docs/issues/modular-pi-runtime/14-create-pod-runtime-distro.md",
+    "docs/issues/modular-pi-runtime/15-runtime-inventory-verification.md",
+    "docs/issues/modular-pi-runtime/16-prepare-upstream-pr-queue.md",
+    "docs/issues/modular-pi-runtime/README.md",
+    "docs/prds/modular-pi-runtime-and-fork-extraction-prd.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/18/442da19ace/0/metadata.json",
+      "transcript": "/18/442da19ace/0/full.jsonl",
+      "content_hash": "/18/442da19ace/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
