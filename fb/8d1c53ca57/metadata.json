@@ -1,0 +1,18 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "fb8d1c53ca57",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/claude-code-2.1.145-context-handoff.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fb/8d1c53ca57/0/metadata.json",
+      "transcript": "/fb/8d1c53ca57/0/full.jsonl",
+      "content_hash": "/fb/8d1c53ca57/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
