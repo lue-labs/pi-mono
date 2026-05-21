@@ -1,0 +1,22 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "7d0023f19e0b",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-workflow/src/builtin/deep-research.js",
+    "extensions/pi-workflow/src/discovery.ts",
+    "extensions/pi-workflow/src/index.ts",
+    "extensions/pi-workflow/src/types.ts",
+    "extensions/pi-workflow/test/discovery.test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7d/0023f19e0b/0/metadata.json",
+      "transcript": "/7d/0023f19e0b/0/full.jsonl",
+      "content_hash": "/7d/0023f19e0b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
