@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "ae3d7a549458",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-workflow/DESIGN.md",
+    "extensions/pi-workflow/README.md",
+    "extensions/pi-workflow/package.json",
+    "extensions/pi-workflow/src/builtin-reference/EXTRACTION_NOTES.md",
+    "extensions/pi-workflow/src/builtin-reference/autopilot.js",
+    "extensions/pi-workflow/src/builtin-reference/bugfix.js",
+    "extensions/pi-workflow/src/builtin-reference/bughunt-lite.js",
+    "extensions/pi-workflow/src/builtin-reference/bughunt.js",
+    "extensions/pi-workflow/src/builtin-reference/dashboard.js",
+    "extensions/pi-workflow/src/builtin-reference/deep-research.js",
+    "extensions/pi-workflow/src/builtin-reference/docs.js",
+    "extensions/pi-workflow/src/builtin-reference/investigate.js",
+    "extensions/pi-workflow/src/builtin-reference/plan-hunter.js",
+    "extensions/pi-workflow/src/builtin-reference/review-branch.js",
+    "extensions/pi-workflow/src/index.ts",
+    "extensions/pi-workflow/src/sandbox.ts",
+    "extensions/pi-workflow/src/types.ts",
+    "extensions/pi-workflow/tsconfig.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ae/3d7a549458/0/metadata.json",
+      "transcript": "/ae/3d7a549458/0/full.jsonl",
+      "content_hash": "/ae/3d7a549458/0/content_hash.txt",
+      "prompt": "/ae/3d7a549458/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 60773,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 402816,
+    "output_tokens": 963,
+    "api_call_count": 9
+  }
+}
