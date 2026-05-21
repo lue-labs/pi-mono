@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "5982c09406e2",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "services/oracle/CONTEXT.md",
+    "services/oracle/README.md",
+    "services/oracle/bin/pi-oracle",
+    "services/oracle/bin/pio",
+    "services/oracle/docs/adr/0001-whisper-session-side-extension.md",
+    "services/oracle/package.json",
+    "services/oracle/pnpm-lock.yaml",
+    "services/oracle/src/cli.ts",
+    "services/oracle/src/daemon.ts",
+    "services/oracle/src/project.ts",
+    "services/oracle/src/store.ts",
+    "services/oracle/tsconfig.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/59/82c09406e2/0/metadata.json",
+      "transcript": "/59/82c09406e2/0/full.jsonl",
+      "content_hash": "/59/82c09406e2/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
