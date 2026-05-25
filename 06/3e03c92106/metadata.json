@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "063e03c92106",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".letta/.lettaignore",
+    "docs/goals/goal-2026-05-23T06-57-00Z.md",
+    "extensions/mem0-shadow/README.md",
+    "extensions/mem0-shadow/index.ts",
+    "extensions/mem0-shadow/package.json",
+    "extensions/mem0-shadow/pnpm-lock.yaml",
+    "extensions/mem0-shadow/runtime/Dockerfile",
+    "extensions/mem0-shadow/runtime/configure.json",
+    "extensions/mem0-shadow/runtime/docker-compose.yml",
+    "extensions/mem0-shadow/runtime/main.py",
+    "extensions/mem0-shadow/runtime/smoke.sh",
+    "extensions/mem0-shadow/runtime/snapshot.sh",
+    "extensions/mem0-shadow/runtime/up.sh",
+    "extensions/mem0-shadow/src/extension.ts",
+    "extensions/mem0-shadow/tsconfig.json",
+    "extensions/pi-backpressure/README.md",
+    "extensions/pi-backpressure/package.json",
+    "extensions/pi-backpressure/pi-backpressure.toml",
+    "extensions/pi-backpressure/src/cli.ts",
+    "extensions/pi-backpressure/src/context.ts",
+    "extensions/pi-backpressure/src/gates.ts",
+    "extensions/pi-backpressure/src/manifest.ts",
+    "extensions/pi-backpressure/src/slash.ts",
+    "extensions/pi-backpressure/test/context.test.ts",
+    "extensions/pi-backpressure/test/gates.test.ts",
+    "extensions/pi-backpressure/test/manifest.test.ts",
+    "extensions/pi-backpressure/test/slash.test.ts",
+    "package-lock.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/06/3e03c92106/0/metadata.json",
+      "transcript": "/06/3e03c92106/0/full.jsonl",
+      "content_hash": "/06/3e03c92106/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
