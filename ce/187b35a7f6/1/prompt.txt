@@ -1,0 +1,46 @@
+can we use the claude-code tokenizer to show the tokens in the footer tui and /context when I have a claude-bridge provider selected, and then openai tiktoken for when I use openai-codex/ provider models?
+
+---
+
+⏺ Bash(# Use claude-code tokenizer or fall back to character estimates
+      # Anthropic tokenizer ~3.3-3.8 bytes/token for English markdown, can hit 2.6-3 for technical wit…)
+  ⎿  AGENTS.md: bytes=22078 words=3148 ~est_tok=3187
+     SOUL.md: bytes=1600 words=269 ~est_tok=244
+     IDENTITY.md: bytes=424 words=66 ~est_tok=68
+     … +2 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to /Users/luke
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(# Try the real Anthropic tokenizer or tiktoken
+      cd /tmp…)
+  ⎿  /opt/homebrew/bin/python3
+     Traceback (most recent call last):
+       File "<string>", line 1, in <module>
+         import tiktoken
+  ⎿  Shell cwd was reset to /Users/luke
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(cd /tmp && /opt/homebrew/bin/pip3 install tiktoken --quiet 2>&1 | tail -5 && python3 << 'EOF'
+      import tiktoken…)
+  ⎿  Error: Exit code 1
+         
+         Read more about this behavior here: <https://peps.python.org/pep-0668/>
+
+     note: If you believe this is a mistake, please contact your Python installation or OS distribution provider. You can 
+     override this, at the risk of breaking your Python installation or OS, by passing --break-system-packages.
+     hint: See PEP 668 for the detailed specification.
+     Traceback (most recent call last):
+       File "<stdin>", line 1, in <module>
+     ModuleNotFoundError: No module named 'tiktoken'
+
+---
+
+can we rather have the footer updated by my extension with a filter or hook
+
+---
+
+and default to be the normal counter /4
+
+---
+
+done?
