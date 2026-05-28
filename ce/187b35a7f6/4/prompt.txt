@@ -1,0 +1,33 @@
+/goal fix this bullshit:
+ You're right, I was sloppy. Let me redo it.
+
+  Skill registry IS progressive disclosure — only the name: one-line description gets injected, not the SKILL.md body. ~80
+  skills × ~60 tokens ≈ ~5k, not 25-30k.
+
+  MCP server "instructions" — small. Each server's instructions block is 1-3k. Total maybe 5-8k.
+
+  The actual elephant: tool schemas. Every MCP tool exposes its full JSON schema (description + every parameter + every enum)
+  into the system prompt on every turn. Looking at what's loaded here:
+
+  - chrome-devtools — ~30 tools, big schemas
+  - computer-use — ~25 tools
+  - flux-operator-mcp — ~15 tools
+  - agenticmail, oracle, openaiDeveloperDocs, pi — another ~30 tools
+  - Built-in Claude Code tools (Bash, Read, Edit, Agent, etc.) — ~25 tools with verbose descriptions
+
+  That's ~125 tool schemas, averaging 300-500 tokens each → ~40-50k. That's where your budget went.
+
+  Real breakdown:
+  - Tool schemas: ~45k ← biggest by far
+  - CLAUDE.md chain: ~15k
+  - Base system prompt + security rules: ~12k
+  - Skill names: ~5k
+  - MCP instructions: ~5k
+  - Reminders/hooks/date: ~2k
+
+  Lever that matters: disable MCP servers you're not actively using this session. Chrome-devtools + computer-use alone are
+  probably 20k+ of schema you're paying for whether you call them or not.
+
+---
+
+get the numbers from the actual session jsonl
