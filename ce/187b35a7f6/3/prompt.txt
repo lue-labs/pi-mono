@@ -1,0 +1,9 @@
+can you help me review and make sure my claude code cli is cache stable, system prompt is stable and my context being loaded is stable and using progressive disclosure correctly
+
+---
+
+1. yes delete this
+2. delete repowise augment and uninstall repowise across my system
+3. I use tokenjuice and opik for tracking, sometimes entire, code-simplifier has become part of claude-code cli core, you can delete that, and delete ralph-loop and code-review, and warp and agent-creator unless its anthropics agent-creator then you can keep it
+
+Whats in the Agents tab?

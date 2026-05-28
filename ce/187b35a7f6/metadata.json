@@ -3,7 +3,7 @@
   "checkpoint_id": "ce187b35a7f6",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 0,
+  "checkpoints_count": 2,
   "files_touched": [
     "AGENTS.md",
     "docs/cache-burst-incident-2026-05-28.md",
@@ -89,13 +89,19 @@
       "transcript": "/ce/187b35a7f6/2/full.jsonl",
       "content_hash": "/ce/187b35a7f6/2/content_hash.txt",
       "prompt": "/ce/187b35a7f6/2/prompt.txt"
+    },
+    {
+      "metadata": "/ce/187b35a7f6/3/metadata.json",
+      "transcript": "/ce/187b35a7f6/3/full.jsonl",
+      "content_hash": "/ce/187b35a7f6/3/content_hash.txt",
+      "prompt": "/ce/187b35a7f6/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 9587191,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 143097472,
-    "output_tokens": 593178,
-    "api_call_count": 1616
+    "input_tokens": 9587212,
+    "cache_creation_tokens": 866383,
+    "cache_read_tokens": 143599602,
+    "output_tokens": 608255,
+    "api_call_count": 1627
   }
 }
