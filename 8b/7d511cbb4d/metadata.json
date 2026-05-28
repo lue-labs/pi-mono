@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "8b7d511cbb4d",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-goal/src/commands.ts",
+    "extensions/pi-goal/src/continuation-scheduler.ts",
+    "extensions/pi-goal/src/goal-runtime-controller.ts",
+    "extensions/pi-goal/src/goal-wait.ts",
+    "extensions/pi-goal/src/prompts.ts",
+    "extensions/pi-goal/src/queued-goal-work.ts",
+    "extensions/pi-goal/test/cache-stability.test.ts",
+    "extensions/pi-goal/test/provider-context.test.ts",
+    "extensions/pi-goal/test/queued-goal-work.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8b/7d511cbb4d/0/metadata.json",
+      "transcript": "/8b/7d511cbb4d/0/full.jsonl",
+      "content_hash": "/8b/7d511cbb4d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}

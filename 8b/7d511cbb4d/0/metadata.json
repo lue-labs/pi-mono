@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "8b7d511cbb4d",
+  "session_id": "019e6d87-73f0-7260-a9b3-5969a36bff78",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-28T16:08:36.888441Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-goal/src/commands.ts",
+    "extensions/pi-goal/src/continuation-scheduler.ts",
+    "extensions/pi-goal/src/goal-runtime-controller.ts",
+    "extensions/pi-goal/src/goal-wait.ts",
+    "extensions/pi-goal/src/prompts.ts",
+    "extensions/pi-goal/src/queued-goal-work.ts",
+    "extensions/pi-goal/test/cache-stability.test.ts",
+    "extensions/pi-goal/test/provider-context.test.ts",
+    "extensions/pi-goal/test/queued-goal-work.test.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "da863808d2cb",
+  "checkpoint_transcript_start": 10410,
+  "transcript_lines_at_start": 10410,
+  "initial_attribution": {
+    "calculated_at": "2026-05-28T16:08:35.580315Z",
+    "agent_lines": 282,
+    "agent_removed": 21,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 282,
+    "total_lines_changed": 303,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
