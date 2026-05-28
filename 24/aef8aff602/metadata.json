@@ -19,6 +19,12 @@
       "transcript": "/24/aef8aff602/1/full.jsonl",
       "content_hash": "/24/aef8aff602/1/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/24/aef8aff602/2/metadata.json",
+      "transcript": "/24/aef8aff602/2/full.jsonl",
+      "content_hash": "/24/aef8aff602/2/content_hash.txt",
+      "prompt": ""
     }
   ]
 }
