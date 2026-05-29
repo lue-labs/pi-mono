@@ -1,7 +1,9 @@
 {
   "cli_version": "0.6.1",
   "checkpoint_id": "2fd144828f57",
+  "session_id": "019e6e9a-655c-7943-a66e-6f2e9e162c40",
   "strategy": "manual-commit",
+  "created_at": "2026-05-29T07:49:59.307853Z",
   "branch": "main",
   "checkpoints_count": 0,
   "files_touched": [
@@ -24,24 +26,21 @@
     "scripts/check-profiles.mjs",
     "test/profile-cache-contract.test.mjs"
   ],
-  "sessions": [
-    {
-      "metadata": "/2f/d144828f57/0/metadata.json",
-      "transcript": "/2f/d144828f57/0/full.jsonl",
-      "content_hash": "/2f/d144828f57/0/content_hash.txt",
-      "prompt": ""
-    },
-    {
-      "metadata": "/2f/d144828f57/1/metadata.json",
-      "transcript": "/2f/d144828f57/1/full.jsonl",
-      "content_hash": "/2f/d144828f57/1/content_hash.txt",
-      "prompt": ""
-    },
-    {
-      "metadata": "/2f/d144828f57/2/metadata.json",
-      "transcript": "/2f/d144828f57/2/full.jsonl",
-      "content_hash": "/2f/d144828f57/2/content_hash.txt",
-      "prompt": ""
-    }
-  ]
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "33ebe3c30db8",
+  "checkpoint_transcript_start": 432,
+  "transcript_lines_at_start": 432,
+  "initial_attribution": {
+    "calculated_at": "2026-05-29T07:49:59.264973Z",
+    "agent_lines": 461,
+    "agent_removed": 44,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 461,
+    "total_lines_changed": 505,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
 }
