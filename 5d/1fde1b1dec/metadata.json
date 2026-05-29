@@ -13,6 +13,12 @@
       "transcript": "/5d/1fde1b1dec/0/full.jsonl",
       "content_hash": "/5d/1fde1b1dec/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/5d/1fde1b1dec/1/metadata.json",
+      "transcript": "/5d/1fde1b1dec/1/full.jsonl",
+      "content_hash": "/5d/1fde1b1dec/1/content_hash.txt",
+      "prompt": ""
     }
   ]
 }
