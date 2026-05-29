@@ -1,0 +1,18 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "b4e751ad0353",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/ws12-system-in-messages-cache.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b4/e751ad0353/0/metadata.json",
+      "transcript": "/b4/e751ad0353/0/full.jsonl",
+      "content_hash": "/b4/e751ad0353/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
