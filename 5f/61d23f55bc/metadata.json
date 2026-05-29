@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "5f61d23f55bc",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-workflow/CC-2.1.153.md",
+    "extensions/pi-workflow/package.json",
+    "extensions/pi-workflow/src/index.ts",
+    "extensions/pi-workflow/src/types.ts",
+    "extensions/pi-workflow/test/async.test.mjs",
+    "extensions/pi-workflow/test/disable.test.mjs",
+    "extensions/pi-workflow/test/render.test.mjs",
+    "extensions/pi-workflow/test/resume.test.mjs",
+    "extensions/pi-workflow/test/structured-output.test.mjs",
+    "extensions/pi-workflow/test/worktree.test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5f/61d23f55bc/0/metadata.json",
+      "transcript": "/5f/61d23f55bc/0/full.jsonl",
+      "content_hash": "/5f/61d23f55bc/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
