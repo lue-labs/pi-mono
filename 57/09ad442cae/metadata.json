@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "5709ad442cae",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/goals/goal-2026-05-28T21-00-00Z-cc-parity-program.md",
+    "extensions/pi-ultracode/CHANGELOG.md",
+    "extensions/pi-ultracode/README.md",
+    "extensions/pi-ultracode/package.json",
+    "extensions/pi-ultracode/src/index.ts",
+    "extensions/pi-ultracode/test-load.mjs",
+    "extensions/pi-ultracode/tsconfig.json",
+    "package.json",
+    "packages/my-pi-full-dev/package.json",
+    "packages/my-pi-full/package.json",
+    "scripts/check-profiles.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/57/09ad442cae/0/metadata.json",
+      "transcript": "/57/09ad442cae/0/full.jsonl",
+      "content_hash": "/57/09ad442cae/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
