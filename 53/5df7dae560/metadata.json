@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "535df7dae560",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/cache-strategy.md",
+    "extensions/dream-memory/src/extension.ts",
+    "extensions/dream-memory/src/harness-cli.ts",
+    "extensions/dream-memory/tests/extension-active-recall-timing.spec.ts",
+    "extensions/dream-memory/tests/extension.spec.ts",
+    "extensions/dream-memory/tests/harness-cli.spec.ts",
+    "extensions/dream-memory/tests/profile-base-cache.spec.ts",
+    "package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/53/5df7dae560/0/metadata.json",
+      "transcript": "/53/5df7dae560/0/full.jsonl",
+      "content_hash": "/53/5df7dae560/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}

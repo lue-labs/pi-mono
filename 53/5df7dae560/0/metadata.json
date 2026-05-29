@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "535df7dae560",
+  "session_id": "019e6d87-73f0-7260-a9b3-5969a36bff78",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-29T08:33:44.372325Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/cache-strategy.md",
+    "extensions/dream-memory/src/extension.ts",
+    "extensions/dream-memory/src/harness-cli.ts",
+    "extensions/dream-memory/tests/extension-active-recall-timing.spec.ts",
+    "extensions/dream-memory/tests/extension.spec.ts",
+    "extensions/dream-memory/tests/harness-cli.spec.ts",
+    "extensions/dream-memory/tests/profile-base-cache.spec.ts",
+    "package.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "da863808d2cb",
+  "checkpoint_transcript_start": 10410,
+  "transcript_lines_at_start": 10410,
+  "initial_attribution": {
+    "calculated_at": "2026-05-29T08:33:43.045563Z",
+    "agent_lines": 313,
+    "agent_removed": 30,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 313,
+    "total_lines_changed": 343,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
