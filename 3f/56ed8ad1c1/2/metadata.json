@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "3f56ed8ad1c1",
+  "session_id": "019e6e9a-655c-7943-a66e-6f2e9e162c40",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-29T11:46:13.411089Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/goals/goal-2026-05-28T21-00-00Z-cc-parity-program.md",
+    "extensions/pi-thinking-keywords/CHANGELOG.md",
+    "extensions/pi-thinking-keywords/README.md",
+    "extensions/pi-thinking-keywords/src/index.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "33ebe3c30db8",
+  "checkpoint_transcript_start": 432,
+  "transcript_lines_at_start": 432,
+  "initial_attribution": {
+    "calculated_at": "2026-05-29T11:46:13.366474Z",
+    "agent_lines": 40,
+    "agent_removed": 15,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 40,
+    "total_lines_changed": 55,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
