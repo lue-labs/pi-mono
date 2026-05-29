@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "2fd144828f57",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/cache-strategy.md",
+    "docs/tasks.md",
+    "extensions/cache-base-prompt/index.mjs",
+    "extensions/cache-base-prompt/test.mjs",
+    "extensions/native-tool-overrides/index.ts",
+    "extensions/native-tool-overrides/package.json",
+    "extensions/native-tool-overrides/test-load.mjs",
+    "extensions/time-context/index.mjs",
+    "extensions/time-context/test.mjs",
+    "extensions/tool-search/README.md",
+    "extensions/tool-search/src/config.ts",
+    "package-lock.json",
+    "package.json",
+    "packages/my-pi-full-dev/package.json",
+    "packages/my-pi-full/package.json",
+    "packages/my-pi-harness/package.json",
+    "scripts/check-profiles.mjs",
+    "test/profile-cache-contract.test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2f/d144828f57/0/metadata.json",
+      "transcript": "/2f/d144828f57/0/full.jsonl",
+      "content_hash": "/2f/d144828f57/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
