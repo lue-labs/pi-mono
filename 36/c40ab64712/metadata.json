@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "36c40ab64712",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/goals/goal-2026-05-28T21-00-00Z-cc-parity-program.md",
+    "extensions/pi-ultracode/CHANGELOG.md",
+    "extensions/pi-ultracode/README.md",
+    "extensions/pi-ultracode/package.json",
+    "extensions/pi-ultracode/src/index.ts",
+    "extensions/pi-ultracode/test-load.mjs",
+    "extensions/pi-ultracode/tsconfig.json",
+    "extensions/pi-workflow/CHANGELOG.md",
+    "extensions/pi-workflow/README.md",
+    "extensions/pi-workflow/package.json",
+    "extensions/pi-workflow/src/index.ts",
+    "extensions/pi-workflow/src/ultracode.ts",
+    "extensions/pi-workflow/test/ultracode.test.mjs",
+    "extensions/syntax-input/index.ts",
+    "extensions/syntax-input/test-load.mjs",
+    "package.json",
+    "packages/my-pi-full-dev/package.json",
+    "packages/my-pi-full/package.json",
+    "scripts/check-profiles.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/36/c40ab64712/0/metadata.json",
+      "transcript": "/36/c40ab64712/0/full.jsonl",
+      "content_hash": "/36/c40ab64712/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
