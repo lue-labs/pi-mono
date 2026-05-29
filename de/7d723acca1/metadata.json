@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "de7d723acca1",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "packages/my-pi-full-dev/package.json",
+    "packages/my-pi-full/package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/de/7d723acca1/0/metadata.json",
+      "transcript": "/de/7d723acca1/0/full.jsonl",
+      "content_hash": "/de/7d723acca1/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
