@@ -19,6 +19,12 @@
       "transcript": "/55/a94741ac04/1/full.jsonl",
       "content_hash": "/55/a94741ac04/1/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/55/a94741ac04/2/metadata.json",
+      "transcript": "/55/a94741ac04/2/full.jsonl",
+      "content_hash": "/55/a94741ac04/2/content_hash.txt",
+      "prompt": ""
     }
   ]
 }
