@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "0f086b4ad94b",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/goals/goal-2026-05-28T18-54-22Z.md",
+    "docs/goals/goal-2026-05-28T21-00-00Z-cc-parity-program.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0f/086b4ad94b/0/metadata.json",
+      "transcript": "/0f/086b4ad94b/0/full.jsonl",
+      "content_hash": "/0f/086b4ad94b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
