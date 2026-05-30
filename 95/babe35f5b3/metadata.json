@@ -3,9 +3,10 @@
   "checkpoint_id": "95babe35f5b3",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "docs/cache-strategy.md",
+    "docs/goals/goal-2026-05-29T21-25-04Z.md",
     "docs/pi-setup/catalog/extensions.yaml",
     "extensions/advisor/index.ts",
     "extensions/dream-memory/src/extension.ts",
@@ -24,12 +25,14 @@
     "extensions/pi-memory/index.ts",
     "extensions/pi-memory/package.json",
     "extensions/pi-memory/src/config.ts",
+    "extensions/pi-memory/src/db.ts",
     "extensions/pi-memory/src/qmd.ts",
     "extensions/pi-memory/src/recall.ts",
     "extensions/pi-memory/src/util.ts",
     "extensions/pi-memory/test/e2e.ts",
     "extensions/pi-memory/test/unit.test.ts",
     "extensions/pi-mode/CHANGELOG.md",
+    "extensions/pi-mode/src/command-split.ts",
     "extensions/pi-mode/src/mode.ts",
     "extensions/pi-mode/src/read-only.ts",
     "extensions/pi-workflow/CC-2.1.153.md",
@@ -40,6 +43,7 @@
     "extensions/pi-workflow/src/sandbox.ts",
     "extensions/pi-workflow/test/review-gate.test.mjs",
     "extensions/pi-workflow/test/sandbox.test.mjs",
+    "goal-notes.md",
     "package.json",
     "packages/my-pi-full-test-profile/package.json",
     "packages/my-pi-full/package.json",
@@ -57,13 +61,19 @@
       "transcript": "/95/babe35f5b3/1/full.jsonl",
       "content_hash": "/95/babe35f5b3/1/content_hash.txt",
       "prompt": "/95/babe35f5b3/1/prompt.txt"
+    },
+    {
+      "metadata": "/95/babe35f5b3/2/metadata.json",
+      "transcript": "/95/babe35f5b3/2/full.jsonl",
+      "content_hash": "/95/babe35f5b3/2/content_hash.txt",
+      "prompt": "/95/babe35f5b3/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 142,
-    "cache_creation_tokens": 5691337,
-    "cache_read_tokens": 1205589,
-    "output_tokens": 183302,
-    "api_call_count": 77
+    "input_tokens": 2218,
+    "cache_creation_tokens": 25564204,
+    "cache_read_tokens": 4430931,
+    "output_tokens": 544418,
+    "api_call_count": 286
   }
 }
