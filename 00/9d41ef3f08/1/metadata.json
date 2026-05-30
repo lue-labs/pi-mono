@@ -1,0 +1,183 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "009d41ef3f08",
+  "session_id": "86dcf46b-3a4c-4d12-ae2e-b6597ae199c8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T09:38:42.565513Z",
+  "branch": "main",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "AGENTS.md",
+    "docs/config-layering.md",
+    "docs/goals/goal-2026-05-30T07-50-47Z-pi-platform-program.md",
+    "docs/pi-fork-patch-inventory.md",
+    "docs/release-engineering.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "a9fd9610ee40",
+  "checkpoint_transcript_start": 61,
+  "transcript_lines_at_start": 61,
+  "token_usage": {
+    "input_tokens": 2068,
+    "cache_creation_tokens": 19693734,
+    "cache_read_tokens": 3178371,
+    "output_tokens": 359123,
+    "api_call_count": 205
+  },
+  "session_metrics": {
+    "turn_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-30T09:38:42.454666Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 726,
+    "human_modified": 70,
+    "human_removed": 0,
+    "total_committed": 726,
+    "total_lines_changed": 800,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1944,
+      "agent_lines_removed": 659
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 24,
+      "user_lines_removed": 3,
+      "agent_lines_added": 1949,
+      "agent_lines_removed": 663,
+      "user_added_per_file": {
+        "extensions/pi-memory/README.md": 1,
+        "extensions/pi-memory/design-v2.md": 2,
+        "extensions/pi-memory/test/unit.test.ts": 21
+      },
+      "user_removed_per_file": {
+        "extensions/pi-memory/README.md": 1,
+        "extensions/pi-memory/design-v2.md": 2
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1973,
+      "agent_lines_removed": 666
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 4493,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1973,
+      "agent_lines_removed": 666,
+      "user_added_per_file": {
+        "extensions/pi-memory/package-lock.json": 4489,
+        "extensions/pi-memory/package.json": 4
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 5439,
+      "user_lines_removed": 37,
+      "agent_lines_added": 2517,
+      "agent_lines_removed": 668,
+      "user_added_per_file": {
+        "docs/config-layering.md": 154,
+        "docs/goals/goal-2026-05-30T07-50-47Z-pi-platform-program.md": 310,
+        "docs/release-engineering.md": 189,
+        "extensions/pi-memory/README.md": 11,
+        "extensions/pi-memory/index.ts": 44,
+        "extensions/pi-memory/package-lock.json": 4489,
+        "extensions/pi-memory/src/config.ts": 121,
+        "extensions/pi-memory/src/util.ts": 4,
+        "extensions/pi-workflow/src/sandbox.ts": 72,
+        "extensions/pi-workflow/test/sandbox.test.mjs": 45
+      },
+      "user_removed_per_file": {
+        "extensions/pi-memory/README.md": 6,
+        "extensions/pi-memory/index.ts": 6,
+        "extensions/pi-memory/src/util.ts": 4,
+        "extensions/pi-workflow/src/sandbox.ts": 21
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 4541,
+      "user_lines_removed": 4,
+      "agent_lines_added": 3638,
+      "agent_lines_removed": 703,
+      "user_added_per_file": {
+        "extensions/pi-memory/config/defaults.json": 19,
+        "extensions/pi-memory/package-lock.json": 4489,
+        "extensions/pi-workflow/src/index.ts": 33
+      },
+      "user_removed_per_file": {
+        "extensions/pi-workflow/src/index.ts": 4
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 605,
+      "user_lines_removed": 51,
+      "agent_lines_added": 9195,
+      "agent_lines_removed": 715,
+      "user_added_per_file": {
+        "docs/config-layering.md": 33,
+        "extensions/cache-base-prompt/index.mjs": 19,
+        "extensions/cache-base-prompt/test.mjs": 49,
+        "extensions/pi-memory/README.md": 19,
+        "extensions/pi-memory/config/defaults.json": 15,
+        "extensions/pi-memory/docs/dream-consolidation.md": 45,
+        "extensions/pi-memory/index.ts": 87,
+        "extensions/pi-memory/package.json": 2,
+        "extensions/pi-memory/src/config.ts": 64,
+        "extensions/pi-memory/src/db.ts": 46,
+        "extensions/pi-memory/src/dream.ts": 15,
+        "extensions/pi-memory/src/recall.ts": 23,
+        "extensions/pi-memory/src/status.ts": 96,
+        "extensions/pi-memory/src/util.ts": 11,
+        "extensions/pi-memory/test/unit.test.ts": 81
+      },
+      "user_removed_per_file": {
+        "docs/config-layering.md": 30,
+        "extensions/cache-base-prompt/index.mjs": 3,
+        "extensions/cache-base-prompt/test.mjs": 1,
+        "extensions/pi-memory/README.md": 3,
+        "extensions/pi-memory/config/defaults.json": 1,
+        "extensions/pi-memory/index.ts": 1,
+        "extensions/pi-memory/src/config.ts": 2,
+        "extensions/pi-memory/src/db.ts": 1,
+        "extensions/pi-memory/src/recall.ts": 6,
+        "extensions/pi-memory/test/unit.test.ts": 3
+      }
+    }
+  ]
+}
