@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "9a2297d97c2d",
+  "session_id": "86dcf46b-3a4c-4d12-ae2e-b6597ae199c8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T05:15:47.605655Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/goals/goal-2026-05-28T21-00-00Z-cc-parity-program.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "dbb9f8205f3b",
+  "checkpoint_transcript_start": 61,
+  "transcript_lines_at_start": 61,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-30T05:15:47.599742Z",
+    "agent_lines": 11,
+    "agent_removed": 11,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 11,
+    "total_lines_changed": 22,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
