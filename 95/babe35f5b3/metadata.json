@@ -3,7 +3,7 @@
   "checkpoint_id": "95babe35f5b3",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/cache-strategy.md",
     "docs/pi-setup/catalog/extensions.yaml",
@@ -11,6 +11,13 @@
     "extensions/dream-memory/src/extension.ts",
     "extensions/dream-memory/src/harness-cli.ts",
     "extensions/dream-memory/tests/harness-cli.spec.ts",
+    "extensions/pi-bash-guard/CHANGELOG.md",
+    "extensions/pi-bash-guard/README.md",
+    "extensions/pi-bash-guard/package.json",
+    "extensions/pi-bash-guard/src/analyze.ts",
+    "extensions/pi-bash-guard/src/index.ts",
+    "extensions/pi-bash-guard/test-load.mjs",
+    "extensions/pi-bash-guard/tsconfig.json",
     "extensions/pi-memory/README.md",
     "extensions/pi-memory/config/defaults.json",
     "extensions/pi-memory/design-v2.md",
@@ -44,13 +51,19 @@
       "transcript": "/95/babe35f5b3/0/full.jsonl",
       "content_hash": "/95/babe35f5b3/0/content_hash.txt",
       "prompt": "/95/babe35f5b3/0/prompt.txt"
+    },
+    {
+      "metadata": "/95/babe35f5b3/1/metadata.json",
+      "transcript": "/95/babe35f5b3/1/full.jsonl",
+      "content_hash": "/95/babe35f5b3/1/content_hash.txt",
+      "prompt": "/95/babe35f5b3/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 130,
-    "cache_creation_tokens": 5234220,
-    "cache_read_tokens": 1095990,
-    "output_tokens": 101786,
-    "api_call_count": 70
+    "input_tokens": 142,
+    "cache_creation_tokens": 5691337,
+    "cache_read_tokens": 1205589,
+    "output_tokens": 183302,
+    "api_call_count": 77
   }
 }

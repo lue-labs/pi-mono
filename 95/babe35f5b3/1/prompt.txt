@@ -1,0 +1,73 @@
+Why is my first turn context 50k in claude in this session? 
+
+And fix the tokenjuice hook permissions error
+ Goal acknowledged: nail down why turn-1/early-turn cache hit is low (~10-30%) and the first-turn token jump in the pi setup,
+  then fix it. Picking up from the prior investigation.
+
+  Let me load the reference notes and current state.
+
+⏺ Bash(cd ~/Projects/personal/my-pi && find . -maxdepth 3 -iname 'goal-notes*' 2>/dev/null; echo "---docs/goals---"; ls -lt
+      docs/goals/ 2>/dev/null | head; echo "---ro…)
+  ⎿  ./goal-notes.md
+     ---docs/goals---
+     ---root md---
+  ⎿  Allowed by auto mode classifier
+  ⎿  PostToolUse:Bash hook error                                 ⎿  Failed with non-blocking status code: /bin/sh: 
+                                                                    /Users/luke/.local/bin/tokenjuice: Permission denied
+
+⏺ Bash(cd ~/Projects/personal/my-pi && git status --short && echo "---recent goal file---" && cat
+      docs/goals/goal-2026-05-29T21-25-04Z.md 2>/dev/null | head -100)
+  ⎿   M extensions/pi-mode/CHANGELOG.md
+      M extensions/pi-mode/README.md
+      M extensions/pi-mode/package.json
+     … +61 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+  ⎿  PostToolUse:Bash hook error                                 ⎿  Failed with non-blocking status code: /bin/sh: 
+                                                                    /Users/luke/.local/bin/tokenjuice: Permission denied
+
+⏺ The goal-notes.md is the live reference from the prior session. Let me read it and the key cache docs.
+
+⏺ Bash(cd ~/Projects/personal/my-pi && wc -l goal-notes.md && echo "===" && cat goal-notes.md)
+  ⎿      1655 goal-notes.md
+     ===
+     pi
+     … +248 lines (ctrl+o to expand)
+  ⎿  PostToolUse:Bash hook error                                 ⎿  Failed with non-blocking status code: /bin/sh: 
+                                                                    /Users/luke/.local/bin/tokenjuice: Permission denied
+
+⏺ The notes file is a 206KB transcript dump. Let me extract the conclusions and key findings rather than read it all.
+
+⏺ Bash(cd ~/Projects/personal/my-pi && f=/Users/luke/.claude/projects/-Users-luke-Projects-personal-my-pi/86dcf46b-3a4c-4d12-a
+      e2e-b6597ae199c8/tool-results/bsk55524v.t…)
+  ⎿  === last 250 lines (final diagnosis) ===
+     … +248 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+  ⎿  PostToolUse:Bash hook error                                 ⎿  Failed with non-blocking status code: /bin/sh: 
+                                                                    /Users/luke/.local/bin/tokenjuice: Permission denied
+
+⏺ Bash(f=/Users/luke/.claude/projects/-Users-luke-Projects-personal-my-pi/86dcf46b-3a4c-4d12-ae2e-b6597ae199c8/tool-results/bs
+      k55524v.txt; grep -v '^[[:space:]]*$' "$f…)
+  ⎿   -40 (timeout 300s)
+      ... (13 earlier lines, ctrl+o to expand)
+      1040: *   - messages[0] <system-context> marker in OAuth mode, or system marker from
+     … +177 lines (ctrl+o to expand)
+  ⎿  PostToolUse:Bash hook error                                 ⎿  Failed with non-blocking status code: /bin/sh: 
+                                                                    /Users/luke/.local/bin/tokenjuice: Permission denied
+
+✽ Finagling… (44s · ↓ 2.5k tokens · thinking with xhigh effort)
+  ⎿  Tip: Double-tap esc to rewind the code and/or conversation to a previous point in time
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯  
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ╭─ luke@Lukes-MacBook-Pro .../personal/my-pi [main*↑3] [59K/1000K 6%] [cached]                        ◎ /goal active (44s)
+  ╰─ Opus 4.8 (1M context) (default)
+  ⏵⏵ auto mode on (shift+tab to cycle)
+
+---
+
+add the permissions to the build
+
+1. do this and use instruction refiner and progressive disclosure skills
+2. why is claude code not deferring mcp tool loading? Check the docs, and if I need to add custom env settings because the base anthropic url is changed? same for skills and tools progressive disclosure loading
+3. fine if they are loaded progresssively.

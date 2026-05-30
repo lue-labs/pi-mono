@@ -1,0 +1,92 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "95babe35f5b3",
+  "session_id": "5e063c7c-35f4-4141-97d9-744749567a61",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T10:18:48.17627Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-setup/catalog/extensions.yaml",
+    "extensions/dream-memory/src/extension.ts",
+    "extensions/dream-memory/src/harness-cli.ts",
+    "extensions/dream-memory/tests/harness-cli.spec.ts",
+    "extensions/pi-bash-guard/CHANGELOG.md",
+    "extensions/pi-bash-guard/README.md",
+    "extensions/pi-bash-guard/package.json",
+    "extensions/pi-bash-guard/src/analyze.ts",
+    "extensions/pi-bash-guard/src/index.ts",
+    "extensions/pi-bash-guard/test-load.mjs",
+    "extensions/pi-bash-guard/tsconfig.json",
+    "extensions/pi-memory/index.ts",
+    "extensions/pi-memory/src/util.ts",
+    "extensions/pi-memory/test/unit.test.ts",
+    "extensions/pi-mode/CHANGELOG.md",
+    "extensions/pi-mode/src/mode.ts",
+    "extensions/pi-mode/src/read-only.ts",
+    "package.json",
+    "packages/my-pi-full-test-profile/package.json",
+    "packages/my-pi-full/package.json",
+    "scripts/check-profiles.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "acab0ca1c816",
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 457117,
+    "cache_read_tokens": 109599,
+    "output_tokens": 81516,
+    "api_call_count": 7
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-30T10:18:48.14678Z",
+    "agent_lines": 0,
+    "agent_removed": 112,
+    "human_added": 6750,
+    "human_modified": 581,
+    "human_removed": 0,
+    "total_committed": 7291,
+    "total_lines_changed": 7985,
+    "agent_percentage": 1.4026299311208517,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1830,
+      "user_lines_removed": 565,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-05-29T21-25-04Z.md": 54,
+        "extensions/dream-memory/src/extension.ts": 22,
+        "extensions/pi-mode/CHANGELOG.md": 6,
+        "extensions/pi-mode/src/command-split.ts": 89,
+        "extensions/pi-mode/src/mode.ts": 1,
+        "extensions/pi-mode/src/read-only.ts": 2,
+        "goal-notes.md": 1655,
+        "package.json": 1
+      },
+      "user_removed_per_file": {
+        "docs/pi-setup/catalog/extensions.yaml": 15,
+        "extensions/pi-bash-guard/CHANGELOG.md": 11,
+        "extensions/pi-bash-guard/README.md": 45,
+        "extensions/pi-bash-guard/package.json": 22,
+        "extensions/pi-bash-guard/src/analyze.ts": 270,
+        "extensions/pi-bash-guard/src/index.ts": 53,
+        "extensions/pi-bash-guard/test-load.mjs": 130,
+        "extensions/pi-bash-guard/tsconfig.json": 10,
+        "extensions/pi-mode/src/mode.ts": 1,
+        "extensions/pi-mode/src/read-only.ts": 3,
+        "package.json": 2,
+        "packages/my-pi-full-test-profile/package.json": 1,
+        "packages/my-pi-full/package.json": 1,
+        "scripts/check-profiles.mjs": 1
+      }
+    }
+  ]
+}
