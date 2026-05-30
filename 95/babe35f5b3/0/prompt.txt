@@ -1,0 +1,16 @@
+fix my pi workflows setup:
+                                                                                                                              
+ Workflow 1 line                                                                                                              
+                                                                                                                              
+ ✓ Workflow wf_mps1pp7vc675cf · 0 agents · 4ms                                                                                
+   phases: audit → synthesize                                                                                                 
+                                                                                                                              
+
+ That workflow runner returned no agent steps, so I’m falling back to explicit parallel subagents and keeping the workflow    
+ artifact as failed evidence.
+
+---
+
+1. can we remove the sandbox boundary if this is not a native pi 
+2. ok
+3. ok
