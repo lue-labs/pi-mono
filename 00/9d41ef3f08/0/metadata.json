@@ -1,0 +1,102 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "009d41ef3f08",
+  "session_id": "23ad3c76-197e-4c6f-8071-b4c04cfa68a6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T09:38:39.957293Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "AGENTS.md",
+    "docs/config-layering.md",
+    "docs/goals/goal-2026-05-30T07-50-47Z-pi-platform-program.md",
+    "docs/pi-fork-patch-inventory.md",
+    "docs/release-engineering.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "073229cf6698",
+  "token_usage": {
+    "input_tokens": 130,
+    "cache_creation_tokens": 5234220,
+    "cache_read_tokens": 1095990,
+    "output_tokens": 101786,
+    "api_call_count": 70
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-30T09:38:39.922858Z",
+    "agent_lines": 647,
+    "agent_removed": 0,
+    "human_added": 74,
+    "human_modified": 36,
+    "human_removed": 0,
+    "total_committed": 757,
+    "total_lines_changed": 761,
+    "agent_percentage": 85.0197109067017,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 6830,
+      "user_lines_removed": 666,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-05-29T21-25-04Z.md": 54,
+        "extensions/advisor/index.ts": 9,
+        "extensions/dream-memory/src/extension.ts": 22,
+        "extensions/dream-memory/src/harness-cli.ts": 38,
+        "extensions/dream-memory/tests/harness-cli.spec.ts": 33,
+        "extensions/pi-memory/README.md": 1,
+        "extensions/pi-memory/design-v2.md": 2,
+        "extensions/pi-memory/index.ts": 1,
+        "extensions/pi-memory/package-lock.json": 4489,
+        "extensions/pi-memory/package.json": 4,
+        "extensions/pi-memory/src/db.ts": 324,
+        "extensions/pi-memory/src/util.ts": 17,
+        "extensions/pi-memory/test/unit.test.ts": 81,
+        "extensions/pi-mode/CHANGELOG.md": 6,
+        "extensions/pi-mode/src/command-split.ts": 89,
+        "extensions/pi-mode/src/mode.ts": 1,
+        "extensions/pi-mode/src/read-only.ts": 2,
+        "goal-notes.md": 1655,
+        "package.json": 2
+      },
+      "user_removed_per_file": {
+        "docs/pi-setup/catalog/extensions.yaml": 15,
+        "extensions/advisor/index.ts": 3,
+        "extensions/dream-memory/src/harness-cli.ts": 60,
+        "extensions/dream-memory/tests/harness-cli.spec.ts": 23,
+        "extensions/pi-bash-guard/CHANGELOG.md": 11,
+        "extensions/pi-bash-guard/README.md": 45,
+        "extensions/pi-bash-guard/package.json": 22,
+        "extensions/pi-bash-guard/src/analyze.ts": 270,
+        "extensions/pi-bash-guard/src/index.ts": 53,
+        "extensions/pi-bash-guard/test-load.mjs": 130,
+        "extensions/pi-bash-guard/tsconfig.json": 10,
+        "extensions/pi-memory/README.md": 1,
+        "extensions/pi-memory/design-v2.md": 2,
+        "extensions/pi-memory/index.ts": 1,
+        "extensions/pi-memory/src/util.ts": 9,
+        "extensions/pi-memory/test/unit.test.ts": 2,
+        "extensions/pi-mode/src/mode.ts": 1,
+        "extensions/pi-mode/src/read-only.ts": 3,
+        "package.json": 2,
+        "packages/my-pi-full-test-profile/package.json": 1,
+        "packages/my-pi-full/package.json": 1,
+        "scripts/check-profiles.mjs": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 9054,
+      "agent_lines_removed": 714
+    }
+  ]
+}
