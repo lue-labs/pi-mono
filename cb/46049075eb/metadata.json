@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "cb46049075eb",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-mode/CHANGELOG.md",
+    "extensions/pi-mode/README.md",
+    "extensions/pi-mode/package.json",
+    "extensions/pi-mode/src/index.ts",
+    "extensions/pi-mode/src/mode.ts",
+    "extensions/pi-mode/test-load.mjs",
+    "test/support/prompt-health-audit.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cb/46049075eb/0/metadata.json",
+      "transcript": "/cb/46049075eb/0/full.jsonl",
+      "content_hash": "/cb/46049075eb/0/content_hash.txt",
+      "prompt": "/cb/46049075eb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8,
+    "cache_creation_tokens": 179133,
+    "cache_read_tokens": 46971,
+    "output_tokens": 1993,
+    "api_call_count": 4
+  }
+}
