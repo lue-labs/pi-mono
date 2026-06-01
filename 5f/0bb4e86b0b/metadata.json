@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "5f0bb4e86b0b",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/release-engineering.md",
+    "package-lock.json",
+    "packages/my-pi-actions/package.json",
+    "packages/my-pi-full/package.json",
+    "packages/my-pi-harness/package.json",
+    "packages/my-pi-pod/package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5f/0bb4e86b0b/0/metadata.json",
+      "transcript": "/5f/0bb4e86b0b/0/full.jsonl",
+      "content_hash": "/5f/0bb4e86b0b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
