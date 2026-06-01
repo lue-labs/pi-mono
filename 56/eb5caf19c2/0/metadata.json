@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "56eb5caf19c2",
+  "session_id": "019e84f1-9ea9-7301-8dd9-29454a82fa16",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-01T20:50:12.346088Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/dream-memory/.gitignore"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "1db9b0c1d9cd",
+  "token_usage": {
+    "input_tokens": 24865,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2432,
+    "output_tokens": 15,
+    "api_call_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-01T20:50:12.3373Z",
+    "agent_lines": 2,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "total_lines_changed": 2,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3540,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "extensions/dream-memory/pnpm-lock.yaml": 3540
+      }
+    }
+  ]
+}
