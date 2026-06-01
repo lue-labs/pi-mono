@@ -1,0 +1,18 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "f81bc0d71edc",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".changeset/republish-profiles-corrected.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f8/1bc0d71edc/0/metadata.json",
+      "transcript": "/f8/1bc0d71edc/0/full.jsonl",
+      "content_hash": "/f8/1bc0d71edc/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
