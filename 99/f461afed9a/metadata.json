@@ -58,6 +58,12 @@
       "transcript": "/99/f461afed9a/7/full.jsonl",
       "content_hash": "/99/f461afed9a/7/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/99/f461afed9a/8/metadata.json",
+      "transcript": "/99/f461afed9a/8/full.jsonl",
+      "content_hash": "/99/f461afed9a/8/content_hash.txt",
+      "prompt": ""
     }
   ]
 }
