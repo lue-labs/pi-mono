@@ -1,0 +1,143 @@
+You are reviewing one semantic feature for clawpatch.
+
+Return strict JSON only. No markdown fences.
+
+Project:
+{
+  "name": "@valkyriweb/pi-workflow",
+  "detected": {
+    "languages": [
+      "typescript",
+      "javascript"
+    ],
+    "frameworks": [],
+    "packageManagers": [
+      "node"
+    ],
+    "commands": {
+      "typecheck": "npm run typecheck",
+      "lint": null,
+      "format": null,
+      "test": "npm run test"
+    }
+  }
+}
+
+Feature:
+{
+  "schemaVersion": 1,
+  "featureId": "feat_config_7528cb5b98",
+  "title": "Project config package.json",
+  "summary": "Build, release, or quality configuration in package.json.",
+  "kind": "config",
+  "source": "shared-infra-heuristic",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "package.json",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "package.json",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "config"
+  ],
+  "trustBoundaries": [
+    "process-exec",
+    "filesystem"
+  ],
+  "status": "claimed",
+  "lock": {
+    "lockedByRunId": "20260601T205043-a7c707",
+    "lockedAt": "2026-06-01T20:50:43.771Z",
+    "hostname": "Lukes-MacBook-Pro.local",
+    "pid": 11962
+  },
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [],
+  "createdAt": "2026-06-01T20:42:28.554Z",
+  "updatedAt": "2026-06-01T20:50:43.771Z"
+}
+
+Review categories:
+- correctness bugs
+- security issues
+- race/concurrency bugs
+- data loss/corruption
+- resource leaks
+- bad error handling
+- permission/auth gaps
+- API contract mismatches
+- missing/weak tests
+- release/build hazards
+- maintainability risks with concrete impact
+
+Inspect owned files, context files, and linked tests. Treat included tests as first-class
+evidence of intended behavior. If tests contradict a suspected bug, either skip it or
+downgrade confidence and explain the uncertainty. Avoid reporting behavior as a bug
+solely because a helper name implies a broader contract. Deduplicate sibling/root-cause
+issues: when the same bug pattern appears in multiple owned files, emit one finding
+with multiple evidence refs instead of separate one-off findings.
+
+Avoid speculative low-evidence findings. Evidence must point at included files.
+
+JSON shape:
+{
+  "findings": [
+    {
+      "title": "string",
+      "category": "bug|security|performance|concurrency|api-contract|data-loss|test-gap|docs-gap|build-release|maintainability",
+      "severity": "critical|high|medium|low",
+      "confidence": "high|medium|low",
+      "evidence": [{"path":"string","startLine":1,"endLine":1,"symbol":null,"quote":null}],
+      "reasoning": "string",
+      "reproduction": null,
+      "recommendation": "string",
+      "whyTestsDoNotAlreadyCoverThis": "string",
+      "suggestedRegressionTest": "string or null",
+      "minimumFixScope": "string"
+    }
+  ],
+  "inspected": {"files":["string"],"symbols":["string"],"notes":["string"]}
+}
+
+Files:
+--- package.json
+{
+  "name": "@valkyriweb/pi-workflow",
+  "version": "0.2.0",
+  "description": "Deterministic-JS workflow orchestrator for pi — clones Claude Code 2.1.146's Workflow tool",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/workflow-globals.d.ts",
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node test/sandbox.test.mjs && node test/discovery.test.mjs && node test/structured-output.test.mjs && node test/resume.test.mjs && node test/render.test.mjs && node test/disable.test.mjs && node test/worktree.test.mjs && node test/agent-type.test.mjs && node test/async.test.mjs && node test/ultracode.test.mjs && node test/workflow-keyword.test.mjs && node test/workflow-command.test.mjs && node test/review-gate.test.mjs"
+  },
+  "dependencies": {
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {
+    "@valkyriweb/pi-coding-agent": ">=0.78.0-luke.0 <0.79.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "private": true
+}
