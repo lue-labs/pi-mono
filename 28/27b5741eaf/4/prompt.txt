@@ -1,0 +1,404 @@
+You are reviewing one semantic feature for clawpatch.
+
+Return strict JSON only. No markdown fences.
+
+Project:
+{
+  "name": "@valkyriweb/pi-workflow",
+  "detected": {
+    "languages": [
+      "typescript",
+      "javascript"
+    ],
+    "frameworks": [],
+    "packageManagers": [
+      "node"
+    ],
+    "commands": {
+      "typecheck": "npm run typecheck",
+      "lint": null,
+      "format": null,
+      "test": "npm run test"
+    }
+  }
+}
+
+Feature:
+{
+  "schemaVersion": 1,
+  "featureId": "feat_library_2e01b28a0c",
+  "title": "Node package @valkyriweb/pi-workflow",
+  "summary": "Node package manifest at package.json.",
+  "kind": "library",
+  "source": "node-package",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "package.json",
+      "symbol": "@valkyriweb/pi-workflow",
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "package.json",
+      "reason": "package manifest"
+    }
+  ],
+  "contextFiles": [
+    {
+      "path": "README.md",
+      "reason": "package context"
+    },
+    {
+      "path": "tsconfig.json",
+      "reason": "package context"
+    }
+  ],
+  "tests": [],
+  "tags": [
+    "node",
+    "package",
+    "project:@valkyriweb/pi-workflow",
+    "project-root:."
+  ],
+  "trustBoundaries": [],
+  "status": "claimed",
+  "lock": {
+    "lockedByRunId": "20260601T205316-75e271",
+    "lockedAt": "2026-06-01T20:53:16.595Z",
+    "hostname": "Lukes-MacBook-Pro.local",
+    "pid": 18814
+  },
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [],
+  "createdAt": "2026-06-01T20:42:28.554Z",
+  "updatedAt": "2026-06-01T20:53:16.595Z"
+}
+
+Review categories:
+- correctness bugs
+- security issues
+- race/concurrency bugs
+- data loss/corruption
+- resource leaks
+- bad error handling
+- permission/auth gaps
+- API contract mismatches
+- missing/weak tests
+- release/build hazards
+- maintainability risks with concrete impact
+
+Inspect owned files, context files, and linked tests. Treat included tests as first-class
+evidence of intended behavior. If tests contradict a suspected bug, either skip it or
+downgrade confidence and explain the uncertainty. Avoid reporting behavior as a bug
+solely because a helper name implies a broader contract. Deduplicate sibling/root-cause
+issues: when the same bug pattern appears in multiple owned files, emit one finding
+with multiple evidence refs instead of separate one-off findings.
+
+Avoid speculative low-evidence findings. Evidence must point at included files.
+
+JSON shape:
+{
+  "findings": [
+    {
+      "title": "string",
+      "category": "bug|security|performance|concurrency|api-contract|data-loss|test-gap|docs-gap|build-release|maintainability",
+      "severity": "critical|high|medium|low",
+      "confidence": "high|medium|low",
+      "evidence": [{"path":"string","startLine":1,"endLine":1,"symbol":null,"quote":null}],
+      "reasoning": "string",
+      "reproduction": null,
+      "recommendation": "string",
+      "whyTestsDoNotAlreadyCoverThis": "string",
+      "suggestedRegressionTest": "string or null",
+      "minimumFixScope": "string"
+    }
+  ],
+  "inspected": {"files":["string"],"symbols":["string"],"notes":["string"]}
+}
+
+Files:
+--- package.json
+{
+  "name": "@valkyriweb/pi-workflow",
+  "version": "0.2.0",
+  "description": "Deterministic-JS workflow orchestrator for pi — clones Claude Code 2.1.146's Workflow tool",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/workflow-globals.d.ts",
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node test/sandbox.test.mjs && node test/discovery.test.mjs && node test/structured-output.test.mjs && node test/resume.test.mjs && node test/render.test.mjs && node test/disable.test.mjs && node test/worktree.test.mjs && node test/agent-type.test.mjs && node test/async.test.mjs && node test/ultracode.test.mjs && node test/workflow-keyword.test.mjs && node test/workflow-command.test.mjs && node test/review-gate.test.mjs"
+  },
+  "dependencies": {
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {
+    "@valkyriweb/pi-coding-agent": ">=0.78.0-luke.0 <0.79.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "private": true
+}
+
+
+--- README.md
+# pi-workflow
+
+Deterministic JavaScript workflow orchestrator for pi. Clones Claude Code's `Workflow` (`RunWorkflow`) tool, built on top of pi-mono-fork's `ctx.forkAgent`. Conformance against the **current** CLI is tracked in [CC-2.1.153.md](./CC-2.1.153.md).
+
+**Phase 1 (this commit):** inline scripts only, sync execution, single-agent + parallel + pipeline primitives. See [DESIGN.md](./DESIGN.md) for the full multi-phase roadmap.
+
+## What it does
+
+Lets the agent execute a sandboxed JS script that orchestrates one or many subagents. The script runs with `Date.now()` / `Math.random()` / timers shimmed to throw — so any run can be replayed deterministically from a journal (phase 4).
+
+Every script (inline `script` included) must begin with an AST-validated pure-literal
+`export const meta = { name, description, phases }` header, and `script` is the
+current param name (`code` is accepted as a deprecated 2.1.146 alias). Metadata
+may use only object/array/scalar literals; spreads, computed keys, methods/accessors,
+function calls, and invalid `name`/`description`/`phases` are rejected cleanly.
+
+```ts
+// Example inline workflow
+Workflow({
+  args: "What's the carbon footprint of a transatlantic flight?",
+  script: `
+    export const meta = { name: "footprint", description: "cited research answer", phases: [{ title: "Scope" }, { title: "Search" }, { title: "Synthesize" }] };
+    phase("Scope");
+    const angles = await agent(
+      \`Decompose the question into 4 search angles: \${args}\`,
+      { schema: { type: "object", properties: { angles: { type: "array", items: { type: "string" } } } } },
+    );
+
+    phase("Search");
+    const findings = await pipeline(
+      angles.angles,
+      angle => agent(\`Research: \${angle}\`, { label: \`research \${angle}\`, model: "fast" }),
+      finding => agent(\`Verify and tighten citations:\\n\${finding}\`, { label: "verify", model: "medium" }),
+    );
+
+    phase("Synthesize");
+    return await agent(\`Synthesize a cited answer from these findings:\\n\${findings.join("\\n---\\n")}\`);
+  `,
+})
+```
+
+## Globals available inside scripts
+
+| Global | Type | Notes |
+|---|---|---|
+| `args` | `unknown` | Whatever you passed as `args`. |
+| `cwd` | `string` | Deterministic workflow working directory. |
+| `process.cwd()` | `() => string` | Deterministic shim returning the same value as `cwd`. No other `process` APIs are exposed. |
+| `log(msg)` | `(string) => void` | Emits to the workflow's log feed (capped at 1000 lines). |
+| `phase(title)` | `(string) => void` | Marks a progress group. **Marker only — takes a title, runs no callback.** Put work at top level after the marker: `phase("audit"); const x = await parallel([() => agent("…")]); phase("synthesize")`. Never write `phase("audit", async () => { … })`; it throws because the callback would never run, silently producing a 0-agent no-op. |
+| `budget` | `{ total, spent(), remaining() }` | Token budget. `total` defaults to 128000 (CC's `task_budget` default); `spent()` meters real tokens from each subagent run. Scripts self-limit via `budget.remaining()`. |
+| `agent(prompt, opts?)` | `(string, opts) => Promise<string|object>` | Spawns one subagent via `ctx.forkAgent`. |
+| `parallel(tasks)` | `(() => Promise<T>)[] => Promise<T[]>` | Concurrent fan-out, default concurrency = `min(16, cores - 2)`. |
+| `pipeline(items, ...stages)` | `(T[], ...fns) => Promise<R[]>` | Fan-out pipeline: each item moves through stages sequentially while items run concurrently. |
+| `pipeline(stages)` | `(() => Promise<T>)[] => Promise<T[]>` | Back-compat sequential thunk-array form. |
+| `workflow(name|{scriptPath}, args?)` | nested call | **Phase 5** — currently throws. |
+
+### `agent()` options
+
+```ts
+agent(prompt, {
+  label?: string,           // shown in UI
+  schema?: object,          // JSON Schema → forces JSON return (parsed from text in MVP)
+  model?: string,           // tier alias ("fast"/"medium") or id; defaults to parent's model
+  allowedTools?: string[],  // restrict child's tool surface
+})
+```
+
+**Accepted call shapes.** `agent()` coerces the shapes authors reach for, so
+none of these silently drop the prompt:
+
+```ts
+agent("prompt", { label, model, agent: "explore" })   // the contract
+agent({ task: "prompt", description: "label", extraContext: "…", agent: "explore" })  // object form
+agent("explore", "prompt", { model })                  // agentType-FIRST ordering
+```
+
+`task`/`prompt`/`text` → prompt, `extraContext` folds into the prompt,
+`description` → `label`, and `agent`/`subagent_type`/`agentType` → `opts.agentType`.
+
+> **Cache note.** Every subagent forks with a byte-identical system prompt
+> (`WORKFLOW_SUBAGENT_SYSTEM`) and `context: "none"`, so the parent's mutable
+> prompt (cwd/date/skills/transcript) never bleeds in. All workflow subagents
+> across every session and cwd share one warm Anthropic cache entry. See the
+> `pi-cache-stability` skill. Subagent output is uncapped, 1:1 with Claude Code
+> (which does not cap workflow subagents).
+>
+> **Optimisation inheritance.** Children inherit the optimised fork runtime
+> automatically — resolved model (parent snapshot → Opus 4.8 and any future
+> default), adaptive thinking (model metadata), and thinking level. Only an
+> explicit `opts.model` overrides; model/thinking are never hard-set, so
+> subagents track future fork tuning instead of freezing at today's values.
+>
+> **Progress metadata.** Completed agent rows read provider/model/thinking from
+> `AgentToolDetails.runs[0]`, the truthful fork result. Running rows only know
+> explicit `opts.model`; provider and thinking show `pending` until the fork
+> reports. If a completed run record lacks provider/thinking, the UI shows
+> `unavailable` rather than inventing values.
+
+### Determinism
+
+These are unavailable inside scripts — they throw `DeterminismViolation` with the original Claude Code rationale:
+
+- `Date.now()`, `new Date()`, `Date()`, `Date.parse()`, `Date.UTC()`
+- `Math.random()`
+- `setTimeout`, `setInterval`, `setImmediate`, `queueMicrotask`
+- `fetch`, `require`
+
+If you need timestamps, stamp them after the workflow returns or pass them via `args`.
+
+## Running dynamic workflows
+
+Inline (dynamic) scripts run as soon as the model invokes the `Workflow` tool.
+There is no extra "Run dynamic workflow?" confirmation prompt; the user's query
+is the permission. To stop a foreground run already underway, interrupt the turn
+(Esc).
+
+| Env | Effect |
+| --- | --- |
+| `PI_DISABLE_WORKFLOWS=1` | Disable the Workflow tool entirely. |
+
+## Install
+
+```bash
+# from this repo:
+mkdir -p ~/.pi/agent/extensions/pi-workflow
+ln -sf "$(pwd)/extensions/pi-workflow/src/index.ts" ~/.pi/agent/extensions/pi-workflow/index.ts
+ln -sf "$(pwd)/extensions/pi-workflow/src/sandbox.ts" ~/.pi/agent/extensions/pi-workflow/sandbox.ts
+ln -sf "$(pwd)/extensions/pi-workflow/src/types.ts" ~/.pi/agent/extensions/pi-workflow/types.ts
+ln -sf "$(pwd)/extensions/pi-workflow/src/workflow-globals.d.ts" ~/.pi/agent/extensions/pi-workflow/workflow-globals.d.ts
+```
+
+(Or load via `pi --extension extensions/pi-workflow/src/index.ts` for dev.)
+
+## Persistence
+
+Progress rendering groups agent rows by the active `phase(title)` marker. Each
+phase header shows counts for `running`, `done`, `error`, and `skipped` (journal
+replay). Large fan-outs keep the flat/tree signal readable by showing the newest
+rows per phase plus an omitted-earlier count.
+
+Every run writes to `${cwd}/.pi/workflows/runs/<runId>/`:
+
+- `script.js` — the inline source (phase 3 will accept this back as `scriptPath`).
+- `meta.json` — status + summary + result artifact metadata.
+- `result.json` / `result.md` / `result.txt` — the full workflow return value.
+
+The model-facing tool result stays compact: completion text includes a short preview, artifact path, format, character count, approximate token count, headings/top-level index, and instructions to inspect the artifact with `Read` or `jq`. Large fan-outs should return structured data freely; the parent agent can progressively disclose only the sections it needs instead of paying to re-ingest the full result inline.
+
+## Status vs Claude Code (see CC-2.1.153.md for the current-CLI conformance table)
+
+| Feature | Claude Code | pi-workflow |
+|---|:-:|:-:|
+| Inline `code` input | ✓ | ✓ phase 1 |
+| `args` global | ✓ | ✓ phase 1 |
+| Sandboxed VM, determinism shims | ✓ | ✓ phase 1 |
+| `agent()`, `phase()`, `log()`, `budget` | ✓ | ✓ phase 1 |
+| `parallel()`, `pipeline()` | ✓ | ✓ phase 1 |
+| `schema` → JSON Schema return | ✓ | ✓ phase 1 (parse-only; no retry yet) |
+| `name` (built-in / user / project) | ✓ | phase 5 |
+| `scriptPath` re-run | ✓ | phase 3 |
+| Journal + `resumeFromRunId` | ✓ | phase 4 |
+| Async/background launch + `taskId` | ✓ | phase 4 |
+| `workflow()` nested calls | ✓ | phase 5 |
+| `/workflows` slash command | ✓ | phase 6 |
+| `/workflow` (singular: detail / scaffold) | ✓ (pi extra) | — |
+| `isolation: "worktree"` | ✓ | phase 7 |
+| Review dynamic workflow before running | ✓ | intentionally skipped — queried workflows run immediately |
+| 8 built-in workflows | ✓ | phase 5 (sources already extracted) |
+
+The 10 extracted built-in scripts live at `~/Projects/oss/claude-code-cli-src-code/versions/2.1.146/builtin-workflows/` — port targets for phase 5.
+
+## Files
+
+```
+pi-workflow/
+├── DESIGN.md          # Architecture + phasing roadmap
+├── README.md          # this file
+├── package.json
+├── tsconfig.json
+└── src/
+    ├── index.ts       # Extension entry, Workflow tool registration
+    ├── sandbox.ts     # VM context builder, determinism shims, script runner
+    ├── ultracode.ts   # ultracode session mode (depends on the Workflow tool)
+    ├── workflow-keyword.ts # per-turn `workflow`/`workflows` keyword nudge
+    ├── workflow-command.ts # `/workflow` singular command (detail / scaffold)
+    ├── workflow-globals.d.ts # Ambient workflow authoring globals
+    └── types.ts       # Public types
+```
+
+## `/workflow` (singular) command
+
+A convenience companion to the plural `/workflows` browser:
+
+| Invocation | Effect |
+| --- | --- |
+| `/workflow` | Open the same picker as `/workflows`. |
+| `/workflow <name>` | Print that workflow's detail (phases, when-to-use, path) directly, no picker. |
+| `/workflow new [name]` | Scaffold a starter script in `./.pi/workflows/<slug>.mjs` (valid `meta`, ambient type reference, and `pipeline(items, ...stages)` body). Refuses to overwrite. |
+
+Claude Code ships only the plural browser; the singular verb is a pi extra for
+the common direct actions.
+
+## ultracode session mode
+
+`/ultracode [on|off]` (no arg = toggle) ports Claude Code 2.1.156's `ultracode`
+effort tier. It lives in pi-workflow because ultracode depends on the Workflow
+tool — CC gates it on "workflows enabled" and its standing reminder directs the
+model to use the Workflow tool on every substantive task.
+
+When **on**: effort is set to `xhigh` (sticky, restored on off) and a hidden
+`isMeta` reminder is injected — full on the enter turn, then sparse every 10
+turns (`TURNS_BETWEEN_MAINTENANCE`). When **off**: one "off" reminder, prior
+effort restored. Cache-stable (effort held constant; reminders turn-appended and
+gated to ~1-in-10 turns). Only active when workflows are enabled.
+
+## `workflow` / `workflows` keyword
+
+Ports Claude Code 2.1.156's per-turn `workflow_keyword_request`. When a prompt
+contains the word `workflow` or `workflows`, a hidden `isMeta` message is injected
+for that turn with CC's verbatim text:
+
+> The user included the keyword "workflow" or "workflows", which means you should
+> use the Workflow tool to fulfill their request.
+
+Same mechanism as the `ultrathink` keyword (prompt injection, no param change,
+cache-safe). It lives here — not in pi-thinking-keywords — because the nudge
+references the Workflow tool, so it only fires when that tool is registered
+(shares the `PI_DISABLE_WORKFLOWS` gate). The matching word is highlighted in the
+input by the syntax-input extension. CC's dismissable "Dynamic workflow requested
+· … to ignore" TUI affordance is out of scope (input-layer only).
+
+
+--- tsconfig.json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts"]
+}
