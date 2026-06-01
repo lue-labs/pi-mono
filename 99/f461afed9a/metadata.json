@@ -40,6 +40,12 @@
       "transcript": "/99/f461afed9a/4/full.jsonl",
       "content_hash": "/99/f461afed9a/4/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/99/f461afed9a/5/metadata.json",
+      "transcript": "/99/f461afed9a/5/full.jsonl",
+      "content_hash": "/99/f461afed9a/5/content_hash.txt",
+      "prompt": ""
     }
   ]
 }
