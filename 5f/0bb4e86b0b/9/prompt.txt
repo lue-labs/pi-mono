@@ -1,0 +1,158 @@
+You are reviewing one semantic feature for clawpatch.
+
+Return strict JSON only. No markdown fences.
+
+Project:
+{
+  "name": "@valkyriweb/pi-workflow",
+  "detected": {
+    "languages": [
+      "typescript",
+      "javascript"
+    ],
+    "frameworks": [],
+    "packageManagers": [
+      "node"
+    ],
+    "commands": {
+      "typecheck": "npm run typecheck",
+      "lint": null,
+      "format": null,
+      "test": "npm run test"
+    }
+  }
+}
+
+Feature:
+{
+  "featureId": "feat_config_0c1c23856a",
+  "title": "Project config tsconfig.json",
+  "summary": "Build, release, or quality configuration in tsconfig.json.",
+  "kind": "config",
+  "source": "shared-infra-heuristic",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "tsconfig.json",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "tsconfig.json",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "config"
+  ],
+  "trustBoundaries": [
+    "process-exec",
+    "filesystem"
+  ]
+}
+
+Review categories:
+- correctness bugs
+- security issues
+- race/concurrency bugs
+- data loss/corruption
+- resource leaks
+- bad error handling
+- permission/auth gaps
+- API contract mismatches
+- missing/weak tests
+- release/build hazards
+- maintainability risks with concrete impact
+
+Shell and workflow review:
+- Treat shell files, YAML run blocks, subprocess strings, and Markdown recipes as process-exec code when included.
+- Flag captured machine-readable shell output where a stdout-producing command is mixed with fallback output on the same stream, such as status="$(curl -sS -o /dev/null -w "%{http_code}" "$url" || echo 000)"; this can concatenate values like 404000.
+- Focus this rule on captured or parsed values, not human-facing logging fallbacks like some_command || echo "failed".
+- Recommend separating the primary command capture from fallback assignment, for example if ! status="$(cmd)"; then status="fallback"; fi.
+
+
+
+
+
+Inspect owned files, context files, and linked tests. Treat included tests as first-class
+evidence of intended behavior. If tests contradict a suspected bug, either skip it or
+downgrade confidence and explain the uncertainty. Avoid reporting behavior as a bug
+solely because a helper name implies a broader contract. Deduplicate sibling/root-cause
+issues: when the same bug pattern appears in multiple owned files, emit one finding
+with multiple evidence refs instead of separate one-off findings.
+
+Avoid speculative low-evidence findings. Evidence must point at included files.
+Valid evidence paths are exactly:
+- tsconfig.json
+Feature metadata paths are not valid evidence unless listed above.
+When providing evidence line ranges, use the line-number gutter in the Files section.
+Do not inspect files beyond the shown excerpts for evidence. If an excerpt is truncated,
+only cite lines that appear in the Files section.
+Set evidence.quote to null; line ranges are enough for validation.
+
+Prompt context:
+{
+  "maxOwnedFiles": 12,
+  "maxContextFiles": 24,
+  "includedFiles": [
+    {
+      "path": "tsconfig.json",
+      "role": "owned",
+      "bytes": 335,
+      "includedBytes": 335,
+      "includedStartLine": 1,
+      "includedEndLine": 15,
+      "includedLineRanges": [
+        {
+          "startLine": 1,
+          "endLine": 15
+        }
+      ],
+      "truncated": false
+    }
+  ],
+  "omittedFiles": []
+}
+
+JSON shape:
+{
+  "findings": [
+    {
+      "title": "string",
+      "category": "bug|security|performance|concurrency|api-contract|data-loss|test-gap|docs-gap|build-release|maintainability",
+      "severity": "critical|high|medium|low",
+      "confidence": "high|medium|low",
+      "evidence": [{"path":"string","startLine":1,"endLine":1,"symbol":null,"quote":null}],
+      "reasoning": "string",
+      "reproduction": null,
+      "recommendation": "string",
+      "whyTestsDoNotAlreadyCoverThis": "string",
+      "suggestedRegressionTest": "string or null",
+      "minimumFixScope": "string"
+    }
+  ],
+  "inspected": {"files":["string"],"symbols":["string"],"notes":["string"]}
+}
+
+Files:
+--- tsconfig.json (owned, lines 1-15)
+1 | {
+2 |   "extends": "../../tsconfig.base.json",
+3 |   "compilerOptions": {
+4 |     "rootDir": "./src",
+5 |     "outDir": "./dist",
+6 |     "module": "ESNext",
+7 |     "moduleResolution": "Bundler",
+8 |     "target": "ES2022",
+9 |     "lib": ["ES2022"],
+10 |     "strict": true,
+11 |     "noEmit": true,
+12 |     "allowImportingTsExtensions": true
+13 |   },
+14 |   "include": ["src/**/*.ts"]
+15 | }

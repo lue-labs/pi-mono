@@ -1,0 +1,57 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "5f0bb4e86b0b",
+  "session_id": "019e8506-9828-7da3-bba3-b2065e5b3ce4",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-01T21:26:00.725507Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/release-engineering.md",
+    "package-lock.json",
+    "packages/my-pi-actions/package.json",
+    "packages/my-pi-full/package.json",
+    "packages/my-pi-harness/package.json",
+    "packages/my-pi-pod/package.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "14ffeec5f1a2",
+  "token_usage": {
+    "input_tokens": 26419,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2432,
+    "output_tokens": 120,
+    "api_call_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-01T21:26:00.703689Z",
+    "agent_lines": 25,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 25,
+    "total_lines_changed": 32,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 444,
+      "user_lines_removed": 1,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-01T20-51-07Z-cache-stability-program.md": 247,
+        "package.json": 1,
+        "scripts/pi-cache.mjs": 126,
+        "test/pi-cache.test.mjs": 70
+      },
+      "user_removed_per_file": {
+        "scripts/pi-cache.mjs": 1
+      }
+    }
+  ]
+}
