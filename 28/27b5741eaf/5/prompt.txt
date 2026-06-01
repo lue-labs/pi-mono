@@ -1,0 +1,2709 @@
+You are reviewing one semantic feature for clawpatch.
+
+Return strict JSON only. No markdown fences.
+
+Project:
+{
+  "name": "@valkyriweb/pi-workflow",
+  "detected": {
+    "languages": [
+      "typescript",
+      "javascript"
+    ],
+    "frameworks": [],
+    "packageManagers": [
+      "node"
+    ],
+    "commands": {
+      "typecheck": "npm run typecheck",
+      "lint": null,
+      "format": null,
+      "test": "npm run test"
+    }
+  }
+}
+
+Feature:
+{
+  "schemaVersion": 1,
+  "featureId": "feat_library_f8bf0b65a1",
+  "title": "Node source src",
+  "summary": "Node/TypeScript source group src with 7 files.",
+  "kind": "library",
+  "source": "node-source-group",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "package.json",
+      "symbol": "src",
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "src/discovery.ts",
+      "reason": "source group src"
+    },
+    {
+      "path": "src/index.ts",
+      "reason": "source group src"
+    },
+    {
+      "path": "src/sandbox.ts",
+      "reason": "source group src"
+    },
+    {
+      "path": "src/types.ts",
+      "reason": "source group src"
+    },
+    {
+      "path": "src/ultracode.ts",
+      "reason": "source group src"
+    },
+    {
+      "path": "src/workflow-command.ts",
+      "reason": "source group src"
+    },
+    {
+      "path": "src/workflow-keyword.ts",
+      "reason": "source group src"
+    }
+  ],
+  "contextFiles": [
+    {
+      "path": "package.json",
+      "reason": "package manifest"
+    },
+    {
+      "path": "test/discovery.test.mjs",
+      "reason": "associated test"
+    },
+    {
+      "path": "test/sandbox.test.mjs",
+      "reason": "associated test"
+    },
+    {
+      "path": "test/ultracode.test.mjs",
+      "reason": "associated test"
+    },
+    {
+      "path": "test/workflow-command.test.mjs",
+      "reason": "associated test"
+    },
+    {
+      "path": "test/workflow-keyword.test.mjs",
+      "reason": "associated test"
+    }
+  ],
+  "tests": [
+    {
+      "path": "test/discovery.test.mjs",
+      "command": "npm run test"
+    },
+    {
+      "path": "test/sandbox.test.mjs",
+      "command": "npm run test"
+    },
+    {
+      "path": "test/ultracode.test.mjs",
+      "command": "npm run test"
+    },
+    {
+      "path": "test/workflow-command.test.mjs",
+      "command": "npm run test"
+    },
+    {
+      "path": "test/workflow-keyword.test.mjs",
+      "command": "npm run test"
+    }
+  ],
+  "tags": [
+    "node",
+    "typescript",
+    "source-group",
+    "project:@valkyriweb/pi-workflow",
+    "project-root:."
+  ],
+  "trustBoundaries": [],
+  "status": "claimed",
+  "lock": {
+    "lockedByRunId": "20260601T205316-75e271",
+    "lockedAt": "2026-06-01T20:53:16.595Z",
+    "hostname": "Lukes-MacBook-Pro.local",
+    "pid": 18814
+  },
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [],
+  "createdAt": "2026-06-01T20:42:28.554Z",
+  "updatedAt": "2026-06-01T20:53:16.595Z"
+}
+
+Review categories:
+- correctness bugs
+- security issues
+- race/concurrency bugs
+- data loss/corruption
+- resource leaks
+- bad error handling
+- permission/auth gaps
+- API contract mismatches
+- missing/weak tests
+- release/build hazards
+- maintainability risks with concrete impact
+
+Inspect owned files, context files, and linked tests. Treat included tests as first-class
+evidence of intended behavior. If tests contradict a suspected bug, either skip it or
+downgrade confidence and explain the uncertainty. Avoid reporting behavior as a bug
+solely because a helper name implies a broader contract. Deduplicate sibling/root-cause
+issues: when the same bug pattern appears in multiple owned files, emit one finding
+with multiple evidence refs instead of separate one-off findings.
+
+Avoid speculative low-evidence findings. Evidence must point at included files.
+
+JSON shape:
+{
+  "findings": [
+    {
+      "title": "string",
+      "category": "bug|security|performance|concurrency|api-contract|data-loss|test-gap|docs-gap|build-release|maintainability",
+      "severity": "critical|high|medium|low",
+      "confidence": "high|medium|low",
+      "evidence": [{"path":"string","startLine":1,"endLine":1,"symbol":null,"quote":null}],
+      "reasoning": "string",
+      "reproduction": null,
+      "recommendation": "string",
+      "whyTestsDoNotAlreadyCoverThis": "string",
+      "suggestedRegressionTest": "string or null",
+      "minimumFixScope": "string"
+    }
+  ],
+  "inspected": {"files":["string"],"symbols":["string"],"notes":["string"]}
+}
+
+Files:
+--- src/discovery.ts
+/**
+ * Workflow discovery — finds named workflow scripts across three roots:
+ *
+ *   1. Built-in:  src/builtin/*.js (bundled with the extension)
+ *   2. User:      ~/.pi/agent/workflows/*.js
+ *   3. Project:   <cwd>/.pi/workflows/*.js
+ *
+ * Each file must declare its metadata in a pure-literal `export const meta = {...}`
+ * at the top — same constraint as Claude Code's Workflow tool. We extract that
+ * literal with a brace-balanced parser + JSON5-ish normalization; no execution.
+ * Bodies are loaded lazily when the workflow is actually invoked.
+ *
+ * Name conflict policy (matches Claude Code): project > user > built-in.
+ */
+
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
+import type { WorkflowMeta } from "./types.ts";
+
+export type WorkflowSource = "builtin" | "user" | "project";
+
+export interface DiscoveredWorkflow {
+	name: string;
+	source: WorkflowSource;
+	path: string;
+	meta: WorkflowMeta;
+}
+
+const BUILTIN_DIR = path.resolve(fileURLToPath(import.meta.url), "..", "builtin");
+const USER_DIR = path.join(os.homedir(), ".pi", "agent", "workflows");
+
+export function discoverWorkflows(cwd: string): DiscoveredWorkflow[] {
+	const projectDir = path.join(cwd, ".pi", "workflows");
+
+	// Lowest priority first; higher-priority entries overwrite by name.
+	const all = new Map<string, DiscoveredWorkflow>();
+	for (const wf of listDir(BUILTIN_DIR, "builtin")) all.set(wf.name, wf);
+	for (const wf of listDir(USER_DIR, "user")) all.set(wf.name, wf);
+	for (const wf of listDir(projectDir, "project")) all.set(wf.name, wf);
+
+	return [...all.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function findWorkflowByName(cwd: string, name: string): DiscoveredWorkflow | null {
+	return discoverWorkflows(cwd).find((w) => w.name === name) ?? null;
+}
+
+export function loadWorkflowSource(scriptPath: string): string {
+	const stat = fs.statSync(scriptPath);
+	if (stat.size > 50_000) {
+		throw new Error(`Workflow file too large (${stat.size} bytes; max 50000): ${scriptPath}`);
+	}
+	return fs.readFileSync(scriptPath, "utf-8");
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
+function listDir(dir: string, source: WorkflowSource): DiscoveredWorkflow[] {
+	if (!fs.existsSync(dir)) return [];
+
+	const out: DiscoveredWorkflow[] = [];
+	let entries: fs.Dirent[];
+	try {
+		entries = fs.readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+
+	for (const entry of entries) {
+		if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+		if (!entry.name.endsWith(".js") && !entry.name.endsWith(".mjs")) continue;
+
+		const fullPath = path.join(dir, entry.name);
+		try {
+			const source_ = fs.readFileSync(fullPath, "utf-8");
+			const meta = parseMetaLiteral(source_);
+			if (!meta) continue; // No usable meta header → skip.
+			out.push({
+				name: meta.name,
+				source,
+				path: fullPath,
+				meta,
+			});
+		} catch {
+			// Bad file → skip silently. Discovery should never throw.
+		}
+	}
+	return out;
+}
+
+/**
+ * Parse `export const meta = { ... };` at module top level into a `WorkflowMeta`
+ * object. The literal must be AST-pure: objects/arrays/strings/numbers/booleans/null
+ * only; no spreads, computed keys, methods/accessors, template expressions, function
+ * calls, or identifier references.
+ *
+ * Returns `null` if the meta block is missing or malformed. Discovery uses that
+ * to skip files quietly rather than crashing.
+ */
+export function parseMetaLiteral(source: string): WorkflowMeta | null {
+	const result = validateMetaLiteral(source);
+	return result.meta ?? null;
+}
+
+export function validateMetaLiteral(source: string): { meta: WorkflowMeta | null; errors: string[] } {
+	let file: ts.SourceFile;
+	try {
+		file = ts.createSourceFile("workflow-meta.js", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+	} catch (e) {
+		return { meta: null, errors: [`Failed to parse workflow script: ${(e as Error).message}`] };
+	}
+	const errors: string[] = [];
+	const metaDecl = findMetaDeclaration(file);
+	if (!metaDecl) {
+		return { meta: null, errors: ["Script must begin with `export const meta = { name, description, phases }` (pure literal)."] };
+	}
+	const withoutLeading = source.replace(/^(?:\s|\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)+/, "");
+	if (!/^export\s+const\s+meta\b/.test(withoutLeading)) {
+		return { meta: null, errors: ["`export const meta = { ... }` must be the first statement after comments/whitespace."] };
+	}
+	const initializer = metaDecl.initializer;
+	if (!initializer || !ts.isObjectLiteralExpression(initializer)) {
+		return { meta: null, errors: ["`export const meta` must be assigned a pure object literal."] };
+	}
+	const value = literalToValue(initializer, "meta", errors);
+	if (errors.length > 0 || !isRecord(value)) return { meta: null, errors };
+	const metaErrors = validateMetaShape(value);
+	if (metaErrors.length > 0) return { meta: null, errors: metaErrors };
+	return { meta: value as unknown as WorkflowMeta, errors: [] };
+}
+
+function findMetaDeclaration(file: ts.SourceFile): ts.VariableDeclaration | null {
+	for (const stmt of file.statements) {
+		if (!ts.isVariableStatement(stmt)) continue;
+		const hasExport = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+		if (!hasExport) continue;
+		for (const decl of stmt.declarationList.declarations) {
+			if (ts.isIdentifier(decl.name) && decl.name.text === "meta" && decl.initializer) return decl;
+		}
+	}
+	return null;
+}
+
+function literalToValue(node: ts.Expression, path: string, errors: string[]): unknown {
+	if (ts.isParenthesizedExpression(node)) return literalToValue(node.expression, path, errors);
+	if (ts.isObjectLiteralExpression(node)) {
+		const out: Record<string, unknown> = {};
+		for (const prop of node.properties) {
+			if (ts.isSpreadAssignment(prop)) {
+				errors.push(`${path}: spreads are not allowed in workflow meta.`);
+				continue;
+			}
+			if (ts.isMethodDeclaration(prop) || ts.isGetAccessorDeclaration(prop) || ts.isSetAccessorDeclaration(prop)) {
+				errors.push(`${path}: methods and accessors are not allowed in workflow meta.`);
+				continue;
+			}
+			if (!ts.isPropertyAssignment(prop)) {
+				errors.push(`${path}: only property assignments are allowed in workflow meta.`);
+				continue;
+			}
+			if (prop.name.kind === ts.SyntaxKind.ComputedPropertyName) {
+				errors.push(`${path}: computed keys are not allowed in workflow meta.`);
+				continue;
+			}
+			const key = propertyNameText(prop.name);
+			if (!key) {
+				errors.push(`${path}: unsupported property key in workflow meta.`);
+				continue;
+			}
+			out[key] = literalToValue(prop.initializer, `${path}.${key}`, errors);
+		}
+		return out;
+	}
+	if (ts.isArrayLiteralExpression(node)) {
+		return node.elements.map((el, i) => {
+			if (ts.isSpreadElement(el)) {
+				errors.push(`${path}[${i}]: spreads are not allowed in workflow meta.`);
+				return null;
+			}
+			return literalToValue(el, `${path}[${i}]`, errors);
+		});
+	}
+	if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+	if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+	if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+	if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+	if (ts.isNumericLiteral(node)) return Number(node.text);
+	if (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) {
+		const n = Number(node.operand.text);
+		if (node.operator === ts.SyntaxKind.MinusToken) return -n;
+		if (node.operator === ts.SyntaxKind.PlusToken) return n;
+	}
+	errors.push(`${path}: only pure literals are allowed in workflow meta; found ${ts.SyntaxKind[node.kind]}.`);
+	return null;
+}
+
+function propertyNameText(name: ts.PropertyName): string | null {
+	if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+	return null;
+}
+
+function validateMetaShape(value: Record<string, unknown>): string[] {
+	const errors: string[] = [];
+	if (typeof value.name !== "string" || value.name.trim() === "") errors.push("meta.name must be a non-empty string.");
+	if (typeof value.description !== "string" || value.description.trim() === "") errors.push("meta.description must be a non-empty string.");
+	if (!Array.isArray(value.phases)) {
+		errors.push("meta.phases must be an array of { title, detail? } objects.");
+	} else {
+		value.phases.forEach((phase, i) => {
+			if (!isRecord(phase)) {
+				errors.push(`meta.phases[${i}] must be an object.`);
+				return;
+			}
+			if (typeof phase.title !== "string" || phase.title.trim() === "") {
+				errors.push(`meta.phases[${i}].title must be a non-empty string.`);
+			}
+			if ("detail" in phase && typeof phase.detail !== "string") {
+				errors.push(`meta.phases[${i}].detail must be a string when present.`);
+			}
+		});
+	}
+	if ("whenToUse" in value && typeof value.whenToUse !== "string") errors.push("meta.whenToUse must be a string when present.");
+	return errors;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+
+--- src/index.ts
+/**
+ * pi-workflow — deterministic JavaScript workflow orchestrator.
+ *
+ * Clones Claude Code 2.1.146's Workflow tool, adapted to pi's `ctx.forkAgent`
+ * primitive.
+ *
+ * Surface:
+ *   - `code` (inline JS), `name` (built-in/user/project workflow), or `scriptPath` (re-run a persisted run).
+ *   - VM sandbox with shimmed Date/Math.random/timers.
+ *   - Globals: args, log, phase, budget, agent, parallel, pipeline, workflow.
+ *   - `agent()` uses ctx.forkAgent.
+ *   - Synchronous execution; result returned inline.
+ *   - `/workflows` slash command lists everything available.
+ *
+ * See DESIGN.md for the multi-phase roadmap.
+ */
+
+import { AsyncLocalStorage } from "node:async_hooks";
+import { execFileSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as crypto from "node:crypto";
+import type {
+	AgentHandle,
+	AgentToolResult,
+	ExtensionAPI,
+	ExtensionContext,
+} from "@valkyriweb/pi-coding-agent";
+
+type AgentToolDetails = Awaited<ReturnType<AgentHandle["wait"]>>;
+import { Text } from "@valkyriweb/pi-tui";
+import { Type } from "typebox";
+import { buildSandboxContext, DeterminismViolation, runWorkflowScript, type SandboxGlobals } from "./sandbox.ts";
+import { discoverWorkflows, findWorkflowByName, loadWorkflowSource, validateMetaLiteral } from "./discovery.ts";
+import { wireUltracode } from "./ultracode.ts";
+import { wireWorkflowKeyword } from "./workflow-keyword.ts";
+import { wireWorkflowCommand, formatWorkflowDetail } from "./workflow-command.ts";
+import type { WorkflowAgentCallRecord, WorkflowDetails, WorkflowInput } from "./types.ts";
+
+// Bounds synchronous runaway only (vm sync timeout): an infinite JS loop in the
+// script. Live-model agent() calls are async and not counted here.
+const SYNC_TIMEOUT_MS = 30_000;
+// Generous overall wall cap for FOREGROUND runs so a hung turn can't block
+// forever. Claude Code imposes no short workflow timeout (token budget + agent
+// cap + async govern instead); background runs pass 0 here and skip the wall cap.
+const FOREGROUND_WALL_TIMEOUT_MS = 600_000;
+const AGENT_LIFETIME_CAP = 1000;
+// Default workflow token budget, matching Claude Code's `task_budget`
+// (`{ type: "tokens", total: 128000 }`). The `budget` global meters REAL tokens
+// (from each subagent run's usage) against this; scripts self-limit via
+// `budget.remaining()`. The hard stop remains the agent() lifetime cap above.
+const DEFAULT_TASK_BUDGET_TOKENS = 128_000;
+const LOG_LINE_CAP = 1000;
+const PARALLEL_DEFAULT_CONCURRENCY = Math.max(2, Math.min(16, (os.cpus()?.length ?? 4) - 2));
+const RESULT_PREVIEW_CHARS = 1200;
+
+type ResultArtifact = NonNullable<WorkflowDetails["resultArtifact"]>;
+
+// Verbatim from Claude Code 2.1.153 (RunWorkflow). Kept as a module-level
+// constant so every workflow subagent fork shares a byte-identical system
+// prompt → one warm Anthropic cache entry across every cwd and session.
+const WORKFLOW_SUBAGENT_SYSTEM =
+	"You are a subagent spawned by a workflow orchestration script. Use the tools available to complete the task.";
+// Claude Code 2.1.153 run-id shape: ^wf_[a-z0-9-]{6,}$
+const WORKFLOW_RUN_ID_RE = /^wf_[a-z0-9-]{6,}$/;
+const makeRunId = () => `wf_${Date.now().toString(36)}${crypto.randomBytes(3).toString("hex")}`;
+
+// ── StructuredOutput tool-call return (Claude Code 2.1.153 1:1) ──────────────
+// CC subagents return structured output by CALLING a tool, not by emitting JSON
+// text. We mirror that without busting the subagent cache: a SINGLE
+// schema-agnostic `StructuredOutput` tool (byte-identical params every call) is
+// registered on the forked child when it reports the matching forkMetadata, and
+// the per-call schema is validated script-side. Parent and child share this
+// process, so the captured value rides back through this module-level map keyed
+// by a callId passed via `forkAgent({ metadata })`.
+const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
+const STRUCTURED_OUTPUT_META_KEY = "piWorkflowStructuredOutputCallId";
+const structuredOutputCaptures = new Map<string, { captured: boolean; value?: unknown }>();
+
+// ── Journal + resume (CC 2.1.153 resumeFromRunId / phase 4) ─────────────────
+// Each agent() result is journaled under a DETERMINISTIC call-path key, so a
+// resumed run replays completed steps (no re-fork, no tokens) and only the
+// unfinished tail re-executes. Determinism is what makes this sound: workflow
+// scripts can't read wall-clock/random, so the same script takes the same path
+// and issues the same agent() calls in the same logical positions.
+//
+// The key is a call PATH, not a flat counter: parallel()/pipeline() namespace
+// their children by index (`/pN`, `/sN`) and agent() appends a per-scope ordinal
+// (`#N`). Because each child's array index is fixed and calls within a scope are
+// sequential, the key is identical across runs regardless of which subagent
+// finishes first — the one correctness trap with concurrent parallel tasks.
+interface CallScope {
+	path: string;
+	counter: { n: number };
+}
+const callScopeStore = new AsyncLocalStorage<CallScope>();
+
+function isWorkflowRunId(runId: string): boolean {
+	return WORKFLOW_RUN_ID_RE.test(runId);
+}
+
+function runDir(cwd: string, runId: string): string {
+	if (!isWorkflowRunId(runId)) throw new Error(`Invalid workflow run id: ${runId}`);
+	return path.join(cwd, ".pi", "workflows", "runs", runId);
+}
+
+function appendJournal(cwd: string, runId: string, key: string, result: unknown): void {
+	try {
+		fs.appendFileSync(path.join(runDir(cwd, runId), "journal.jsonl"), `${JSON.stringify({ key, result })}\n`, {
+			mode: 0o600,
+		});
+	} catch {
+		/* best-effort: journaling never blocks a run */
+	}
+}
+
+// ── Background / async launch (CC async + taskId) ───────────────────────
+// A `background` launch runs the workflow detached (subagents driven by a
+// workflow-owned AbortController, NOT the launching turn's signal, so they
+// survive past the turn) and returns a taskId immediately. Progress/result are
+// persisted to runs/<id>/meta.json and polled via `checkRunId`. The registry
+// tracks in-flight runs so they can be aborted on session dispose.
+interface BackgroundRun {
+	controller: AbortController;
+	promise: Promise<unknown>;
+	startedAt: number;
+}
+const backgroundRuns = new Map<string, BackgroundRun>();
+
+function readRunStatus(cwd: string, runId: string): { status: string; text: string } {
+	if (!isWorkflowRunId(runId)) return { status: "invalid", text: `Invalid workflow run id '${runId}'. Expected ${WORKFLOW_RUN_ID_RE}.` };
+	const live = backgroundRuns.has(runId);
+	let meta: { status?: string; details?: WorkflowDetails; result?: unknown; resultArtifact?: ResultArtifact; error?: string } | undefined;
+	try {
+		meta = JSON.parse(fs.readFileSync(path.join(runDir(cwd, runId), "meta.json"), "utf8"));
+	} catch {
+		if (!live) return { status: "unknown", text: `No workflow run '${runId}' found.` };
+	}
+	const status = live && (!meta || meta.status === "running") ? "running" : (meta?.status ?? "running");
+	const d = meta?.details;
+	const lines = [`Workflow ${runId}: ${status}${d ? ` · ${d.agentCount} agent(s) · ${d.durationMs}ms` : ""}`];
+	if (d?.phases?.length) lines.push(`phases: ${d.phases.join(" → ")}`);
+	if (meta?.error) lines.push(`error: ${meta.error}`);
+	if (status === "completed") {
+		const artifact = meta?.details?.resultArtifact ?? meta?.resultArtifact;
+		if (artifact) lines.push(formatArtifactNotice(artifact));
+		else if (meta?.result !== undefined) {
+			const r = meta.result;
+			lines.push(`result preview:\n${truncateResultText(typeof r === "string" ? r : JSON.stringify(r, null, 2), 1200)}`);
+		}
+	}
+	return { status, text: lines.join("\n") };
+}
+
+function loadJournal(cwd: string, runId: string): Map<string, unknown> {
+	const replay = new Map<string, unknown>();
+	let raw: string;
+	try {
+		raw = fs.readFileSync(path.join(runDir(cwd, runId), "journal.jsonl"), "utf8");
+	} catch {
+		return replay;
+	}
+	for (const line of raw.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const entry = JSON.parse(line) as { key: string; result: unknown };
+			replay.set(entry.key, entry.result);
+		} catch {
+			/* skip a torn trailing line */
+		}
+	}
+	return replay;
+}
+
+// ── Worktree isolation (CC isolation:"worktree") ────────────────────────
+// A subagent launched with { isolation: "worktree" } runs inside a fresh git
+// worktree (its own branch off HEAD), so its writes never touch the parent
+// checkout. Forked via the core forkAgent({ cwd }) seam; the worktree is removed
+// when the subagent settles (success or failure).
+interface WorktreeHandle {
+	path: string;
+	branch: string;
+}
+
+function git(cwd: string, args: string[]): string {
+	return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function isGitWorkTree(cwd: string): boolean {
+	try {
+		return git(cwd, ["rev-parse", "--is-inside-work-tree"]) === "true";
+	} catch {
+		return false;
+	}
+}
+
+function createWorktree(repoCwd: string, label: string | undefined): WorktreeHandle {
+	const id = `${(label ?? "agent").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 24)}-${crypto.randomBytes(4).toString("hex")}`;
+	const wtPath = path.join(os.tmpdir(), "pi-workflow-worktrees", id);
+	const branch = `pi-wf/${id}`;
+	fs.mkdirSync(path.dirname(wtPath), { recursive: true });
+	git(repoCwd, ["worktree", "add", "-b", branch, wtPath, "HEAD"]);
+	return { path: wtPath, branch };
+}
+
+function removeWorktree(repoCwd: string, wt: WorktreeHandle): void {
+	try {
+		git(repoCwd, ["worktree", "remove", "--force", wt.path]);
+	} catch {
+		/* best-effort */
+	}
+	try {
+		git(repoCwd, ["branch", "-D", wt.branch]);
+	} catch {
+		/* best-effort */
+	}
+}
+
+function structuredOutputInstruction(schema: Record<string, unknown>): string {
+	return (
+		`\n\nNOTE: You are running inside a workflow script. You MUST return your final answer by calling the \`${STRUCTURED_OUTPUT_TOOL}\` tool; do NOT put your answer in a text response (the script reads ONLY the tool call). If validation fails, read the error and call \`${STRUCTURED_OUTPUT_TOOL}\` again with a corrected shape.` +
+		`\nCRITICAL: You MUST call the \`${STRUCTURED_OUTPUT_TOOL}\` tool exactly once to return your final answer as the \`result\` argument, matching this schema:\n${JSON.stringify(schema)}\nAfter calling ${STRUCTURED_OUTPUT_TOOL} successfully, end your turn.`
+	);
+}
+
+// Surface mirrors Claude Code `RunWorkflow`, with Pi-specific guardrails where
+// local model failures showed ambiguity. Keep script API guidance here (the tool
+// schema is what teaches the model how workflows work); the keyword reminder
+// stays close to Claude Code's minimal routing nudge.
+const WORKFLOW_SCRIPT_DESCRIPTION =
+	"Self-contained workflow script. Must begin with `export const meta = { name, description, phases }` " +
+	"(pure literal, no computed values). Script bodies orchestrate subagents with `agent()`/`parallel()`/`pipeline()`/`phase()`/`log()`; " +
+	"they do not expose Bash/Read/Edit or other native tools directly. For checks that need tools, call `agent()` with a concrete task. " +
+	"`phase(title)` is only a marker and takes no callback: write `phase(\"audit\"); const findings = await parallel([() => agent(\"…\")]);` " +
+	"at top level, never `phase(\"audit\", async () => { … })`.";
+
+const WorkflowParams = Type.Object({
+	script: Type.Optional(
+		Type.String({
+			description: WORKFLOW_SCRIPT_DESCRIPTION,
+			maxLength: 50_000,
+		}),
+	),
+	name: Type.Optional(
+		Type.String({
+			description:
+				"Name of a predefined workflow (built-in or from .pi/workflows/). Resolves to a self-contained script.",
+		}),
+	),
+	args: Type.Optional(
+		Type.Unknown({
+			description:
+				"Optional input value exposed to the script as the global `args`. Use for parameterized named workflows (e.g. a research question).",
+		}),
+	),
+	scriptPath: Type.Optional(
+		Type.String({
+			description:
+				"Path to a workflow script file on disk. Every Workflow invocation persists its script under the session directory and returns the path in the tool result. To iterate, edit that file with Write/Edit and re-invoke Workflow with the same `scriptPath` instead of re-sending the full script. Takes precedence over `script` and `name`.",
+		}),
+	),
+	resumeFromRunId: Type.Optional(
+		Type.String({
+			description:
+				"Run ID of a prior Workflow invocation to resume from. Completed agent() steps are replayed from the run's journal (no re-fork); only new/unfinished steps run. Determinism-based.",
+		}),
+	),
+	background: Type.Optional(
+		Type.Boolean({
+			description:
+				"Launch the workflow in the background and return a taskId immediately instead of blocking on completion. Use for long fan-outs. Poll progress/result later with `checkRunId`. Subagents keep running past the launching turn.",
+		}),
+	),
+	checkRunId: Type.Optional(
+		Type.String({
+			description:
+				"Return the current status, progress and (if finished) result of a previously launched workflow run (taskId from a `background` launch, or any prior runId). Does not start a new run.",
+		}),
+	),
+});
+
+// disableWorkflows (CC parity): a setting to turn the Workflow tool off. pi
+// extensions can't read user settings directly yet, so this uses the idiomatic
+// pi toggle — an env var (set once in ~/.profile). When off, nothing is
+// registered: no Workflow tool in the prompt/tool list, no /workflows command.
+function workflowsDisabled(): boolean {
+	const v = (process.env.PI_DISABLE_WORKFLOWS ?? "").trim().toLowerCase();
+	return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+export default function (pi: ExtensionAPI) {
+	if (workflowsDisabled()) return;
+	// ultracode session mode depends on the Workflow tool (CC gates it on
+	// "workflows enabled"), so it is wired here — only when workflows are on.
+	wireUltracode(pi);
+	// Per-turn `workflow`/`workflows` keyword nudge toward the Workflow tool
+	// (CC 2.1.156). Also gated on workflows being enabled, same reason.
+	wireWorkflowKeyword(pi);
+	// Abort any in-flight background workflow runs when the session goes away.
+	pi.onSessionDispose(() => {
+		for (const run of backgroundRuns.values()) run.controller.abort();
+		backgroundRuns.clear();
+	});
+	// When THIS extension instance is running inside a workflow subagent fork
+	// (forkMetadata carries our callId), register the schema-agnostic
+	// StructuredOutput return tool on the child only. Registered post-fork so it
+	// is active for the child's turn; never touches the parent's tool list/cache.
+	pi.on("session_start", (event) => {
+		const callId = (event as { forkMetadata?: Record<string, unknown> }).forkMetadata?.[STRUCTURED_OUTPUT_META_KEY];
+		if (typeof callId !== "string" || !structuredOutputCaptures.has(callId)) return;
+		pi.registerTool({
+			name: STRUCTURED_OUTPUT_TOOL,
+			label: STRUCTURED_OUTPUT_TOOL,
+			description: "Return your final structured answer to the workflow script. Call exactly once with the `result` argument, then end your turn.",
+			parameters: Type.Object({
+				result: Type.Unknown({ description: "Your final answer, matching the schema described in the prompt." }),
+			}),
+			execute: async (_id, params) => {
+				const entry = structuredOutputCaptures.get(callId);
+				if (entry) {
+					entry.value = (params as { result: unknown }).result;
+					entry.captured = true;
+				}
+				return { content: [{ type: "text", text: "Structured answer recorded. End your turn." }], details: {} };
+			},
+		});
+	});
+
+	pi.registerTool({
+		name: "Workflow",
+		label: "Workflow",
+		description:
+			"orchestrate subagents with deterministic JavaScript workflow. Script code uses agent()/parallel()/pipeline()/phase()/log(); put Bash/Read/Edit work inside agent() tasks, not direct script calls.",
+		parameters: WorkflowParams,
+
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			const input = params as WorkflowInput;
+
+			// Status poll for a prior/background run — no new run.
+			if (input.checkRunId) {
+				const { text } = readRunStatus(ctx.cwd, input.checkRunId);
+				return { content: [{ type: "text", text }], details: {} as unknown as AgentToolDetails };
+			}
+
+			const runId = makeRunId();
+			const startedAt = Date.now();
+
+			// Resume: re-run the prior run's exact script, replaying journaled agent()
+			// results so only the unfinished tail re-forks. Fresh run: empty replay.
+			let resolved: { origin: "inline" | "named" | "persisted"; source: string; name?: string; path?: string };
+			let replay: Map<string, unknown>;
+			if (input.resumeFromRunId) {
+				if (!isWorkflowRunId(input.resumeFromRunId)) {
+					return errorResult(`Invalid resumeFromRunId '${input.resumeFromRunId}'. Expected ${WORKFLOW_RUN_ID_RE}.`);
+				}
+				const priorScript = path.join(runDir(ctx.cwd, input.resumeFromRunId), "script.js");
+				if (!fs.existsSync(priorScript)) {
+					return errorResult(
+						`resumeFromRunId: no persisted run '${input.resumeFromRunId}' (expected ${priorScript}).`,
+					);
+				}
+				resolved = { origin: "persisted", source: fs.readFileSync(priorScript, "utf8"), path: priorScript };
+				replay = loadJournal(ctx.cwd, input.resumeFromRunId);
+			} else {
+				const r = resolveSource(input, ctx.cwd);
+				if ("error" in r) return errorResult(r.error);
+				resolved = r;
+				replay = new Map();
+			}
+
+			// Inline (dynamic) workflows are allowed once the model calls the
+			// Workflow tool. No per-run approval prompt; PI_DISABLE_WORKFLOWS
+			// remains the global kill switch.
+			const scriptPath = persistScript(ctx.cwd, runId, resolved.source, {
+				origin: resolved.origin,
+				name: resolved.name,
+				path: resolved.path,
+			});
+			// Seed the new run's journal with replayed steps so it stays self-contained
+			// (a resume of a resume reads one journal, not a chain).
+			for (const [key, value] of replay) appendJournal(ctx.cwd, runId, key, value);
+
+			// Deterministic call-path scope for journal keys (see helpers above).
+			const rootScope: CallScope = { path: "", counter: { n: 0 } };
+			const currentScope = (): CallScope => callScopeStore.getStore() ?? rootScope;
+			const nextCallKey = (): string => {
+				const scope = currentScope();
+				return `${scope.path}#${scope.counter.n++}`;
+			};
+
+			const logs: string[] = [];
+			const phases: string[] = [];
+			const agentCalls: WorkflowAgentCallRecord[] = [];
+			let agentCount = 0;
+
+			if (resolved.origin !== "inline") {
+				// Surface what we're running so the model can reason about it.
+				// Inline scripts log themselves implicitly via the source preview.
+			}
+
+			const pushLog = (line: string) => {
+				if (logs.length < LOG_LINE_CAP) logs.push(line);
+				emitUpdate();
+			};
+
+			// Set once the run settles (success/error/timeout) or for background runs.
+			// A late progress update — e.g. an in-flight parallel() fork settling after
+			// the script already errored/timed out — must NOT call onUpdate: that pushes
+			// into a turn that's already closed and crashes the process with
+			// "Agent listener invoked outside active run".
+			let settled = false;
+			const emitUpdate = () => {
+				if (!onUpdate || settled) return;
+				const partial: WorkflowDetails = {
+					runId,
+					scriptPath,
+					source: "inline",
+					phases: [...phases],
+					agentCount,
+					logs: [...logs],
+					agentCalls: [...agentCalls],
+					startedAt,
+					durationMs: Date.now() - startedAt,
+				};
+				try {
+					onUpdate({
+						content: [{ type: "text", text: `Workflow ${runId}${resolved.name ? ` (${resolved.name})` : ""}: ${agentCount} agent(s), ${logs.length} log(s)` }],
+						details: partial as unknown as AgentToolDetails,
+					});
+				} catch {
+					// Run already settled; the final tool result carries the details.
+				}
+			};
+
+			const budgetState = { spent: 0, total: DEFAULT_TASK_BUDGET_TOKENS as number | null };
+			// One run-scoped controller drives every subagent fork. Sync runs chain the
+			// turn signal so a user abort propagates; background runs swap in a detached
+			// controller below so subagents survive past the launching turn. Aborted when
+			// the run settles so lingering parallel() forks (after an error/timeout) are
+			// cancelled instead of settling later and emitting into a closed turn.
+			const runController = new AbortController();
+			if (signal) {
+				if (signal.aborted) runController.abort();
+				else signal.addEventListener("abort", () => runController.abort(), { once: true });
+			}
+			let runSignal: AbortSignal = runController.signal;
+			let currentPhase: string | undefined;
+			const globals: SandboxGlobals = {
+				args: input.args,
+				cwd: ctx.cwd,
+				log: (msg) => pushLog(msg),
+				phase: (title) => {
+					currentPhase = title;
+					phases.push(title);
+					pushLog(`── ${title} ──`);
+				},
+				budget: {
+					get total() {
+						return budgetState.total;
+					},
+					spent: () => budgetState.spent,
+					remaining: () => (budgetState.total === null ? Infinity : Math.max(0, budgetState.total - budgetState.spent)),
+				},
+				agent: async (prompt, opts = {}) => {
+					// Key is assigned synchronously at call entry → deterministic
+					// order even for concurrent calls (the array is built in order).
+					const key = nextCallKey();
+					if (replay.has(key)) {
+						agentCalls.push({
+							seq: agentCalls.length,
+							prompt,
+							label: opts.label as string | undefined,
+							phase: currentPhase,
+							model: opts.model as string | undefined,
+							durationMs: 0,
+							resultPreview: "(replayed from journal)",
+							status: "replayed",
+						});
+						pushLog(`↺ replayed ${key}`);
+						emitUpdate();
+						return replay.get(key) as string | object;
+					}
+					if (agentCount >= AGENT_LIFETIME_CAP) {
+						// Message mirrors Claude Code 2.1.153.
+						throw new Error(
+							`Workflow agent() call cap reached (${AGENT_LIFETIME_CAP}). This usually means a loop using budget.remaining() never terminates. Add a hard iteration cap to the loop, or pass a token budget.`,
+						);
+					}
+					agentCount++;
+					// Live record so the TUI tree shows the subagent as it runs, then
+					// flips it to done/error in place when it settles.
+					const livePhase = currentPhase;
+					const liveIndex =
+						agentCalls.push({
+							seq: agentCalls.length,
+							prompt,
+							label: opts.label as string | undefined,
+							phase: livePhase,
+							model: opts.model as string | undefined,
+							durationMs: 0,
+							resultPreview: "",
+							status: "running",
+						}) - 1;
+					emitUpdate();
+					const result = await runAgent(ctx, prompt, opts, runSignal, (record) => {
+						agentCalls[liveIndex] = {
+							...record,
+							seq: agentCalls[liveIndex].seq,
+							phase: agentCalls[liveIndex].phase,
+							status: record.error ? "error" : "done",
+						};
+						budgetState.spent += record.tokens ?? 0;
+						emitUpdate();
+					});
+					appendJournal(ctx.cwd, runId, key, result);
+					return result;
+				},
+				parallel: async <T>(tasks: Array<() => Promise<T>>) => {
+					const parent = currentScope();
+					return runParallel(
+						tasks.map((task, i) => () =>
+							callScopeStore.run({ path: `${parent.path}/p${i}`, counter: { n: 0 } }, task),
+						),
+						PARALLEL_DEFAULT_CONCURRENCY,
+					);
+				},
+				pipeline: (async (itemsOrStages: unknown[], ...stages: Array<(item: unknown, index: number) => unknown>) => {
+					const parent = currentScope();
+					if (stages.length === 0) {
+						const out: unknown[] = [];
+						for (let i = 0; i < itemsOrStages.length; i++) {
+							out.push(await callScopeStore.run({ path: `${parent.path}/s${i}`, counter: { n: 0 } }, itemsOrStages[i] as () => Promise<unknown>));
+						}
+						return out;
+					}
+					return runParallel(
+						itemsOrStages.map((item, itemIndex) => async () => {
+							let value: unknown = item;
+							for (let stageIndex = 0; stageIndex < stages.length; stageIndex++) {
+								value = await callScopeStore.run(
+									{ path: `${parent.path}/i${itemIndex}/s${stageIndex}`, counter: { n: 0 } },
+									() => stages[stageIndex](value, itemIndex),
+								);
+							}
+							return value;
+						}),
+						PARALLEL_DEFAULT_CONCURRENCY,
+					);
+				}) as SandboxGlobals["pipeline"],
+				wo
+...[truncated]
+
+--- src/sandbox.ts
+/**
+ * Workflow JS sandbox.
+ *
+ * Runs user-supplied scripts in an isolated Node `vm` context with deterministic
+ * globals (Date/Math.random/timers shimmed to throw). The script gets a fixed
+ * set of orchestration globals — `args`, `cwd`, `process.cwd()`, `log`,
+ * `phase`, `budget`, `agent`, `parallel`, `pipeline`, `workflow` — injected by the caller.
+ *
+ * Matches Claude Code 2.1.146's Workflow runtime contract for determinism.
+ */
+
+import * as vm from "node:vm";
+
+export interface SandboxGlobals {
+	args: unknown;
+	cwd: string;
+	log: (message: string) => void;
+	phase: (title: string) => void;
+	budget: {
+		readonly total: number | null;
+		spent(): number;
+		remaining(): number;
+	};
+	agent: (prompt: string, opts?: Record<string, unknown>) => Promise<string | object>;
+	parallel: <T>(tasks: Array<() => Promise<T>>) => Promise<T[]>;
+	pipeline: {
+		<T>(stages: Array<() => Promise<T>>): Promise<T[]>;
+		<T, R>(items: T[], ...stages: Array<(item: unknown, index: number) => R | Promise<R>>): Promise<R[]>;
+	};
+	workflow: (nameOrRef: string | { scriptPath: string }, args?: unknown) => Promise<unknown>;
+}
+
+export class DeterminismViolation extends Error {
+	constructor(api: string, rationale: string) {
+		super(`${api} is unavailable in workflow scripts (${rationale})`);
+		this.name = "DeterminismViolation";
+	}
+}
+
+const RESUME_RATIONALE = "breaks resume. Stamp results after the workflow returns, or pass timestamps via args.";
+const RANDOM_RATIONALE = "breaks resume. For N independent samples, include the index in the agent label or prompt.";
+
+function throwDeterminism(api: string, rationale: string): never {
+	throw new DeterminismViolation(api, rationale);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+	return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+/** Fold a string `extraContext` opt into the prompt, then drop it from opts. */
+function foldExtraContext(prompt: unknown, opts: Record<string, unknown>): unknown {
+	const ec = opts.extraContext;
+	if (typeof ec === "string" && ec.trim() !== "") {
+		prompt = typeof prompt === "string" && prompt.trim() !== "" ? `${prompt}\n\n${ec}` : ec;
+		delete opts.extraContext;
+	}
+	return prompt;
+}
+
+/** Normalise a subagent-type alias (`agent`/`subagent_type`) onto `opts.agentType`. */
+function normalizeTypeField(opts: Record<string, unknown>): Record<string, unknown> {
+	const t = opts.agentType ?? opts.agent ?? opts.subagent_type;
+	if (t != null) opts.agentType = t;
+	return opts;
+}
+
+/**
+ * Coerce the call shapes authors actually reach for into `(prompt, opts)`.
+ *
+ * The workflow `agent()` contract is `agent(promptString, opts?)`, but authors
+ * reflexively pass the Pi Agent-tool shapes they already know. Accept all three:
+ *   1. `agent("prompt", { ... })`                    — the contract.
+ *   2. `agent({ task, description, extraContext, agent: "explore", ... })` — object form.
+ *   3. `agent("explore", "prompt", { ... })`         — agentType-FIRST ordering.
+ * In every case: pull the prompt, fold `extraContext` into it, map `description`
+ * → `label`, normalise the subagent-type alias (`agent`/`subagent_type`) onto
+ * `opts.agentType`, and carry the rest through as opts.
+ */
+export function normalizeAgentArgs(a: unknown, b?: unknown, c?: unknown): [unknown, Record<string, unknown>] {
+	// agentType-first misuse: agent("explore", "prompt", opts?). A STRING second
+	// positional is never valid in agent(prompt, opts) (opts is an object), so the
+	// only coherent reading is the Pi Agent-tool (agentType, prompt, opts) ordering
+	// authors reach for. Route it — rather than silently treating the agent type
+	// as the prompt and dropping the real prompt.
+	if (typeof a === "string" && typeof b === "string") {
+		const opts: Record<string, unknown> = { ...(isPlainObject(c) ? c : {}) };
+		if (opts.agentType == null && opts.agent == null && opts.subagent_type == null) opts.agentType = a;
+		const p = foldExtraContext(b, opts);
+		return [p, normalizeTypeField(opts)];
+	}
+
+	const tail = isPlainObject(b) ? b : {};
+	if (typeof a === "string" || !a || typeof a !== "object") {
+		// agent("prompt", { agent: "explore" }) — string (or empty) prompt + opts.
+		const opts: Record<string, unknown> = { ...tail };
+		const p = foldExtraContext(a, opts);
+		return [p, normalizeTypeField(opts)];
+	}
+
+	const {
+		prompt,
+		task,
+		text,
+		description,
+		extraContext,
+		agent: agentField,
+		subagent_type: subagentType,
+		agentType,
+		...rest
+	} = a as Record<string, unknown>;
+
+	let p: unknown = prompt ?? task ?? text;
+	if ((typeof p !== "string" || p.trim() === "") && typeof description === "string") p = description;
+	if (typeof extraContext === "string" && extraContext.trim() !== "") {
+		p = typeof p === "string" && p.trim() !== "" ? `${p}\n\n${extraContext}` : extraContext;
+	}
+
+	const opts: Record<string, unknown> = { ...rest, ...tail };
+	if (typeof description === "string" && opts.label == null) opts.label = description;
+	const type = agentType ?? agentField ?? subagentType;
+	if (type != null && opts.agentType == null) opts.agentType = type;
+	return [p, opts];
+}
+
+/**
+ * `parallel()`/`pipeline()` take an array of THUNKS (`() => agent(...)`), not an
+ * array of promises — the thunk lets the runner scope each branch for
+ * concurrency limiting + deterministic replay. Passing the call result directly
+ * (`parallel([agent(a), agent(b)])`) used to surface as the cryptic
+ * "Function.prototype.apply was called on #<Promise>". Fail early and clearly.
+ */
+export function assertThunks(items: unknown, api: "parallel" | "pipeline"): void {
+	if (!Array.isArray(items)) {
+		throw new Error(`${api}() takes an array of thunks, e.g. ${api}([() => agent("a"), () => agent("b")]).`);
+	}
+	items.forEach((t, i) => {
+		if (typeof t === "function") return;
+		const kind = t && typeof (t as { then?: unknown }).then === "function" ? "a Promise" : `a ${typeof t}`;
+		throw new Error(
+			`${api}() takes an array of thunks: () => agent(...). Item ${i} is ${kind}, not a function. ` +
+				`Wrap each call — ${api}([() => agent("a"), () => agent("b")]) — so the runner can scope it; ` +
+				`passing the call result runs it eagerly and breaks concurrency limiting + resume.`,
+		);
+	});
+}
+
+export function assertPipelineArgs(itemsOrStages: unknown, stages: unknown[]): void {
+	if (stages.length === 0) {
+		assertThunks(itemsOrStages, "pipeline");
+		return;
+	}
+	if (!Array.isArray(itemsOrStages)) {
+		throw new Error(
+			"pipeline(items, ...stages) needs an array of items as the first argument, e.g. pipeline(files, file => agent(...)).",
+		);
+	}
+	stages.forEach((stage, i) => {
+		if (typeof stage === "function") return;
+		const kind = stage && typeof (stage as { then?: unknown }).then === "function" ? "a Promise" : `a ${typeof stage}`;
+		throw new Error(
+			`pipeline(items, ...stages) stage ${i} is ${kind}, not a function. ` +
+				"Use pipeline(items, item => agent(...), result => agent(...)) for fan-out pipelines, " +
+				"or pipeline([() => agent(...), () => agent(...)]) for the legacy sequential thunk form.",
+		);
+	});
+}
+
+/**
+ * Build the sandbox context. The returned object is what `vm.createContext` is
+ * called against; user code sees these as globals.
+ */
+export function buildSandboxContext(globals: SandboxGlobals): vm.Context {
+	// Wrap user functions in arrow shims so user scripts can't see our locals via `this`.
+	const ctx: Record<string, unknown> = {
+		args: globals.args,
+		cwd: globals.cwd,
+		process: Object.freeze({ cwd: () => globals.cwd }),
+		log: (msg: unknown) => globals.log(String(msg)),
+		phase: (title: unknown, body?: unknown) => {
+			// phase() is a MARKER, not a phase-runner: it takes only a title. Authors
+			// reaching for a `phase(title, async () => {…})` callback form (neither Pi
+			// nor Claude Code has one) would have their work SILENTLY DROPPED — the
+			// callback is never invoked, every agent() inside it never fires, and the
+			// run "completes" with 0 agents in a few ms. That exact no-op is the #1
+			// way a workflow appears to run but does nothing. Fail loudly and teach the
+			// top-level shape instead.
+			if (body !== undefined) {
+				throw new Error(
+					'phase() takes only a title — phase("audit") — and just marks a section; it does NOT run a callback. ' +
+						"Put your agent()/parallel()/pipeline() calls at the TOP LEVEL of the script, after the marker, e.g.:\n" +
+						'  phase("audit");\n' +
+						'  const findings = await parallel([() => agent("…"), () => agent("…")]);\n' +
+						'  phase("synthesize");\n' +
+						"  return await agent(`Synthesize:\\n${JSON.stringify(findings)}`);",
+				);
+			}
+			globals.phase(String(title));
+		},
+		budget: globals.budget,
+		agent: (a: unknown, b?: unknown, c?: unknown) => {
+			// Accept agent("prompt", opts), the natural agent({ task, ... }) object
+			// shape, AND the agentType-first agent("explore", "prompt", opts) ordering
+			// authors reach for; then validate: forkAgent rejects an empty prompt deep
+			// in core ("forkAgent requires a non-empty prompt"), so surface an
+			// actionable error to the workflow author instead.
+			const [prompt, opts] = normalizeAgentArgs(a, b, c);
+			const p =
+				typeof prompt === "string" && prompt.trim() !== ""
+					? globals.agent(prompt, opts)
+					: Promise.reject(
+							new Error(
+								"agent() needs a non-empty prompt: a string — " +
+									'agent("Review the diff", { label: "reviewer" }) — or an object with a ' +
+									'task/prompt field — agent({ task: "Review the diff", label: "reviewer" }).',
+							),
+						);
+			// A floating (non-awaited) agent() call must never crash the host via an
+			// unhandledRejection — that is what took pi down. Attach an inert catch to a
+			// detached continuation; awaited callers still observe the rejection on `p`.
+			Promise.resolve(p).catch(() => {});
+			return p;
+		},
+		parallel: (tasks: unknown) => {
+			assertThunks(tasks, "parallel");
+			return globals.parallel(tasks as Array<() => Promise<unknown>>);
+		},
+		pipeline: (itemsOrStages: unknown, ...stages: unknown[]) => {
+			assertPipelineArgs(itemsOrStages, stages);
+			if (stages.length === 0) return globals.pipeline(itemsOrStages as Array<() => Promise<unknown>>);
+			return globals.pipeline(itemsOrStages as unknown[], ...(stages as Array<(item: unknown, index: number) => unknown>));
+		},
+		workflow: (name: string | { scriptPath: string }, a?: unknown) => globals.workflow(name, a),
+
+		// Allowed structured-data globals
+		Promise,
+		Array,
+		Object,
+		String,
+		Number,
+		Boolean,
+		Map,
+		Set,
+		WeakMap,
+		WeakSet,
+		JSON,
+		Symbol,
+		RegExp,
+		Error,
+		TypeError,
+		RangeError,
+		console: {
+			log: (msg: unknown) => globals.log(String(msg)),
+			error: (msg: unknown) => globals.log(`[error] ${String(msg)}`),
+			warn: (msg: unknown) => globals.log(`[warn] ${String(msg)}`),
+			info: (msg: unknown) => globals.log(String(msg)),
+		},
+
+		// Deterministic Math (no random)
+		Math: new Proxy(Math, {
+			get(target, prop) {
+				if (prop === "random") return () => throwDeterminism("Math.random()", RANDOM_RATIONALE);
+				return target[prop as keyof typeof Math];
+			},
+		}),
+
+		// Shimmed Date — throws on any clock read
+		Date: createShimmedDate(),
+
+		// Forbidden timers
+		setTimeout: () => throwDeterminism("setTimeout", RESUME_RATIONALE),
+		setInterval: () => throwDeterminism("setInterval", RESUME_RATIONALE),
+		setImmediate: () => throwDeterminism("setImmediate", RESUME_RATIONALE),
+		queueMicrotask: () => throwDeterminism("queueMicrotask", RESUME_RATIONALE),
+		clearTimeout: () => {},
+		clearInterval: () => {},
+
+		// Forbidden direct I/O
+		fetch: () => throwDeterminism("fetch", "use agent() with a web-capable agent instead"),
+		require: () => throwDeterminism("require()", "workflow scripts cannot import modules"),
+	};
+
+	return vm.createContext(ctx, {
+		name: "pi-workflow-sandbox",
+		codeGeneration: { strings: false, wasm: false },
+	});
+}
+
+function createShimmedDate(): typeof Date {
+	const handler = () => throwDeterminism("Date()/new Date()", RESUME_RATIONALE);
+	const Shim = function (this: unknown) {
+		handler();
+	} as unknown as typeof Date;
+	Shim.now = () => throwDeterminism("Date.now()", RESUME_RATIONALE) as never;
+	Shim.parse = () => throwDeterminism("Date.parse()", RESUME_RATIONALE) as never;
+	Shim.UTC = () => throwDeterminism("Date.UTC()", RESUME_RATIONALE) as never;
+	return Shim;
+}
+
+/**
+ * Compile + run a workflow script in the given sandbox.
+ *
+ * The script can be either an ES-module body (using `export` / top-level await)
+ * or a script body. We wrap it in an async IIFE that returns the last
+ * expression, so plain scripts work without ceremony.
+ *
+ * Returns whatever the script ultimately resolves to.
+ */
+export async function runWorkflowScript(
+	source: string,
+	context: vm.Context,
+	opts: { syncTimeoutMs: number; wallTimeoutMs?: number; filename: string },
+): Promise<unknown> {
+	if (source.length > 50_000) {
+		throw new Error(`Workflow script too large (${source.length} bytes; max 50000).`);
+	}
+
+	// Static determinism pre-scan (Claude Code 2.1.153): reject obvious clock /
+	// randomness reads before launch, in addition to the runtime shims below.
+	if (/\bDate\s*\.\s*now\b|\bMath\s*\.\s*random\b|\bnew\s+Date\s*\(\s*\)/.test(source)) {
+		throw new DeterminismViolation(
+			"Date.now()/Math.random()/new Date()",
+			"breaks resume. Stamp results after the workflow returns, or pass timestamps via args.",
+		);
+	}
+
+	const stripped = stripModuleSyntax(source);
+	const wrapped = `(async () => {\n${stripped}\n})()`;
+
+	const script = new vm.Script(wrapped, {
+		filename: opts.filename,
+		// Pre-compile catches syntax errors before we incur the run timeout.
+	});
+
+	// `syncTimeoutMs` bounds SYNCHRONOUS runaway only (vm timeout is per-call and
+	// sync-only; the async wrapper is sync until the first await) — a guard against
+	// an infinite JS loop blocking the event loop.
+	const runPromise = script.runInContext(context, { timeout: opts.syncTimeoutMs, breakOnSigint: true });
+
+	// `wallTimeoutMs` is a separate, generous overall cap on the async run. Claude
+	// Code imposes no short script timeout — it governs long workflows by token
+	// budget + the agent() lifetime cap + async execution. So we keep this large for
+	// foreground runs and skip it entirely (0/undefined) for background runs, which
+	// are governed by the agent cap and aborted on session dispose.
+	if (!opts.wallTimeoutMs || opts.wallTimeoutMs <= 0) {
+		return runPromise;
+	}
+	const wall = opts.wallTimeoutMs;
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		const id = global.setTimeout(() => reject(new Error(`Workflow execution exceeded ${wall}ms`)), wall);
+		// Allow Node to exit if the workflow completes before timeout
+		id.unref?.();
+	});
+
+	return Promise.race([runPromise, timeoutPromise]);
+}
+
+/**
+ * Strip `export` declarations and bare `import` statements so the script can be
+ * evaluated as a regular Function body inside our IIFE. We don't try to be a
+ * real bundler — we just need `export const meta = {…}` and `// ...` comments
+ * to survive eval.
+ *
+ * Conversions:
+ *   `export const meta = {...}` → `globalThis.__meta = {...}`
+ *   `export default X`          → `return X`
+ *   `export { ... }`            → `// removed: export {...}`
+ *   `import ...`                → throws (workflows can't import)
+ */
+function stripModuleSyntax(source: string): string {
+	if (/^\s*import\s/m.test(source)) {
+		throw new Error("Workflow scripts cannot use `import`. Use agent() / workflow() instead.");
+	}
+
+	return source
+		.replace(/^\s*export\s+default\s+/gm, "return ")
+		.replace(/^\s*export\s+const\s+meta\s*=/gm, "globalThis.__meta =")
+		.replace(/^\s*export\s+\{[^}]*\};?\s*$/gm, "")
+		.replace(/^\s*export\s+/gm, ""); // `export const x` → `const x`
+}
+
+
+--- src/types.ts
+/**
+ * Public types for the pi-workflow extension.
+ */
+
+export interface WorkflowInput {
+	/** Self-contained workflow script (must begin with `export const meta`). Mutually exclusive with `name` and `scriptPath`. */
+	script?: string;
+	/** @deprecated Claude Code 2.1.146 name for `script`; accepted as an alias. */
+	code?: string;
+	/** Named workflow (built-in, user, or project). Mutually exclusive with `script`/`code` and `scriptPath`. */
+	name?: string;
+	/** Path to a previously persisted workflow script. Mutually exclusive with `script`/`code` and `name`. */
+	scriptPath?: string;
+	/** Optional value exposed as the `args` global inside the script. */
+	args?: unknown;
+	/** Replay from a prior run's journal (phase 4). */
+	resumeFromRunId?: string;
+	/** Launch in the background and return a taskId immediately. */
+	background?: boolean;
+	/** Return status/progress/result of a prior run instead of starting one. */
+	checkRunId?: string;
+}
+
+export interface WorkflowAgentCallRecord {
+	seq: number;
+	prompt: string;
+	label?: string;
+	/** Phase active when this agent call started. Older run records may omit it. */
+	phase?: string;
+	/** Explicit requested model, or resolved child model once the fork reports it. */
+	model?: string;
+	/** Resolved model provider once the fork reports it. Running rows may omit it. */
+	provider?: string;
+	/** Resolved child thinking setting once the fork reports it. Running rows may omit it. */
+	thinking?: string;
+	durationMs: number;
+	resultPreview: string;
+	error?: string;
+	/** Real tokens consumed by this subagent (from the run's usage), for budget metering. */
+	tokens?: number;
+	/** Live lifecycle status for the TUI progress tree. */
+	status?: "running" | "done" | "error" | "replayed";
+}
+
+export interface WorkflowDetails {
+	runId: string;
+	scriptPath: string;
+	source: "inline" | "named" | "persisted";
+	/** Workflow name when resolved via `name` lookup. */
+	name?: string;
+	phases: string[];
+	agentCount: number;
+	logs: string[];
+	agentCalls: WorkflowAgentCallRecord[];
+	startedAt: number;
+	durationMs: number;
+	error?: string;
+	/** Full workflow result artifact, when the result was persisted for progressive disclosure. */
+	resultArtifact?: {
+		path: string;
+		format: "json" | "markdown" | "text";
+		chars: number;
+		approxTokens: number;
+		headings: string[];
+	};
+}
+
+export interface WorkflowMeta {
+	name: string;
+	description: string;
+	whenToUse?: string;
+	phases?: Array<{ title: string; detail?: string }>;
+}
+
+
+--- src/ultracode.ts
+/**
+ * ultracode — Claude Code 2.1.156's `ultracode` session effort mode.
+ *
+ * Lives inside pi-workflow because ultracode *depends* on the Workflow tool: CC
+ * gates ultracode on "workflows enabled" and its standing reminder tells the
+ * model to use the Workflow tool on every substantive task. Wiring it here gates
+ * it on the extension being loaded (workflows aren't disabled); the handler also
+ * skips forked children (`event.source === "child-agent"`) and extension-driven
+ * turns so the reminder only fires on real user turns, and skips diagnostic
+ * dry-runs so they never consume the reminder cadence. (Workflow is a deferred
+ * tool, so we gate on source, not on it being active in selectedTools.)
+ *
+ * Reverse-engineered from the 2.1.156 binary:
+ *   - effort:    `{...s, ultracode:X, effortValue: X ? "xhigh" : s.effortValue}`
+ *     → enabling collapses effort to `xhigh` and flips a sticky `ultracode` flag.
+ *   - reminders: `ultra_effort_enter` (full | sparse) / `ultra_effort_exit`, all
+ *     `isMeta`. Full on the enter turn; sparse every TURNS_BETWEEN_MAINTENANCE
+ *     (= 10) turns; off-reminder once on disable.
+ *
+ * pi adaptation:
+ *   - effort → `pi.setThinkingLevel("xhigh")` (pi's max tier), restored on exit.
+ *   - sticky: set once, constant across turns → cache-stable. On adaptive models
+ *     xhigh rides `output_config.effort` (cache-safe); reminders are turn-appended
+ *     custom messages (after the cached prefix), also cache-safe and gated to
+ *     ~1-in-10 turns.
+ */
+
+import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+
+type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
+
+// CC: JJK.TURNS_BETWEEN_MAINTENANCE = 10
+const SPARSE_EVERY = 10;
+const ULTRACODE_LEVEL: ThinkingLevel = "xhigh";
+
+// Adapted from CC 2.1.156's ultra_effort_enter/exit text. CC also points at "the
+// Workflow tool's Ultracode section and quality patterns"; pi's Workflow tool has
+// no such section, so that sentence is dropped — the rest is kept verbatim.
+const REMINDERS = {
+	full:
+		"Ultracode is on: optimize for the most exhaustive, correct answer \u2014 not the " +
+		"fastest or cheapest. Use the Workflow tool on every substantive task; token cost " +
+		"is not a constraint. Solo only on conversational or trivial turns.",
+	sparse: "Ultracode is still on \u2014 use the Workflow tool on substantive tasks; exhaustive correctness over speed or cost.",
+	off: "Ultracode is off \u2014 the Workflow tool's standard opt-in rule applies again.",
+} as const;
+
+type Reminder = keyof typeof REMINDERS;
+
+export interface UltracodeState {
+	enabled: boolean;
+	/** Turns since the last reminder was emitted (drives the sparse cadence). */
+	turnsSinceReminder: number;
+	/** Emit the full reminder on the next turn (set when enabled). */
+	pendingFull: boolean;
+	/** Emit the off reminder once on the next turn (set when disabled). */
+	pendingOff: boolean;
+}
+
+export function initialState(): UltracodeState {
+	return { enabled: false, turnsSinceReminder: 0, pendingFull: false, pendingOff: false };
+}
+
+export function enable(_state: UltracodeState): UltracodeState {
+	return { enabled: true, turnsSinceReminder: 0, pendingFull: true, pendingOff: false };
+}
+
+export function disable(state: UltracodeState): UltracodeState {
+	// Only announce "off" if it was actually on.
+	return { ...state, enabled: false, pendingFull: false, pendingOff: state.enabled };
+}
+
+/** Pure per-turn planner: which reminder (if any) to inject, and the next state. */
+export function planTurn(state: UltracodeState): { reminder: Reminder | null; state: UltracodeState } {
+	if (state.pendingOff) {
+		return { reminder: "off", state: { ...state, pendingOff: false } };
+	}
+	if (!state.enabled) return { reminder: null, state };
+	if (state.pendingFull) {
+		return { reminder: "full", state: { ...state, pendingFull: false, turnsSinceReminder: 0 } };
+	}
+	const turns = state.turnsSinceReminder + 1;
+	if (turns >= SPARSE_EVERY) {
+		return { reminder: "sparse", state: { ...state, turnsSinceReminder: 0 } };
+	}
+	return { reminder: null, state: { ...state, turnsSinceReminder: turns } };
+}
+
+/** Parse `/ultracode [on|off]` (no arg = toggle). */
+export function parseToggle(args: string, currentlyEnabled: boolean): boolean {
+	const a = args.trim().toLowerCase();
+	if (a === "on" || a === "enable") return true;
+	if (a === "off" || a === "disable") return false;
+	return !currentlyEnabled;
+}
+
+export function reminderText(reminder: Reminder): string {
+	return REMINDERS[reminder];
+}
+
+/**
+ * Wire the ultracode command + per-turn reminder onto a pi instance. Call this
+ * only when the Workflow tool is registered (workflows enabled).
+ */
+export function wireUltracode(pi: ExtensionAPI): void {
+	let state = initialState();
+	let priorLevel: ThinkingLevel | null = null;
+
+	pi.registerCommand("ultracode", {
+		description: "Toggle ultracode session mode: xhigh effort + standing Workflow-tool orchestration.",
+		handler: async (args, ctx) => {
+			const want = parseToggle(args, state.enabled);
+			if (want === state.enabled) {
+				ctx.ui.notify(`Ultracode already ${want ? "on" : "off"}.`, "info");
+				return;
+			}
+			if (want) {
+				priorLevel = pi.getThinkingLevel();
+				pi.setThinkingLevel(ULTRACODE_LEVEL);
+				state = enable(state);
+				ctx.ui.notify(`Ultracode on \u2014 effort set to ${ULTRACODE_LEVEL}, exhaustive mode.`, "info");
+			} else {
+				if (priorLevel !== null) pi.setThinkingLevel(priorLevel);
+				priorLevel = null;
+				state = disable(state);
+				ctx.ui.notify("Ultracode off \u2014 effort restored.", "info");
+			}
+		},
+	});
+
+	pi.on("before_agent_start", (event) => {
+		// Dry-runs must not mutate the cadence (planTurn is stateful). Skip forked
+		// children (source "child-agent") and extension-driven turns — their
+		// restricted tool set has no Workflow tool, which the reminder points at.
+		// Real user turns fall through (Workflow is deferred; the model loads it).
+		if (event.preview) return;
+		if (event.source === "child-agent" || event.source === "extension") return;
+		const { reminder, state: next } = planTurn(state);
+		state = next;
+		if (!reminder) return;
+		return {
+			message: {
+				customType: "ultracode",
+				content: REMINDERS[reminder],
+				display: false,
+			},
+		};
+	});
+}
+
+
+--- src/workflow-command.ts
+/**
+ * `/workflow` (singular) slash command — a convenience companion to `/workflows`
+ * (plural, the browse-and-pick UI).
+ *
+ * Claude Code ships only the plural `/workflows` browser; pi adds the singular
+ * verb for the common direct actions:
+ *
+ *   /workflow                 → open the same picker as /workflows
+ *   /workflow <name>          → print that workflow's detail directly (no picker)
+ *   /workflow new [name]      → scaffold a starter workflow script in
+ *                               ./.pi/workflows/ and point the user at it
+ *
+ * The detail formatter is shared with /workflows so both render identically. The
+ * pure helpers (parse, detail, template, filename) are exported for unit tests;
+ * the wire function owns the IO.
+ */
+
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+import { discoverWorkflows, findWorkflowByName, type DiscoveredWorkflow } from "./discovery.ts";
+
+export type WorkflowCommand =
+	| { action: "list" }
+	| { action: "show"; name: string }
+	| { action: "new"; name: string | null };
+
+/** Parse `/workflow [name | new [name]]`. No args → list; `new …` → scaffold. */
+export function parseWorkflowCommand(args: string): WorkflowCommand {
+	const trimmed = args.trim();
+	if (trimmed === "") return { action: "list" };
+
+	const [first, ...rest] = trimmed.split(/\s+/);
+	if (first.toLowerCase() === "new") {
+		const name = rest.join(" ").trim();
+		return { action: "new", name: name === "" ? null : name };
+	}
+	return { action: "show", name: trimmed };
+}
+
+/** Human-readable detail block for a workflow (shared with /workflows). */
+export function formatWorkflowDetail(found: DiscoveredWorkflow): string {
+	const phases = found.meta.phases?.map((p) => p.title).join(" → ") ?? "(no phases declared)";
+	const whenToUse = found.meta.whenToUse ?? "(no usage hint)";
+	return `${found.name} (${found.source})\n${found.path}\n\nPhases: ${phases}\n\nWhen to use:\n${whenToUse}`;
+}
+
+/** Sanitise a workflow name into a safe `.mjs` filename. */
+export function scaffoldFileName(name: string): string {
+	const slug = name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+	return `${slug || "untitled"}.mjs`;
+}
+
+/** Starter workflow script: valid `meta` header + a one-agent body to edit. */
+export function workflowTemplate(name: string): string {
+	const jsName = JSON.stringify(name);
+	const commentName = name.replace(/[\r\n]+/g, " ").replace(/\*\//g, "* /");
+	return `/// <reference types="@valkyriweb/pi-workflow" />
+// ${commentName} — pi-workflow script. Edit the meta + body, then invoke via the
+// Workflow tool: Workflow({ name: ${jsName}, args: "<input>" }).
+//
+// Sandbox globals available to the body (top-level await is supported):
+//   args, cwd, process.cwd(), log(), phase(), budget
+//   agent(prompt, opts), parallel([() => ...]), pipeline(items, ...stages), workflow(name)
+
+export const meta = {
+  name: ${jsName},
+  description: "TODO: one sentence on what this workflow produces.",
+  whenToUse: "TODO: when the model should reach for this workflow.",
+  phases: [
+    { title: "Plan", detail: "TODO" },
+    { title: "Execute", detail: "TODO" },
+  ],
+};
+
+phase("Plan");
+const inputs = Array.isArray(args) ? args : [String(args ?? "")];
+const results = await pipeline(
+  inputs,
+  (input) => agent("Plan work for: " + String(input), { label: "plan", model: "fast" }),
+  (plan) => agent("Execute this plan:\\n" + String(plan), { label: "execute" }),
+);
+log("processed " + results.length + " item(s) from " + cwd);
+
+return results;
+`;
+}
+
+export interface ScaffoldResult {
+	path: string;
+	created: boolean;
+}
+
+/** Write a starter workflow into <cwd>/.pi/workflows/. Refuses to overwrite. */
+export function scaffoldWorkflow(cwd: string, name: string): ScaffoldResult {
+	const dir = path.join(cwd, ".pi", "workflows");
+	const filePath = path.join(dir, scaffoldFileName(name));
+	if (fs.existsSync(filePath)) return { path: filePath, created: false };
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(filePath, workflowTemplate(name), "utf-8");
+	return { path: filePath, created: true };
+}
+
+/** Wire the `/workflow` singular command. Pass the plural picker so no-arg reuses it. */
+export function wireWorkflowCommand(pi: ExtensionAPI, openPicker: (ctx: any) => Promise<void>): void {
+	pi.registerCommand("workflow", {
+		description: "Show a workflow's detail (/workflow <name>), scaffold one (/workflow new [name]), or browse (/workflow)",
+		handler: async (args, ctx) => {
+			const cmd = parseWorkflowCommand(args);
+
+			if (cmd.action === "list") {
+				await openPicker(ctx);
+				return;
+			}
+
+			if (cmd.action === "new") {
+				const name = cmd.name ?? `workflow-${new Date().toISOString().slice(0, 10)}`;
+				const { path: filePath, created } = scaffoldWorkflow(ctx.cwd, name);
+				ctx.ui.notify(
+					created
+						? `Created workflow scaffold:\n${filePath}\n\nEdit the meta + body, then invoke via the Workflow tool.`
+						: `A workflow already exists at:\n${filePath}\n(refusing to overwrite)`,
+					"info",
+				);
+				return;
+			}
+
+			// show
+			const found = findWorkflowByName(ctx.cwd, cmd.name);
+			if (!found) {
+				const names = discoverWorkflows(ctx.cwd).map((w) => w.name);
+				ctx.ui.notify(
+					names.length > 0
+						? `No workflow named "${cmd.name}". Available: ${names.join(", ")}`
+						: `No workflow named "${cmd.name}", and none are discovered. Try /workflow new ${cmd.name}.`,
+					"info",
+				);
+				return;
+			}
+			ctx.ui.notify(formatWorkflowDetail(found), "info");
+		},
+	});
+}
+
+
+--- src/workflow-keyword.ts
+/**
+ * workflow keyword — Claude Code 2.1.156's per-turn `workflow`/`workflows`
+ * keyword nudge.
+ *
+ * Lives inside pi-workflow because the nudge points the model at the Workflow
+ * tool. Wiring it here gates it on the extension being loaded (workflows not
+ * disabled), but that alone is NOT enough: `before_agent_start` is process-wide
+ * and also fires for in-process forked child agents (built-in `agent` tool /
+ * `ctx.forkAgent` — e.g. the pi-memory extraction subagent), which run with a
+ * restricted tool set that has no Workflow tool. Those carry
+ * `event.source === "child-agent"` (extension-driven turns are `"extension"`),
+ * so the handler skips them and fires only on real user turns. We deliberately
+ * do NOT gate on the tool being *active* in the prompt: Workflow is a deferred
+ * tool (loaded on demand via tool-search), so at turn start it isn't in
+ * `selectedTools` — and the whole point of the nudge is to get the model to load
+ * and use it. Same rationale (and fix) as ultracode.
+ *
+ * Reverse-engineered from the 2.1.156 binary:
+ *   - keyword `workflow` / `workflows` in the prompt emits a
+ *     `{type:"workflow_keyword_request"}` reminder (telemetry: workflow_keyword),
+ *     rendered as an `isMeta` message (verbatim text below). CC also shows a
+ *     dismissable "Dynamic workflow requested for this turn · <key> to ignore"
+ *     affordance in the TUI — that input-layer dismissal is out of scope here;
+ *     the model-facing behaviour (the meta nudge) is what we mirror, exactly as
+ *     we did for `ultrathink` in pi-thinking-keywords.
+ *
+ * Cache: none beyond a normal turn — the meta message appends after the cached
+ * prefix with the turn's content, invalidating no breakpoint on any model. The
+ * visual highlight of the keyword is owned by the syntax-input extension.
+ */
+
+import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+
+// Matches prose `workflow`/`workflows` requests, but not path/identifier-like
+// tokens such as `pr-workflows`, `.github/workflows`, or `workflow.ts`.
+// Kept in sync with syntax-input's keyword highlighter (same concept).
+export const WORKFLOW_KEYWORD = /(^|[^A-Za-z0-9_.\/-])(workflows?)(?=$|[^A-Za-z0-9_.\/-])/i;
+
+// Workflow keyword reminder. Verbatim Claude Code 2.1.158: this is only a
+// routing nudge. Workflow API guidance lives in the Workflow tool schema.
+export const WORKFLOW_KEYWORD_REMINDER =
+	'The user included the keyword "workflow" or "workflows", which means you should use the Workflow tool to fulfill their request.';
+
+/** Pure check: does this prompt contain the workflow keyword? */
+export function mentionsWorkflowKeyword(prompt: string | undefined | null): boolean {
+	return WORKFLOW_KEYWORD.test(prompt ?? "");
+}
+
+/**
+ * Wire the per-turn workflow-keyword nudge onto a pi instance. Call this only
+ * when the Workflow tool is registered (workflows enabled).
+ */
+export function wireWorkflowKeyword(pi: ExtensionAPI): void {
+	pi.on("before_agent_start", (event) => {
+		// Diagnostic dry-runs must not inject. Skip in-process delegated children
+		// (source "child-agent": forkAgent / built-in agent tool, incl. the
+		// pi-memory extraction subagent) and extension-driven turns — their
+		// restricted tool set has no Workflow tool, so the nudge would point at a
+		// tool they can't call. Real user turns ("interactive"/"rpc", or an unset
+		// source which core defaults to "interactive") fall through; Workflow is
+		// deferred there and this nudge is what tells the model to load + use it.
+		if (event.preview) return;
+		if (event.source === "child-agent" || event.source === "extension") return;
+		if (!mentionsWorkflowKeyword(event.prompt)) return;
+		// isMeta-equivalent: sent to the model, not rendered in the transcript.
+		return {
+			message: {
+				customType: "workflow_keyword",
+				content: WORKFLOW_KEYWORD_REMINDER,
+				display: false,
+			},
+		};
+	});
+}
+
+
+--- package.json
+{
+  "name": "@valkyriweb/pi-workflow",
+  "version": "0.2.0",
+  "description": "Deterministic-JS workflow orchestrator for pi — clones Claude Code 2.1.146's Workflow tool",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/workflow-globals.d.ts",
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node test/sandbox.test.mjs && node test/discovery.test.mjs && node test/structured-output.test.mjs && node test/resume.test.mjs && node test/render.test.mjs && node test/disable.test.mjs && node test/worktree.test.mjs && node test/agent-type.test.mjs && node test/async.test.mjs && node test/ultracode.test.mjs && node test/workflow-keyword.test.mjs && node test/workflow-command.test.mjs && node test/review-gate.test.mjs"
+  },
+  "dependencies": {
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {
+    "@valkyriweb/pi-coding-agent": ">=0.78.0-luke.0 <0.79.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "private": true
+}
+
+
+--- test/discovery.test.mjs
+/**
+ * Discovery + builtin parsing smoke tests.
+ *
+ * Run: node test/discovery.test.mjs
+ */
+
+import assert from "node:assert/strict";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { createJiti } from "jiti";
+const jiti = createJiti(import.meta.url, { interopDefault: true, fsCache: false });
+const { discoverWorkflows, findWorkflowByName, parseMetaLiteral, validateMetaLiteral, loadWorkflowSource } = await jiti.import(
+	"../src/discovery.ts",
+);
+const { buildSandboxContext } = await jiti.import("../src/sandbox.ts");
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "..");
+
+const tests = [];
+const test = (name, fn) => tests.push({ name, fn });
+
+// ---------------------------------------------------------------------------
+
+test("discoverWorkflows finds deep-research in builtin/", () => {
+	// cwd doesn't matter for builtin discovery; pass a tmp dir with no .pi/workflows
+	const all = discoverWorkflows("/tmp");
+	const dr = all.find((w) => w.name === "deep-research");
+	assert.ok(dr, "deep-research not discovered");
+	assert.equal(dr.source, "builtin");
+	assert.ok(dr.path.endsWith("/builtin/deep-research.js"));
+});
+
+test("deep-research meta is well-formed", () => {
+	const dr = findWorkflowByName("/tmp", "deep-research");
+	assert.ok(dr);
+	assert.equal(dr.meta.name, "deep-research");
+	assert.ok(dr.meta.description.length > 20);
+	assert.ok(dr.meta.whenToUse.length > 20);
+	assert.ok(Array.isArray(dr.meta.phases));
+	assert.equal(dr.meta.phases.length, 5);
+	assert.equal(dr.meta.phases[0].title, "Scope");
+});
+
+test("parseMetaLiteral handles JS object literals with single-quoted strings and trailing commas", () => {
+	const meta = parseMetaLiteral(`
+		export const meta = {
+			name: 'thing',
+			description: "does things",
+			whenToUse: 'sometimes',
+			phases: [
+				{ title: 'one', },
+			],
+		};
+		// body...
+	`);
+	assert.ok(meta);
+	assert.equal(meta.name, "thing");
+	assert.equal(meta.phases[0].title, "one");
+});
+
+test("validateMetaLiteral rejects impure meta with useful errors", () => {
+	const cases = [
+		[`export const meta = { name: "x", description: "x", ...extra };`, /spreads/],
+		[`export const meta = { ["name"]: "x", description: "x" };`, /computed keys/],
+		[`export const meta = { name: "x", description() { return "x"; } };`, /methods and accessors/],
+		[`export const meta = { name: makeName(), description: "x" };`, /CallExpression/],
+		[`export const meta = { name: "x", description: "x" };`, /meta\.phases/],
+		[`export const meta = { name: "x", description: "x", phases: [{ detail: "missing" }] };`, /title/],
+	];
+	for (const [source, pattern] of cases) {
+		const result = validateMetaLiteral(source);
+		assert.equal(result.meta, null);
+		assert.match(result.errors.join("\n"), pattern);
+	}
+});
+
+test("parseMetaLiteral returns null on garbage", () => {
+	assert.equal(parseMetaLiteral("// nothing here"), null);
+	assert.equal(parseMetaLiteral("export const meta = WTF;"), null);
+});
+
+test("project workflow overrides user overrides builtin", () => {
+	// Set up a fake user dir + project dir under a tmp root
+	const tmp = fs.mkdtempSync("/tmp/wf-test-");
+	const projectDir = path.join(tmp, ".pi", "workflows");
+	fs.mkdirSync(projectDir, { recursive: true });
+
+	// Project shadow of deep-research
+	fs.writeFileSync(
+		path.join(projectDir, "deep-research.js"),
+		`export const meta = { name: "deep-research", description: "project override", phases: [{ title: "Shadow" }] };\nreturn "shadow";`,
+	);
+
+	const all = discoverWorkflows(tmp);
+	const dr = all.find((w) => w.name === "deep-research");
+	assert.ok(dr);
+	assert.equal(dr.source, "project");
+	assert.equal(dr.meta.description, "project override");
+
+	// Cleanup
+	fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("deep-research script body compiles in the sandbox", async () => {
+	const { runWorkflowScript } = await jiti.import("../src/sandbox.ts");
+	const dr = findWorkflowByName("/tmp", "deep-research");
+	assert.ok(dr);
+	const source = loadWorkflowSource(dr.path);
+
+	// Build a sandbox with agent() that always returns the bail-early branch.
+	// We pass empty args → the script should hit `if (!QUESTION) return {error}` early.
+	const ctx = buildSandboxContext({
+		args: "",
+		cwd: "/tmp/workflow-cwd",
+		log: () => {},
+		phase: () => {},
+		budget: { total: null, spent: () => 0, remaining: () => Infinity },
+		agent: async () => {
+			throw new Error("agent should not be called when args is empty");
+		},
+		parallel: async (tasks) => Promise.all(tasks.map((t) => t())),
+		pipeline: async (itemsOrStages, ...stages) => {
+			if (stages.length === 0) {
+				const o = [];
+				for (const s of itemsOrStages) o.push(await s());
+				return o;
+			}
+			return Promise.all(itemsOrStages.map(async (item, index) => {
+				let value = item;
+				for (const stage of stages) value = await stage(value, index);
+				return value;
+			}));
+		},
+		workflow: async () => {
+			throw new Error("not impl");
+		},
+	});
+
+	const result = await runWorkflowScript(source, ctx, { timeoutMs: 5000, filename: "dr.js" });
+	assert.ok(result.error, `expected early-bail error result, got: ${JSON.stringify(result)}`);
+	assert.match(result.error, /No research question/);
+});
+
+// ---------------------------------------------------------------------------
+
+let failed = 0;
+for (const { name, fn } of tests) {
+	try {
+		await fn();
+		console.log(`  ✓ ${name}`);
+	} catch (e) {
+		failed++;
+		console.log(`  ✗ ${name}`);
+		console.log(`      ${e.stack || e.message}`);
+	}
+}
+
+console.log("");
+console.log(`${tests.length - failed}/${tests.length} passed${failed ? `, ${failed} failed` : ""}`);
+process.exit(failed ? 1 : 0);
+
+
+--- test/sandbox.test.mjs
+/**
+ * Standalone sandbox smoke tests.
+ *
+ * Verifies determinism shims, allowed globals, and script-evaluation
+ * mechanics without booting pi or calling forkAgent. agent() is stubbed
+ * so we only test the sandbox & wiring.
+ *
+ * Run: node --import tsx test/sandbox.test.mjs
+ *      (or any TS loader that handles .ts imports)
+ */
+
+import assert from "node:assert/strict";
+
+// Use jiti to load the .ts modules from source
+import { createJiti } from "jiti";
+const jiti = createJiti(import.meta.url, { interopDefault: true, fsCache: false });
+const { buildSandboxContext, runWorkflowScript, DeterminismViolation } = await jiti.import("../src/sandbox.ts");
+
+const tests = [];
+const test = (name, fn) => tests.push({ name, fn });
+
+const stubGlobals = (over = {}) => ({
+	args: undefined,
+	cwd: "/tmp/workflow-cwd",
+	log: () => {},
+	phase: () => {},
+	budget: { total: null, spent: () => 0, remaining: () => Infinity },
+	agent: async () => "stubbed",
+	parallel: async (tasks) => Promise.all(tasks.map((t) => t())),
+	pipeline: async (itemsOrStages, ...stages) => {
+		if (stages.length === 0) {
+			const r = [];
+			for (const s of itemsOrStages) r.push(await s());
+			return r;
+		}
+		return Promise.all(itemsOrStages.map(async (item, index) => {
+			let value = item;
+			for (const stage of stages) value = await stage(value, index);
+			return value;
+		}));
+	},
+	workflow: async () => {
+		throw new Error("not impl");
+	},
+	...over,
+});
+
+// ---------------------------------------------------------------------------
+
+test("script returns a value", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	const r = await runWorkflowScript("return 2 + 3", ctx, { syncTimeoutMs: 5000, filename: "t1.js" });
+	assert.equal(r, 5);
+});
+
+test("args global is exposed", async () => {
+	const ctx = buildSandboxContext(stubGlobals({ args: { name: "Luke" } }));
+	const r = await runWorkflowScript("return args.name", ctx, { syncTimeoutMs: 5000, filename: "t2.js" });
+	assert.equal(r, "Luke");
+});
+
+test("agent() is awaitable and returns the stub", async () => {
+	const calls = [];
+	const ctx = buildSandboxContext(
+		stubGlobals({
+			agent: async (prompt, opts) => {
+				calls.push({ prompt, opts });
+				return `OK: ${prompt}`;
+			},
+		}),
+	);
+	const r = await runWorkflowScript(
+		`const a = await agent("hello", { label: "greet" }); return a;`,
+		ctx,
+		{ syncTimeoutMs: 5000, filename: "t3.js" },
+	);
+	assert.equal(r, "OK: hello");
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0].opts.label, "greet");
+});
+
+test("agent() rejects an empty prompt with an actionable message", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript('return await agent("");', ctx, { syncTimeoutMs: 5000, filename: "empty.js" }),
+		/non-empty prompt/,
+	);
+});
+
+test("a floating rejecting agent() call does not crash the host", async () => {
+	// Reproduces the crash that exited pi: a non-awaited agent() whose underlying
+	// forkAgent rejects. The boundary guard must swallow the floating rejection.
+	let unhandled = null;
+	const onUnhandled = (e) => {
+		unhandled = e;
+	};
+	process.on("unhandledRejection", onUnhandled);
+	try {
+		const ctx = buildSandboxContext(
+			stubGlobals({
+				agent: async () => {
+					throw new Error("forkAgent requires a non-empty prompt");
+				},
+			}),
+		);
+		const r = await runWorkflowScript('agent("do thing"); return "ok";', ctx, {
+			syncTimeoutMs: 5000,
+			filename: "float.js",
+		});
+		assert.equal(r, "ok");
+		// Let any pending rejection surface on the microtask/timer queue.
+		await new Promise((res) => setTimeout(res, 10));
+		assert.equal(unhandled, null, "floating agent() rejection must be swallowed, not crash the host");
+	} finally {
+		process.off("unhandledRejection", onUnhandled);
+	}
+});
+
+test("agent() accepts the Agent-tool object shape ({ task, description, extraContext })", async () => {
+	let seen;
+	const ctx = buildSandboxContext(
+		stubGlobals({
+			agent: async (prompt, opts) => {
+				seen = { prompt, opts };
+				return "ok";
+			},
+		}),
+	);
+	const r = await runWorkflowScript(
+		`return await agent({ task: "do X", description: "my label", extraContext: "Breadth: medium", model: "haiku", agent: "explore" });`,
+		ctx,
+		{ syncTimeoutMs: 5000, filename: "obj.js" },
+	);
+	assert.equal(r, "ok");
+	assert.equal(seen.prompt, "do X\n\nBreadth: medium");
+	assert.equal(seen.opts.label, "my label");
+	assert.equal(seen.opts.model, "haiku");
+	assert.equal(seen.opts.agentType, "explore"); // captured for the future fork-by-agent seam
+});
+
+test("parallel() rejects promises (non-thunks) with an actionable error, not a cryptic apply error", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript('return await parallel([agent("a"), agent("b")]);', ctx, {
+			syncTimeoutMs: 5000,
+			filename: "promises.js",
+		}),
+		(e) => /thunks/.test(e.message) && /Item 0 is a Promise/.test(e.message),
+	);
+});
+
+test("pipeline() rejects non-thunks in legacy single-array form", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript('return await pipeline([Promise.resolve(1)]);', ctx, {
+			syncTimeoutMs: 5000,
+			filename: "pipe.js",
+		}),
+		/thunks/,
+	);
+});
+
+test("pipeline(items, ...stages) fans out items through sequential stages", async () => {
+	const seen = [];
+	const ctx = buildSandboxContext(stubGlobals({ log: (m) => seen.push(m) }));
+	const r = await runWorkflowScript(
+		`return await pipeline(["a", "b"],
+			(item, i) => { log("first " + item + i); return item + i; },
+			(value) => value.toUpperCase(),
+		);`,
+		ctx,
+		{ syncTimeoutMs: 5000, filename: "pipe-items.js" },
+	);
+	assert.deepEqual(r, ["A0", "B1"]);
+	assert.deepEqual(seen, ["first a0", "first b1"]);
+});
+
+test("pipeline(items, ...stages) rejects non-function stages", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript('return await pipeline([1, 2], Promise.resolve(1));', ctx, {
+			syncTimeoutMs: 5000,
+			filename: "pipe-bad-stage.js",
+		}),
+		/stage 0 is a Promise/,
+	);
+});
+
+test("log() collects messages", async () => {
+	const lines = [];
+	const ctx = buildSandboxContext(stubGlobals({ log: (m) => lines.push(m) }));
+	await runWorkflowScript(`log("one"); log("two"); return null;`, ctx, { syncTimeoutMs: 5000, filename: "t4.js" });
+	assert.deepEqual(lines, ["one", "two"]);
+});
+
+test("phase() collects titles", async () => {
+	const phases = [];
+	const ctx = buildSandboxContext(stubGlobals({ phase: (t) => phases.push(t) }));
+	await runWorkflowScript(`phase("Plan"); phase("Build"); return null;`, ctx, { syncTimeoutMs: 5000, filename: "t5.js" });
+	assert.deepEqual(phases, ["Plan", "Build"]);
+});
+
+test("cwd and process.cwd() expose the deterministic workflow cwd", async () => {
+	const ctx = buildSandboxContext(stubGlobals({ cwd: "/repo/work" }));
+	const r = await runWorkflowScript(`return cwd + "|" + process.cwd();`, ctx, {
+		syncTimeoutMs: 5000,
+		filename: "cwd.js",
+	});
+	assert.equal(r, "/repo/work|/repo/work");
+});
+
+test("Date.now() throws DeterminismViolation", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript("return Date.now()", ctx, { syncTimeoutMs: 5000, filename: "t6.js" }),
+		(e) => e.message.includes("Date.now") && e.message.includes("breaks resume"),
+	);
+});
+
+test("new Date() throws DeterminismViolation", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript("return new Date().toISOString()", ctx, { syncTimeoutMs: 5000, filename: "t7.js" }),
+		/Date.*breaks resume/,
+	);
+});
+
+test("Math.random() throws", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript("return Math.random()", ctx, { syncTimeoutMs: 5000, filename: "t8.js" }),
+		/Math\.random/,
+	);
+});
+
+test("Math.floor() still works (allowed)", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	const r = await runWorkflowScript("return Math.floor(3.7)", ctx, { syncTimeoutMs: 5000, filename: "t9.js" });
+	assert.equal(r, 3);
+});
+
+test("setTimeout throws", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript("setTimeout(() => {}, 100); return 1;", ctx, { syncTimeoutMs: 5000, filename: "t10.js" }),
+		/setTimeout/,
+	);
+});
+
+test("import statement is rejected at parse time", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript('import fs from "node:fs"', ctx, { syncTimeoutMs: 5000, filename: "t11.js" }),
+		/cannot use `import`/,
+	);
+});
+
+test("export const meta is rewritten to globalThis.__meta", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await runWorkflowScript(
+		`export const meta = { name: "test", description: "x" };\nreturn globalThis.__meta;`,
+		ctx,
+		{ syncTimeoutMs: 5000, filename: "t12.js" },
+	);
+	// Just verifying it parses; we tossed the result.
+});
+
+test("parallel runs all tasks", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	const r = await runWorkflowScript(
+		`return await parallel([
+			() => Promise.resolve(1),
+			() => Promise.resolve(2),
+			() => Promise.resolve(3),
+		]);`,
+		ctx,
+		{ syncTimeoutMs: 5000, filename: "t13.js" },
+	);
+	assert.deepEqual(r, [1, 2, 3]);
+});
+
+test("pipeline runs sequentially", async () => {
+	const order = [];
+	const ctx = buildSandboxContext(
+		stubGlobals({
+			parallel: async (tasks) => Promise.all(tasks.map((t) => t())),
+			pipeline: async (stages) => {
+				const out = [];
+				for (const s of stages) out.push(await s());
+				return out;
+			},
+		}),
+	);
+	await runWorkflowScript(
+		`await pipeline([
+			() => { log("a"); return Promise.resolve(); },
+			() => { log("b"); return Promise.resolve(); },
+		]); return null;`,
+		buildSandboxContext(stubGlobals({ log: (m) => order.push(m), pipeline: undefined }) || ctx),
+		{ syncTimeoutMs: 5000, filename: "t14.js" },
+	).catch(() => {});
+	// Loose check — pipeline is wired straight through pi's globals.
+});
+
+test("script larger than 50KB is rejected", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	const big = "/* " + "x".repeat(50_001) + " */";
+	await assert.rejects(
+		runWorkflowScript(big, ctx, { syncTimeoutMs: 5000, filename: "big.js" }),
+		/too large/,
+	);
+});
+
+test("syntax errors surface cleanly", async () => {
+	const ctx = buildSandboxContext(stubGlobals());
+	await assert.rejects(
+		runWorkflowScript("return (((", ctx, { syncTimeoutMs: 5000, filename: "syntax.js" }),
+		(e) => e.name === "SyntaxError" || /Unexpected/.test(e.message),
+	);
+});
+
+// ---------------------------------------------------------------------------
+
+test("wallTimeoutMs rejects an async run that exceeds it", async () => {
+	// Stub globals run host-side, so they can use real timers to simulate a slow subagent.
+	const ctx = buildSandboxContext(stubGlobals({ agent: () => new Promise((r) => setTimeout(() => r("done"), 200)) }));
+	await assert.rejects(
+		runWorkflowScript('return await agent("x");', ctx, { syncTimeoutMs: 5000, wallTimeoutMs: 50, filename: "wall.js" }),
+		/exceeded 50ms/,
+	);
+});
+
+test("no wall cap (0/unset) lets a slow async run complete", async () => {
+	const ctx = buildSandboxContext(stubGlobals({ agent: () => new Promise((r) => setTimeout(() => r("done"), 80)) }));
+	const r = await runWorkflowScript('return await agent("x");', ctx, { syncTimeoutMs: 5000, wallTimeoutMs: 0, filename: "nowall.js" });
+	assert.equal(r, "done");
+});
+
+// --- regressions for the silent 0-agent no-op (wf_mps1pp7vc675cf) ------------
+
+test("phase() with a callback throws an actionable error (no silent 0-agent no-op)", async () => {
+	// The footgun: phase("audit", async () => { ...all the agent() work... }).
+	// phase() is a marker, so the callback is never invoked, every agent() inside
+	// it never fires, and the run "completes" with 0 agents. Must fail loudly.
+	let agentCalls = 0;
+	const ctx = buildSandboxContext(stubGlobals({ agent: async () => { agentCalls++; return "x"; } }));
+	await assert.rejects(
+		runWorkflowScript(`phase("audit", async () => { await agent("do work"); }); return 1;`, ctx, {
+			syncTimeoutMs: 5000,
+			filename: "phasecb.js",
+		}),
+		(e) => /takes only a title/.test(e.message) && /does NOT run a callback/.test(e.message),
+	);
+	assert.equal(agentCalls, 0, "the dropped callback's agent() must not have run");
+});
+
+test("phase() with only a title still works", async () => {
+	const phases = [];
+	const ctx = buildSandboxContext(stubGlobals({ phase: (t) => phases.push(t) }));
+	await runWorkflowScript(`phase("audit"); phase("synthesize"); return null;`, ctx, {
+		syncTimeoutMs: 5000,
+		filename: "phaseok.js",
+	});
+	assert.deepEqual(phases, ["audit", "synthesize"]);
+});
+
+test("agent('explore', 'prompt', opts) — agentType-first ordering routes type + keeps the prompt", async () => {
+	// The other shape in wf_mps1pp7vc675cf: agent(agentType, prompt, opts). The
+	// real prompt is the SECOND arg; coerce instead of treating "explore" as the
+	// prompt and dropping the work.
+	let seen;
+	const ctx = buildSandboxContext(stubGlobals({ agent: async (prompt, opts) => { seen = { prompt, opts }; return "ok"; } }));
+	const r = await runWorkflowScript(
+		`return await agent("explore", "find the retry logic", { extraContext: "Breadth: medium", model: "haiku" });`,
+		ctx,
+		{ syncTimeoutMs: 5000, filename: "typefirst.js" },
+	);
+	assert.equal(r, "ok");
+	assert.equal(seen.prompt, "find the retry logic\n\nBreadth: medium");
+	assert.equal(seen.opts.agentType, "explore");
+	assert.equal(seen.opts.model, "haiku");
+});
+
+let failed = 0;
+for (const { name, fn } of tests) {
+	try {
+		await fn();
+		console.log(`  ✓ ${name}`);
+	} catch (e) {
+		failed++;
+		console.log(`  ✗ ${name}`);
+		console.log(`      ${e.message}`);
+	}
+}
+
+console.log("");
+console.log(`${tests.length - failed}/${tests.length} passed${failed ? `, ${failed} failed` : ""}`);
+process.exit(failed ? 1 : 0);
+
+
+--- test/ultracode.test.mjs
+import assert from "node:assert/strict";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, { interopDefault: true, fsCache: false });
+const mod = await jiti.import("../src/ultracode.ts");
+const { wireUltracode, initialState, enable, disable, planTurn, parseToggle } = mod;
+
+// --- pure state machine ---------------------------------------------------
+
+// 1. Disabled: never injects.
+{
+	let s = initialState();
+	for (let i = 0; i < 15; i++) {
+		const r = planTurn(s);
+		assert.equal(r.reminder, null, "disabled → no reminder");
+		s = r.state;
+	}
+}
+
+// 2. Enable → full on the first turn, then quiet until turn 10 → sparse.
+{
+	let s = enable(initialState());
+	let r = planTurn(s);
+	assert.equal(r.reminder, "full", "first turn after enable → full");
+	s = r.state;
+	const seen = [];
+	for (let i = 0; i < 10; i++) {
+		r = planTurn(s);
+		seen.push(r.reminder);
+		s = r.state;
+	}
+	const sparseCount = seen.filter((x) => x === "sparse").length;
+	assert.equal(sparseCount, 1, "exactly one sparse reminder within 10 turns");
+	assert.equal(seen[9], "sparse", "sparse lands on the 10th turn after full");
+	assert.deepEqual(seen.slice(0, 9), Array(9).fill(null), "no spam between full and sparse");
+}
+
+// 3. Disable → exactly one "off" reminder, then silence.
+{
+	let s = disable(enable(initialState()));
+	let r = planTurn(s);
+	assert.equal(r.reminder, "off", "disable → off reminder once");
+	s = r.state;
+	r = planTurn(s);
+	assert.equal(r.reminder, null, "no repeat off reminder");
+}
+
+// 4. Disable when never enabled → no off reminder.
+{
+	const r = planTurn(disable(initialState()));
+	assert.equal(r.reminder, null, "disabling an already-off mode is silent");
+}
+
+// 5. parseToggle: on/off/toggle.
+{
+	assert.equal(parseToggle("on", false), true);
+	assert.equal(parseToggle("off", true), false);
+	assert.equal(parseToggle("", false), true, "no arg toggles on");
+	assert.equal(parseToggle("", true), false, "no arg toggles off");
+	assert.equal(parseToggle("ENABLE", false), true, "case-insensitive");
+}
+
+// --- wiring: command sets xhigh + restores; before_agent_start injects ----
+{
+	const handlers = {};
+	const commands = {};
+	const calls = { level: "low", notes: [] };
+	const api = {
+		on: (e, h) => (handlers[e] = h),
+		registerCommand: (name, opts) => (commands[name] = opts),
+		getThinkingLevel: () => calls.level,
+		setThinkingLevel: (l) => (calls.level = l),
+	};
+	wireUltracode(api);
+	const ctx = { ui: { notify: (m) => calls.notes.push(m) } };
+	// Real user turn. Workflow is a deferred tool, so the gate is on `source`.
+	const evt = (extra) => ({ source: "interactive", ...extra });
+
+	// enable
+	commands.ultracode.handler("on", ctx);
+	assert.equal(calls.level, "xhigh", "enable → thinking xhigh");
+
+	// Regression: enabled but on a forked child (source "child-agent") → no
+	// reminder, and the cadence is NOT consumed (pendingFull survives).
+	assert.equal(
+		handlers.before_agent_start({ source: "child-agent" }),
+		undefined,
+		"enabled but forked child → no reminder",
+	);
+	// Diagnostic dry-run must not consume the cadence either.
+	assert.equal(handlers.before_agent_start(evt({ preview: true })), undefined, "preview → no reminder");
+
+	let r = handlers.before_agent_start(evt());
+	assert.ok(r?.message && /Ultracode is on/.test(r.message.content), "full reminder on first turn");
+	assert.ok(/Workflow tool/.test(r.message.content), "reminder references the Workflow tool");
+	assert.equal(r.message.display, false, "reminder hidden from transcript");
+
+	// disable restores prior level + off reminder
+	commands.ultracode.handler("off", ctx);
+	assert.equal(calls.level, "low", "disable → restores prior level");
+	r = handlers.before_agent_start(evt());
+	assert.ok(r?.message && /Ultracode is off/.test(r.message.content), "off reminder once");
+}
+
+console.log("✅ pi-workflow ultracode test passed");
+
+
+--- test/workflow-command.test.mjs
+import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, { interopDefault: true, fsCache: false });
+const mod = await jiti.import("../src/workflow-command.ts");
+const {
+	parseWorkflowCommand,
+	formatWorkflowDetail,
+	scaffoldFileName,
+	workflowTemplate,
+	scaffoldWorkflow,
+} = mod;
+
+// --- parse ----------------------------------------------------------------
+{
+	assert.deepEqual(parseWorkflowCommand(""), { action: "list" });
+	assert.deepEqual(parseWorkflowCommand("   "), { action: "list" });
+	assert.deepEqual(parseWorkflowCommand("deep-research"), { action: "show", name: "deep-research" });
+	assert.deepEqual(parseWorkflowCommand("  deep-research  "), { action: "show", name: "deep-research" });
+	assert.deepEqual(parseWorkflowCommand("new"), { action: "new", name: null });
+	assert.deepEqual(parseWorkflowCommand("New my flow"), { action: "new", name: "my flow" });
+	assert.deepEqual(parseWorkflowCommand("NEW   triage"), { action: "new", name: "triage" });
+}
+
+// --- detail formatter -----------------------------------------------------
+{
+	const wf = {
+		name: "triage",
+		source: "project",
+		path: "/x/.pi/workflows/triage.mjs",
+		meta: { name: "triage", description: "d", whenToUse: "when X", phases: [{ title: "A" }, { title: "B" }] },
+	};
+	const out = formatWorkflowDetail(wf);
+	assert.ok(out.includes("triage (project)"), "name + source");
+	assert.ok(out.includes("/x/.pi/workflows/triage.mjs"), "path");
+	assert.ok(out.includes("Phases: A → B"), "phases joined");
+	assert.ok(out.includes("when X"), "whenToUse");
+
+	const bare = formatWorkflowDetail({ name: "n", source: "user", path: "/p", meta: { name: "n", description: "d" } });
+	assert.ok(bare.includes("(no phases declared)") && bare.includes("(no usage hint)"), "graceful defaults");
+}
+
+// --- filename slug --------------------------------------------------------
+{
+	assert.equal(scaffoldFileName("My Cool Flow!"), "my-cool-flow.mjs");
+	assert.equal(scaffoldFileName("  --weird__name--  "), "weird-name.mjs");
+	assert.equal(scaffoldFileName(""), "untitled.mjs");
+}
+
+// --- template is valid discoverable meta ----------------------------------
+{
+	const tpl = workflowTemplate("triage");
+	assert.ok(/export const meta = \{/.test(tpl), "has meta export");
+	assert.ok(tpl.includes('name: "triage"'), "name baked in");
+	// The discovery parser must be able to read the scaffold's meta.
+	const disc = await jiti.import("../src/discovery.ts");
+	const meta = disc.parseMetaLiteral(tpl);
+	assert.ok(meta && meta.name === "triage", "scaffold meta is discoverable");
+}
+
+// --- template escapes JS string content ------------------------------------
+{
+	const tricky = `bad"; throw new Error("boom"); //\nnext */ line`;
+	const tpl = workflowTemplate(tricky);
+	const disc = await jiti.import("../src/discovery.ts");
+	const meta = disc.parseMetaLiteral(tpl);
+	assert.ok(meta, "escaped tricky name still parses");
+	assert.equal(meta.name, tricky, "tricky name remains data, not code");
+	assert.ok(!tpl.includes("//\nnext */"), "comment text is single-line/sanitized");
+}
+
+// --- scaffold writes + refuses overwrite ----------------------------------
+{
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "wf-cmd-"));
+	const r1 = scaffoldWorkflow(cwd, "Triage Flow");
+	assert.equal(r1.created, true, "first write creates");
+	assert.ok(fs.existsSync(r1.path), "file exists");
+	assert.ok(r1.path.endsWith("/.pi/workflows/triage-flow.mjs"), "correct location");
+
+	const r2 = scaffoldWorkflow(cwd, "Triage Flow");
+	assert.equal(r2.created, false, "second write refuses overwrite");
+	assert.equal(r2.path, r1.path, "same path reported");
+
+	fs.rmSync(cwd, { recursive: true, force: true });
+}
+
+console.log("✅ pi-workflow workflow-command test passed");
+
+
+--- test/workflow-keyword.test.mjs
+import assert from "node:assert/strict";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, { interopDefault: true, fsCache: false });
+const mod = await jiti.import("../src/workflow-keyword.ts");
+const { wireWorkflowKeyword, mentionsWorkflowKeyword, WORKFLOW_KEYWORD_REMINDER } = mod;
+
+// --- detection: workflow / workflows, word-boundary, case-insensitive -----
+{
+	const hit = [
+		"please use a workflow for this",
+		"set up workflows",
+		"WORKFLOW now",
+		"can you Workflow it",
+	];
+	for (const p of hit) assert.ok(mentionsWorkflowKeyword(p), `should match: ${p}`);
+
+	const miss = [
+		"just answer this",
+		"the workflowing pipeline", // 'workflow' not a standalone word
+		"reworkflow", // prefix, no boundary
+		"pr-workflows",
+		".github/workflows/ci.yml",
+		"workflow.ts",
+		"foo_workflow",
+		"workflow-name",
+		"",
+		undefined,
+		null,
+	];
+	for (const p of miss) assert.ok(!mentionsWorkflowKeyword(p), `should NOT match: ${p}`);
+}
+
+// --- reminder is the current Claude Code routing nudge ----------------------
+{
+	assert.equal(
+		WORKFLOW_KEYWORD_REMINDER,
+		'The user included the keyword "workflow" or "workflows", which means you should use the Workflow tool to fulfill their request.',
+		"reminder text matches the current Claude Code routing nudge",
+	);
+}
+
+// --- wiring: before_agent_start injects only when the Workflow tool is active -
+{
+	const handlers = {};
+	const api = { on: (e, h) => (handlers[e] = h) };
+	wireWorkflowKeyword(api);
+	assert.ok(handlers.before_agent_start, "registers before_agent_start");
+
+	// Helper: a real user turn. Workflow is a deferred tool (not in selectedTools
+	// at turn start), so the gate is on `source`, not on the tool being active.
+	const userTurn = (extra) => ({ source: "interactive", ...extra });
+
+	// No keyword on a user turn → no injection.
+	assert.equal(
+		handlers.before_agent_start(userTurn({ prompt: "hello there" })),
+		undefined,
+		"no keyword → no message",
+	);
+
+	// Keyword on a user turn → hidden meta message with the reminder.
+	const r = handlers.before_agent_start(userTurn({ prompt: "kick off a workflow" }));
+	assert.ok(r?.message, "keyword on user turn → returns a message");
+	assert.equal(r.message.customType, "workflow_keyword", "customType tag");
+	assert.equal(r.message.content, WORKFLOW_KEYWORD_REMINDER, "workflow reminder");
+	assert.equal(r.message.display, false, "hidden from transcript (isMeta-equivalent)");
+
+	// Forked child agent (source "child-agent": forkAgent / built-in agent tool,
+	// e.g. the pi-memory extraction subagent) → no injection even with keyword.
+	// Regression guard: never nudge a child whose tool set has no Workflow tool.
+	assert.equal(
+		handlers.before_agent_start({ source: "child-agent", prompt: "update the workflow note" }),
+		undefined,
+		"forked child → no message",
+	);
+
+	// Extension-driven turn → no injection.
+	assert.equal(
+		handlers.before_agent_start({ source: "extension", prompt: "run a workflow" }),
+		undefined,
+		"extension turn → no message",
+	);
+
+	// Unset source (core defaults to "interactive") → fires on keyword.
+	assert.ok(
+		handlers.before_agent_start({ prompt: "a workflow please" })?.message,
+		"default (unset) source → fires",
+	);
+
+	// Diagnostic dry-run (preview) → no injection even on a user turn with keyword.
+	assert.equal(
+		handlers.before_agent_start(userTurn({ prompt: "run the workflow", preview: true })),
+		undefined,
+		"preview dry-run → no message",
+	);
+}
+
+console.log("✅ pi-workflow workflow-keyword test passed");
