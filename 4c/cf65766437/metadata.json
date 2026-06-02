@@ -20,6 +20,12 @@
       "transcript": "/4c/cf65766437/0/full.jsonl",
       "content_hash": "/4c/cf65766437/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/4c/cf65766437/1/metadata.json",
+      "transcript": "/4c/cf65766437/1/full.jsonl",
+      "content_hash": "/4c/cf65766437/1/content_hash.txt",
+      "prompt": ""
     }
   ]
 }
