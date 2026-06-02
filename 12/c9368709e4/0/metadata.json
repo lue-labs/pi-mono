@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "12c9368709e4",
+  "session_id": "019e84f1-9ea9-7301-8dd9-29454a82fa16",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-02T20:32:03.214121Z",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "1db9b0c1d9cd",
+  "checkpoint_transcript_start": 11,
+  "transcript_lines_at_start": 11,
+  "initial_attribution": {
+    "calculated_at": "2026-06-02T20:32:03.193339Z",
+    "agent_lines": 1,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 1,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
