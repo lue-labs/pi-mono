@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "097be4127e9d",
+  "strategy": "manual-commit",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-memory/index.ts",
+    "extensions/pi-memory/src/profile-base.ts",
+    "extensions/pi-memory/test/profile-base.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/09/7be4127e9d/0/metadata.json",
+      "transcript": "/09/7be4127e9d/0/full.jsonl",
+      "content_hash": "/09/7be4127e9d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
