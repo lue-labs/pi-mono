@@ -1,0 +1,21 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "21758a5cfb40",
+  "strategy": "manual-commit",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    "docs/release-engineering.md",
+    "scripts/require-changeset.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/21/758a5cfb40/0/metadata.json",
+      "transcript": "/21/758a5cfb40/0/full.jsonl",
+      "content_hash": "/21/758a5cfb40/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
