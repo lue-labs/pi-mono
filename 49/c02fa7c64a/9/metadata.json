@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "49c02fa7c64a",
+  "session_id": "019e8506-9828-7da3-bba3-b2065e5b3ce4",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-02T08:02:45.226364Z",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/pi-setup/catalog/extensions.yaml",
+    "extensions/working-indicator/index.ts",
+    "extensions/working-indicator/package.json",
+    "packages/my-pi-full/package.json",
+    "scripts/check-profiles.mjs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "14ffeec5f1a2",
+  "checkpoint_transcript_start": 12,
+  "transcript_lines_at_start": 12,
+  "initial_attribution": {
+    "calculated_at": "2026-06-02T08:02:45.216054Z",
+    "agent_lines": 1,
+    "agent_removed": 67,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 68,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
