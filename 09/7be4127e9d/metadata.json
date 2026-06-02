@@ -57,6 +57,12 @@
       "transcript": "/09/7be4127e9d/7/full.jsonl",
       "content_hash": "/09/7be4127e9d/7/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/09/7be4127e9d/8/metadata.json",
+      "transcript": "/09/7be4127e9d/8/full.jsonl",
+      "content_hash": "/09/7be4127e9d/8/content_hash.txt",
+      "prompt": ""
     }
   ]
 }
