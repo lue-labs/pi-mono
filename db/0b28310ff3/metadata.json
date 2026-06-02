@@ -32,6 +32,12 @@
       "transcript": "/db/0b28310ff3/3/full.jsonl",
       "content_hash": "/db/0b28310ff3/3/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/db/0b28310ff3/4/metadata.json",
+      "transcript": "/db/0b28310ff3/4/full.jsonl",
+      "content_hash": "/db/0b28310ff3/4/content_hash.txt",
+      "prompt": ""
     }
   ]
 }
