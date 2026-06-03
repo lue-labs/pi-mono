@@ -1,0 +1,410 @@
+can we fix this in my pi setup quickly:
+ Reading the fork package exports and dist imports to find where openai-codex-responses is loaded from at runtime.            
+
+                                                                                                                              
+ Read ~/Projects/personal/pi-mono-fork/packages/ai/package.json:1-160                                                         
+                                                                                                                              
+
+                                                                                                                              
+ Grep /openai-codex-responses|@valkyriweb/pi-ai|pi-ai|providers/ in                                                           
+ ~/Projects/personal/pi-mono-fork/packages/coding-agent/dist (*.js) limit 160                                                 
+                                                                                                                              
+ main.js-6-  */                                                                                                               
+ main.js-7- import { createInterface } from "node:readline";                                                                  
+ main.js:8: import { modelsAreEqual } from "@valkyriweb/pi-ai";                                                               
+ main.js-9- import { ProcessTerminal, setKeybindings, TUI } from "@valkyriweb/pi-tui";                                        
+ main.js-10- import chalk from "chalk";                                                                                       
+ migrations.js-25-         return [];                                                                                         
+ migrations.js-26-     const migrated = {};                                                                                   
+ migrations.js:27:     const providers = [];                                                                                  
+ migrations.js-28-     // Migrate oauth.json                                                                                  
+ migrations.js-29-     if (existsSync(oauthPath)) {                                                                           
+ migrations.js-32-             for (const [provider, cred] of Object.entries(oauth)) {                                        
+ migrations.js-33-                 migrated[provider] = { type: "oauth", ...cred };                                           
+ migrations.js:34:                 providers.push(provider);                                                                  
+ migrations.js-35-             }                                                                                              
+ migrations.js-36-             renameSync(oauthPath, `${oauthPath}.migrated`);                                                
+ ... (388 more lines, ctrl+o to expand)                                                                                       
+ 82 matches across 25 files                                                                                                   
+                                                                                                                              
+
+                                                                                                                              
+ Grep /openai-codex-responses|@valkyriweb/pi-ai|pi-ai|providers/ in                                                           
+ ~/Projects/personal/pi-mono-fork/packages/coding-agent/dist (**/*.js) limit 160                                              
+                                                                                                                              
+ main.js-6-  */                                                                                                               
+ main.js-7- import { createInterface } from "node:readline";                                                                  
+ main.js:8: import { modelsAreEqual } from "@valkyriweb/pi-ai";                                                               
+ main.js-9- import { ProcessTerminal, setKeybindings, TUI } from "@valkyriweb/pi-tui";                                        
+ main.js-10- import chalk from "chalk";                                                                                       
+ migrations.js-25-         return [];                                                                                         
+ migrations.js-26-     const migrated = {};                                                                                   
+ migrations.js:27:     const providers = [];                                                                                  
+ migrations.js-28-     // Migrate oauth.json                                                                                  
+ migrations.js-29-     if (existsSync(oauthPath)) {                                                                           
+ migrations.js-32-             for (const [provider, cred] of Object.entries(oauth)) {                                        
+ migrations.js-33-                 migrated[provider] = { type: "oauth", ...cred };                                           
+ migrations.js:34:                 providers.push(provider);                                                                  
+ migrations.js-35-             }                                                                                              
+ migrations.js-36-             renameSync(oauthPath, `${oauthPath}.migrated`);                                                
+ ... (388 more lines, ctrl+o to expand)                                                                                       
+ 82 matches across 25 files                                                                                                   
+                                                                                                                              
+
+                                                                                                                              
+ Read ~/Projects/personal/my-pi/scripts/pi-launcher.sh:1-80                                                                   
+                                                                                                                              
+
+ Thinking...                                                                                                                  
+
+ The launcher is fork dist/cli.js, but that dist imports @valkyriweb/pi-ai through Node package resolution. I’m checking      
+ whether node_modules/@valkyriweb/pi-ai points at workspace source/dist or an installed package copy.                         
+
+                                                                                                                              
+ Bash python3 - <<'PY'                                                                                                        
+                                                                                                                              
+   from pathlib import Path                                                                                                   
+   for p in [Path('/Users/luke/Projects/personal/pi-mono-fork/node_modules/@valkyriweb/pi-ai'),                               
+ Path('/Users/luke/Projects/personal/pi-mono-fork/packages/coding-agent/node_modules/@valkyriweb/pi-ai')]:                    
+    print(p, 'exists', p.exists(), 'is_symlink', p.is_symlink(), 'target', p.resolve() if p.exists() else None)               
+                                                                                                                              
+   PY (timeout 60s)                                                                                                           
+                                                                                                                              
+ /Users/luke/Projects/personal/pi-mono-fork/node_modules/@valkyriweb/pi-ai exists True is_symlink True target                 
+ /Users/luke/Projects/personal/pi-mono-fork/packages/ai                                                                       
+ /Users/luke/Projects/personal/pi-mono-fork/packages/coding-agent/node_modules/@valkyriweb/pi-ai exists False is_symlink      
+ False target None                                                                                                            
+                                                                                                                              
+ Took 0.1s                                                                                                                    
+                                                                                                                              
+
+                                                                                                                              
+ Grep /codex-cache-debug|prompt_cache_retention: cacheRetention === "none"/ in                                                
+ ~/Projects/personal/pi-mono-fork/node_modules/@valkyriweb/pi-ai (**/*.js) limit 80                                           
+                                                                                                                              
+ dist/providers/openai-codex-responses.js-336-             : codexPromptCacheKey(options?.cacheAffinityKey,                   
+ options?.sessionId),                                                                                                         
+ dist/providers/openai-codex-responses.js:337:         prompt_cache_retention: cacheRetention === "none" ? undefined : "24h", 
+ dist/providers/openai-codex-responses.js-338-         tool_choice: "auto",                                                   
+ dist/providers/openai-codex-responses.js-1199-         const fs = (await dynamicImport(NODE_FS_SPECIFIER));                  
+ dist/providers/openai-codex-responses.js:1200:         fs.appendFileSync(`${process.env.HOME ??                              
+ "."}/.pi/agent/logs/codex-cache-debug.jsonl`, `${JSON.stringify(snapshot)}\n`);                                              
+ dist/providers/openai-codex-responses.js-1201-     }                                                                         
+ 2 matches in 1 file                                                                                                          
+                                                                                                                              
+
+                                                                                                                              
+ Grep /codex-cache-debug|prompt_cache_retention: cacheRetention === "none"/ in                                                
+ ~/Projects/personal/pi-mono-fork/packages/coding-agent/node_modules/@valkyriweb/pi-ai (**/*.js) limit 80                     
+                                                                                                                              
+ Path not found: /Users/luke/Projects/personal/pi-mono-fork/packages/coding-agent/node_modules/@valkyriweb/pi-ai              
+                                                                                                                              
+
+ Thinking...                                                                                                                  
+
+ So fork package resolution is correct. Next likely culprit: the Codex conversion extension registers/replaces the Codex      
+ provider with its own vendored provider, bypassing fork pi-ai’s openai-codex-responses.ts. I’m checking that.                
+
+                                                                                                                              
+ Grep /registerProvider|openai-codex-responses|streamOpenAICodex|streamSimple|provider/ in                                    
+ ~/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src (*.ts) limit 240                                              
+                                                                                                                              
+ tools/image-generation-tool.ts-6- export const IMAGE_GENERATION_UNSUPPORTED_MESSAGE =                                        
+ tools/image-generation-tool.ts-7-    "image_generation is only available with image-capable openai-codex models";            
+ tools/image-generation-tool.ts-8- const IMAGE_GENERATION_LOCAL_EXECUTION_MESSAGE =                                           
+ tools/image-generation-tool.ts:9:    "image_generation is a native openai-codex provider tool and should not execute         
+ locally";                                                                                                                    
+ tools/image-generation-tool.ts-10-                                                                                           
+ tools/image-generation-tool.ts-11- const IMAGE_GENERATION_PARAMETERS = Type.Unsafe<Record<string, never>>({                  
+ tools/image-generation-tool.ts-12-    type: "object",                                                                        
+ index.ts-6- import { createExecCommandTracker } from "./tools/exec-command-state.ts";                                        
+ index.ts-7- import { registerExecCommandTool } from "./tools/exec-command-tool.ts";                                          
+ index.ts-8- import { createExecSessionManager } from "./tools/exec-session-manager.ts";                                      
+ index.ts:9: import { registerOpenAICodexCustomProvider } from "./providers/openai-codex-custom-provider.ts";                 
+ index.ts-10- import { registerImageGenerationTool } from "./tools/image-generation-tool.ts";                                 
+ index.ts-11- import { buildCodexSystemPrompt, extractPiPromptSkills, resolvePromptSkills } from                              
+ "./prompt/build-system-prompt.ts";                                                                                           
+ index.ts-12- import { registerViewImageTool, supportsOriginalImageDetail } from "./tools/view-image-tool.ts";                
+ index.ts-15- import { ensureBundledApplyPatchOnPath } from "./tools/apply-patch-binary.ts";                                  
+ ... (467 more lines, ctrl+o to expand)                                                                                       
+ 69 matches across 19 files                                                                                                   
+                                                                                                                              
+
+ Thinking...                                                                                                                  
+
+ Confirmed. @howaboua/pi-codex-conversion overrides openai-codex with its own provider, so all my fork pi-ai provider patches 
+ were bypassed in live sessions. That’s why same-session behavior changed only where extension already handled it, and debug  
+ never logged.                                                                                                                
+                                                                                                                              
+ I’m patching the installed conversion provider now, not core.                                                                
+
+                                                                                                                              
+ Grep /prompt_cache_key|prompt_cache_retention|thread-id|x-client-request-id|cacheAffinityKey|sessionId/ in                   
+ ~/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts limit 220           
+                                                                                                                              
+ openai-codex-custom-provider.ts-173-    input: unknown[];                                                                    
+ openai-codex-custom-provider.ts-174-    text: { verbosity: string };                                                         
+ openai-codex-custom-provider.ts-175-    include: string[];                                                                   
+ openai-codex-custom-provider.ts:176:    prompt_cache_key?: string | undefined;                                               
+ openai-codex-custom-provider.ts-177-    tool_choice: "auto";                                                                 
+ openai-codex-custom-provider.ts-178-    parallel_tool_calls: boolean;                                                        
+ openai-codex-custom-provider.ts-179-    temperature?: number | undefined;                                                    
+ openai-codex-custom-provider.ts-470-    additionalHeaders: Record<string, string> | undefined,                               
+ openai-codex-custom-provider.ts-471-    accountId: string,                                                                   
+ openai-codex-custom-provider.ts-472-    token: string,                                                                       
+ openai-codex-custom-provider.ts:473:    sessionId: string | undefined,                                                       
+ openai-codex-custom-provider.ts-474- ): Headers {                                                                            
+ openai-codex-custom-provider.ts-475-    const headers = buildBaseCodexHeaders(modelHeaders, additionalHeaders, accountId,    
+ token);                                                                                                                      
+ openai-codex-custom-provider.ts-476-    headers.set("OpenAI-Beta", "responses=experimental");                                
+ openai-codex-custom-provider.ts-477-    headers.set("accept", "text/event-stream");                                          
+ ... (153 more lines, ctrl+o to expand)                                                                                       
+ 24 matches in 1 file                                                                                                         
+                                                                                                                              
+
+ The extension provider uses prompt_cache_key: sessionId, and headers use sessionId; no affinity key, no 24h retention. That  
+ explains everything. Patching installed extension provider to use Pi’s cacheAffinityKey, 24h, and thread/client IDs.         
+
+                                                                                                                              
+ Read ~/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts:150-189        
+                                                                                                                              
+
+ Need options type includes cacheAffinityKey? SimpleStreamOptions likely yes. Need exact clamp funcs.                         
+
+                                                                                                                              
+ Grep /clampOpenAIPromptCacheKey|createCodexRequestId|function buildSSEHeaders|function buildWebSocketHeaders|function        
+ createRequestBody/ in                                                                                                        
+ ~/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts limit 160           
+                                                                                                                              
+ openai-codex-custom-provider.ts-43- const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;                                           
+ openai-codex-custom-provider.ts-44-                                                                                          
+ openai-codex-custom-provider.ts:45: function clampOpenAIPromptCacheKey(key: string | undefined): string | undefined {        
+ openai-codex-custom-provider.ts-46-    if (key === undefined) return undefined;                                              
+ openai-codex-custom-provider.ts-47-    const chars = Array.from(key);                                                        
+ openai-codex-custom-provider.ts-441- }                                                                                       
+ openai-codex-custom-provider.ts-442-                                                                                         
+ openai-codex-custom-provider.ts:443: function createCodexRequestId(): string {                                               
+ openai-codex-custom-provider.ts-444-    if (typeof globalThis.crypto?.randomUUID === "function") {                           
+ openai-codex-custom-provider.ts-445-       return globalThis.crypto.randomUUID();                                            
+ openai-codex-custom-provider.ts-466- }                                                                                       
+ openai-codex-custom-provider.ts-467-                                                                                         
+ openai-codex-custom-provider.ts:468: function buildSSEHeaders(                                                               
+ openai-codex-custom-provider.ts-469-    modelHeaders: Record<string, string> | undefined,                                    
+ openai-codex-custom-provider.ts-470-    additionalHeaders: Record<string, string> | undefined,                               
+ ... (15 more lines, ctrl+o to expand)                                                                                        
+ 6 matches in 1 file                                                                                                          
+                                                                                                                              
+
+                                                                                                                              
+ Read ~/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts:35-59          
+                                                                                                                              
+
+ Patch carefully.                                                                                                             
+
+                                                                                                                              
+ Edit ~/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts                
+                                                                                                                              
+  48     if (chars.length <= OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH) return key;                                                  
+  49     return chars.slice(0, OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH).join("");                                                  
+  50  }                                                                                                                       
+  51 +                                                                                                                        
+  52 +function fnv1a64(input: string, seed: bigint): bigint {                                                                 
+  53 +   let hash = seed;                                                                                                     
+  54 +   for (let index = 0; index < input.length; index++) {                                                                 
+  55 +      hash ^= BigInt(input.charCodeAt(index));                                                                          
+  56 +      hash = BigInt.asUintN(64, hash * 0x100000001b3n);                                                                 
+  57 +   }                                                                                                                    
+  58 +   return hash;                                                                                                         
+  59 +}                                                                                                                       
+  60 +                                                                                                                        
+  61 +function stableCodexThreadId(input: string): string {                                                                   
+  62 +   const first = fnv1a64(input, 0xcbf29ce484222325n).toString(16).padStart(16, "0");                                    
+  63 +   const second = fnv1a64(input, 0x84222325cbf29ce4n).toString(16).padStart(16, "0");                                   
+  64 +   const hex = `${first}${second}`;                                                                                     
+  65 +   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${((Number.parseInt(hex.slice(16, 18), 16) & 0x 
+     +3f) | 0x80).toString(16).padStart(2, "0")}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;                                   
+  66 +}                                                                                                                       
+  67 +                                                                                                                        
+  68 +function codexPromptCacheKey(cacheAffinityKey: string | undefined, sessionId: string | undefined): string | undefined { 
+  69 +   if (cacheAffinityKey) return stableCodexThreadId(cacheAffinityKey);                                                  
+  70 +   return clampOpenAIPromptCacheKey(sessionId);                                                                         
+  71 +}                                                                                                                       
+  72  let _os: { platform(): string; release(): string; arch(): string } | null = null;                                       
+  73                                                                                                                          
+  74  if (typeof process !== "undefined" && (process.versions?.node || process.versions["bun"]!)) {                           
+                                                                                                                              
+
+ Now patching body/header.                                                                                                    
+
+                                                                                                                              
+ Edit ~/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts                
+                                                                                                                              
+  195     text: { verbosity: string };                                                                                        
+  196     include: string[];                                                                                                  
+  197     prompt_cache_key?: string | undefined;                                                                              
+  198 +   prompt_cache_retention?: "24h" | undefined;                                                                         
+  199     tool_choice: "auto";                                                                                                
+  200     parallel_tool_calls: boolean;                                                                                       
+  201     temperature?: number | undefined;                                                                                   
+                                                                                                                              
+  493     accountId: string,                                                                                                  
+  494     token: string,                                                                                                      
+  495     sessionId: string | undefined,                                                                                      
+  496 +   threadId?: string | undefined,                                                                                      
+  497  ): Headers {                                                                                                           
+  498     const headers = buildBaseCodexHeaders(modelHeaders, additionalHeaders, accountId, token);                           
+  499     headers.set("OpenAI-Beta", "responses=experimental");                                                               
+                                                                                                                              
+  502                                                                                                                         
+  503     if (sessionId) {                                                                                                    
+  504        headers.set("session-id", sessionId);                                                                            
+  505 +   }                                                                                                                   
+  506 +   if (threadId) {                                                                                                     
+  507 +      headers.set("thread-id", threadId);                                                                              
+  508 +      headers.set("x-client-request-id", threadId);                                                                    
+  509 +   } else if (sessionId) {                                                                                             
+  510        headers.set("x-client-request-id", sessionId);                                                                   
+  511     }                                                                                                                   
+  512                                                                                                                         
+                                                                                                                              
+  519     accountId: string,                                                                                                  
+  520     token: string,                                                                                                      
+  521     requestId: string,                                                                                                  
+  522 +   threadId?: string | undefined,                                                                                      
+  523  ): Headers {                                                                                                           
+  524     const headers = buildBaseCodexHeaders(modelHeaders, additionalHeaders, accountId, token);                           
+  525     headers.delete("accept");                                                                                           
+                                                                                                                              
+  527     headers.delete("OpenAI-Beta");                                                                                      
+  528     headers.delete("openai-beta");                                                                                      
+  529     headers.set("OpenAI-Beta", OPENAI_BETA_RESPONSES_WEBSOCKETS);                                                       
+  522 -   headers.set("x-client-request-id", requestId);                                                                      
+  530 +   headers.set("x-client-request-id", threadId ?? requestId);                                                          
+  531     headers.set("session-id", requestId);                                                                               
+  532 +   if (threadId) {                                                                                                     
+  533 +      headers.set("thread-id", threadId);                                                                              
+  534 +   }                                                                                                                   
+  535     return headers;                                                                                                     
+  536  }                                                                                                                      
+  537                                                                                                                         
+                                                                                                                              
+  587        input: messages,                                                                                                 
+  588        text: { verbosity: ((options as { textVerbosity?: string | undefined } | undefined)?.textVerbosity ?? "low") as  
+       string },                                                                                                              
+  589        include: ["reasoning.encrypted_content"],                                                                        
+  579 -      prompt_cache_key: clampOpenAIPromptCacheKey(options?.sessionId),                                                 
+  590 +      prompt_cache_key: options?.cacheRetention === "none" ? undefined : codexPromptCacheKey(options?.cacheAffinityKey 
+      +, options?.sessionId),                                                                                                 
+  591 +      prompt_cache_retention: options?.cacheRetention === "none" ? undefined : "24h",                                  
+  592        tool_choice: "auto",                                                                                             
+  593        parallel_tool_calls: true,                                                                                       
+  594     };                                                                                                                  
+                                                                                                                              
+  1779              body = rewriteNativeImageGenerationTool(body, model) as ResponsesBody;                                    
+  1780           }                                                                                                            
+  1781                                                                                                                        
+  1782 +         const codexThreadId = body.prompt_cache_key;                                                                 
+  1783           const websocketRequestId = effectiveOptions?.sessionId || createCodexRequestId();                            
+  1771 -         const sseHeaders = buildSSEHeaders(model.headers, effectiveOptions?.headers, accountId, apiKey, effectiveOpt 
+       -ions?.sessionId);                                                                                                     
+  1772 -         const websocketHeaders = buildWebSocketHeaders(model.headers, effectiveOptions?.headers, accountId, apiKey,  
+       -websocketRequestId);                                                                                                  
+  1784 +         const sseHeaders = buildSSEHeaders(model.headers, effectiveOptions?.headers, accountId, apiKey, effectiveOpt 
+       +ions?.sessionId, codexThreadId);                                                                                      
+  1785 +         const websocketHeaders = buildWebSocketHeaders(model.headers, effectiveOptions?.headers, accountId, apiKey,  
+       +websocketRequestId, codexThreadId);                                                                                   
+  1786           const bodyJson = JSON.stringify(body);                                                                       
+  1787           const transport = effectiveOptions.transport ?? "auto";                                                      
+  1788                                                                                                                        
+                                                                                                                              
+
+ Testing the patched conversion provider imports and contains the new cache contract.                                         
+
+                                                                                                                              
+ Bash node --input-type=module - <<'NODE'                                                                                     
+                                                                                                                              
+   import { createJiti } from 'jiti';                                                                                         
+   const jiti = createJiti(import.meta.url);                                                                                  
+   await                                                                                                                      
+ jiti.import('/Users/luke/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src/providers/openai-codex-custom-provider 
+ .ts');                                                                                                                       
+   console.log('import-ok');                                                                                                  
+                                                                                                                              
+   NODE (timeout 120s)                                                                                                        
+                                                                                                                              
+ import-ok                                                                                                                    
+                                                                                                                              
+ Took 0.7s                                                                                                                    
+                                                                                                                              
+
+ Need maybe launch new pi enough. Also could add debug in extension provider too? Maybe unnecessary but to confirm. Add debug 
+ maybe synchronous? Use fsPromises? Simpler use node fs dynamic. But user angry; maybe we can use direct jiti to access       
+ non-exported? no. Need maybe no more manual. Could patch extension provider with debug snapshot too. Do it and test actual   
+ stream? Need use custom provider function maybe register and call stream. But time. Could maybe grep.                        
+
+                                                                                                                              
+ Grep /prompt_cache_retention|codexPromptCacheKey|thread-id|x-client-request-id/ in                                           
+ ~/.pi/agent/npm/node_modules/@howaboua/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts limit 100           
+                                                                                                                              
+ openai-codex-custom-provider.ts-66- }                                                                                        
+ openai-codex-custom-provider.ts-67-                                                                                          
+ openai-codex-custom-provider.ts:68: function codexPromptCacheKey(cacheAffinityKey: string | undefined, sessionId: string |   
+ undefined): string | undefined {                                                                                             
+ openai-codex-custom-provider.ts-69-    if (cacheAffinityKey) return stableCodexThreadId(cacheAffinityKey);                   
+ openai-codex-custom-provider.ts-70-    return clampOpenAIPromptCacheKey(sessionId);                                          
+ openai-codex-custom-provider.ts-196-    include: string[];                                                                   
+ openai-codex-custom-provider.ts-197-    prompt_cache_key?: string | undefined;                                               
+ openai-codex-custom-provider.ts:198:    prompt_cache_retention?: "24h" | undefined;                                          
+ openai-codex-custom-provider.ts-199-    tool_choice: "auto";                                                                 
+ openai-codex-custom-provider.ts-200-    parallel_tool_calls: boolean;                                                        
+ openai-codex-custom-provider.ts-505-    }                                                                                    
+ openai-codex-custom-provider.ts-506-    if (threadId) {                                                                      
+ openai-codex-custom-provider.ts:507:       headers.set("thread-id", threadId);                                               
+ openai-codex-custom-provider.ts-508-       headers.set("x-client-request-id", threadId);                                     
+ openai-codex-custom-provider.ts-509-    } else if (sessionId) {                                                              
+ ... (30 more lines, ctrl+o to expand)                                                                                        
+ 9 matches in 1 file                                                                                                          
+                                                                                                                              
+
+ Error: Codex error: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"Unsupported parameter:   
+ prompt_cache_retention"}}                                                                                                    
+
+ Auto-compaction failed: Turn prefix summarization failed: Codex error:                                                       
+ {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"Unsupported parameter:                       
+ prompt_cache_retention"}}                                                                                                    
+
+                                                                                                                              
+ ?                                                                                                                            
+                                                                                                                              
+
+ Error: Codex error: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"Unsupported parameter:   
+ prompt_cache_retention"}}                                                                                                    
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                                              
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Agents · 0 running · 1 done                                                                                                  
+   ✓ general: You are now acting as the memory extraction subagent. A
+
+---
+
+Can you inspect and find this memory agent run:
+ ✓ general: You are now acting as the memory extraction subagent. Analy… · 10s · agent 
+
+and make it non blocking, and it should get removed from the pi tui after a few seconds (like 8-10 seconds) as well as this being cleared from tui:  Agents · 0 running · 1 done
+
+---
+
+just first check if the agent will finish running if the session_shutdown fires? so it shouldn't kill this memory run? how does Claude Code and oss/codex handle this?
+
+---
+
+check oss/claude-code-cli-src
+
+---
+
+all of this passes tests? and is cache stable?
+
+---
+
+commit, push and PR
