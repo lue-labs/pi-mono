@@ -1,0 +1,73 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "4504423232ba",
+  "session_id": "e1e53988-a5ed-4105-977c-0142bf718ee3",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-03T15:20:12.006879Z",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "autoresearch.sh"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "137e4d3c83d3",
+  "checkpoint_transcript_start": 823,
+  "transcript_lines_at_start": 823,
+  "token_usage": {
+    "input_tokens": 2309,
+    "cache_creation_tokens": 4917,
+    "cache_read_tokens": 431678,
+    "output_tokens": 1476,
+    "api_call_count": 3
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01FcBKXoEEM9meKf8kvBYxxG",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi-cache-stability"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "137e4d3c83d3",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 23,
+        "end": 24,
+        "entry_ids": [
+          "40cdbcdb-9f07-4891-9f1e-a0b356fd3ee3"
+        ],
+        "tool_use_id": "toolu_01FcBKXoEEM9meKf8kvBYxxG"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01FcBKXoEEM9meKf8kvBYxxG"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi-cache-stability",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-03T15:20:11.97009Z",
+    "agent_lines": 306,
+    "agent_removed": 78,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 306,
+    "total_lines_changed": 384,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
