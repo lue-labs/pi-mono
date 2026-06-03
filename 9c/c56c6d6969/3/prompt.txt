@@ -1,0 +1,6 @@
+commit these and then update the autoresearch branches:
+ ⚠️  Caveat — these are pre-Fix-1 numbers. The matrix runs against the branch CLI at
+  .pi-cache-worktrees/pi-mono-fork-cachefix, which is branch autoresearch/cache-stability-20260603 — it does not contain Fix 1
+  (my guard lives in the main pi-mono-fork worktree, unbuilt here; dist cli.js was built 15:46, before the fix). So this is
+  the baseline. To measure Fix 1's impact I need to build a CLI with the fix and re-run for the before/after. Want me to do
+  that?
