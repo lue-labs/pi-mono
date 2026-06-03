@@ -3,7 +3,7 @@
   "checkpoint_id": "9cc56c6d6969",
   "strategy": "manual-commit",
   "branch": "feat/pi-memory-merge-recall-ux",
-  "checkpoints_count": 0,
+  "checkpoints_count": 3,
   "files_touched": [
     "CLEANUP-INCOMPLETE-WORK.md",
     "CLEANUP-OPEN-PRS.md"
@@ -20,6 +20,19 @@
       "transcript": "/9c/c56c6d6969/1/full.jsonl",
       "content_hash": "/9c/c56c6d6969/1/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/9c/c56c6d6969/2/metadata.json",
+      "transcript": "/9c/c56c6d6969/2/full.jsonl",
+      "content_hash": "/9c/c56c6d6969/2/content_hash.txt",
+      "prompt": "/9c/c56c6d6969/2/prompt.txt"
     }
-  ]
+  ],
+  "token_usage": {
+    "input_tokens": 20007,
+    "cache_creation_tokens": 108481,
+    "cache_read_tokens": 5210081,
+    "output_tokens": 51615,
+    "api_call_count": 58
+  }
 }
