@@ -1,0 +1,71 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "74df89c42044",
+  "session_id": "3cab000e-0ca4-4114-b487-f3fcb9b043e1",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-03T19:18:45.69774Z",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "df98587ffd55",
+  "token_usage": {
+    "input_tokens": 36676,
+    "cache_creation_tokens": 502332,
+    "cache_read_tokens": 19191170,
+    "output_tokens": 107178,
+    "api_call_count": 176
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01DtstNpR5hRGkSemgNduZEt",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "df98587ffd55",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 17,
+        "end": 18,
+        "entry_ids": [
+          "ffca4776-0b1c-485c-a13e-45cbe9f64459"
+        ],
+        "tool_use_id": "toolu_01DtstNpR5hRGkSemgNduZEt"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DtstNpR5hRGkSemgNduZEt"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-03T19:18:45.648383Z",
+    "agent_lines": 1,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 1,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
