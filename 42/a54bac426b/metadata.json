@@ -3,7 +3,7 @@
   "checkpoint_id": "42a54bac426b",
   "strategy": "manual-commit",
   "branch": "feat/pi-memory-merge-recall-ux",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     ".gitignore"
   ],
@@ -25,13 +25,19 @@
       "transcript": "/42/a54bac426b/2/full.jsonl",
       "content_hash": "/42/a54bac426b/2/content_hash.txt",
       "prompt": "/42/a54bac426b/2/prompt.txt"
+    },
+    {
+      "metadata": "/42/a54bac426b/3/metadata.json",
+      "transcript": "/42/a54bac426b/3/full.jsonl",
+      "content_hash": "/42/a54bac426b/3/content_hash.txt",
+      "prompt": "/42/a54bac426b/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 17271,
-    "cache_creation_tokens": 85775,
-    "cache_read_tokens": 2493045,
-    "output_tokens": 35684,
-    "api_call_count": 35
+    "input_tokens": 21867,
+    "cache_creation_tokens": 130997,
+    "cache_read_tokens": 5440262,
+    "output_tokens": 67963,
+    "api_call_count": 59
   }
 }

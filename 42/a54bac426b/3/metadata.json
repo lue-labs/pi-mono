@@ -1,0 +1,78 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "42a54bac426b",
+  "session_id": "e1e53988-a5ed-4105-977c-0142bf718ee3",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-03T15:17:48.715118Z",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "137e4d3c83d3",
+  "checkpoint_transcript_start": 664,
+  "transcript_lines_at_start": 664,
+  "token_usage": {
+    "input_tokens": 4596,
+    "cache_creation_tokens": 45222,
+    "cache_read_tokens": 2947217,
+    "output_tokens": 32279,
+    "api_call_count": 24
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01FcBKXoEEM9meKf8kvBYxxG",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi-cache-stability"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "137e4d3c83d3",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 23,
+        "end": 24,
+        "entry_ids": [
+          "40cdbcdb-9f07-4891-9f1e-a0b356fd3ee3"
+        ],
+        "tool_use_id": "toolu_01FcBKXoEEM9meKf8kvBYxxG"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01FcBKXoEEM9meKf8kvBYxxG"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi-cache-stability",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 15,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "autoresearch.jsonl": 15
+      }
+    }
+  ]
+}

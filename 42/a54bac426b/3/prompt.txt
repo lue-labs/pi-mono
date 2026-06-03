@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bkc1lcyc9</task-id>
+<tool-use-id>toolu_016GNxJy8MgMzePpFoVUpFVp</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/e1e53988-a5ed-4105-977c-0142bf718ee3/tasks/bkc1lcyc9.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the cache matrix with Anthropic dimension" completed (exit code 0)</summary>
+</task-notification>
