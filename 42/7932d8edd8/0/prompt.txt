@@ -1,0 +1,43 @@
+can you help me testing my autoresearch and pi caching stability
+
+---
+
+ok and check this burst in claude code cli itself:
+ The tool was SendMessage. Exact sequence in 491d18d7:
+
+  line110  Agent          → spawned claude-code-guide sub-agent
+  line159  ToolSearch      query: "select:SendMessage"   ← loads SendMessage's schema
+  line167  SendMessage     → message the sub-agent
+
+  SendMessage is a deferred tool (it's in that big deferred list at session start). You can't call it until its schema is
+  loaded, so ToolSearch({select:SendMessage}) pulled it in — and adding it to the active tools[] array is what invalidated the
+  cache. Proof is in the split: cacheRd=16,142 (≈ your system-prompt segment survived) + cacheWr=90,019 (the tools block and 
+  the entire conversation tail after it got rewritten).
+
+  Is ToolSearch meant to burst the cache?
+
+  Partly yes, and it's a one-time cost — but the magnitude here is a smell.
+
+  - The burst is structural. tools[] sits near the front of the cached prefix, right after the system prompt. Change it and
+  everything after it — the whole conversation — must re-cache. So adding any tool mid-session necessarily rewrites the tail
+  once. Deeper into the session = bigger rewrite (turn 48 = 90k; same call at turn 5 would've been ~30k).
+  - It self-heals. Right after that 90k write, the next turns went back to cacheRd≈106k / cacheWr≈900. One bust, then stable.
+  That's why your net wr/rd stayed 0.10 despite it.
+  - The design intent is to be cheaper than the alternative, not free. ToolSearch exists so you don't carry dozens of MCP
+  schemas in every cached prefix. Net token win — as long as you load a given tool once. Repeated ToolSearch calls for
+  different tools across a session = repeated tail-rewrites = the genuinely bad case.
+  - The ideal it's falling short of: the cache-friendly pattern (what your own pi-cache-stability skill calls out) is
+  tool_reference / provider-native defer_loading — append a reference after the stable prefix so the tail survives. The 90k
+  rewrite says this path mutated the array instead. Whether that's Claude Code not using provider-native deferral, or inherent
+  to how SendMessage is registered, is the one thing I can't see from transcripts alone.
+
+  Bottom line: ToolSearch loading SendMessage caused it. A single load is expected and self-heals. The thing to avoid is many
+  ToolSearch calls deep in a long session — each one rewrites the whole tail from the tools breakpoint down.
+
+✻ Cooked for 1m 15s
+
+❯ has claude code not fixed this?                                                                                             
+
+✻ Leavening… 
+
+how do we resolve this for pi
