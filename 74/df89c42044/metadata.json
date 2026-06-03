@@ -19,6 +19,12 @@
       "transcript": "/74/df89c42044/1/full.jsonl",
       "content_hash": "/74/df89c42044/1/content_hash.txt",
       "prompt": "/74/df89c42044/1/prompt.txt"
+    },
+    {
+      "metadata": "/74/df89c42044/2/metadata.json",
+      "transcript": "/74/df89c42044/2/full.jsonl",
+      "content_hash": "/74/df89c42044/2/content_hash.txt",
+      "prompt": "/74/df89c42044/2/prompt.txt"
     }
   ],
   "token_usage": {
