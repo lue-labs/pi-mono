@@ -3,3 +3,9 @@ can you help me clean up this working project, there's a bunch of uncommitted / 
 ---
 
 is it meant to be gitignored? just checking
+
+---
+
+ok good, anything else?
+
+Sure use entire's default
