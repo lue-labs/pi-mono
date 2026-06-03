@@ -1,1 +1,10 @@
 ok what still needs to be reviewed and merged in to get back to main up to date
+
+---
+
+1. Open PR for this exclude auto research files, auto research should be on its own branch 
+2. Can we review all of these and merge all ready to merge 
+3. Want to merge all the branches I can before I pull main, then the other work needs to be reviewed manually and check if anything is stale 
+
+
+Commit dirty files and open PR this branch then merge stuff that you recommended in that order after review
