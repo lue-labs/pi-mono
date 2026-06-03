@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "763ce82967ce",
+  "session_id": "aa11d4c7-b2f8-45e9-a6f1-a452598b0ff0",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-03T19:22:20.524524Z",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 0,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "e990a90f782f",
+  "checkpoint_transcript_start": 82,
+  "transcript_lines_at_start": 82,
+  "token_usage": {
+    "input_tokens": 288,
+    "cache_creation_tokens": 14515,
+    "cache_read_tokens": 797740,
+    "output_tokens": 8102,
+    "api_call_count": 15
+  },
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
