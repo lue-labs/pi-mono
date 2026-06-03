@@ -1,0 +1,11 @@
+can you help me clean up this working project, there's a bunch of uncommitted / dirty files, and worktrees/ workspaces, can we commit all make a list of incomplete work in a markdown file (e.g. not in an open PR), and then all that have an active PR can be cleaned up and a markdown file that lists current open PR & state, with a note on both markdown files to delete them when finished
+
+---
+
+is it meant to be gitignored? just checking
+
+---
+
+ok good, anything else?
+
+Sure use entire's default
