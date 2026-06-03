@@ -17,3 +17,7 @@ can we pull the origin updates and main updates into this branch?
 ---
 
 yes
+
+---
+
+commit the cleanup docs to this branch
