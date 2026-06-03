@@ -3,7 +3,7 @@
   "checkpoint_id": "2b77d9c68841",
   "strategy": "manual-commit",
   "branch": "feat/pi-memory-merge-recall-ux",
-  "checkpoints_count": 1,
+  "checkpoints_count": 9,
   "files_touched": [
     "extensions/native-tool-overrides/autobg-lifecycle.test.mjs",
     "extensions/native-tool-overrides/index.ts",
@@ -21,13 +21,19 @@
       "transcript": "/2b/77d9c68841/1/full.jsonl",
       "content_hash": "/2b/77d9c68841/1/content_hash.txt",
       "prompt": "/2b/77d9c68841/1/prompt.txt"
+    },
+    {
+      "metadata": "/2b/77d9c68841/2/metadata.json",
+      "transcript": "/2b/77d9c68841/2/full.jsonl",
+      "content_hash": "/2b/77d9c68841/2/content_hash.txt",
+      "prompt": "/2b/77d9c68841/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 36676,
-    "cache_creation_tokens": 502332,
-    "cache_read_tokens": 19191170,
-    "output_tokens": 107178,
-    "api_call_count": 176
+    "input_tokens": 60261,
+    "cache_creation_tokens": 928533,
+    "cache_read_tokens": 28266301,
+    "output_tokens": 189658,
+    "api_call_count": 270
   }
 }

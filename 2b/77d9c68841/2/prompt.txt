@@ -1,0 +1,72 @@
+commit these and then update the autoresearch branches:
+ ⚠️  Caveat — these are pre-Fix-1 numbers. The matrix runs against the branch CLI at
+  .pi-cache-worktrees/pi-mono-fork-cachefix, which is branch autoresearch/cache-stability-20260603 — it does not contain Fix 1
+  (my guard lives in the main pi-mono-fork worktree, unbuilt here; dist cli.js was built 15:46, before the fix). So this is
+  the baseline. To measure Fix 1's impact I need to build a CLI with the fix and re-run for the before/after. Want me to do
+  that?
+
+---
+
+1. verify
+2. ok do we need to commit these?
+
+---
+
+<task-notification>
+<task-id>bsasdwt5g</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/e1e53988-a5ed-4105-977c-0142bf718ee3/tasks/bsasdwt5g.output</output-file>
+<status>completed</status>
+<summary>Background command "Run cache matrix against fixed CLI" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Check the autoresearch cache matrix run (background task bsasdwt5g, log /tmp/autoresearch-postfix.log): read the final METRIC lines and session_usage_rows. If session_usage_rows is 0 (sqlite ERR_DLOPEN_FAILED killed the probes), run `npm rebuild better-sqlite3` in my-pi then re-run `bash autoresearch.sh > /tmp/autoresearch-postfix2.log 2>&1`. Then compare POST-fix numbers vs baseline (anthropic_avg=55.50, sonnet=49.93, opus_switch=62.45).
+
+---
+
+yes do this:
+ For a clean, fully-attributable before/after I'd: npm rebuild better-sqlite3, build a pre-fix CLI (checkout before 4c6351e6)
+  and a post-fix CLI, and run the matrix against each — isolating Fix 1 from the worktree's other affinity commit. Want me to
+  do that controlled pair, or is the Anthropic win enough?
+
+and review this:
+ Honest caveats on the numbers
+
+  1. Codex composite (36.95) isn't comparable — no pre-fix baseline saved, and several codex request-side invariants read 0
+  this run. Some (cross_model_shared_key) going to 0 is plausibly correct under the worktree's "per-model affinity" commit
+  (5d9d12e3); others (cache_affinity_present, canonical_model_id) I'd want to confirm aren't a regression from the affinity
+  threading. These invariants are also largely orthogonal to Fix 1.
+  2. The run had better-sqlite3 ERR_DLOPEN noise (Node 26 ABI mismatch in pi-memory) — data still landed (88 rows), but it's
+  not a pristine environment.
+  3. Bridge attribution — the running launchd bridge wasn't restarted, so the Anthropic gain is the CLI Fix 1 (the bridge
+  marker fix only takes effect on restart).
+
+  For a clean, fully-attributable before/after I'd: npm rebuild better-sqlite3, build a pre-fix CLI (checkout before 4c6351e6)
+  and a post-fix CLI, and run the matrix against each — isolating Fix 1 from the worktree's other affinity commit. Want me to
+  do that controlled pair, or is the Anthropic win enough?
+
+---
+
+<task-notification>
+<task-id>buo3dcd9t</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/e1e53988-a5ed-4105-977c-0142bf718ee3/tasks/buo3dcd9t.output</output-file>
+<status>completed</status>
+<summary>Background command "Run matrix against pre-fix CLI under Node 24" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+and claude bridge models?
+
+---
+
+<task-notification>
+<task-id>bnbpq0vyz</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/e1e53988-a5ed-4105-977c-0142bf718ee3/tasks/bnbpq0vyz.output</output-file>
+<status>completed</status>
+<summary>Background command "Find the matrix runner by its WARN string" completed (exit code 0)</summary>
+</task-notification>
