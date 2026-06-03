@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "2a3490811537",
+  "session_id": "019e8db6-46cb-7401-ac74-63525031e44b",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-03T14:13:02.940924Z",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "autoresearch.sh"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "4d2430b31988",
+  "token_usage": {
+    "input_tokens": 258924,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3233280,
+    "output_tokens": 12003,
+    "api_call_count": 33
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-03T14:13:02.791335Z",
+    "agent_lines": 122,
+    "agent_removed": 41,
+    "human_added": 13,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 137,
+    "total_lines_changed": 178,
+    "agent_percentage": 91.57303370786516,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 39,
+      "user_lines_removed": 2,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "autoresearch.jsonl": 1,
+        "autoresearch.sh": 38
+      },
+      "user_removed_per_file": {
+        "autoresearch.sh": 2
+      }
+    }
+  ]
+}
