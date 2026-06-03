@@ -1,0 +1,144 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "d02341bc7b99",
+  "session_id": "3cab000e-0ca4-4114-b487-f3fcb9b043e1",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-03T19:18:32.443587Z",
+  "branch": "feat/pi-memory-merge-recall-ux",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "extensions/pi-semantic-grep/src/db.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "df98587ffd55",
+  "token_usage": {
+    "input_tokens": 36676,
+    "cache_creation_tokens": 502332,
+    "cache_read_tokens": 19191170,
+    "output_tokens": 107178,
+    "api_call_count": 176
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01DtstNpR5hRGkSemgNduZEt",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "df98587ffd55",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 17,
+        "end": 18,
+        "entry_ids": [
+          "ffca4776-0b1c-485c-a13e-45cbe9f64459"
+        ],
+        "tool_use_id": "toolu_01DtstNpR5hRGkSemgNduZEt"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DtstNpR5hRGkSemgNduZEt"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-03T19:18:32.393167Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 43,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 43,
+    "total_lines_changed": 45,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 16,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "autoresearch.jsonl": 16
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 146,
+      "agent_lines_removed": 309
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 25,
+      "user_lines_removed": 2,
+      "agent_lines_added": 146,
+      "agent_lines_removed": 309,
+      "user_added_per_file": {
+        ".changeset/semantic-grep-lazy-sqlite.md": 5,
+        "extensions/pi-semantic-grep/src/db.ts": 20
+      },
+      "user_removed_per_file": {
+        "extensions/pi-semantic-grep/src/db.ts": 2
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 5,
+      "user_lines_removed": 0,
+      "agent_lines_added": 166,
+      "agent_lines_removed": 311,
+      "user_added_per_file": {
+        ".changeset/semantic-grep-lazy-sqlite.md": 5
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 5,
+      "user_lines_removed": 0,
+      "agent_lines_added": 166,
+      "agent_lines_removed": 311,
+      "user_added_per_file": {
+        ".changeset/semantic-grep-lazy-sqlite.md": 5
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 5,
+      "user_lines_removed": 0,
+      "agent_lines_added": 166,
+      "agent_lines_removed": 311,
+      "user_added_per_file": {
+        ".changeset/semantic-grep-lazy-sqlite.md": 5
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 5,
+      "user_lines_removed": 0,
+      "agent_lines_added": 166,
+      "agent_lines_removed": 311,
+      "user_added_per_file": {
+        ".changeset/semantic-grep-lazy-sqlite.md": 5
+      }
+    }
+  ]
+}
