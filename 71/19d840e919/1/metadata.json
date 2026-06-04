@@ -1,7 +1,9 @@
 {
   "cli_version": "0.7.3",
   "checkpoint_id": "7119d840e919",
+  "session_id": "019e9263-411f-7c21-a821-6b3a86fa6e58",
   "strategy": "manual-commit",
+  "created_at": "2026-06-04T13:00:32.158082Z",
   "branch": "main",
   "checkpoints_count": 0,
   "files_touched": [
@@ -70,25 +72,82 @@
     "extensions/third-party/pi-codex-conversion/vendor/apply-patch/win32-arm64/apply_patch.exe",
     "extensions/third-party/pi-codex-conversion/vendor/apply-patch/win32-x64/apply_patch.exe"
   ],
-  "sessions": [
-    {
-      "metadata": "/71/19d840e919/0/metadata.json",
-      "transcript": "/71/19d840e919/0/full.jsonl",
-      "content_hash": "/71/19d840e919/0/content_hash.txt",
-      "prompt": ""
-    },
-    {
-      "metadata": "/71/19d840e919/1/metadata.json",
-      "transcript": "/71/19d840e919/1/full.jsonl",
-      "content_hash": "/71/19d840e919/1/content_hash.txt",
-      "prompt": "/71/19d840e919/1/prompt.txt"
-    }
-  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "3a8c462fa142",
   "token_usage": {
     "input_tokens": 412598,
     "cache_creation_tokens": 0,
     "cache_read_tokens": 4505216,
     "output_tokens": 29839,
     "api_call_count": 60
-  }
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1148,
+      "user_lines_removed": 540,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".changeset/defer-context-usage.md": 17,
+        "AGENTS.md": 59,
+        "docs/followups/pi-observability-2026-05-21.md": 4,
+        "docs/pi-fork-patch-inventory.md": 1,
+        "docs/pi-runtime-profiles.md": 1,
+        "docs/pi-setup/README.md": 1,
+        "docs/pi-setup/catalog/extensions.yaml": 3,
+        "docs/pi-setup/catalog/packages.yaml": 15,
+        "extensions/advisor/index.ts": 5,
+        "extensions/boot-context-log/index.ts": 4,
+        "extensions/codex-service-tier/index.ts": 10,
+        "extensions/codex-service-tier/test-load.mjs": 47,
+        "extensions/context-usage/src/index.ts": 168,
+        "extensions/context-usage/test.mjs": 28,
+        "extensions/monitor/index.ts": 167,
+        "extensions/notify/index.ts": 6,
+        "extensions/observability/pi-opik-cli-bridge.js": 15,
+        "extensions/pi-semantic-grep/src/index.ts": 12,
+        "extensions/pi-session-todo/src/index.ts": 1,
+        "package-lock.json": 34,
+        "package.json": 2,
+        "packages/my-pi-full-test-profile/package.json": 17,
+        "packages/my-pi-full/package.json": 17,
+        "packages/pi-agent-ui/package.json": 1,
+        "packages/pi-agent-ui/src/extension.test.ts": 74,
+        "packages/pi-agent-ui/src/extension.ts": 439
+      },
+      "user_removed_per_file": {
+        "AGENTS.md": 116,
+        "autoresearch.jsonl": 73,
+        "docs/followups/pi-observability-2026-05-21.md": 4,
+        "docs/pi-runtime-profiles.md": 1,
+        "docs/pi-setup/README.md": 1,
+        "docs/pi-setup/catalog/extensions.yaml": 3,
+        "extensions/advisor/index.ts": 11,
+        "extensions/advisor/package.json": 1,
+        "extensions/boot-context-log/index.ts": 7,
+        "extensions/boot-context-log/package.json": 3,
+        "extensions/codex-service-tier/index.ts": 26,
+        "extensions/codex-service-tier/package.json": 3,
+        "extensions/context-usage/package.json": 1,
+        "extensions/context-usage/src/index.ts": 56,
+        "extensions/context-usage/test.mjs": 21,
+        "extensions/monitor/index.ts": 101,
+        "extensions/monitor/package.json": 3,
+        "extensions/notify/index.ts": 19,
+        "extensions/notify/package.json": 3,
+        "extensions/observability/pi-opik-cli-bridge.js": 2,
+        "extensions/pi-semantic-grep/src/index.ts": 3,
+        "extensions/pi-session-todo/package.json": 3,
+        "extensions/pi-session-todo/src/index.ts": 12,
+        "package-lock.json": 51,
+        "package.json": 2,
+        "packages/my-pi-full-test-profile/package.json": 6,
+        "packages/my-pi-full/package.json": 6,
+        "packages/pi-agent-ui/package.json": 1,
+        "scripts/check-profiles.mjs": 1
+      }
+    }
+  ]
 }

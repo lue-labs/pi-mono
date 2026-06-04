@@ -1,0 +1,12 @@
+can we fix this on pi:
+pi
+Error: Failed to load extension "/Users/luke/.pi/agent/git/github.com/davebcn87/pi-autoresearch/extensions/pi-autoresearch/index.ts": Failed to load extension: ResolveMessage: Cannot find module '@mariozechner/pi-coding-agent' from '/Users/luke/.pi/agent/git/github.com/davebcn87/pi-autoresearch/extensions/pi-autoresearch/index.ts'
+❯ codex
+
+---
+
+do we need a shim for this?
+
+---
+
+fix this properly
