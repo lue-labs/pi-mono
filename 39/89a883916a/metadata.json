@@ -3,7 +3,7 @@
   "checkpoint_id": "3989a883916a",
   "strategy": "manual-commit",
   "branch": "fix/codex-conversion-refresh-cache-patches",
-  "checkpoints_count": 2,
+  "checkpoints_count": 4,
   "files_touched": [
     "extensions/pi-recap/src/index.ts",
     "extensions/pi-recap/test/recap.test.mjs",
@@ -89,13 +89,19 @@
       "transcript": "/39/89a883916a/1/full.jsonl",
       "content_hash": "/39/89a883916a/1/content_hash.txt",
       "prompt": "/39/89a883916a/1/prompt.txt"
+    },
+    {
+      "metadata": "/39/89a883916a/2/metadata.json",
+      "transcript": "/39/89a883916a/2/full.jsonl",
+      "content_hash": "/39/89a883916a/2/content_hash.txt",
+      "prompt": "/39/89a883916a/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 507162,
-    "cache_creation_tokens": 78510,
-    "cache_read_tokens": 8322356,
-    "output_tokens": 50185,
-    "api_call_count": 99
+    "input_tokens": 567726,
+    "cache_creation_tokens": 805624,
+    "cache_read_tokens": 50941369,
+    "output_tokens": 230704,
+    "api_call_count": 484
   }
 }

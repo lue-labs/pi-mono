@@ -1,0 +1,176 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "3989a883916a",
+  "session_id": "e21f679e-bf67-497e-a4c7-519699436bf6",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-05T10:03:20.364214Z",
+  "branch": "fix/codex-conversion-refresh-cache-patches",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "extensions/pi-recap/src/index.ts",
+    "extensions/pi-recap/test/recap.test.mjs",
+    "extensions/third-party/pi-codex-conversion/CHANGELOG.md",
+    "extensions/third-party/pi-codex-conversion/package.json",
+    "extensions/third-party/pi-codex-conversion/src/adapter/config.ts",
+    "extensions/third-party/pi-codex-conversion/src/adapter/provider-request.ts",
+    "extensions/third-party/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts",
+    "extensions/third-party/pi-codex-conversion/tests/cache-fix.test.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "eb7c011733e0",
+  "token_usage": {
+    "input_tokens": 60564,
+    "cache_creation_tokens": 727114,
+    "cache_read_tokens": 42619013,
+    "output_tokens": 180519,
+    "api_call_count": 385
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01X1sVVZsKoTTKgCZriAH93Q",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "eb7c011733e0",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 15,
+        "end": 16,
+        "entry_ids": [
+          "675c7f2f-1211-40fc-98a8-d8783bb34ec1"
+        ],
+        "tool_use_id": "toolu_01X1sVVZsKoTTKgCZriAH93Q"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01X1sVVZsKoTTKgCZriAH93Q"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_017NMmhYcrCdXWWQHaMTnhi2",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "k8s"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "eb7c011733e0",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1454,
+        "end": 1455,
+        "entry_ids": [
+          "5673e07a-a7fa-4901-a725-82caea606568"
+        ],
+        "tool_use_id": "toolu_017NMmhYcrCdXWWQHaMTnhi2"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_017NMmhYcrCdXWWQHaMTnhi2"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: k8s",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-05T10:03:20.248247Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 12383,
+    "human_modified": 1807,
+    "human_removed": 0,
+    "total_committed": 12383,
+    "total_lines_changed": 14276,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 5685,
+      "user_lines_removed": 69,
+      "agent_lines_added": 2313,
+      "agent_lines_removed": 601,
+      "user_added_per_file": {
+        "AGENTS.md": 7,
+        "docs/cache-stability-current-state.md": 104,
+        "docs/cache-strategy.md": 2,
+        "docs/codex-cache-diagnosis-2026-06-04.md": 79,
+        "docs/codex-cache-stability-2026-05-18.md": 24,
+        "docs/goals/goal-2026-06-04T12-39-12Z-48339827.md": 2023,
+        "docs/goals/goal-2026-06-04T14-14-52Z-5758cabb.md": 207,
+        "docs/goals/goal-2026-06-04T14-33-12Z-a69e6dfe.md": 51,
+        "docs/goals/goal-2026-06-04T14-33-36Z-0b9bd7c3.md": 52,
+        "docs/pi-fork-patch-inventory.md": 3,
+        "docs/pi-source-changes-to-live-pi.md": 132,
+        "docs/pi-stack-inventory.md": 6,
+        "docs/release-engineering.md": 3,
+        "docs/tokenjuice-read-recovery-diagnosis-2026-06-04.md": 31,
+        "extensions/monitor/index.ts": 12,
+        "extensions/native-tool-overrides/index.ts": 130,
+        "extensions/native-tool-overrides/test-load.mjs": 83,
+        "extensions/pi-memory/README.md": 1,
+        "extensions/pi-memory/src/config.ts": 4,
+        "extensions/pi-memory/src/util.ts": 25,
+        "extensions/pi-memory/test/unit.test.ts": 38,
+        "extensions/pi-recap/src/index.ts": 15,
+        "extensions/pi-recap/test/recap.test.mjs": 3,
+        "extensions/third-party/pi-codex-conversion/CHANGELOG.md": 216,
+        "extensions/third-party/pi-codex-conversion/package.json": 83,
+        "extensions/third-party/pi-codex-conversion/src/adapter/config.ts": 142,
+        "extensions/third-party/pi-codex-conversion/src/adapter/provider-request.ts": 28,
+        "extensions/third-party/pi-codex-conversion/src/providers/openai-codex-custom-provider.ts": 2070,
+        "extensions/third-party/pi-codex-conversion/tests/cache-fix.test.mjs": 44,
+        "extensions/tokenjuice/package.json": 3,
+        "extensions/tokenjuice/test-load.mjs": 59,
+        "package.json": 2,
+        "scripts/check-deferred-tool-contracts.mjs": 3
+      },
+      "user_removed_per_file": {
+        "AGENTS.md": 5,
+        "docs/codex-cache-diagnosis-2026-06-04.md": 3,
+        "docs/codex-cache-stability-2026-05-18.md": 1,
+        "docs/pi-fork-patch-inventory.md": 1,
+        "docs/pi-stack-inventory.md": 6,
+        "docs/release-engineering.md": 1,
+        "extensions/monitor/index.ts": 6,
+        "extensions/native-tool-overrides/index.ts": 19,
+        "extensions/native-tool-overrides/test-load.mjs": 4,
+        "extensions/pi-memory/README.md": 1,
+        "extensions/pi-memory/src/util.ts": 7,
+        "extensions/pi-recap/src/index.ts": 8,
+        "extensions/pi-recap/test/recap.test.mjs": 2,
+        "package.json": 5
+      }
+    }
+  ]
+}
