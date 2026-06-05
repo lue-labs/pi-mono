@@ -1,0 +1,5 @@
+when claude or codex use git worktrees, where does it create them?
+
+---
+
+and what instructions does codex and claude have for git worktrees
