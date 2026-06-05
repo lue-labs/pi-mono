@@ -2273,14 +2273,21 @@ export class InteractiveMode {
 		) {
 			const direction = matchesKey(data, "up") ? "prev" : "next";
 			if (!this.selectedExtensionFooterId) {
-				this.setSelectedExtensionFooterId(direction === "next" ? ids[0] : ids[ids.length - 1]);
+				if (direction === "next") this.setSelectedExtensionFooterId(ids[0]);
+				else this.setSelectedExtensionFooterId(undefined);
 				return true;
 			}
 			const index = ids.indexOf(this.selectedExtensionFooterId);
-			const offset = direction === "next" ? 1 : -1;
-			const nextIndex =
-				index === -1 ? (direction === "next" ? 0 : ids.length - 1) : (index + offset + ids.length) % ids.length;
-			this.setSelectedExtensionFooterId(ids[nextIndex]);
+			if (index === -1) {
+				this.setSelectedExtensionFooterId(direction === "next" ? ids[0] : undefined);
+				return true;
+			}
+			if (direction === "prev" && index === 0) {
+				this.setSelectedExtensionFooterId(undefined);
+				return true;
+			}
+			if (direction === "next" && index === ids.length - 1) return true;
+			this.setSelectedExtensionFooterId(ids[index + (direction === "next" ? 1 : -1)]);
 			return true;
 		}
 		if ((matchesKey(data, "enter") || data === "\n") && this.getFooterNavEditorText().trim().length === 0) {
