@@ -3,7 +3,7 @@
   "checkpoint_id": "7b77c96acfac",
   "strategy": "manual-commit",
   "branch": "fix/codex-conversion-refresh-cache-patches",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
     "extensions/third-party/pi-codex-conversion/src/index.ts"
   ],
@@ -13,6 +13,19 @@
       "transcript": "/7b/77c96acfac/0/full.jsonl",
       "content_hash": "/7b/77c96acfac/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/7b/77c96acfac/1/metadata.json",
+      "transcript": "/7b/77c96acfac/1/full.jsonl",
+      "content_hash": "/7b/77c96acfac/1/content_hash.txt",
+      "prompt": "/7b/77c96acfac/1/prompt.txt"
     }
-  ]
+  ],
+  "token_usage": {
+    "input_tokens": 501512,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7451520,
+    "output_tokens": 41871,
+    "api_call_count": 78
+  }
 }
