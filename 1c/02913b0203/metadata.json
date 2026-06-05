@@ -3,21 +3,29 @@
   "checkpoint_id": "1c02913b0203",
   "strategy": "manual-commit",
   "branch": "fix/codex-conversion-refresh-cache-patches",
-  "checkpoints_count": 1,
-  "files_touched": null,
+  "checkpoints_count": 2,
+  "files_touched": [
+    "package-lock.json"
+  ],
   "sessions": [
     {
       "metadata": "/1c/02913b0203/0/metadata.json",
       "transcript": "/1c/02913b0203/0/full.jsonl",
       "content_hash": "/1c/02913b0203/0/content_hash.txt",
       "prompt": "/1c/02913b0203/0/prompt.txt"
+    },
+    {
+      "metadata": "/1c/02913b0203/1/metadata.json",
+      "transcript": "/1c/02913b0203/1/full.jsonl",
+      "content_hash": "/1c/02913b0203/1/content_hash.txt",
+      "prompt": "/1c/02913b0203/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 501512,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 7451520,
-    "output_tokens": 41871,
-    "api_call_count": 78
+    "input_tokens": 562076,
+    "cache_creation_tokens": 727114,
+    "cache_read_tokens": 50070533,
+    "output_tokens": 222390,
+    "api_call_count": 463
   }
 }

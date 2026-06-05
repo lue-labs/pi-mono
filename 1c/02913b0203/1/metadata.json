@@ -1,0 +1,102 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "1c02913b0203",
+  "session_id": "e21f679e-bf67-497e-a4c7-519699436bf6",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-05T11:02:25.494471Z",
+  "branch": "fix/codex-conversion-refresh-cache-patches",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package-lock.json"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "eb7c011733e0",
+  "token_usage": {
+    "input_tokens": 60564,
+    "cache_creation_tokens": 727114,
+    "cache_read_tokens": 42619013,
+    "output_tokens": 180519,
+    "api_call_count": 385
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01X1sVVZsKoTTKgCZriAH93Q",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "eb7c011733e0",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 15,
+        "end": 16,
+        "entry_ids": [
+          "675c7f2f-1211-40fc-98a8-d8783bb34ec1"
+        ],
+        "tool_use_id": "toolu_01X1sVVZsKoTTKgCZriAH93Q"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01X1sVVZsKoTTKgCZriAH93Q"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_017NMmhYcrCdXWWQHaMTnhi2",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "k8s"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "eb7c011733e0",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1454,
+        "end": 1455,
+        "entry_ids": [
+          "5673e07a-a7fa-4901-a725-82caea606568"
+        ],
+        "tool_use_id": "toolu_017NMmhYcrCdXWWQHaMTnhi2"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_017NMmhYcrCdXWWQHaMTnhi2"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: k8s",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-05T11:02:25.407934Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 3168,
+    "human_modified": 54,
+    "human_removed": 0,
+    "total_committed": 3168,
+    "total_lines_changed": 3222,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
