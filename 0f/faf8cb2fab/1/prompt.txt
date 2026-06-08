@@ -519,3 +519,7 @@ A lot of this is about telling the model how to behave, how to think and act, wh
 ... (truncated 61917 chars, full result in /private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/wvcb6lw47.output)</result>
 <usage><agent_count>6</agent_count><subagent_tokens>211359</subagent_tokens><tool_uses>108</tool_uses><duration_ms>378606</duration_ms></usage>
 </task-notification>
+
+---
+
+/goal can we use the updated context intelligence and the relevant guidance and skills and findings from this session to improve our base context thats loaded into each sesssion / system prompt / first message, recall etc, audit first, check cross harness touch points, check static vs dynamic boundaries, skills and tools in pi, and claude code cli and codex, and the static instructions, skills, AGENTS.md, imported items, and lets work on a new and improved version, while still version controlling the previous versions in case we want to revert, you can do this over night and I will stop other sessions so there is no conflict
