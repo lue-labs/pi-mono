@@ -3,7 +3,7 @@
   "checkpoint_id": "0ffaf8cb2fab",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 0,
+  "checkpoints_count": 9,
   "files_touched": [
     "docs/base-context-overhaul/2026-06-08/snapshots/claude/settings.json",
     "docs/base-context-overhaul/2026-06-08/snapshots/codex/AGENTS.md",
@@ -59,13 +59,19 @@
       "transcript": "/0f/faf8cb2fab/0/full.jsonl",
       "content_hash": "/0f/faf8cb2fab/0/content_hash.txt",
       "prompt": "/0f/faf8cb2fab/0/prompt.txt"
+    },
+    {
+      "metadata": "/0f/faf8cb2fab/1/metadata.json",
+      "transcript": "/0f/faf8cb2fab/1/full.jsonl",
+      "content_hash": "/0f/faf8cb2fab/1/content_hash.txt",
+      "prompt": "/0f/faf8cb2fab/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 233707,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 1669632,
-    "output_tokens": 16724,
-    "api_call_count": 25
+    "input_tokens": 340419,
+    "cache_creation_tokens": 1662853,
+    "cache_read_tokens": 70591452,
+    "output_tokens": 700757,
+    "api_call_count": 459
   }
 }
