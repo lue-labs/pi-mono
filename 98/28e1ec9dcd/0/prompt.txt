@@ -1,0 +1,5 @@
+/effect
+
+---
+
+/goal read this goal and get it done: goal-tmp.md
