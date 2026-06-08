@@ -1,0 +1,80 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "1642964e8c22",
+  "session_id": "2fe1ed78-15ee-43fc-b33a-ef761ab34c23",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-08T12:19:15.515743Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/tool-search/src/index.ts",
+    "extensions/tool-search/test-load.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-4-6",
+  "turn_id": "83a47cac408f",
+  "token_usage": {
+    "input_tokens": 6071,
+    "cache_creation_tokens": 60953,
+    "cache_read_tokens": 115710,
+    "output_tokens": 4880,
+    "api_call_count": 4
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-08T12:19:15.500146Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 78,
+    "human_modified": 13,
+    "human_removed": 0,
+    "total_committed": 78,
+    "total_lines_changed": 91,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 711,
+      "user_lines_removed": 151,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "extensions/context-usage/src/index.ts": 9,
+        "extensions/context-usage/test.mjs": 7,
+        "extensions/monitor/index.ts": 70,
+        "extensions/observability/pi-opik-cli-bridge.js": 90,
+        "extensions/pi-goal/src/commands.ts": 13,
+        "extensions/pi-goal/src/recovery.ts": 22,
+        "extensions/skill-loader/src/index.ts": 19,
+        "extensions/skill-loader/test-load.mjs": 30,
+        "extensions/tokenjuice/CHANGELOG.md": 1,
+        "extensions/tokenjuice/README.md": 4,
+        "extensions/tokenjuice/tokenjuice.generated.js": 214,
+        "extensions/tokenjuice/tool-result-hook.test.mjs": 113,
+        "extensions/tool-search/src/index.ts": 7,
+        "extensions/tool-search/test-load.mjs": 12,
+        "package-lock.json": 6,
+        "test/opik-cli-bridge-lifecycle.test.mjs": 94
+      },
+      "user_removed_per_file": {
+        "autoresearch.jsonl": 73,
+        "extensions/context-usage/src/index.ts": 8,
+        "extensions/context-usage/test.mjs": 2,
+        "extensions/monitor/index.ts": 8,
+        "extensions/observability/pi-opik-cli-bridge.js": 7,
+        "extensions/pi-goal/src/commands.ts": 2,
+        "extensions/pi-goal/src/recovery.ts": 2,
+        "extensions/skill-loader/src/index.ts": 4,
+        "extensions/skill-loader/test-load.mjs": 2,
+        "extensions/tokenjuice/README.md": 2,
+        "extensions/tokenjuice/tokenjuice.generated.js": 37,
+        "extensions/tool-search/src/index.ts": 1,
+        "package-lock.json": 3
+      }
+    }
+  ]
+}

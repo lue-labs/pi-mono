@@ -1,0 +1,3 @@
+/goal can we search online around this, and what boris from anthropic has mentioned about loops that prompt his agents:            
+                                                                                                                              
+ Here’s your monthly reminder that you shouldn’t be prompting coding agents anymore.         from peter steinberger and boris from anthropic, search online and check recent video transcripts around this, how do I loop prompt or get my agents to prompt my agents in a loop?
