@@ -550,3 +550,153 @@ do we need to update the set goal then?
 ... (truncated 72631 chars, full result in /private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/wqpx0uqwy.output)</result>
 <usage><agent_count>5</agent_count><subagent_tokens>189683</subagent_tokens><tool_uses>124</tool_uses><duration_ms>569677</duration_ms></usage>
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>a8024c7c72fc1bf32</task-id>
+<tool-use-id>toolu_01HmMeG5GmAkMM2hA7KagD7W</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/a8024c7c72fc1bf32.output</output-file>
+<status>completed</status>
+<summary>Agent "Audit skills/tools base-context cost" completed</summary>
+<result>I have all the data needed. Here is the strict JSON output:
+
+```json
+{
+  "claudeCode": {
+    "skillCount": 86,
+    "totalDescriptionChars": 13426,
+    "estListingTokens": 150,
+    "skillListingBudgetFraction": "0.002",
+    "notes": {
+      "visibleInListing": 49,
+      "hiddenUserInvocableOnly": 37,
+      "budgetAt200kCtx": "400 tokens / ~1600 chars",
+      "fullListingChars": 8999,
+      "budgetEnforcement": "8999 chars &gt;&gt; 1600 char budget; CC progressively halves desc cap (250→125→62→31→20→names-only); likely renders names-only (~600 chars / ~150 tokens) for the 49 visible skills"
+    },
+    "top10BloatedDescriptions": [
+      {
+        "skill": "asset-of-value",
+        "chars": 431,
+        "why": "Laundry list of 15+ trigger keywords (AOV, Pavlo Phitidis, Aurik, owner/founder dependency…) — enumerated junk, not a trigger sentence"
+      },
+      {
+        "skill": "planning",
+        "chars": 341,
+        "why": "Parent skill listing child trigger hints inline in the description; that's the router's job, not the description's"
+      },
+      {
+        "skill": "feature-flag-development",
+        "chars": 334,
+        "why": "Workflow prose (safe defaults, rollout cohorts, telemetry…) belongs inside the skill, not in the trigger"
+      },
+      {
+        "skill": "spec-to-shipped-goal",
+        "chars": 333,
+        "why": "Full workflow pipeline summary (grilled spec → PRD → vertical issues → /goal…) is skill body content, not a trigger"
+      },
+      {
+        "skill": "grill-to-ship-workflow",
+        "chars": 315,
+        "why": "Repeats the same pipeline summary as spec-to-shipped-goal with different wording; likely describes when-to-use but buries it in process detail"
+      },
+      {
+        "skill": "agent-native-hardening",
+        "chars": 295,
+        "why": "Use-when covers audit/score/refactor/review — four distinct entry points blurred together; should be one sentence + child refs"
+      },
+      {
+        "skill": "matt-pocock",
+        "chars": 288,
+        "why": "Parent that enumerates all 12 child ref names in the description — child refs should be discovered via skill_search, not pre-listed in the trigger"
+      },
+      {
+        "skill": "testing",
+        "chars": 268,
+        "why": "Parent enumerating child trigger hints (TDD, red-green, test seams, mocks…) in the description — same pattern as planning/matt-pocock"
+      },
+      {
+        "skill": "utilities",
+        "chars": 261,
+        "why": "Parent listing child tool categories (1password, architecture-diagram, create-cli…) verbatim in description — router antipattern"
+      },
+      {
+        "skill": "hunk-review",
+        "chars": 248,
+        "why": "Implementation detail ('Inspects review focus, navigates files and hunks, posts comments, resolves threads') in trigger — these are body, not use-when"
+      }
+    ],
+    "contextInjectingHooks": [
+      "SessionStart: entire-check.sh (prints reminder if Entire not enabled — non-blocking stdout, injected into context)",
+      "SessionStart: agenticmail/mail-hook.js (unknown payload, runs on every session start)",
+      "SessionStart: codedb-warmup.sh (warms codedb — likely no stdout injection)",
+      "UserPromptSubmit: opik-prompt.sh (runs opik-cli-bridge — may inject observability context)",
+      "UserPromptSubmit: orca claude-hook.sh (Orca agent state — injected when ORCA_AGENT_HOOK_PORT is set)"
+    ]
+  },
+  "pi": {
+    "availableSkillsMechanism": "name+trigger (minimal mode: single-line '- N skills available. Use skill_search…' — no per-skill entries at all; catalogMode defaults to 'minimal')",
+    "availableSkillsApproxTokens": 125,
+    "deferredToolsApproxTokens": 110,
+    "eagerToolCount": 3,
+    "eagerToolNames": ["write_stdin", "exec_command", "apply_patch"],
+    "note": "The 3 eager tools are all in the third-party extension (Codex-bridge native tools). All 12 my-pi extension tools carry deferLoading:true. Pi core registers zero eager tools. The three third-party tools (write_stdin, exec_command, apply_patch) are the Claude Code native tool bridges — they need to be eager since they substitute for core read/write/bash.",
+    "eagerToolsThatShouldDefer": [],
+    "byteStable": true,
+    "notes": {
+      "minimalModeBlock": "~502 chars / ~125 tokens — a single line plus instructions; no per-skill descriptions loaded into prompt",
+      "deferredBlock": "~440 chars / ~110 tokens — a 2-line hint block; zero per-tool descriptions emitted",
+      "totalBaseContextFromSkillsAndTools": "~235 tokens",
+      "catalogMode": "minimal (DEFAULT; no explicit setting in ~/.pi/agent/settings.json)"
+    }
+  },
+  "codex": {
+    "promptsAreOnDemand": true,
+    "hasSkills": false,
+    "note": "~/.codex/prompts/*.md are slash-commands (acceptpr, fixissue, handoff, landpr, pickup) — user-invoked only, not auto-loaded into any session base context. Codex has no skill-loader mechanism; there is no ~/.codex/skills/ directory. Only per-project AGENTS.md and config.toml instructions form base context."
+  },
+  "topRecommendations": [
+    {
+      "harness": "claudeCode",
+      "change": "Trim the 10 bloated visible-skill descriptions to ≤80 chars each (trigger phrase only). The budget cap already forces names-only rendering at 200k context, but trimming descriptions ensures they stay useful at smaller context windows and reduces wasted chars in all cases.",
+      "estSavingsTokens": 450,
+      "risk": "low"
+    },
+    {
+      "harness": "claudeCode",
+      "change": "Audit the 4 parent skills (planning, matt-pocock, testing, utilities) that enumerate child ref names in their descriptions — strip child lists from descriptions, let skill_search handle discovery. Description should say 'Planning workflows' not list 12 child names.",
+      "estSavingsTokens": 200,
+      "risk": "low"
+    },
+    {
+      "harness": "claudeCode",
+      "change": "Review SessionStart hook: agenticmail/mail-hook.js — unknown payload runs on every session. If it injects context, scope it to mail-related projects only (check for AGENTS.md presence or repo name guard).",
+      "estSavingsTokens": "unknown — audit needed",
+      "risk": "med"
+    },
+    {
+      "harness": "claudeCode",
+      "change": "Move grill-to-ship-workflow and spec-to-shipped-goal to user-invocable-only (they are already workflow invocations, not ambient triggers). They are never auto-triggered by project context — they belong in the hidden set like code-review.",
+      "estSavingsTokens": 80,
+      "risk": "low"
+    },
+    {
+      "harness": "pi",
+      "change": "No action needed — minimal catalogMode is already optimal (~125 tokens for the full skills block). The deferred-tools block is also minimal (~110 tokens). Pi's base context cost from skills+tools surface is ~235 tokens total, which is excellent.",
+      "estSavingsTokens": 0,
+      "risk": "low"
+    }
+  ]
+}
+```
+
+**Key findings summary:**
+
+- **Claude Code**: 86 skills total; 37 are `user-invocable-only` (hidden from listing), leaving 49 visible. Full visible listing is 8,999 chars but the 0.2% budget at 200k context = ~1,600 chars, so CC almost certainly renders names-only (~150 tokens). The real cost is the 10 bloated descriptions that waste chars at smaller context windows. No per-description content survives into the prompt at full 200k context. Hooks of note: agenticmail's SessionStart hook runs on every session with unknown payload.
+
+- **Pi**: Already optimal. `catalogMode: minimal` emits a single-line `- N skills available...` instead of any per-skill entries (~125 tokens). The deferred-tools block is 2 lines (~110 tokens). Total skills+tools base context surface: ~235 tokens. The 3 eager tools (write_stdin, exec_command, apply_patch) are the Codex-bridge native tools and must be eager — nothing to defer there.
+
+- **Codex**: `~/.codex/prompts/*.md` are slash-commands only (acceptpr, fixissue, handoff, landpr, pickup). Not auto-loaded. No skill system exists for Codex.</result>
+<usage><subagent_tokens>50651</subagent_tokens><tool_uses>33</tool_uses><duration_ms>306440</duration_ms></usage>
+</task-notification>
