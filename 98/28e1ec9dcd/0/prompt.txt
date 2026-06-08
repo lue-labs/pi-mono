@@ -3,3 +3,7 @@
 ---
 
 /goal read this goal and get it done: goal-tmp.md
+
+---
+
+yes commit and lets then look into the next finding
