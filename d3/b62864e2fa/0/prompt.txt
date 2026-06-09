@@ -1,0 +1,17 @@
+<task-notification>
+<task-id>bds5cwsou</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/13d5cedf-afa2-4368-b690-1d708a55287f/tasks/bds5cwsou.output</output-file>
+<status>completed</status>
+<summary>Background command "Relaunch oracle consult with inline files" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b1fskv6o5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/13d5cedf-afa2-4368-b690-1d708a55287f/tasks/b1fskv6o5.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for PR 140+141 CI to settle" completed (exit code 0)</summary>
+</task-notification>
