@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "5b9a9bc1b52d",
+  "session_id": "d4f07a07-0b6b-4755-b6a3-b583d0042714",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T07:12:11.15774Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/observability/pi-opik-cli-bridge.js"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "d3ce58e88165",
+  "checkpoint_transcript_start": 15,
+  "transcript_lines_at_start": 15,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T07:12:11.154294Z",
+    "agent_lines": 90,
+    "agent_removed": 7,
+    "human_added": 94,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 184,
+    "total_lines_changed": 191,
+    "agent_percentage": 50.78534031413613,
+    "metric_version": 2
+  }
+}
