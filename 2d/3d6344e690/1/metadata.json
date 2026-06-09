@@ -1,0 +1,57 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "2d3d6344e690",
+  "session_id": "4474aee7-afd5-4d7f-a4f1-1cf492e644dc",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T07:17:19.712662Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "2c4dd5b5349d",
+  "token_usage": {
+    "input_tokens": 63291,
+    "cache_creation_tokens": 1071136,
+    "cache_read_tokens": 35089078,
+    "output_tokens": 391525,
+    "api_call_count": 183
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Enk4M2z6pSF4sdvkvxgVhr",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "2c4dd5b5349d",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 718,
+        "end": 719,
+        "entry_ids": [
+          "22063bd5-02cd-43fd-8029-65ea9c4455ff"
+        ],
+        "tool_use_id": "toolu_01Enk4M2z6pSF4sdvkvxgVhr"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Enk4M2z6pSF4sdvkvxgVhr"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 7
+  }
+}
