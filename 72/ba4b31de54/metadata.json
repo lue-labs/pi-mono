@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "72ba4b31de54",
+  "strategy": "manual-commit",
+  "branch": "fix/peer-ranges-079",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/pi-worktree/package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/72/ba4b31de54/0/metadata.json",
+      "transcript": "/72/ba4b31de54/0/full.jsonl",
+      "content_hash": "/72/ba4b31de54/0/content_hash.txt",
+      "prompt": "/72/ba4b31de54/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 133980,
+    "cache_creation_tokens": 2135669,
+    "cache_read_tokens": 92159531,
+    "output_tokens": 920766,
+    "api_call_count": 561
+  }
+}
