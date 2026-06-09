@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "a61bf6c8a127",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a6/1bf6c8a127/0/metadata.json",
+      "transcript": "/a6/1bf6c8a127/0/full.jsonl",
+      "content_hash": "/a6/1bf6c8a127/0/content_hash.txt",
+      "prompt": "/a6/1bf6c8a127/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 501512,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7451520,
+    "output_tokens": 41871,
+    "api_call_count": 78
+  }
+}
