@@ -1,0 +1,84 @@
+/harness-loop use /goal sub session to complete this work:
+
+ Ok so based on this post:
+
+"Guys, if this doesn't illustrate why you should give your agent their native tools, I don't know what does. I asked it to open one of the pages from web search results, and it NEARLY correctly "just guessed" what the parameter is supposed to be - this is calling a CLI, not a tool defined in json schema"
+
+[Image #1]
+
+can we update my tools / functions that are shaped around Claude Code CLI, to be 1:1 in terms of naming and parameter usage, but put these potentially into a single pi extension called pi-claude-conversion, with the same concept as pi-codex-conversion extension
+
+And I think we need to focus on having the inherit names of the native tools and the arguments as the models are trained on this, but with my improved functionality and caching stability. Focusing on just OpenAI provider (openai-codex) and Anthropic (claude-bridge) providers
+
+
+Acknowledging that some of the same tools don't have the same shape and parameters between claude code cli and codex cli, so lets first explore and note the tools and params of each, and then see where the cross over is, and then which are unique / different, then work on making the tools that have overlap or are the same, to have a switch based on which provider is selected for Pi
+
+This is purely for my pi extensions and pi-mono-fork
+
+there is another claude code cli session running that is doing a big set of work on my-pi and pi-mono-fork so just liase and align with that session so there is not overlap / clobbering of file changes, ideally we work on a worktree, however maybe we should wait until that session is complete as there might be breaking changes that will affect our work, session name in my-pi dir: "pi-claude-code-parity"
+
+and we should work in worktrees, the main issue is as the changes are made in this sibling session we want to maintain / align with the changes
+
+---
+
+/harness-loop use /goal sub session to complete this work:
+
+   Ok so based on this post:
+  
+  "Guys, if this doesn't illustrate why you should give your agent their native tools, I don't know what does. I asked it to
+  open one of the pages from web search results, and it NEARLY correctly "just guessed" what the parameter is supposed to
+  be - this is calling a CLI, not a tool defined in json schema"
+
+  [Image #1]
+
+  can we update my tools / functions that are shaped around Claude Code CLI, to be 1:1 in terms of naming and parameter
+  usage, but put these potentially into a single pi extension called pi-claude-conversion, with the same concept as
+  pi-codex-conversion extension
+
+  And I think we need to focus on having the inherit names of the native tools and the arguments as the models are trained
+  on this, but with my improved functionality and caching stability. Focusing on just OpenAI provider (openai-codex) and
+  Anthropic (claude-bridge) providers
+
+
+  Acknowledging that some of the same tools don't have the same shape and parameters between claude code cli and codex cli,
+  so lets first explore and note the tools and params of each, and then see where the cross over is, and then which are
+  unique / different, then work on making the tools that have overlap or are the same, to have a switch based on which
+  provider is selected for Pi
+
+  This is purely for my pi extensions and pi-mono-fork
+
+  there is another claude code cli session running that is doing a big set of work on my-pi and pi-mono-fork so just liase
+  and align with that session so there is not overlap / clobbering of file changes, ideally we work on a worktree, however
+  maybe we should wait until that session is complete as there might be breaking changes that will affect our work, session
+  name in my-pi dir: "pi-claude-code-parity"
+
+  and we should work in worktrees, the main issue is as the changes are made in this sibling session we want to maintain /
+  align with the changes
+
+but first check the other sessions in pi and claude code cli that are working in this session so we aren't clobbering / clashing (mainly the claude code cli session active in my-pi doing the merge's / PR's
+
+---
+
+so my rusty session crashed and pi won't open, so find all my sessions that went idle today that were using gpt-5.5 in pi
+
+---
+
+just make sure we don't clash with other session, wait if you need to for the other claude code cli session to complete
+
+---
+
+or liase / communicate with it
+
+---
+
+<task-notification>
+<task-id>brkfk41r1</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/brkfk41r1.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch pr-updates-sync session transcript until idle &gt;10min" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+autoreview and babysit / merge prs
