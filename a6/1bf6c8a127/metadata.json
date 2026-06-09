@@ -3,7 +3,7 @@
   "checkpoint_id": "a61bf6c8a127",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 10,
+  "checkpoints_count": 11,
   "files_touched": [
     "docs/pi-fork-patch-inventory.md"
   ],
@@ -31,13 +31,19 @@
       "transcript": "/a6/1bf6c8a127/3/full.jsonl",
       "content_hash": "/a6/1bf6c8a127/3/content_hash.txt",
       "prompt": "/a6/1bf6c8a127/3/prompt.txt"
+    },
+    {
+      "metadata": "/a6/1bf6c8a127/4/metadata.json",
+      "transcript": "/a6/1bf6c8a127/4/full.jsonl",
+      "content_hash": "/a6/1bf6c8a127/4/content_hash.txt",
+      "prompt": "/a6/1bf6c8a127/4/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 935041,
-    "cache_creation_tokens": 3005737,
+    "input_tokens": 935051,
+    "cache_creation_tokens": 3039949,
     "cache_read_tokens": 118883812,
-    "output_tokens": 1196284,
-    "api_call_count": 763
+    "output_tokens": 1196347,
+    "api_call_count": 764
   }
 }
