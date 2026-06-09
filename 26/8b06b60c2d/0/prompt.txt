@@ -1,0 +1,89 @@
+/harness-loop /goal use goals and workflows and explore and document the key efficiencies and effectiveness of this session in claude code cli: name: pi-optimisation and then check at least 30-50 of my recent pi sessions to compare, and then look at the system prompt, AGENTS.md, TOOLS.md, all imported/loaded context for those sessions, and workflows and tools and skills and see what is the missing gap to get Pi to behave and use tools and split work up via workflows and sub agents / Agent tools, and parallel tool calls, efficient read functions, efficient file updates, efficient search , efficient context usage and token usage, and get my pi to work as well, if not better with my cache stability, cache sharing across cwd where possible, stable cache boundaries and dynamic boundaries, memory tools and dreaming (any improvements available there), and my custom extensions and tools and skills that can make my pi harness better than native claude code cli or codex cli, do this in a new worktree, and keep artefacts that I can version control and commit and reference, use web search tools and web fetch tools to find online data (most recent for GPT-5.5 and Opus4.8 (not just clickbait trends) rather focus on top engineers, kaparthy, boris from anthropic, Thariq from anthropic, matt pocock, peter steinberger, ryan lopolo from openai, geoffrey huntley, dex from humanlayer, other humanlayer engineers, some of the cloudflare engineers, the guy shipping good stuff from Vercel who created zero lang etc.
+
+---
+
+do a full versioned implementation, with the ability to roll back if needed, follow my-pi AGENTS.md guidelines and pi-mono-fork guidelines and use hooks and filters where possible to make most of this work run via extensions in pi where possible instead of massive rewrites of the core, and use the opportunity to reduce complexity and simplify and consolidate where possible
+
+---
+
+/harness-loop
+
+---
+
+/loop use goals and workflows and explore and document the key efficiencies and effectiveness of this session 
+in claude code cli: name: pi-optimisation and then check at least 30-50 of my recent pi sessions to compare, and then look    
+at the system prompt, AGENTS.md, TOOLS.md, all imported/loaded context for those sessions, and workflows and tools and skills 
+and see what is the missing gap to get Pi to behave and use tools and split work up via workflows and sub agents / Agent      
+tools, and parallel tool calls, efficient read functions, efficient file updates, efficient search , efficient context usage  
+and token usage, and get my pi to work as well, if not better with my cache stability, cache sharing across cwd where         
+possible, stable cache boundaries and dynamic boundaries, memory tools and dreaming (any improvements available there), and   
+my custom extensions and tools and skills that can make my pi harness better than native claude code cli or codex cli, do     
+this in a new worktree, and keep artefacts that I can version control and commit and reference, use web search tools and web  
+fetch tools to find online data (most recent for GPT-5.5 and Opus4.8 (not just clickbait trends) rather focus on top          
+engineers, kaparthy, boris from anthropic, Thariq from anthropic, matt pocock, peter steinberger, ryan lopolo from openai,    
+geoffrey huntley, dex from humanlayer, other humanlayer engineers, some of the cloudflare engineers, the guy shipping good    
+stuff from Vercel who created zero lang etc.
+
+---
+
+/loop Continue the pi-optimisation run. Canonical state: docs/pi-harness-optimisation/2026-06-08/ASKS.md in worktree /Users/luke/Projects/personal/my-pi-pi-optimisation (branch pi-optimisation, anchor 419a1c4). Next = Phase 1 integration (priority-1): inspect sync/0.79.0 + feature/server-tool-render worktree git states, run full gates, land; drive PR #135 to merge; commit/park dirty work (my-pi/agent-scripts/pi-mono-fork); clean stale worktrees/branches; merge PRs #114/#99/#62 via clawpatch+autoreview+codex adversarial. Surface go/no-go before any push-to-main / binary rebuild / PR merge. Then: take over base-context staged items (V-1 profile-base.ts:43, V-2, agenticmail-injection removal, clickclack removal, D-1, P-1, Codex C-2/3/4, S7), then synthesis (oracle) + mechanics implementation + dogfood, then the skills/tools/extensions inventory+cleanup report. Background research workflow wf_0ebc3f01-6d2 feeds the gap analysis + inventory. Keep ASKS.md updated as items complete/block.
+
+---
+
+<task-notification>
+<task-id>wlszpp9wn</task-id>
+<tool-use-id>toolu_01MJHEuYUtS37GMm7p4jUGs8</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/4474aee7-afd5-4d7f-a4f1-1cf492e644dc/tasks/wlszpp9wn.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Synthesize pi-optimisation research into gap-analysis + prioritized change-spec, consolidated inventory/cleanup report, and this-session-vs-Pi harness comparison" completed</summary>
+<result>{"artifacts":[{"artifactFile":"/Users/luke/Projects/personal/my-pi-pi-optimisation/docs/pi-harness-optimisation/2026-06-08/GAP-ANALYSIS.md","summary":"Both deliverables written. GAP-ANALYSIS.md covers all 9 mechanics dimensions with Pi current state, gaps vs CC and Codex, empirical evidence from 4 live sessions, and best-practice verdicts — including an honest \"Pi ahead\" section for cache stability, thinking-block management, memory architecture, and forkAgent context modes. CHANGE-SPEC.md contains 8 P0 items (all profile activations or bug fixes), 9 P1 items, and 10 P2 items, each with mechanism (hook/filter/extension name), risk, effort, expected impact, and dependencies. A sprint ordering and dependency graph are included. Known staged items (V-1 cache-bust, V-2 double injection, AgenticMail removal) are folded into P0.","topItems":["P0-1: Add tokenjuice to my-pi-full profile","P0-2: Add dream-memory to my-pi-full profile","P0-3: Add tool-search to my-pi-full profile","P0-4: Remove AgenticMail SessionStart injection","P0-5: Fix memory extraction child dispatch bug (100% failure rate)","P0-6: Fix TaskCreate/Update field format bug","P0-7: V-1 Fix profile-base.ts cache-bust","P0-8: V-2 Fix double injection"]},{"artifactFile":"/Users/luke/Projects/personal/my-pi-pi-optimisation/docs/pi-harness-optimisation/2026-06-08/INVENTORY-CLEANUP-REPORT.md","summary":"Consolidated inventory + cleanup + categorization report synthesizing 5 audit files across 4 harness surfaces (Pi, Claude Code, pi-mono-fork, Codex). Part 1: per-surface item tables grouped by category with keep/merge/retire/unsure status and recommendations. Part 2: 13 cross-surface consolidation opportunities ranked by payoff. Part 3: AGENTS.md review — applied vs pending overhaul items, 19 net-new findings with token impact. Part 4: decision checklist.","topItems":["Add tokenjuice to my-pi-full profile — result compaction missing from every Pi session (highest token ROI)","Add dream-memory to my-pi-full profile — consolidation layer silently inactive; letta/mem0 shadows running without the baseline","Remove agenticmail SessionStart+Stop hooks from CC settings.json — ~69-line capabilities blurb injected every session + Stop can block completion","Exclude ## Skill Auto-load table from Codex AGENTS.override.md — ~550 tok/session; Codex has no skill system","Retire agent-view Pi extension — superseded by pi-agent-panel; dead weight in profile","Fix 5 tier-1 progressive-disclosure violations in CC skills (context-engineering, harness-loop, opik, agent-creator, utilities) — child indexes in parent descriptions waste skill-listing budget","Compress my-pi/AGENTS.md ## pi-memory + ## Verification sections — ~260 tok saved per my-pi Pi session","Set 30-day deadline on letta-shadow vs mem0-shadow vs dream-memory A/B — experiment without end date drifts to permanent overhead","Consolidate settings.local.json permissions into settings.json and strip malformed entries (Bash(1:*), Bash(fi), Bash(then echo:*))","Fix broken skill reference in HOW-I-WORK.md line 3: progressive-disclosure → progressive-disclosure-workspace"]},{"artifactFile":"/Users/luke/Projects/personal/my-pi-pi-optimisation/docs/pi-harness-optimisation/2026-06-08/HARNESS-COMPARISON.md","summary":"Wrote a 7-section, evidence-cited harness comparison from 69 Pi sessions + this CC session's mechanics. Covers: CC efficiency patterns (parallel calls, ToolSearch deferred loading, sub-agents, Monitor/background, 35% compaction); Pi strengths (cross-cwd cache prefix, 1h TTL, intercom coordination); Pi waste patterns (memory extraction fork dispatch bug in 7+ sessions, near-zero parallelism ~5-15% vs CC ~40-60%, goal_wait loops, cd repetition 12-25×, full-file reads); head-to-head table across 9 dimensions; and 8 concrete behaviours Pi must adopt.","topItems":["B1: Fix memory extraction fork dispatch — include conversation excerpt in forkAgent payload; add deduplication guard to prevent 2-3× re-fires on same content","B2: Default to parallel tool calls — emit all independent reads/searches in one assistant turn; current Pi sessions run 85-94% single-tool turns","B3: Enforce absolute paths in Bash — cd repetition 12-25× per session wastes turns and breaks async parallelism; absolute paths eliminate this entirely","B4: Targeted reads as default — use offset+limit or symbol lookup before full-file reads; best Pi sessions already do this but it is not consistent","B5: Sub-agents for independent workstreams — use forkAgent for parallel lanes (research + implementation + review) the same way CC uses Task tool; currently near-absent outside memory extraction","B6: Replace goal_wait poll loops with monitor-style escalation — goal_wait with 30s sleep repeated 10× wastes ~10 turns per async wait; emit a single check after expected completion window","B7: Avoid preventable model switches mid-session — every switch busts the accumulated prompt cache; gate model changes to session boundaries where possible","B8: Add tokenjuice to my-pi-full profile — highest-impact missing extension; Bash compaction already proven in CC harness via PreToolUse hook"]}]}</result>
+<usage><agent_count>3</agent_count><subagent_tokens>96957</subagent_tokens><tool_uses>41</tool_uses><duration_ms>433020</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a626dcd7939eb8911</task-id>
+<tool-use-id>toolu_01Kc7FDmhLzybykCKLLfxMo9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/4474aee7-afd5-4d7f-a4f1-1cf492e644dc/tasks/a626dcd7939eb8911.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify context audit vs actuals" completed</summary>
+<result>File written. Here's the 12-line executive summary:
+
+---
+
+**Real prompt structure:** Static cacheable prefix (Pi identity + tools + 1-line skills index) ends at `system-prompt.ts:174` boundary; dynamic tail contains the full AGENTS.md @-import chain (~6,249 tokens), extension `appendSystemPrompt` blocks, and date/cwd last (lines 196–197) — all correctly placed after the boundary.
+
+**Token weight:** Dynamic tail is ~6,249–7,759 tokens per session (~10,200–11,200 when cwd is under my-pi). Static prefix is paid once and cached cross-cwd via `cache-base-prompt`. Heaviest contributors: AGENTS.md base (~4,031), my-pi/AGENTS.md (~3,472), HOW-I-WORK.md (~1,001).
+
+**Recommendation 1 — Codex, zero Pi impact:** Fork `codex-AGENTS.md` to drop the `@pi-dev.md` line; saves ~689 tokens per Codex session (Pi-specific instructions are dead weight in Codex).
+
+**Recommendation 2 — Add `tokenjuice` to `my-pi-full/package.json`:** Currently runtime-install only; its absence means bash/grep/ls results aren't compacted in profile-managed sessions.
+
+**Recommendation 3 — Add `dream-memory` to `my-pi-full/package.json`:** Consolidation layer is implemented and working but absent from the primary profile; sessions never consolidate memories at shutdown.
+
+**Biggest correction:** TOOLS.md (408 lines / ~4,750 tokens) is NOT @-imported into Pi's base context at all — the prior audit's scope implied it loaded. Confirmed by regex scan of AGENTS.md's @-import directives (5 entries; TOOLS.md absent). This was the prior audit's most consequential error: a 4,750-token file flagged as a context concern that contributes zero.
+
+**Second correction:** `pi-routine` IS in the profile (`my-pi-full/package.json:39`); prior audit had it as "unsure."
+
+**Third correction:** Extension count is 38 array entries (or 35 extensions/ dir entries), not "34."
+
+**Skills:** In minimal `catalogMode` (default), `skill-loader` renders the entire skills index as a single line regardless of skill count. No skills cleanup needed for context budget.
+
+**Codex MEMORY.md:** If `MEMORY.md` (~124KB / ~31,000 tokens) is bulk-loaded per session, Codex's effective base context is ~5× larger than Pi's. This remains unverified — run a token-count probe before acting.
+
+**File written:** `/Users/luke/Projects/personal/my-pi-pi-optimisation/docs/pi-harness-optimisation/2026-06-08/CONTEXT-AUDIT.md`</result>
+<usage><subagent_tokens>44145</subagent_tokens><tool_uses>34</tool_uses><duration_ms>364587</duration_ms></usage>
+</task-notification>
+
+---
+
+/loop Continue the pi-optimisation run. Canonical state: docs/pi-harness-optimisation/2026-06-08/ASKS.md + README.md in worktree /Users/luke/Projects/personal/my-pi-pi-optimisation (branch pi-optimisation, anchor 419a1c4). Read ASKS.md + README.md FIRST. KEY STATE: the DOCUMENTATION/COMPARISON MANDATE IS COMPLETE & VERIFIED (14 commits) — measured 3-way Pi↔CC↔Codex comparison, verified context audit, web research, all ground-truthed. Pi is at parity with CC on mechanics/cache; only real gap = cd-waste (Pi 24/sess vs Codex 0.25 via workdir param). NEXT PHASE = implementation drafts (no shipping — show diffs, important/critical tier): (1) the #1 cd-waste fix — investigate where Pi's bash/exec tool is defined (extensions/native-tool-overrides or pi-mono-fork packages/coding-agent), draft a first-class `workdir` param (Codex pattern) + an interim absolute-paths/never-cd directive; produce as a reviewable diff in the worktree, gated by extension-gate. (2) Optionally the per-call output cap + TaskCreate array-coercion drafts. Hold cache-critical/booted-context changes for Luke review; hold dream-memory/tokenjuice judgment for oracle (GO-4). Gated on Luke: GO-1/2/3 (integration), GO-4 (oracle blocked), GO-5 (AgenticMail=CC config) — check if unblocked. If everything actionable is gated/drafted and awaiting Luke, say so plainly and stop the loop (PushNotification a one-line summary) rather than spin. Keep ASKS.md updated.
+
+---
+
+Go
+
+---
+
+go everything
