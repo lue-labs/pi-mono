@@ -1,0 +1,116 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "06d68b3329fa",
+  "session_id": "2892b97c-0ef0-4ebb-a64a-280bf5d94354",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T22:29:05.626604Z",
+  "branch": "feat/task-create-array-coercion",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/task-tools/src/schema.ts",
+    "extensions/task-tools/src/index.ts",
+    "extensions/task-tools/test-load.mjs",
+    ".changeset/task-tools-array-coercion.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "148442a03b98",
+  "checkpoint_transcript_start": 2810,
+  "transcript_lines_at_start": 2810,
+  "token_usage": {
+    "input_tokens": 8652,
+    "cache_creation_tokens": 593223,
+    "cache_read_tokens": 29399137,
+    "output_tokens": 146165,
+    "api_call_count": 176
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01K5AyTqw3jq2xCHGrLMQBzT",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "harness-loop"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "148442a03b98",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 358,
+        "end": 359,
+        "entry_ids": [
+          "4cd94062-4336-4737-a854-7faacdd79b34"
+        ],
+        "tool_use_id": "toolu_01K5AyTqw3jq2xCHGrLMQBzT"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01K5AyTqw3jq2xCHGrLMQBzT"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: harness-loop",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01N5eDKZKT86QydkMykYzMxy",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "oracle"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "148442a03b98",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 3946,
+        "end": 3947,
+        "entry_ids": [
+          "874028b6-37eb-4730-abce-a66cd6592d71"
+        ],
+        "tool_use_id": "toolu_01N5eDKZKT86QydkMykYzMxy"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01N5eDKZKT86QydkMykYzMxy"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: oracle",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 33
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T22:29:05.534649Z",
+    "agent_lines": 59,
+    "agent_removed": 5,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 59,
+    "total_lines_changed": 64,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

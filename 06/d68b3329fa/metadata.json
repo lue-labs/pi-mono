@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "06d68b3329fa",
+  "strategy": "manual-commit",
+  "branch": "feat/task-create-array-coercion",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".changeset/task-tools-array-coercion.md",
+    "extensions/task-tools/src/index.ts",
+    "extensions/task-tools/src/schema.ts",
+    "extensions/task-tools/test-load.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/06/d68b3329fa/0/metadata.json",
+      "transcript": "/06/d68b3329fa/0/full.jsonl",
+      "content_hash": "/06/d68b3329fa/0/content_hash.txt",
+      "prompt": "/06/d68b3329fa/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8652,
+    "cache_creation_tokens": 593223,
+    "cache_read_tokens": 29399137,
+    "output_tokens": 146165,
+    "api_call_count": 176
+  }
+}
