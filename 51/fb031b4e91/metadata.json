@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "51fb031b4e91",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".changeset/pi-memory-busy-timeout.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/51/fb031b4e91/0/metadata.json",
+      "transcript": "/51/fb031b4e91/0/full.jsonl",
+      "content_hash": "/51/fb031b4e91/0/content_hash.txt",
+      "prompt": "/51/fb031b4e91/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 898,
+    "cache_creation_tokens": 288174,
+    "cache_read_tokens": 5458025,
+    "output_tokens": 15810,
+    "api_call_count": 21
+  }
+}
