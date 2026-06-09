@@ -79,3 +79,11 @@ stuff from Vercel who created zero lang etc.
 ---
 
 /loop Continue the pi-optimisation run. Canonical state: docs/pi-harness-optimisation/2026-06-08/ASKS.md + README.md in worktree /Users/luke/Projects/personal/my-pi-pi-optimisation (branch pi-optimisation, anchor 419a1c4). Read ASKS.md + README.md FIRST. KEY STATE: the DOCUMENTATION/COMPARISON MANDATE IS COMPLETE & VERIFIED (14 commits) — measured 3-way Pi↔CC↔Codex comparison, verified context audit, web research, all ground-truthed. Pi is at parity with CC on mechanics/cache; only real gap = cd-waste (Pi 24/sess vs Codex 0.25 via workdir param). NEXT PHASE = implementation drafts (no shipping — show diffs, important/critical tier): (1) the #1 cd-waste fix — investigate where Pi's bash/exec tool is defined (extensions/native-tool-overrides or pi-mono-fork packages/coding-agent), draft a first-class `workdir` param (Codex pattern) + an interim absolute-paths/never-cd directive; produce as a reviewable diff in the worktree, gated by extension-gate. (2) Optionally the per-call output cap + TaskCreate array-coercion drafts. Hold cache-critical/booted-context changes for Luke review; hold dream-memory/tokenjuice judgment for oracle (GO-4). Gated on Luke: GO-1/2/3 (integration), GO-4 (oracle blocked), GO-5 (AgenticMail=CC config) — check if unblocked. If everything actionable is gated/drafted and awaiting Luke, say so plainly and stop the loop (PushNotification a one-line summary) rather than spin. Keep ASKS.md updated.
+
+---
+
+Go
+
+---
+
+go everything
