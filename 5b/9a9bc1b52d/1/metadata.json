@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "5b9a9bc1b52d",
+  "session_id": "d1d49ab5-cf53-4cc8-ba24-ee89badb820b",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T07:12:10.747984Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/observability/pi-opik-cli-bridge.js",
+    "test/opik-cli-bridge-lifecycle.test.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-4-6",
+  "turn_id": "272a34045df9",
+  "checkpoint_transcript_start": 3667,
+  "transcript_lines_at_start": 3667,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01SZqaQJsJUzD1oQ4prhreAw",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "claude-api"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "272a34045df9",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 2705,
+        "end": 2706,
+        "entry_ids": [
+          "f1148506-fc30-40c8-90d4-14e7f66f17e3"
+        ],
+        "tool_use_id": "toolu_01SZqaQJsJUzD1oQ4prhreAw"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01SZqaQJsJUzD1oQ4prhreAw"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: claude-api",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 26
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T07:12:10.493736Z",
+    "agent_lines": 184,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 184,
+    "total_lines_changed": 191,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
