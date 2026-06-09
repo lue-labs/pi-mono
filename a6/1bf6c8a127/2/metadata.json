@@ -1,0 +1,166 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "a61bf6c8a127",
+  "session_id": "4474aee7-afd5-4d7f-a4f1-1cf492e644dc",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T07:10:54.461877Z",
+  "branch": "main",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-4-6",
+  "turn_id": "2c4dd5b5349d",
+  "token_usage": {
+    "input_tokens": 44417,
+    "cache_creation_tokens": 1016611,
+    "cache_read_tokens": 32963889,
+    "output_tokens": 377441,
+    "api_call_count": 169
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Enk4M2z6pSF4sdvkvxgVhr",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "2c4dd5b5349d",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 718,
+        "end": 719,
+        "entry_ids": [
+          "22063bd5-02cd-43fd-8029-65ea9c4455ff"
+        ],
+        "tool_use_id": "toolu_01Enk4M2z6pSF4sdvkvxgVhr"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Enk4M2z6pSF4sdvkvxgVhr"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T07:10:54.378584Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 0,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 746,
+      "user_lines_removed": 148,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "AGENTS.md": 7,
+        "VENT.md": 7,
+        "docs/pi-fork-patch-inventory.md": 1,
+        "extensions/context-usage/src/index.ts": 9,
+        "extensions/context-usage/test.mjs": 7,
+        "extensions/observability/pi-opik-cli-bridge.js": 90,
+        "extensions/pi-goal/src/commands.ts": 13,
+        "extensions/pi-goal/src/recovery.ts": 22,
+        "extensions/pi-worktree/package.json": 30,
+        "extensions/pi-worktree/src/index.ts": 3,
+        "extensions/pi-worktree/tsconfig.json": 10,
+        "extensions/skill-loader/src/index.ts": 19,
+        "extensions/skill-loader/test-load.mjs": 30,
+        "extensions/tokenjuice/CHANGELOG.md": 1,
+        "extensions/tokenjuice/README.md": 4,
+        "extensions/tokenjuice/tokenjuice.generated.js": 214,
+        "extensions/tokenjuice/tool-result-hook.test.mjs": 113,
+        "goal-tmp.md": 66,
+        "package-lock.json": 6,
+        "test/opik-cli-bridge-lifecycle.test.mjs": 94
+      },
+      "user_removed_per_file": {
+        "AGENTS.md": 3,
+        "autoresearch.jsonl": 73,
+        "extensions/context-usage/src/index.ts": 8,
+        "extensions/context-usage/test.mjs": 2,
+        "extensions/observability/pi-opik-cli-bridge.js": 7,
+        "extensions/pi-goal/src/commands.ts": 2,
+        "extensions/pi-goal/src/recovery.ts": 2,
+        "extensions/pi-worktree/src/index.ts": 3,
+        "extensions/skill-loader/src/index.ts": 4,
+        "extensions/skill-loader/test-load.mjs": 2,
+        "extensions/tokenjuice/README.md": 2,
+        "extensions/tokenjuice/tokenjuice.generated.js": 37,
+        "package-lock.json": 3
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 746,
+      "agent_lines_removed": 148
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 746,
+      "agent_lines_removed": 148
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 746,
+      "agent_lines_removed": 148
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 746,
+      "agent_lines_removed": 148
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 746,
+      "agent_lines_removed": 148
+    }
+  ]
+}
