@@ -1,0 +1,83 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "75e69b94b349",
+  "session_id": "2892b97c-0ef0-4ebb-a64a-280bf5d94354",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T19:29:34.609697Z",
+  "branch": "fix/release-bounded-body",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".github/workflows/release.yml",
+    ".github/scripts/create-github-releases.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "ea9e01d80092",
+  "checkpoint_transcript_start": 2478,
+  "transcript_lines_at_start": 2478,
+  "token_usage": {
+    "input_tokens": 9494,
+    "cache_creation_tokens": 66833,
+    "cache_read_tokens": 3220366,
+    "output_tokens": 32690,
+    "api_call_count": 36
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01K5AyTqw3jq2xCHGrLMQBzT",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "harness-loop"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "ea9e01d80092",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 358,
+        "end": 359,
+        "entry_ids": [
+          "4cd94062-4336-4737-a854-7faacdd79b34"
+        ],
+        "tool_use_id": "toolu_01K5AyTqw3jq2xCHGrLMQBzT"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01K5AyTqw3jq2xCHGrLMQBzT"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: harness-loop",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 24
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T19:29:34.523586Z",
+    "agent_lines": 123,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 123,
+    "total_lines_changed": 123,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
