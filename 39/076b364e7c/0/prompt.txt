@@ -1,0 +1,499 @@
+login
+
+---
+
+can we complete this session work? explore and get the contents, original goal and intent and prompt and lets continue on:
+ I'll add a FORK-CHANGELOG entry — the trust-gate preservation is a notable fork divergence worth recording, and it satisfies
+  the changelog hook. Inserting at the top of the Unreleased ### Added.
+
+⏺ Update(~/Projects/personal/pi-mono-fork/FORK-CHANGELOG.md)
+  ⎿  Added 1 line
+       6  
+       7  ### Added
+       8  
+       9 +- **Synced upstream `earendil-works/pi-mono` 0.79.0 → `d041b5cc` (merge).** ~24 upstream commits (project-tru
+         +st rework + approval-settings UI, experimental-feature guard, OAuth/help/CJK fixes, amazon-bedrock ARN region
+         + parsing, model-registry regen). Six conflicts resolved across the project-trust / cache-heartbeat / queued-r
+         +ecall seam, adversarially reviewed (6-agent workflow). **Notable fork divergence preserved:** upstream remove
+         +d the `projectTrusted` parameter from `loadProjectContextFiles` and stopped passing it at the call site (proj
+         +ect-local `AGENTS.md`/context files load unconditionally in upstream's model — trust gates only extensions/pa
+         +ckages). The fork **keeps** its context-file trust gate as a prompt-injection defense: the fork's function bo
+         +dy (with the `projectTrusted` guard + realpath dedup) is retained **and** `projectTrusted: this.settingsManag
+         +er.isProjectTrusted()` was re-wired at the `reload()` call site (the merge had silently dropped it, neutering
+         + the gate — caught in review). Other resolutions: kept the fork's `agents`-command help block, `CacheHeartbea
+         +t*` settings, queued-recall hotkey text, richer extension `createContext` (now also carrying upstream's new `
+         +isProjectTrusted` field), and the `@valkyriweb/*` scope rename on the new upstream `startup-ui.ts`.          
+      10  - **Bash `workdir` parameter (Codex `exec_command` parity) — closes the measured #1 cd-waste gap.** The core
+          bash tool (`packages/coding-agent/src/core/tools/bash.ts`) gains an optional `workdir` (absolute, or relative
+           to the session cwd) so a single call can run in another directory instead of `cd <dir> && …`. `execute()` re
+          solves `effectiveCwd = workdir ? resolve(cwd, workdir) : cwd` and threads it through the only three cwd use-s
+          ites: the redundant-cd guard, the background spawn (`spawnBashBackground`, which validates existence → clear
+          "Working directory does not exist" error), and the foreground spawn (`resolveSpawnContext` → `ops.exec`). Omi
+          tting `workdir` is byte-identical to prior behaviour; the redundant-cd guard now correctly keys off `effectiv
+          eCwd`. The existing `hasBash` system-prompt guideline (`system-prompt.ts`) was updated to point the model at
+          `workdir` first (single source, no new duplicate bullet — the per-turn-billed tool description was intentiona
+          lly left unchanged to avoid permanent token cost). **Motivation:** measured ~24 cd-bearing bash calls/session
+           (48%) vs Codex ~0.25 (0.08%); Codex avoids cd via a first-class `workdir` used on 99% of calls — a tool-affo
+          rdance gap, not a prompting one (core already shipped cd-avoidance guidance and the waste persisted). Generic
+           platform primitive that cannot be exposed through the `prepareArguments` extension hook (no access to the sp
+          awn cwd), so it lives in core per the fork-patch policy; logged in `my-pi/docs/pi-fork-patch-inventory.md`. *
+          *Cache:** adds one optional schema property → the bash `tools[]` bytes change once (a single cold re-warm acr
+          oss sessions), then stable; no per-session variability. Regression: `test/bash-workdir.test.ts` (5 cases: abs
+          olute/relative/default cwd, non-existent-dir error, guard keys off effectiveCwd).
+      11  - **Render Anthropic provider-executed server tools (`web_search` / `web_fetch`) as TUI activity cards.** The
+           Anthropic provider (`packages/ai`) now parses `server_tool_use` and `web_search_tool_result` / `web_fetch_to
+          ol_result` content blocks into display-only `server_tool_use` / `server_tool_result` stream events (new `Serv
+          erToolSource` type + two `AssistantMessageEvent` variants). They are intentionally **never** added to `Assist
+          antMessage.content`, so the agent loop never executes them and they never round-trip to the API (cache- and r
+          eplay-safe). The agent loop (`packages/agent`) forwards these through `message_update`; the interactive TUI (
+          `packages/coding-agent`) renders them via a new `ServerToolActivityComponent` (query/URL + result sources), s
+          o these provider-side tools — which previously ran invisibly because they arrive as server-tool blocks rather
+           than ordinary `tool_use` — now show up. Fork feature; logged here per the changelog-ownership split below.
+      12  - **Edit queued messages with the up arrow (interactive TUI).** When the agent is busy and you've queued a me
+          ssage, pressing ↑ in an empty editor recalls the most-recently-queued message into the editor for editing (re
+          call priority: compaction-queued → follow-ups → steering). Recall lifts it out of the queue, so re-submitting
+           replaces what was queued and clearing the editor (backspace to empty) drops it. If nothing is queued, ↑ fall
+          s through to footer nav / prompt history as before. Adds `Agent.removeLastSteeringMessage()` / `removeLastFol
+          lowUpMessage()` / `PendingMessageQueue.removeLast()` (`packages/agent`) and `AgentSession.popLastQueuedMessag
+          e()` (`packages/coding-agent`), wired through the existing `onPreInput` editor seam (no `custom-editor.ts` ch
+          ange). Recalled image attachments come back as text only, matching existing dequeue behaviour.
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork
+      git add FORK-CHANGELOG.md…)
+  ⎿  15 errors, 1 warning
+     Running formatting, linting, and type checking...
+     … +23 lines (ctrl+o to expand)
+
+⏺ The pre-commit check caught what test:build-gate didn't: tsgo --noEmit (root config, includes tests) is stricter than the
+  build's tsconfig.build.json. Two real issues:
+  1. The 5433 test's @earendil-works/pi-tui import fails tsgo (vitest alias ≠ tsgo path map) — my "leave it" call was wrong
+  for typecheck. Rename needed.
+  2. isProjectTrusted is now a required ExtensionContext field, so test mock-contexts that omit it fail (TS2741) — likely
+  several.
+
+  Let me enumerate all 15 errors precisely.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork
+      npx tsgo --noEmit > /tmp/tsgo-errors.txt 2>&1…)
+  ⎿  15 errors
+     EXIT=2
+     ## all error lines:
+     … +14 lines (ctrl+o to expand)
+
+⏺ New error category surfaced — getModel not found in three packages/ai/test/ files (which auto-merged, not files I resolved).
+  Reading the full uncompacted error list to see all 15.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ All 15 enumerated, four categories:
+  - B (7 files): mock ExtensionContext missing now-required isProjectTrusted — mechanical add.
+  - D (1): 5433 test scope rename — mechanical.
+  - A (5 in 3 ai tests): getModel not found — auto-merged upstream tests; need to see what getModel should be.
+  - C (1): extensions-runner.test.ts:572 wrong arg count — upstream changed a signature.
+
+  Investigating A and C (the non-obvious ones) + confirming the isProjectTrusted signature.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork
+      {…)
+  ⎿  written
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Now I understand both:
+  - A: the fork's helper is pickModel (imported line 4), but upstream's merged test bodies call getModel — a helper-rename
+  divergence. Fix: getModel( → pickModel( (pending signature check).
+  - C: line 572 is an upstream-added test constructing ExtensionRunner with 5 args, but the fork's constructor takes 7–8. Need
+  Let me check the helper export/signature, the ExtensionRunner constructor, and whether the 7 broken mocks share a fixture.
+ ▐▛███▜▌   Claude Code v2.1.168
+▝▜█████▛▘  Opus 4.8 (1M context) with xhigh effort · Claude Max
+  ▘▘ ▝▝    ~/Projects/personal/my-pi
+
+  Feature of the week: /loop — run a prompt or slash command on a recurring interval
+
+ ⚠ 1 setup issue: MCP · /doctor
+
+✻ Conversation compacted (ctrl+o for history)
+
+  ⎿  Read ../../../../../tmp/port-details.txt (84 lines)
+  ⎿  Read ../../../../../tmp/fix-investigate.txt (49 lines)
+  ⎿  Read ../../../../../tmp/cat-ac.txt (38 lines)
+  ⎿  Read ../../../../../tmp/tsgo-errors.txt (15 lines)
+  ⎿  Referenced file ../pi-mono-fork/FORK-CHANGELOG.md
+  ⎿  Skills restored (loop, pi, harness-loop)
+
+⏺ Picking up the in-flight merge. First, confirm the 15 tsgo errors cleared after the port fixes.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (npx tsgo --noEmit > /tmp/tsgo-recheck.txt 2>&1; echo "EXIT=$?" >>
+      /tmp/tsgo-recheck.txt); wc -l /tmp/tsgo-rech…)
+  ⎿  3 /tmp/tsgo-recheck.txt
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ 15 errors cleared, but the pickModel conversion surfaced one new type error at line 1098. Let me look at the surrounding
+  test.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ The as const tuple mixes two providers, widening compat to the full union where maxTokensField isn't common. Let me check
+  the original upstream version of this test to see how it typed cleanly, and inspect the pickModel/Model compat typing.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && { echo "## upstream (MERGE_HEAD) version of lines 1090-1100"; git show
+      MERGE_HEAD:packages/ai/test/openai-compl…)
+  ⎿  ---done---
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && git show
+      MERGE_HEAD:packages/ai/test/openai-completions-tool-choice.test.ts > /tmp/upstream-tc.txt 2>/dev/null…)
+  ⎿  1089:                              onPayload: (params: unknown) => {
+     1090:                                      payload = params;
+     1091:                              },
+     … +10 lines (ctrl+o to expand)
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && node -e '
+      const fs=require("fs");…)
+  ⎿  907: expect(model.compat?.maxTokensField).toBeUndefined();
+     1059: maxTokensField: "max_completion_tokens",
+     1123: it("sends max_tokens for OpenCode completions models", async () => {
+     … +3 lines (ctrl+o to expand)
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && node -e '
+      const fs=require("fs");…)
+  ⎿  1123:      it("sends max_tokens for OpenCode completions models", async () => {
+     1124:              const cases = [getModel("opencode-go", "kimi-k2.6")!, getModel("opencode", "grok-build-0.1")!] as cons
+     1125:
+     … +6 lines (ctrl+o to expand)
+
+
+⏺ Single-provider pickModel calls narrow compat fine; only the mixed-provider as const tuple widens it. Let me see how the
+  helper accesses compat flags so I match house style for the fix.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ House style for compat access is (model.compat as Record<string, unknown> | undefined)?.[flag] (helper line 36). I'll match
+  that cast for the tuple case.
+
+⏺ Update(~/Projects/personal/pi-mono-fork/packages/ai/test/openai-completions-tool-choice.test.ts)
+  ⎿  Added 1 line, removed 1 line
+      1095  
+      1096      for (const model of cases) {
+      1097        let payload: unknown;
+      1098 -      expect(model.compat?.maxTokensField).toBe("max_tokens");                                             
+      1098 +      expect((model.compat as Record<string, unknown> | undefined)?.maxTokensField).toBe("max_tokens");    
+      1099  
+      1100        await streamSimple(
+      1101          model,
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (npx tsgo --noEmit > /tmp/tsgo-recheck2.txt 2>&1; echo "EXIT=$?" >>
+      /tmp/tsgo-recheck2.txt); cat /tmp/tsgo-rech…)
+  ⎿  EXIT=0
+
+⏺ Clean. Now run the full pre-commit check manually so biome applies any auto-fixes before I stage, avoiding a mid-commit
+  surprise.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (npm run check > /tmp/precommit-check.txt 2>&1; echo "EXIT=$?" >>
+      /tmp/precommit-check.txt); tail -40 /tmp/prec…)
+  ⎿  1 error, 1 warning
+     > pi-monorepo@0.0.3 check
+     > biome check --write --error-on-warnings . && npm run check:changelog && npm run check:pinned-deps && npm run check
+     … +20 lines (ctrl+o to expand)
+  ⎿  (timeout 7m)
+
+⏺ Full check passes (EXIT=0), biome auto-fixed 1 file. Now stage everything including the biome fix and check merge state
+  before committing.
+  
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && { echo "## MERGE_HEAD present?"; test -f .git/MERGE_HEAD && echo "YES
+      merge in progress: $(cat .git/MERGE_HEAD)…)
+  ⎿  ## MERGE_HEAD present?
+     YES merge in progress: d041b5cc354f9361207708395033e87cc78576cd
+     … +18 lines (ctrl+o to expand)
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && git status --short > /tmp/fullstatus.txt 2>&1; wc -l
+      /tmp/fullstatus.txt)
+  ⎿        62 /tmp/fullstatus.txt
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ All 62 are tracked merge-resolution files; the unstaged ones ( M/MM/AM) are my test ports + biome fix. No untracked files.
+  Stage all tracked changes and verify a clean index.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && git add -u && { echo "## remaining unstaged (should be empty):"; git
+      status --short | node -e 'let s="";process…)
+  ⎿  ## remaining unstaged (should be empty):
+     (none — index clean)
+
+⏺ Index clean. Now commit the merge with a message capturing the resolution decisions.
+
+⏺ Write(/tmp/merge-msg.txt)
+  ⎿  Wrote 31 lines to ../../../../../tmp/merge-msg.txt
+       1 merge: sync upstream d041b5cc (project-trust, cache-heartbeat, startup-ui)
+       2 
+       3 Merge 24 upstream commits through the project-trust / cache-heartbeat /
+       4 queued-recall seam. 6 conflicts resolved; adversarially reviewed (one
+       5 skeptic per conflicted file vs base/fork/upstream/resolved).
+       6 
+       7 Conflict resolutions:
+       8 - resource-loader.ts: kept fork's loadProjectContextFiles (realpath dedup
+       9   + projectTrusted gate). SECURITY: re-wired projectTrusted into the
+      10   reload() call site — auto-merge had dropped it to upstream's
+     … +21 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (git commit -F /tmp/merge-msg.txt > /tmp/commit-out.txt 2>&1; echo
+      "EXIT=$?" >> /tmp/commit-out.txt); tail -25…)
+  ⎿  > pi-monorepo@0.0.3 check:pinned-deps
+     > node scripts/check-pinned-deps.mjs
+     … +18 lines (ctrl+o to expand)
+  ⎿  (timeout 7m)
+
+⏺ Merge committed as 0825e0c8, all checks green. Verify it's a two-parent merge commit, then re-fetch upstream to find the
+  newer PR.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && { echo "## new HEAD parents (should be 2):"; git rev-list --parents -n
+      1 HEAD; echo; echo "## MERGE_HEAD still…)
+  ⎿  ## new HEAD parents (should be 2):
+     0825e0c8f1cb9c542d9239c5dacd3a84e9b3571f 912c5fe4268f038999c8e8f08fc680e5b26ca72a d041b5cc354f9361207708395033e87cc7
+     8576cd
+     … +11 lines (ctrl+o to expand)
+
+⏺ Merge finalized. Upstream advanced 6 commits (to c5582102f) — the newer PR. Let me inspect what's in that delta before
+  merging.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && { echo "## 6 new upstream commits (oldest→newest):"; git log --oneline
+      --no-decorate HEAD..upstream/main | node…)
+  ⎿  ## 6 new upstream commits (oldest→newest):
+     d81ac2092 feat(coding-agent): add prompt template argument defaults
+     69ea1a631 docs(coding-agent): clarify model name display docs
+     … +18 lines (ctrl+o to expand)
+
+⏺ The 56900 deletions are just fork-only files (scripts, etc.) that upstream lacks — that's the full two-way diff, not the
+  actual delta. The real new work is only those 6 commits. Since I just merged d041b5cc, the merge base is now current, so git
+  merge upstream/main applies only those 6. Let me confirm the merge base and preview conflicts before merging.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && { echo "## merge-base HEAD upstream/main:"; git merge-base HEAD
+      upstream/main; echo "## (d041b5cc = the sync I…)
+  ⎿  ## merge-base HEAD upstream/main:
+     d041b5cc354f9361207708395033e87cc78576cd
+     ## (d041b5cc = the sync I just merged → base is current)
+     … +18 lines (ctrl+o to expand)
+
+⏺ Small, clean delta: 13 files, +230/-49 (prompt-template defaults, autocomplete trigger chars, /new ephemeral fix, doc
+  tweaks). Merge with --no-commit to inspect conflicts before finalizing.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (git merge --no-commit --no-ff upstream/main > /tmp/merge2-out.txt
+      2>&1; echo "EXIT=$?" >> /tmp/merge2-out.txt)…)
+  ⎿  Auto-merging packages/coding-agent/docs/extensions.md
+     Auto-merging packages/coding-agent/src/modes/interactive/interactive-mode.ts
+     Auto-merging packages/coding-agent/test/interactive-mode-status.test.ts
+     … +3 lines (ctrl+o to expand)
+
+⏺ Clean auto-merge, zero conflicts. Run the full gate before committing since it auto-merged files I'd just touched
+  (editor.ts, interactive-mode.ts).
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (npm run check > /tmp/check2.txt 2>&1; echo "EXIT=$?" >>
+      /tmp/check2.txt); tail -8 /tmp/check2.txt)
+  ⎿  > node scripts/generate-coding-agent-shrinkwrap.mjs --check
+
+     packages/coding-agent/npm-shrinkwrap.json is up to date.
+     … +5 lines (ctrl+o to expand)
+  ⎿  (timeout 7m)
+
+⏺ Green. Commit this second merge (local, reversible), then checkpoint before the irreversible push + rebuild.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && git commit --no-verify -m "merge: sync upstream c5582102
+      (prompt-template defaults, autocomplete triggers, /new…)
+  ⎿  EXIT=0
+     [main 8231f12] merge: sync upstream c5582102 (prompt-template defaults, autocomplete triggers, /new ephemeral fix)
+
+⏺ Both merges committed locally. Before the checkpoint, run the affected/new tests (the gate's check skips vitest) so I don't
+  present a green checkpoint that hides a test break.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (npx vitest run packages/ai/test/azure-openai-base-url.test.ts
+      packages/ai/test/bedrock-endpoint-resolution.tes…)
+  ⎿  FAIL  packages/tui/test/editor.test.ts [ packages/tui/test/editor.test.ts ]
+      FAIL  .pi/workspaces/upstream-tti/packages/tui/test/editor.test.ts [ .pi/workspaces/upstream-tti/packages/tui/test/
+
+⏺ All 381 tests passed, but 2 files report FAIL with zero failing tests — that's a collection/import error, not a test
+  failure. One is a stray .pi/workspaces/upstream-tti copy that shouldn't be scanned. Let me see the actual file-level error.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && node -e 'const
+      s=require("fs").readFileSync("/tmp/vitest-affected.txt","utf8");const lines=s.split("\n");let ou…)
+  ⎿  ⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+     Error: No test suite found in file /Users/luke/Projects/personal/pi-mono-fork/packages/tui/test/editor.test.ts
+     ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+     … +4 lines (ctrl+o to expand)
+
+⏺ "No test suite found" with all 381 tests passing is a vitest cross-project CLI artifact (explicit paths get attempted under
+  every configured project; the file only matches one). The .pi/workspaces/upstream-tti copy is a stray autoresearch workspace
+  that shouldn't be scanned at all. Let me confirm by running the canonical gate invocation rather than explicit paths.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && node -e 'const p=require("./package.json");const s=p.scripts;for(const
+      k of Object.keys(s)){if(/build-gate|^tes…)
+  ⎿  test: npm run test --workspaces --if-present
+     test:build-gate: npm run test:system-prompt && npm run test:cache-stability && npm run test:e2e && npm run test:my-p
+     i-extensions
+     … +19 lines (ctrl+o to expand)
+
+⏺ packages/tui uses Node's built-in test runner (node --test), not vitest — so pointing vitest at editor.test.ts is what
+  produced "No test suite found." Not a real failure. Let me run it the correct way to confirm the merged editor changes pass.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (node --test packages/tui/test/editor.test.ts > /tmp/tui-editor.txt
+      2>&1; echo "EXIT=$?" >> /tmp/tui-editor.txt…)
+  ⎿  EXIT=0
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && node -e 'const
+      s=require("fs").readFileSync("/tmp/tui-editor.txt","utf8").split("\n");console.log(s.filter(l=>/…)
+  ⎿  ✔ exits history mode when typing a character (0.612708ms)
+         ✔ exits history browsing mode on undo (0.248959ms)
+     … +4 lines (ctrl+o to expand)
+
+⏺ All 180 tui editor tests pass (node --test). The vitest "failure" was the wrong runner — false alarm. Everything's green.
+  Now at the irreversible checkpoint. Let me gather exactly what would be pushed/built.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && { echo "## branch + HEAD"; git rev-parse --abbrev-ref HEAD; git
+      rev-parse --short HEAD; echo; echo "## commits…)
+  ⎿  ## branch + HEAD
+     main
+     8231f122
+     … +19 lines (ctrl+o to expand)
+
+⏺ origin/main..HEAD is the full sync delta (30 upstream commits across both merges + 2 merge commits + fork commits since the
+  0.79.0 push). Let me get the exact ahead/behind cleanly to confirm a fast-forward push (no force needed).
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && { echo "## ahead/behind (origin/main vs HEAD):"; git rev-list --count
+      origin/main..HEAD | node -e 'let s="";pro…)
+  ⎿  ## ahead/behind (origin/main vs HEAD):
+     local-only (to push): 32
+     origin-only (behind): 0
+     … +3 lines (ctrl+o to expand)
+
+⏺ Clean fast-forward: 32 commits to push, 0 behind, no force needed. Both syncs are committed locally and fully gated green.
+  This is the irreversible checkpoint (push + binary rebuild hit every live Pi session). Let me update ASKS.md to current
+  state, then put the go/no-go to Luke.
+
+⏺ Bash(cd /Users/luke/Projects/personal/my-pi-pi-optimisation && node -e 'const
+      s=require("fs").readFileSync("docs/pi-harness-optimisation/2026-06-08/ASKS.md","utf8").…)
+  ⎿  LINES=91
+     # ASKS LEDGER — pi-optimisation
+     … +20 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Now I have the full picture. Let me update ASKS.md: record the upstream sync (two merges, committed + gated, awaiting push)
+  and refresh the timestamp.
+
+⏺ Update(~/Projects/personal/my-pi-pi-optimisation/docs/pi-harness-optimisation/2026-06-08/ASKS.md)
+  ⎿  Added 1 line, removed 1 line
+      2  
+      3  **Canonical, compaction-proof record of every ask in this run.** Maintained continuously: mark `✅ done` / `⏳
+          in-progress` / `🚫 blocked (reason)` / `⬜ pending`. If context is compacted, this file + PLAN.md + PROGRESS.
+         md + COORDINATION.md fully restore the mission.
+      4  
+      5 -_Last updated: 2026-06-09 (GO-1 verified ALREADY DONE — 0.79.0 + server-tools live in binary; GO-6 workdir par
+        -am SHIPPED. Open gates now: GO-2/3/4/5.)_                                                                     
+      5 +_Last updated: 2026-06-09 (GO-7 upstream sync — two merges committed + gated GREEN locally, AWAITING push+rebu
+        +ild go. GO-1/GO-6 done. Open gates: GO-2/3/4/5/7.)_                                                           
+      6  
+      7  ## Key state (read first after a compaction)
+      8  - **Worktree:** `/Users/luke/Projects/personal/my-pi-pi-optimisation`, branch `pi-optimisation`, off `419a1c4`
+          (= rollback anchor).
+  ⎿  Allowed by auto mode classifier
+
+⏺ Update(~/Projects/personal/my-pi-pi-optimisation/docs/pi-harness-optimisation/2026-06-08/ASKS.md)
+  ⎿  Added 1 line
+      20  - **GO-2: commit dirty work to main (×2 repos) per `findings/dirty-work-plan.md`.** my-pi: 8 commits + PARK p
+          i-worktree(=PR#135) + gitignore VENT/codedb.snapshot/goal-tmp. agent-scripts: 1 coherent ~37-file commit. Rev
+          ersible but commits other sessions' work to main → confirm plan.
+      21  - **GO-3: merge PRs** #135 (blocked on review), #114, #99, pi-mono-fork #62 — via clawpatch+autoreview+codex 
+          adversarial. External.
+      22  - **GO-4 (NEW): unblock oracle.** Both paths blocked: API key missing scope `api.responses.write`; headless b
+          rowser hit Cloudflare (needs `--headful` so Luke solves the challenge). Needed for the hard cache-critical ca
+          rowser hit Cloudflare (needs `--headful` so Luke solves the challenge). Needed for the hard cache-critical ca
+          lls (dream-memory disposition, V-1, tokenjuice). Workaround until then: I proceed on verified judgment for re
+          versible items, hold cache-critical for review.
+      23 +- **GO-7 (NEW): push the upstream sync + rebuild the live binary. — ⏳ COMMITTED LOCALLY + GATED GREEN, await
+         +ing push go.** Two merge commits on fork `main` (local-only, reversible): (1) `0825e0c8` merge upstream `d041
+         +b5cc` (24 commits — project-trust, cache-heartbeat, startup-ui; **6 conflicts resolved + adversarially review
+         +ed**, incl. SECURITY re-wire of the `projectTrusted` context-file trust gate the auto-merge had neutered + re
+         +moval of a dead pi-tui import; 15 tsgo test-port errors fixed: getModel→pickModel, isProjectTrusted mocks, Ex
+         +tensionRunner 7-arg, scope rename); (2) `8231f12` merge upstream `c5582102` (6 commits — prompt-template defa
+         +ults, autocomplete triggers, /new ephemeral fix; clean auto-merge). **State:** `main` is **32 commits ahead o
+         +f `origin/main`, 0 behind → clean fast-forward, no force.** **Gates GREEN:** `npm run check` (biome + changel
+         +og + ts-imports + shrinkwrap + tsgo --noEmit + browser-smoke) passed on both; ported ai tests pass (vitest); 
+         +180 tui editor tests pass (node --test). **Remaining = the single irreversible step:** `git push origin main`
+         + + `build:binary` rebuild (the bun-compiled `dist/pi` the live shim execs) — affects every NEW Pi session. Ch
+         +eckpointed with Luke. _Cleanup pending after push:_ drop superseded `stash@{0}` (go1-sync regen drift).      
+      24  - **GO-5 (NEW): AgenticMail removal is a CLAUDE CODE config edit, not Pi.** Only injection site = `~/.claude/
+          settings.json:434,472` (`mail-hook.js` SessionStart hook) + the agenticmail MCP server. No Pi-side injection
+          exists. Removing/guarding it edits Luke's GLOBAL CC config (affects all CC sessions incl. this one) → won't a
+          uto-apply; confirm.
+      25  - **GO-6 (NEW): cd-waste fix (the #1 measured win) — ✅ SHIPPED & VERIFIED LIVE.** A small core `workdir` par
+          am on the bash tool (Codex parity; can't be done extension-only — `prepareArguments` can't see spawn cwd). Dr
+          aft: `DRAFT-cd-waste-fix.md`.
+      26    - **2026-06-09: IMPLEMENTED (Luke go'd).** Core `workdir` param applied on pi-mono-fork branch `feat/bash-w
+          orkdir-param` (commit `912c5fe4`): schema param + `effectiveCwd` threaded through the 3 cwd sites; `system-pr
+          ompt.ts` hasBash guideline points at `workdir`; regression `test/bash-workdir.test.ts` (5 cases). **Full `tes
+          t:build-gate` GREEN** (typecheck + 184 e2e + my-pi extension gate). Fork-patch-inventory logged (my-pi commit
+           `4dfbedf`).
+  ⎿  Allowed by auto mode classifier
+
+⏺ Both syncs are committed locally and fully green. The only thing left is the single irreversible step. Let me give Luke an
+  audible heads-up (release/approval gate, he may be away), then put the go/no-go in chat.
+
+⏺ Bash(sag-luke --volume 0.6 "Luke, the upstream Pi sync is committed and all gates are green. I need your go to push to fork
+      main and rebuild the live binary — it's t…)
+  ⎿  sag-exit=0
+
+⏺ User answered Claude's questions:
+  ⎿  · Upstream sync is committed locally (2 merges, 32 commits ahead of origin/main, clean fast-forward) and fully gated
+     green. The only remaining step is irreversible — it rebuilds the binary every NEW Pi session execs. Push to fork main +
+     rebuild the live binary now? → Push + rebuild now
+
+⏺ Go. Pushing the fast-forward to fork main, then rebuilding the live binary.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && (git push origin main > /tmp/push-out.txt 2>&1; echo "EXIT=$?" >>
+      /tmp/push-out.txt); cat /tmp/push-out.txt)
+  ⎿  remote: Bypassed rule violations for refs/heads/main:
+     remote:
+     remote: - 4 of 4 required status checks are expected.
+     … +4 lines (ctrl+o to expand)
+
+⏺ Pushed: 912c5fe4..8231f122. Now rebuild the live binary. Let me confirm exactly what build:binary runs (and whether it
+  includes the gate) before kicking it off.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && node -e 'const p=require("./packages/coding-agent/package.json");const
+      s=p.scripts;for(const k of Object.keys(s…)
+  ⎿  build: tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js && npm run copy-assets
+     build:binary: npm --prefix ../tui run build && npm --prefix ../ai run build && npm --prefix ../agent run build && np
+     m run build && bun build --compile ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile dist/pi && npm run
+      copy-binary-assets
+
+⏺ build:binary = 4 package builds + bun compile to dist/pi (no test suite — I already ran the gates separately). This is the
+  exact recipe that worked for the GO-6 deploy. Running it in the background since the bun compile can be slow.
+
+⏺ Bash(cd /Users/luke/Projects/personal/pi-mono-fork && { date '+start=%H:%M:%S'; npm --prefix packages/coding-agent run
+      build:binary; echo "BUILD_EXIT=$?"; date '+end…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  You've hit your weekly limit · resets 8am (Africa/Johannesburg)
+     /usage-credits to finish what you’re working on.
+
+✻ Brewed for 1h 22m 8s · 1 shell still running
+
+⏺ Background command "Rebuild live binary via build:binary" completed (exit code 0)
+  ⎿  You've hit your weekly limit · resets 8am (Africa/Johannesburg)
+     /usage-credits to finish what you’re working on.
+
+✻ Cogitated for 0s
+
+───────────────────────────────────────────────────────────────────────────────────────────────────── pi-claude-code-parity ──
+❯ 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ╭─ luke@Mac .../personal/my-pi [main↓1↑2] [97K/1000K 10%] [cached] [37% 5h | 100% 7d]                Remote Control active
+  ╰─ Opus 4.8 (1M context) (default)
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+
+---
+
+I don't think its hard to reverse?
+
+push ye
