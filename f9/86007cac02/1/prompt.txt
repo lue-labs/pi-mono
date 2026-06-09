@@ -1,0 +1,702 @@
+/effect
+
+---
+
+/goal read this goal and get it done: goal-tmp.md
+
+---
+
+yes commit and lets then look into the next finding
+
+---
+
+<task-notification>
+<task-id>w7x1wnqh1</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/d1d49ab5-cf53-4cc8-ba24-ee89badb820b/tasks/w7x1wnqh1.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Find what dynamic field mutates msg[0] (the &lt;system-context&gt; prefix anchor) and busts the Anthropic prompt cache from position 0, then verify the root cause adversarially" completed</summary>
+<result>{"root_cause":{"root_cause":"tool-search `before_agent_start` injecting a turn-varying `${entries.length} deferred tools available` count into `params.system` via `renderDeferredBlock` + `injectOrReplaceBlock` — /Users/luke/Projects/personal/my-pi/extensions/tool-search/src/index.ts:324-327 (render+inject) and :557 (the count-bearing string)","evidence":"The bridge moves all of `params.system` verbatim into `messages[0]` as `&lt;system-context&gt;` content blocks (bridge index.js:1583-1623). `params.system` is constructed each session by the fork's `buildSystemPrompt()`, then mutated every turn by tool-search's `before_agent_start` handler (tool-search/src/index.ts:292-328). That handler calls `renderDeferredBlock(stillDeferred)` (line 324) which emits the string `\"- ${entries.length} deferred tools available...\"` (line 557) — `entries.length` is `stillDeferred.length`, the count of catalog tools that are not yet in `discovered` and not in `activeNow`. Every successful `tool_search` call adds tools to `discovered` (via `recordDiscovery`), so `stillDeferred.length` decreases across turns within a session. `injectOrReplaceBlock` (line 325) then swaps the stale block with the updated count in the live system prompt, writing different bytes into `params.system`. The bridge receives this mutated system, wraps it in `&lt;system-context&gt;` tags, and places it in `messages[0]`. `cache-diagnostics.fingerprint()` hashes `messages[0]` text content as `hashAny({r: role, c: content})` (cache-diagnostics.js:155-168); a count change produces a different `perMessageHash[0]`, which is then logged as \"messages mutated at position(s) 0\". The fallback `deriveConversationKey` also hashes `messages[0]` (cache-diagnostics.js:95-97), so when there is no explicit session id, a mutated count evicts the prior cache slot entirely. This matches the \"other\" bucket profile (93.2%/1574 events, no tool schema change, no system-hash change, no model/betas/marker change) — the `systemHash` field tracks `params.system` as seen AFTER the bridge strips the CC-identity block and places it into the params.system shortlist (`[billingBlock, ccPrefix]`), not the moved content in messages[0]; so a change to the moved content doesn't appear in `systemHash`, only in `perMessageHash[0]`. That is exactly the signature of the observed busts. Confidence is inferred (actual mutating bytes not captured in logs) but the mechanism is unambiguous from source and matches all observed fingerprint signatures.","introducing_repo":"fork","proposed_fix":"Move the `&lt;deferred-tools&gt;` count string out of `params.system` (which ends up in the stable msg[0] prefix) and into an appended message after the conversation cache boundary, honoring the standing directive. Concretely: in `before_agent_start` (tool-search/src/index.ts:292-328), instead of returning `{ systemPrompt: updated }` with the count-bearing block embedded in the system prompt, return a trailing custom message (or a `nextTurn`-style message) that carries the deferred-tools hint for this turn only. The system prompt should carry only a static placeholder (e.g. `&lt;deferred-tools&gt;` tag with no count) or omit the block entirely and rely on the appended message for per-turn discovery hints. The count string `\"- ${entries.length} deferred tools available...\"` must never appear inside `params.system` / the cached prefix; it belongs in an appended user-role or custom message after the conversation cache_control breakpoint, consistent with cache-strategy.md:99 and SKILL.md law #6. The static `&lt;deferred-tools&gt;` stub in the system prompt (if retained for structural anchoring) must be byte-identical every turn regardless of how many tools have been discovered.","confidence":"medium","secondary_vectors":["pi-memory `injectedSection` appended to system prompt @ /Users/luke/Projects/personal/my-pi/extensions/pi-memory/index.ts:278 and :287 — session-to-session variation (snapshot changes on dream consolidation) busts msg[0] cross-session; within a single session the INJECT_MARKER guard makes it idempotent (byte-stable), so this is a cross-session bust, not a within-session per-turn bust. Lower frequency than tool-search count churn but contributes to the 'other' bucket on session boundaries.","pi-memory recall custom message @ /Users/luke/Projects/personal/my-pi/extensions/pi-memory/index.ts:299-330 — delivered as a `nextTurn` custom message AFTER the user message, not in msg[0]; this is already in the correct location per contract. Not a msg[0] bust vector — listed by investigators but mis-classified. No fix needed here.","bridge `hasConversationHistory` flag silently toggling `cache_control` on the last block of msg[0] between turn 1 (adds marker) and turn 2+ (drops marker if pi didn't set one) @ /Users/luke/Projects/personal/pi-claude-bridge/index.js:1618 — changes the cache fingerprint of msg[0] even when pi's content is byte-identical; secondary aggravator that compounds the main bust."],"open_questions":["Is the `&lt;deferred-tools&gt;` system-prompt block used for anything besides the per-turn model hint (i.e. does any code parse it back)? If the block is purely a model-facing hint, it can be fully relocated to an appended message with no other changes needed.","Does removing the count from the system prompt affect any non-tool-search extension that reads `getSystemPrompt()` to check deferred tool state?","Is there a pi API for injecting a per-turn trailing message from `before_agent_start` (analogous to pi-mode's plan reminder) that would be the canonical relocation target, or does the fix need a new `nextTurn`-style path?","The `stillDeferred` filter includes tools that are `activeNow` as deferred via provider-native `defer_loading` — does the count accurately reflect what the model needs to know, or is a static hint (e.g. 'tool_search is available') sufficient once native deferral is in place?"]},"verification":{"lenses":[{"refuted":false,"reasoning":"Every structural claim holds up under direct source inspection:\n\n1. **`renderDeferredBlock` emits a varying count string** — confirmed at tool-search/src/index.ts:557: `\"- ${entries.length} deferred tools available...\"` where `entries` = `stillDeferred` = catalog tools not yet in `s.discovered` and not in `activeNow`.\n\n2. **`stillDeferred.length` decreases across turns** — confirmed: `state.discovered` is mutated at index.ts:197 and :211 inside the `tool_search` call handler via `recordDiscovery`. `before_agent_start` at line 320 filters `s.catalog` excluding already-discovered tools, so each successful `tool_search` call shrinks `stillDeferred.length` on the next turn.\n\n3. **`before_agent_start` fires every turn** — confirmed: `agent-session.ts:2000-2007` calls `emitBeforeAgentStart` on every user-driven turn, and `:2280-2288` on every extension-triggered turn. The hook unconditionally runs at lines 292-328 and calls `injectOrReplaceBlock` with the new (potentially different) count.\n\n4. **`params.system` is moved to `messages[0]` by the bridge** — confirmed at bridge/index.js:1586-1623. `existingSystem` (= the full `params.system` array including the `&lt;deferred-tools&gt;` block) is filtered and wrapped as `&lt;system-context&gt;` content, then prepended as `messages[0]`. `params` is reassigned at line 1644 with `{ system: [billingBlock, ccPrefix], messages: newMessages }`.\n\n5. **`snapshotRequest` runs AFTER the move** — confirmed. The system-move happens at lines 1549-1649 inside `proxyToAnthropic`, and `snapshotRequest(cacheKey, params, headers)` at line 1712 runs after that reassignment. So `fingerprint()` in cache-diagnostics.js sees `params.system = [billingBlock, ccPrefix]` (two short static blocks) and `params.messages[0]` = the moved `&lt;system-context&gt;` content.\n\n6. **`systemHash` is stable, `perMessageHash[0]` is not** — confirmed. `fingerprint()` at cache-diagnostics.js:172 computes `systemHash = hashAny(systemBlocks)` where `systemBlocks` = `[billi
+... (truncated 7134 chars, full result in /private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/d1d49ab5-cf53-4cc8-ba24-ee89badb820b/tasks/w7x1wnqh1.output)</result>
+<usage><agent_count>8</agent_count><subagent_tokens>321210</subagent_tokens><tool_uses>345</tool_uses><duration_ms>1292023</duration_ms></usage>
+</task-notification>
+
+---
+
+1. commit it
+
+---
+
+1. yes fix
+2. ok
+3. ok
+
+---
+
+<task-notification>
+<task-id>wunh0d647</task-id>
+<tool-use-id>toolu_01T43E8sbnoNGtGxEd9VQS4c</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/d1d49ab5-cf53-4cc8-ba24-ee89badb820b/tasks/wunh0d647.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Prove (or refute) that accumulated extended-thinking is what drives pi sessions to 400k, and reverse-engineer exactly what Claude Code CLI does about it (local + on-wire)" completed</summary>
+<result>{"synthesis":"**1. CAUSATION VERDICT**\n\nYes, with a caveat on the 400k number specifically.\n\nPeak billed: **419,731 tokens** (exact, from bridge log on session 019e84e8). Thinking's share of that:\n- Thinking signatures (163 blocks, base64): ~188,856 tok (45%)\n- Thinking text (163 blocks): ~42,411 tok (10.1%)\n- **Combined thinking: ~231,267 tok (~55%)**\n\nSystem prompt + tool schemas (inferred gap): ~102,966 tok (24.5%). Tool results: ~71,342 tok (17%).\n\nSo thinking is the dominant driver at 55%, with system+tools as a fixed-cost floor at 24.5%. But the 400k trigger is a **local pi compaction check**, and that check anchors on `calculateContextTokens(message.usage)` — i.e. the Anthropic-reported usage number including all thinking pi sent. After the bridge adds `clear_thinking_20251015`, Anthropic strips thinking server-side before KV-caching, so the *next* usage report drops dramatically (bridge log shows 419,731 → 46,364 on that exact session). Without the bridge, pi climbs to the compaction trigger; with the bridge, it doesn't. The bridge fix is already working.\n\nCaveats: per-component split carries ±5-10% uncertainty (chars/3.5 approximation for base64). The 15 MB session (019e884d) had a different profile — tool_results at 49%, thinking at 38% — so thinking-dominance is session-type-specific, strongest for many-assistant-turn / few-large-tool-result sessions.\n\n---\n\n**2. WHAT CLAUDE CODE DOES**\n\n**On-wire:** CC keeps ALL historical thinking blocks in the messages array for prior turns. Only the trailing thinking blocks from the *last* assistant message are stripped (function `aY3`) — that's a streaming artifact cleanup, not a context-management strategy. Stripping all turns only happens on an exceptional 400-retry path (`bIK`/`SIK`, triggered by `tengu_thinking_signature_strip_retry`).\n\n**Context management (the real mechanism):** `function nY4` — when `hasThinking` is true, CC attaches `{type: \"clear_thinking_20251015\", keep: \"all\"}` as a `context_management` edit on every request. This instructs Anthropic to strip accumulated thinking server-side before the payload enters the KV cache. Pi's bridge already does the same thing.\n\n**Local accounting:** CC counts thinking in its context % gauge — formula is `(input_tokens + cache_creation_input_tokens + cache_read_input_tokens) / model_limit * 100`. No explicit thinking exclusion found. The compact trigger (`Xk6` → `willRetriggerNextTurn: AH &gt;= autoCompactThreshold`) uses this same usage-reported number, which after `clear_thinking_20251015` is the post-server-strip value.\n\n**Transcript retention:** Full thinking blocks are written to `history.jsonl` (messages pushed to `J8H` buffer then flushed via `W57()` without any thinking-stripping step). CC's transcript keeps thinking; CC's on-wire payload also keeps historical thinking; the server strips it before billing/caching.\n\n---\n\n**3. RECONCILED RECOMMENDATION**\n\n**No fork change needed for the core problem.** The bridge's `clear_thinking_20251015` is the correct mechanism — it mirrors exactly what CC does via `nY4`. Once the bridge applies that edit, Anthropic's next usage report shrinks, pi's usage-anchored compact check sees the smaller number, and the 400k trigger doesn't fire.\n\nThe remaining exposure is **pi's local estimation path** (`estimateContextTokens` at `compaction.ts:219-222`), which counts thinking text toward the budget estimate and could over-estimate when thinking is heavy. But the primary compact check (`agent-session.ts:857`) anchors on actual API usage, so this is a secondary path.\n\nIf you want belt-and-suspenders: the one fork change worth considering is in `estimateTokens()` at `/Users/luke/Projects/personal/pi-mono-fork/packages/coding-agent/src/core/compaction/compaction.ts:261-268` — weight thinking blocks at zero (or near-zero) since they'll be cleared server-side before billing. But this is cosmetic; the usage-reported path is what actually fires the compaction trigger, and the bridge already fixes that path.\n\nThe `context-usage` extension at `extensions/context-usage/src/tokenizer.ts:77-79` has the same thinking-counting pattern — same low-priority fix if you want the context gauge to reflect post-clear reality.","adversarial_check":"I have all the primary source evidence I need. Here's the verdict:\n\n---\n\n**VERDICT: Partially trustworthy. Two claims need correction before acting on them.**\n\n---\n\n**CLAIM 1: \"Thinking is the dominant 400k driver at 55%\"**\n\nOVERSTATED — and the framing is misleading.\n\nThe 419,731 figure is `cacheRead` tokens (from Anthropic's usage field), not \"peak billed input tokens.\" Actual peak `totalTokens` was 435,913. More importantly: the session data shows `input: 2` on every turn — meaning almost zero new (non-cached) tokens are being written each turn. The KV cache is doing its job; the 419k is what's being READ back from cache.\n\nThe local content decomposition from the session JSONL gives:\n- Thinking signatures: ~954k chars → ~272k est tokens\n- Thinking text: ~241k chars → ~69k est tokens  \n- Tool results: ~1046k chars → ~299k est tokens\n- Assistant text: ~70k chars → ~20k est tokens\n\nSo thinking ≈ 341k vs tool_results ≈ 299k est tokens in the local transcript — thinking is the larger component (≈51%), but tool_results are competitive, not the negligible 17% claimed. The synthesis's \"tool_results at 17%\" figure doesn't match this session. (The 15MB session with \"tool_results at 49%\" is the more representative pattern for heavy tool-use sessions.)\n\nThe core causal claim — thinking accumulates in KV cache, drives the `cacheRead` number up, which feeds `calculateContextTokens()` at `agent-session.ts:857`, which triggers compaction — is **correct**. But the 55%/163-blocks decomposition numbers appear to be from a different session or different measurement; this session has 219 blocks and a ~51%/49% thinking/tool split.\n\n**CLAIM 2: CC on-wire / nY4 / clear_thinking behavior**\n\n**Accurate.** Confirmed verbatim from binary at position 210685071:\n\n```js\nfunction nY4(H){let{hasThinking:_=!1}=H??{};if(_)return{edits:[{type:\"clear_thinking_20251015\",keep:\"all\"}]};return}\n```\n\n`tengu_thinking_signature_strip_retry` is also confirmed in the binary. The `sa()` function (CC's token counter for compaction) is confirmed as `input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens` — i.e., it uses the Anthropic-reported usage figure inclusive of cache reads. The `willRetriggerNextTurn` log field (`AH &gt;= $.autoCompactThreshold`) is confirmed as post-compact estimation, not the trigger itself; the trigger is at `agent-session.ts:857` using `calculateContextTokens(message.usage)`.\n\nThe synthesis claim that \"stripping only happens on an exceptional retry path\" is correct for the `tengu_thinking_signature_strip_retry` path. The `nY4` / `context_management` edit is the primary mechanism, not stripping from the local messages array.\n\n**CLAIM 3: \"Bridge fix is working / no fork change needed\"**\n\n**Correct logic, but incomplete picture.**\n\nThe bridge at `pi-claude-bridge/index.js:1694–1699` applies `clear_thinking_20251015, keep:\"all\"` — confirmed. And the session log shows the drop from 419,731 → 46,364 `cacheRead` after the clear fires.\n\nBut the fork's `calculateContextTokens()` at `compaction.ts:136` is:\n```ts\nusage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite\n```\n\nThe `cacheRead` value in the Usage object Pi stores is the Anthropic-reported value **before** the server applies `clear_thinking` stripping. The server strips on ingestion and returns the reduced count in the **next** response's usage. So the sequence is:\n\n1. Turn N: Pi sends request WITH `clear_thinking_20251015`. Bridge adds it.\n2. Turn N: API processes, strips thinking from KV, returns usage with the REDUCED `cacheRead` (46k, not 419k).\n3. Turn N: Pi receives usage `{cacheRead: 46
+... (truncated 1316 chars, full result in /private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/d1d49ab5-cf53-4cc8-ba24-ee89badb820b/tasks/wunh0d647.output)</result>
+<usage><agent_count>5</agent_count><subagent_tokens>211609</subagent_tokens><tool_uses>350</tool_uses><duration_ms>2110585</duration_ms></usage>
+</task-notification>
+
+---
+
+I want this to be accurate, but is this just for claude-bridge/ models hey?
+
+---
+
+sure
+
+---
+
+ok can you give me a full report of the work we completed
+
+---
+
+my-pi
+pi
+                                                                                                                              
+ I want to look into this model routing that a few people are doing, can you do some research on it for me using web fetch    
+ and search                                                                                                                   
+                                                                                                                              
+ None selected                                                                                                                
+                                                                                                                              
+ Skip to content                                                                                                              
+ Using Bermont Digital Mail with screen readers                                                                               
+ label:@sanenews                                                                                                              
+                                                                                                                              
+ 1 of 47,688                                                                                                                  
+ Launch: Factory Router cuts model costs without sacrificing quality                                                          
+ External                                                                                                                     
+ @SaneNews                                                                                                                    
+                                                                                                                              
+ Factory support@factory.ai Unsubscribe                                                                                       
+ 9:28 PM (23 minutes ago)                                                                                                     
+ to me                                                                                                                        
+                                                                                                                              
+ Hi Luke Anthony,                                                                                                             
+                                                                                                                              
+ We just released Factory Router.                                                                                             
+ Factory Router automatically picks the right model for every task, making sure that you get frontier performance at lower    
+ cost. In our benchmarks, it delivered 20-25% lower token costs while maintaining performance.                                
+                                                                                                                              
+ You can also customize the Factory Router based on your model preference for every individual or team within your            
+ organization.                                                                                                                
+                                                                                                                              
+ The Factory Router is available in private research preview in the Factory CLI and Desktop App. If you'd like Factory Router 
+ enabled for your organization, reach out to our team.                                                                        
+                                                                                                                              
+ Ask for Access                                                                                                               
+                                                                                                                              
+ Thanks for building with us,                                                                                                 
+ The Factory team                                                                                                             
+                                                                                                                              
+ You are receiving this email because you opted in to receive updates from Factory                                            
+ Factory, 410 Townsend Street, STE 100, San Francisco, CA 94107                                                               
+ Unsubscribe                                                                                                                  
+                                                                                                                              
+
+ Thinking...                                                                                                                  
+
+ I'll research model routing for you — both the Factory Router specifically and the broader landscape of who's doing this and 
+ how it works. Let me kick off several searches in parallel.                                                                  
+ Thinking...                                                                                                                  
+
+ I've got a solid picture from the research. Here's what's going on with model routing — starting with the Factory Router     
+ that triggered your email, then the broader landscape.                                                                       
+                                                                                                                              
+ What Factory Router is (your email)                                                                                          
+                                                                                                                              
+ Factory just shipped this on June 1. The pitch:                                                                              
+ instead of expecting every engineer to always choose the best model manually, Factory Router automatically picks the best    
+ model for each Droid session, drawing from a diverse pool of frontier and efficient models.                                  
+ Their headline numbers:                                                                                                      
+ on Terminal-Bench 2 it reached 99% of Opus 4.7's pass rate at 20% lower cost per session, and on Legacy-Bench it reached 96% 
+ of the pass rate at 25% lower cost.                                                                                          
+ The most honest part of their writeup is the cost curve — they admit aggressive routing has a cliff.                         
+ Savings are easy when cheaper models take work they can already handle, then much harder once the router assigns difficult   
+ work to models that cannot finish it; more aggressive routing would drop Terminal-Bench 2 performance to 81% of Opus at 56%  
+ of the cost, and Legacy-Bench to 49% at 30% of the cost.                                                                     
+ So the "20–25% savings at ~99% quality" is the conservative knee of the curve, not the maximum.                              
+                                                                                                                              
+ Beyond cost, it doubles as reliability infrastructure:                                                                       
+ Droid sessions keep working when providers degrade or rate limits hit — Factory Router provides 99.9%+ request reliability   
+ by routing across models, providers, and capacity sources, and if one provider path is unavailable it keeps sessions running 
+ through another healthy path.                                                                                                
+ Admins can also shape it:                                                                                                    
+ you can give admin routing guidance so selection reflects how work actually happens — describing workflow patterns, codebase 
+ areas, toolchains, and model preferences.                                                                                    
+ It's currently private research preview, gated behind "ask for access."                                                      
+                                                                                                                              
+ The core idea                                                                                                                
+                                                                                                                              
+ The whole category rests on one observation:                                                                                 
+ the price spread between frontier and smaller models is enormous and growing, and the key insight is that model capability   
+ doesn't scale linearly with price — most queries don't need frontier capability.                                             
+ A router classifies each request and sends simple work to a cheap model, hard work to a frontier model.                      
+ Done well, routing cuts LLM costs by 50–85% with minimal quality degradation; done poorly, it creates silent quality         
+ regressions you won't detect until users churn.                                                                              
+ That "silent regression" risk is the recurring warning across every source — the same one Factory flags about its own cliff. 
+                                                                                                                              
+ Who's doing it — the landscape                                                                                               
+                                                                                                                              
+ Research / open foundations:                                                                                                 
+ - RouteLLM (LMSYS, the Chatbot Arena team) — the academic reference.                                                         
+ Trained routers reduce costs by up to 85% while maintaining 95% GPT-4 performance on MT Bench, and achieve the same          
+ performance as commercial offerings while being >40% cheaper.                                                                
+ It's a 2-model framework (strong vs. weak) with a tunable cost threshold.                                                    
+                                                                                                                              
+ Hyperscaler / platform:                                                                                                      
+ - Microsoft Foundry Model Router —                                                                                           
+ a purpose-built ML model trained on hundreds of thousands of examples that routes prompts in real time to the best-suited    
+ LLM, optimizing for quality, cost, and latency.                                                                              
+ It exposes three modes:                                                                                                      
+ Balanced (default, optimizes cost while maintaining quality), Quality (critical reasoning tasks), and Cost (high-volume      
+ budget-sensitive workloads).                                                                                                 
+ Commercial routers:                                                                                                          
+ - OpenRouter — mostly an aggregation gateway (400+ models), but its Auto Router is a real router:                            
+ powered by NotDiamond, it analyzes your prompt and selects from a curated pool, and you pay the standard rate for whichever  
+ model is selected with no additional routing fee.                                                                            
+ Important nuance:                                                                                                            
+ it optimizes for output quality, picking the best model for each prompt — it does not optimize for cost by routing simple    
+ prompts to cheaper tiers.                                                                                                    
+ The market treats it as infrastructure now —                                                                                 
+ OpenRouter's recent $113M Series B and its claim that weekly volume grew from 5 trillion to 25 trillion tokens in six months 
+ show the broader market is already treating model routing as infrastructure.                                                 
+ - NotDiamond, Martian, Unify, Requesty, ShareAI — the dedicated commercial players.                                          
+ Routers like CARROT and GraphRouter illustrate cost-efficient routing, while systems such as GPT-5 and NotDiamond lean       
+ heavily on expensive models for accuracy.                                                                                    
+ - LiteLLM — worth separating out because it's frequently miscategorized:                                                     
+ LiteLLM is primarily a proxy, not a router — it doesn't include intelligent task classification, you still choose which      
+ model to call, and routing logic must be built on top.                                                                       
+ How routers actually decide                                                                                                  
+                                                                                                                              
+ Several strategies, roughly in order of sophistication:                                                                      
+ Rule-based routing uses predefined logic; similarity-based routing compares the request to past queries using embeddings;    
+ machine-learning routing trains a classifier on historical data.                                                             
+ - Cascading —                                                                                                                
+ progressive escalation through model tiers, starting cheap and escalating only when needed.                                  
+ - The classifier approach is what most production systems use, and the RouteLLM result is the canonical proof point:         
+ routing can achieve 95% of GPT-4's performance while using GPT-4 for only 14% of queries on GSM8K.                           
+ One important architectural note for agentic/coding work specifically (which is Factory's whole focus):                      
+ for multi-step agent workflows, routing extends beyond the entry point — each tool call, sub-task, and reasoning step can be 
+ dispatched to the appropriate specialist, with a lightweight orchestrator acting as a dispatcher. This is where routing      
+ evolves from a cost optimization into an architectural pattern.                                                              
+ The catch everyone names                                                                                                     
+                                                                                                                              
+ The consistent caution: routing is invisible until it fails.                                                                 
+ The risk is that routing becomes invisible until something goes wrong — if an agent fails because it was sent to the wrong   
+ model, the savings will not feel like savings.                                                                               
+ And the genuinely hard judgment a good router makes isn't "what's cheapest" —                                                
+ a good router does not merely pick the cheapest model; it decides when cost savings are harmless and when they become        
+ expensive because the weaker model fails, retries, or sends the task back to a human.                                        
+ ────────────────────────────────────────────────────────────────────────────────                                             
+                                                                                                                              
+ Worth flagging for your own setup: you're already running this pattern. Your pi stack has the advisor extension (model       
+ routing) doing per-task model selection, plus the claude-bridge layer that all Anthropic calls flow through — which is       
+ structurally the same "gateway + routing decision" architecture these products sell. The interesting angle for you isn't     
+ adopting Factory (it's a closed Droid-only preview), but whether the published cost-curve methodology — measuring cost per   
+ successful run rather than cost per token, and finding the conservative knee before the quality cliff — is something worth   
+ encoding into your advisor's routing thresholds or an eval.                                                                  
+                                                                                                                              
+ Want me to go deeper on any one thread — e.g. pull the full Factory writeup, dig into how the advisor extension currently    
+ decides, or look at RouteLLM's actual classifier approach as a reference implementation?                                     
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                                              
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/Projects/personal/my-pi (main) · Model routing research
+↑4 · ↓3.8k · R76k · W41k · cache 65% avg 65% · t1 · 12.0% 120k/1.0M (auto)             (claude-bridge) claude-opus-4-8 · xhigh
+⚡ $0.88 🧠 5 hits · 3279ms package update: pi update update: pi 0.79.0 T1 ctx 120k Δ +108k
+
+Still having issues, is this because my changes havent' been merged in / rebuilt?
+
+---
+
+No but look at this, 1 turn, 108k tokens:
+z my-pi
+pi
+                                                                                                                              
+ I want to look into this model routing that a few people are doing, can you do some research on it for me using web fetch    
+ and search                                                                                                                   
+                                                                                                                              
+ None selected                                                                                                                
+                                                                                                                              
+ Skip to content                                                                                                              
+ Using Bermont Digital Mail with screen readers                                                                               
+ label:@sanenews                                                                                                              
+                                                                                                                              
+ 1 of 47,688                                                                                                                  
+ Launch: Factory Router cuts model costs without sacrificing quality                                                          
+ External                                                                                                                     
+ @SaneNews                                                                                                                    
+                                                                                                                              
+ Factory support@factory.ai Unsubscribe                                                                                       
+ 9:28 PM (23 minutes ago)                                                                                                     
+ to me                                                                                                                        
+                                                                                                                              
+ Hi Luke Anthony,                                                                                                             
+                                                                                                                              
+ We just released Factory Router.                                                                                             
+ Factory Router automatically picks the right model for every task, making sure that you get frontier performance at lower    
+ cost. In our benchmarks, it delivered 20-25% lower token costs while maintaining performance.                                
+                                                                                                                              
+ You can also customize the Factory Router based on your model preference for every individual or team within your            
+ organization.                                                                                                                
+                                                                                                                              
+ The Factory Router is available in private research preview in the Factory CLI and Desktop App. If you'd like Factory Router 
+ enabled for your organization, reach out to our team.                                                                        
+                                                                                                                              
+ Ask for Access                                                                                                               
+                                                                                                                              
+ Thanks for building with us,                                                                                                 
+ The Factory team                                                                                                             
+                                                                                                                              
+ You are receiving this email because you opted in to receive updates from Factory                                            
+ Factory, 410 Townsend Street, STE 100, San Francisco, CA 94107                                                               
+ Unsubscribe                                                                                                                  
+                                                                                                                              
+
+ Thinking...                                                                                                                  
+
+ I'll research model routing for you — both the Factory Router specifically and the broader landscape of who's doing this and 
+ how it works. Let me kick off several searches in parallel.                                                                  
+ Thinking...                                                                                                                  
+
+ I've got a solid picture from the research. Here's what's going on with model routing — starting with the Factory Router     
+ that triggered your email, then the broader landscape.                                                                       
+                                                                                                                              
+ What Factory Router is (your email)                                                                                          
+                                                                                                                              
+ Factory just shipped this on June 1. The pitch:                                                                              
+ instead of expecting every engineer to always choose the best model manually, Factory Router automatically picks the best    
+ model for each Droid session, drawing from a diverse pool of frontier and efficient models.                                  
+ Their headline numbers:                                                                                                      
+ on Terminal-Bench 2 it reached 99% of Opus 4.7's pass rate at 20% lower cost per session, and on Legacy-Bench it reached 96% 
+ of the pass rate at 25% lower cost.                                                                                          
+ The most honest part of their writeup is the cost curve — they admit aggressive routing has a cliff.                         
+ Savings are easy when cheaper models take work they can already handle, then much harder once the router assigns difficult   
+ work to models that cannot finish it; more aggressive routing would drop Terminal-Bench 2 performance to 81% of Opus at 56%  
+ of the cost, and Legacy-Bench to 49% at 30% of the cost.                                                                     
+ So the "20–25% savings at ~99% quality" is the conservative knee of the curve, not the maximum.                              
+                                                                                                                              
+ Beyond cost, it doubles as reliability infrastructure:                                                                       
+ Droid sessions keep working when providers degrade or rate limits hit — Factory Router provides 99.9%+ request reliability   
+ by routing across models, providers, and capacity sources, and if one provider path is unavailable it keeps sessions running 
+ through another healthy path.                                                                                                
+ Admins can also shape it:                                                                                                    
+ you can give admin routing guidance so selection reflects how work actually happens — describing workflow patterns, codebase 
+ areas, toolchains, and model preferences.                                                                                    
+ It's currently private research preview, gated behind "ask for access."                                                      
+                                                                                                                              
+ The core idea                                                                                                                
+                                                                                                                              
+ The whole category rests on one observation:                                                                                 
+ the price spread between frontier and smaller models is enormous and growing, and the key insight is that model capability   
+ doesn't scale linearly with price — most queries don't need frontier capability.                                             
+ A router classifies each request and sends simple work to a cheap model, hard work to a frontier model.                      
+ Done well, routing cuts LLM costs by 50–85% with minimal quality degradation; done poorly, it creates silent quality         
+ regressions you won't detect until users churn.                                                                              
+ That "silent regression" risk is the recurring warning across every source — the same one Factory flags about its own cliff. 
+                                                                                                                              
+ Who's doing it — the landscape                                                                                               
+                                                                                                                              
+ Research / open foundations:                                                                                                 
+ - RouteLLM (LMSYS, the Chatbot Arena team) — the academic reference.                                                         
+ Trained routers reduce costs by up to 85% while maintaining 95% GPT-4 performance on MT Bench, and achieve the same          
+ performance as commercial offerings while being >40% cheaper.                                                                
+ It's a 2-model framework (strong vs. weak) with a tunable cost threshold.                                                    
+                                                                                                                              
+ Hyperscaler / platform:                                                                                                      
+ - Microsoft Foundry Model Router —                                                                                           
+ a purpose-built ML model trained on hundreds of thousands of examples that routes prompts in real time to the best-suited    
+ LLM, optimizing for quality, cost, and latency.                                                                              
+ It exposes three modes:                                                                                                      
+ Balanced (default, optimizes cost while maintaining quality), Quality (critical reasoning tasks), and Cost (high-volume      
+ budget-sensitive workloads).                                                                                                 
+ Commercial routers:                                                                                                          
+ - OpenRouter — mostly an aggregation gateway (400+ models), but its Auto Router is a real router:                            
+ powered by NotDiamond, it analyzes your prompt and selects from a curated pool, and you pay the standard rate for whichever  
+ model is selected with no additional routing fee.                                                                            
+ Important nuance:                                                                                                            
+ it optimizes for output quality, picking the best model for each prompt — it does not optimize for cost by routing simple    
+ prompts to cheaper tiers.                                                                                                    
+ The market treats it as infrastructure now —                                                                                 
+ OpenRouter's recent $113M Series B and its claim that weekly volume grew from 5 trillion to 25 trillion tokens in six months 
+ show the broader market is already treating model routing as infrastructure.                                                 
+ - NotDiamond, Martian, Unify, Requesty, ShareAI — the dedicated commercial players.                                          
+ Routers like CARROT and GraphRouter illustrate cost-efficient routing, while systems such as GPT-5 and NotDiamond lean       
+ heavily on expensive models for accuracy.                                                                                    
+ - LiteLLM — worth separating out because it's frequently miscategorized:                                                     
+ LiteLLM is primarily a proxy, not a router — it doesn't include intelligent task classification, you still choose which      
+ model to call, and routing logic must be built on top.                                                                       
+ How routers actually decide                                                                                                  
+                                                                                                                              
+ Several strategies, roughly in order of sophistication:                                                                      
+ Rule-based routing uses predefined logic; similarity-based routing compares the request to past queries using embeddings;    
+ machine-learning routing trains a classifier on historical data.                                                             
+ - Cascading —                                                                                                                
+ progressive escalation through model tiers, starting cheap and escalating only when needed.                                  
+ - The classifier approach is what most production systems use, and the RouteLLM result is the canonical proof point:         
+ routing can achieve 95% of GPT-4's performance while using GPT-4 for only 14% of queries on GSM8K.                           
+ One important architectural note for agentic/coding work specifically (which is Factory's whole focus):                      
+ for multi-step agent workflows, routing extends beyond the entry point — each tool call, sub-task, and reasoning step can be 
+ dispatched to the appropriate specialist, with a lightweight orchestrator acting as a dispatcher. This is where routing      
+ evolves from a cost optimization into an architectural pattern.                                                              
+ The catch everyone names                                                                                                     
+                                                                                                                              
+ The consistent caution: routing is invisible until it fails.                                                                 
+ The risk is that routing becomes invisible until something goes wrong — if an agent fails because it was sent to the wrong   
+ model, the savings will not feel like savings.                                                                               
+ And the genuinely hard judgment a good router makes isn't "what's cheapest" —                                                
+ a good router does not merely pick the cheapest model; it decides when cost savings are harmless and when they become        
+ expensive because the weaker model fails, retries, or sends the task back to a human.                                        
+ ────────────────────────────────────────────────────────────────────────────────                                             
+                                                                                                                              
+ Worth flagging for your own setup: you're already running this pattern. Your pi stack has the advisor extension (model       
+ routing) doing per-task model selection, plus the claude-bridge layer that all Anthropic calls flow through — which is       
+ structurally the same "gateway + routing decision" architecture these products sell. The interesting angle for you isn't     
+ adopting Factory (it's a closed Droid-only preview), but whether the published cost-curve methodology — measuring cost per   
+ successful run rather than cost per token, and finding the conservative knee before the quality cliff — is something worth   
+ encoding into your advisor's routing thresholds or an eval.                                                                  
+                                                                                                                              
+ Want me to go deeper on any one thread — e.g. pull the full Factory writeup, dig into how the advisor extension currently    
+ decides, or look at RouteLLM's actual classifier approach as a reference implementation?                                     
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                                              
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/Projects/personal/my-pi (main) · Model routing research
+↑4 · ↓3.8k · R76k · W41k · cache 65% avg 65% · t1 · 12.0% 120k/1.0M (auto)             (claude-bridge) claude-opus-4-8 · xhigh
+⚡ $0.88 🧠 5 hits · 3279ms package update: pi update update: pi 0.79.0 T1 ctx 120k Δ +108k
+
+this is exactly what I was working on fixing today.
+
+---
+
+there is no world where I need to have 76k worth of cache being read on a single turn for tools
+
+---
+
+what in the first message is 18k tokens
+
+---
+
+do a trace here and dedupe across all the files / imports, I think there is loads of overlap
+
+---
+
+<task-notification>
+<task-id>w01wvg9g7</task-id>
+<tool-use-id>toolu_01B5H4Zq4uJJMQMikzyMedwv</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/w01wvg9g7.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Trace which files feed pi msg[0] (incl. foreign-project content) and find duplicated/overlapping content to cut" completed</summary>
+<result>{"trace":[{"sourceMap":[{"section":"Pi system prompt header — tool list, guidelines, harness instructions","sourceFile":"generated/unknown — compiled into pi binary; assembled by Pi core prompt-builder + extension-contributed guidelines at startup","approxTokens":2200,"loadMechanism":"Pi core systemPrompt:build pipeline; static template baked into binary, merged with extension hook contributions before msg[0] is assembled"},{"section":"&lt;project_instructions path=\"/Users/luke/.pi/agent/dream-memory/profile-memory.md\"&gt; — profile memory snapshot (00-pi-active-context.md + MEMORY.md concatenated)","sourceFile":"/Users/luke/.pi/agent/dream-memory/profile-memory.md","approxTokens":850,"loadMechanism":"dream-memory extension.ts systemPrompt:build filter (priority 10); getProfileSnapshot() calls loadProfileContext(), wraps result in &lt;project_instructions path=PROFILE_MEMORY_PATH&gt; block, injects into &lt;project_context&gt; via injectProfileBlock() — extension.ts lines 295-296, 311-332, 376-390"},{"section":"&lt;project_instructions path=\"/Users/luke/.pi/agent/AGENTS.md\"&gt; — Pi harness overlay (Background/monitors, Pi development, Pi updates, Memory/context, Pi agents/worktrees, Session drift)","sourceFile":"/Users/luke/.pi/agent/AGENTS.md","approxTokens":900,"loadMechanism":"AGENTS chain-walk: Pi walks UP from process.cwd(), loading each ancestor's AGENTS.md as a &lt;project_instructions&gt; block; ~/.pi/agent/AGENTS.md is a fixed harness-level entry point always included"},{"section":"&lt;project_instructions path=\"/Users/luke/Projects/agent-scripts/AGENTS.md\"&gt; — deferred @import stub (not full content, just placeholder reference)","sourceFile":"/Users/luke/Projects/agent-scripts/AGENTS.md","approxTokens":60,"loadMechanism":"AGENTS chain-walk deferred @import: /Users/luke/.pi/agent/AGENTS.md line 2 contains '@~/Projects/agent-scripts/AGENTS.md'; Pi resolves and expands this as a nested project_instructions block"},{"section":"&lt;available_skills&gt; — 18 skills listed (k8s, code-craft, agent-native-hardening, testing, etc.)","sourceFile":"/Users/luke/Projects/personal/my-pi/extensions/skill-loader/src/index.ts","approxTokens":500,"loadMechanism":"skill-loader extension; reads skill definitions from ~/.pi/agent/skills/; registers a systemPrompt:build (or equivalent) hook to emit the &lt;available_skills&gt; block into msg[0]"},{"section":"&lt;project_instructions path=\"/Users/luke/Projects/AGENTS.md\"&gt; — workspace Projects AGENTS.md","sourceFile":"/Users/luke/Projects/AGENTS.md","approxTokens":900,"loadMechanism":"AGENTS chain-walk: process.cwd() was /Users/luke/Projects/infra/openclaw-claude; walking up hits /Users/luke/Projects/AGENTS.md"},{"section":"&lt;project_instructions path=\"/Users/luke/Projects/infra/AGENTS.md\"&gt; — Infra Kubernetes Infrastructure Projects","sourceFile":"/Users/luke/Projects/infra/AGENTS.md","approxTokens":650,"loadMechanism":"AGENTS chain-walk: walking up from /Users/luke/Projects/infra/openclaw-claude hits /Users/luke/Projects/infra/AGENTS.md"},{"section":"&lt;project_instructions path=\"/Users/luke/Projects/infra/openclaw-claude/AGENTS.md\"&gt; — OpenClaw Management Hub Agent Instructions (~3.9k tokens)","sourceFile":"/Users/luke/Projects/infra/openclaw-claude/AGENTS.md","approxTokens":3900,"loadMechanism":"AGENTS chain-walk: process.cwd() = /Users/luke/Projects/infra/openclaw-claude; this is the leaf/innermost AGENTS.md loaded first in the chain"},{"section":"&lt;!-- pi-memory:v2 --&gt; block — full profile memory dump (57 [profile] entries) + project/openclaw-claude entries","sourceFile":"generated/unknown — pi-memory extension runtime output; source entries from ~/.pi/agent/memory/ and per-cwd project memory store","approxTokens":6000,"loadMechanism":"pi-memory extension (separate from dream-memory); injected via before_agent_start or dispatchSessionStart handler; performs active-memory qmd-backed hybrid search on UserPromptSubmit, injects results as &lt;!-- pi-memory:v2 --&gt; block in tail of msg[0]"},{"section":"&lt;deferred-tools&gt; block — tool-search extension notice listing deferred MCP/tool names","sourceFile":"/Users/luke/Projects/personal/my-pi/extensions/skill-loader/src/index.ts","approxTokens":300,"loadMechanism":"tool-search extension (via skill-loader or standalone); registers a systemPrompt:build hook that emits the &lt;deferred-tools&gt; block listing tools whose schemas are not eagerly loaded; keeps tools[] byte-stable by deferring heavy schemas"}],"foreignContentVerdict":"The Pi session's own process.cwd() at prompt-build time was /Users/luke/Projects/infra/openclaw-claude — NOT ~/Projects/personal/my-pi. This is confirmed by msg0-block1.txt line 342: \"Current working directory: /Users/luke/Projects/infra/openclaw-claude\". Pi's AGENTS chain-walk walks UP the directory tree from process.cwd(), loading each ancestor's AGENTS.md as a &lt;project_instructions&gt; block. So starting from /Users/luke/Projects/infra/openclaw-claude it loads: (1) /Users/luke/Projects/infra/openclaw-claude/AGENTS.md, (2) /Users/luke/Projects/infra/AGENTS.md, (3) /Users/luke/Projects/AGENTS.md. The orchestration script's cwd (my-pi) is irrelevant — Pi resolves its AGENTS chain from its own process.cwd(), not from the spawning script's working directory. The \"my-pi cwd session\" framing in the task was incorrect; this was an openclaw-claude session whose snapshot was captured and analyzed.","memoryDisclosureVerdict":"Full content dump — progressive-disclosure is broken at the snapshot level. The file ~/.pi/agent/dream-memory/profile-memory.md contains the full bodies of BOTH profile/00-pi-active-context.md AND profile/MEMORY.md concatenated (~850 tokens total). This file is read by getProfileSnapshot() in extension.ts (line 314 calls loadProfileContext()) and injected verbatim as a &lt;project_instructions path=PROFILE_MEMORY_PATH&gt; block via the systemPrompt:build filter at priority 10 (extension.ts lines 295-296, 376-390). The design intent in store.ts is correct: INDEX_FILE = \"MEMORY.md\" (line 1930), and lines 1926-1929 explicitly state \"Topic files under profile/ and project/&lt;slug&gt;/ are NOT auto-loaded — they are discovered via memory_search and read on demand. MEMORY.md is the progressive-disclosure index.\" loadProfileContext() (line 1954) does correctly call readIndexFile([\"profile\", INDEX_FILE]) which reads only profile/MEMORY.md from ~/obsidian/dream-memory/memory/. However, the injected snapshot file profile-memory.md is a pre-rendered full dump written by dream consolidation that includes full file bodies (including 00-pi-active-context.md with its full incident log), not just the index. The extension injects this pre-rendered dump verbatim rather than calling loadProfileContext() fresh from the obsidian source — meaning the snapshot bypasses the index-only progressive-disclosure constraint. The harness-cli.ts dispatchSessionStart() correctly injects only project/&lt;slug&gt;/MEMORY.md (the per-cwd project index), confirming the project-memory side of progressive-disclosure works, but the profile-memory snapshot side is a full dump that violates the intent."},{"sourceMap":[{"section":"system-context wrapper / tool list / guidelines","sourceFile":"/Users/luke/Projects/personal/pi-mono-fork/packages/coding-agent/src/core/system-prompt.ts","approxTokens":2800,"loadMechanism":"buildSystemPrompt() constructs the static prefix; pi-bridge moves params.system → messages[0] as &lt;system-context&gt; for cache stability"},{"section":"&lt;cwd&gt;/&lt;dir&gt; directory tree","sourceFile":"generated/unknown — runtime ls/tree of cwd at session start","approxTokens":300,"loadMechanism":"Injected by pi harness before_agent_start or session init; dynamic tree of the cwd"},{"section":"&lt;available_skills&gt; skills registry","sourceFile":"/Users/luke/Projects/personal/my-pi/extensions/skill-loader/src/index.ts","approxTokens":1900,"loadMechanism":"skill-loader extension appends formatSkillsF
+... (truncated 30366 chars, full result in /private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/w01wvg9g7.output)</result>
+<usage><agent_count>13</agent_count><subagent_tokens>270942</subagent_tokens><tool_uses>98</tool_uses><duration_ms>694976</duration_ms></usage>
+</task-notification>
+
+---
+
+can you also look at the references I pulled from x.com from one of the openai devs who talks about giving a model less detailed / specific instructions, and more on how you want the model / harness to behave, 
+
+When corrected, propose an edit to AGENTS.md so the same mistake doesn't recur.
+
+
+Kun Chen
+@kunchenguid
+·
+3h
+many folks are asking what "loops" really mean, and surprisingly i don't see many NO BS straight answers
+
+so let me share some from real experiences
+
+there are two different types of loops i've been doing:
+- "one off loops" = a loop that babysits an ephemeral task and will end once the task is done
+- "durable loops" = a cron job that keeps running forever
+
+examples of one off loops:
+- babysit the CI pipeline for this PR until it's merged. fix failures and merge conflicts as they come up. this loop is built into no-mistakes https://github.com/kunchenguid/no-mistakes 
+- find out out of date documentation pieces in this repo, spin up a subagent to fix each until there's no more
+
+my tool gnhf https://github.com/kunchenguid/gnhf and the "/goal" feature in both claude and codex are great at executing one-off loops
+
+examples of durable loops:
+- every hour, scan my github repos for new issues filed by contributors and triage them with the following labels...
+- how i built OPINIONS.md by having agents scan my social media posts every night and consolidate my viewpoints  https://blog.kunchenguid.com/p/everyone-should-have-an-opinionsmd 
+
+durable loops are valuable when you regularly have "new things" to process. user feedback, bug reports, tech debt, security vulns, production alerts etc
+
+hope this gives some real insights - happy to answer further questions on this topic
+Quote
+Peter Steinberger 🦞
+
+@steipete
+·
+Jun 7
+Here’s your monthly reminder that you shouldn’t be prompting coding agents anymore.
+
+You should be designing loops that prompt your agents.
+
+Pinned
+Ryan Lopopolo
+@_lopopolo
+·
+Apr 21
+So why haven’t you all done this yet?
+Quote
+Ryan Lopopolo
+@_lopopolo
+·
+Nov 19, 2025
+Every company should have a full stack team of 5 building a product who are banned from directly writing code; they must force the agents to do it. In 2 months they will be your most productive team.
+Ryan Lopopolo
+@_lopopolo
+·
+16h
+5.5 chat model is way more willing to match my energy and register when talking to me. I am pleasantly surprised when it gives me a “holy shit” or “LET’S FUCKING GO!” in response.
+Ryan Lopopolo
+@_lopopolo
+·
+Jun 6
+Kinda half baked thought, but one resolution of a Mythos/Glasswing and 5.5/Daybreak world could be we have a single high leverage, highly scrutinized version of everything written in Rust with only bindings layered on top for other languages.
+
+Look at the universe of CVEs coming
+Show more
+Ryan Lopopolo
+@_lopopolo
+·
+Jun 6
+Yo 
+@ajambrosino
+ this link should like resolve to something kthx
+Quote
+Xander Dunn
+
+@xanderai
+·
+Jun 5
+http://Codex.app is becoming a moat.
+Ryan Lopopolo
+@_lopopolo
+·
+Jun 6
+THANK YOU FOR YOUR ATTENTION TO THIS MATTER
+
+
+
+Ryan Lopopolo
+@_lopopolo
+·
+Jun 5
+Using agents effectively requires embracing their stochastic nature and setting up a framework for them to reason rather than giving them a pile of rules.
+
+Harness engineering and knowledge base curation does not (and cannot!) rely on all information being pulled into context—and given things like autocompaction over long horizon work, context is constantly getting blitted so you can't really rely on things being in context either.
+
+In general you want to tell agents your expectations on how/when/what type of context they should seek and how the tools in their environment can help them complete their work.
+
+You need to tell the agents what they are working on, what parts of it matter, and how they should approach tasks. Tell them about common tasks for the things you’re working on and where they can learn more about them. Make your agents collapse a prompt they are given into a paved workflow.
+
+as reference, do some more searches online and find relevant guidance / artefacts, as recent as possible and lets get this distilled / improved and added to my context intelligence skills stack and update instruction refiner and progressive disclosure skills.
+
+A lot of this is about telling the model how to behave, how to think and act, where tools and skills are, and how to achieve outcomes with those skills and tools
+
+---
+
+<task-notification>
+<task-id>wvcb6lw47</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/wvcb6lw47.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Research recent (2025-26) guidance on harness engineering / behavior-over-rules / loops, distill into principles + concrete edits for instruction-refiner &amp; progressive-disclosure skills" completed</summary>
+<result>{"searches":[{"angle":"Anthropic's official engineering output (Sept–Dec 2025) converges on one thesis: agent reliability is a context engineering problem, not a prompting problem. The canonical principles are: (1) find the smallest high-signal context window possible; (2) use just-in-time / lazy retrieval over pre-loading; (3) progressive disclosure — expose metadata first, full instructions only when relevant, supporting materials only during execution; (4) treat tool design as behavioral steering (ACI, not API); (5) knowledge lives in composable Skills indexed from the harness, not stuffed into system prompts. Each principle directly opposes \"pile of rules\" prompting in favor of harness + knowledge-base engineering.","findings":[{"claim":"The guiding principle of context engineering is: 'Find the smallest possible set of high-signal tokens that maximize the likelihood of some desired outcome.' Context is treated like human working memory — finite with diminishing marginal returns ('context rot'). More tokens hurts, not helps.","source":"Prithvi Rajasekaran, Ethan Dixon, Carly Ryan, Jeremy Hadfield (Anthropic Applied AI) — 'Effective context engineering for AI agents' — https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents","date":"2025-09-29","relevanceToThesis":"Direct corroboration: the instinct to give agents exhaustive rules makes performance worse. The harness must curate the smallest useful context, not accumulate rules."},{"claim":"Just-in-time retrieval: rather than pre-loading all data, agents maintain lightweight identifiers (file paths, links, queries) and dynamically load context at runtime using tools. Claude Code exemplifies this — CLAUDE.md files load upfront; glob/grep enable just-in-time navigation for everything else.","source":"Prithvi Rajasekaran et al. (Anthropic) — 'Effective context engineering for AI agents' — https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents","date":"2025-09-29","relevanceToThesis":"Directly maps to 'tell agents WHERE tools &amp; skills live, HOW to seek context' rather than pre-dumping the knowledge base. The harness index enables recall-on-demand."},{"claim":"Progressive disclosure: Agent Skills expose three layers — (1) YAML frontmatter metadata (~80 tokens) pre-loaded in system prompt; (2) full SKILL.md instructions loaded when Claude determines relevance; (3) additional bundled files loaded on-demand during execution. 'Like a well-organized manual that starts with a table of contents, then specific chapters, and finally a detailed appendix.'","source":"Barry Zhang, Keith Lazuka, Mahesh Murag (Anthropic) — 'Equipping agents for the real world with Agent Skills' — https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills","date":"2025-10-16","relevanceToThesis":"This is the canonical Anthropic implementation of the progressive-disclosure principle Luke is citing. Skills replace rule enumeration with an index + recall-on-demand architecture, which is exactly the knowledge-base curation model."},{"claim":"System prompts should hit a 'Goldilocks zone': specific enough to guide behavior, flexible enough to provide heuristics without brittle if-else logic. Avoid 32-page PDFs or pseudo-code-like prompts. The 'best friend test': if someone unfamiliar with the domain can't understand the instructions, neither will the model.","source":"Cal (Applied AI Team Lead, Anthropic) — AWS re:Invent 2025 session AIM277, 'What Anthropic Learned Building AI Agents in 2025' — https://dev.to/kazuya_dev/aws-reinvent-2025-what-anthropic-learned-building-ai-agents-in-2025-aim277-16lc","date":"2025-12-06","relevanceToThesis":"Anthropic's own practitioners explicitly warn against the 'pile of rules' anti-pattern. Behavioral heuristics beat enumerated edge-case rules — confirms the 'behavior/expectations over enumerated rules' sub-theme."},{"claim":"Tools function as Agent-Computer Interfaces (ACI), not APIs. Tool descriptions are 'context-loaded prompts that influence agent behavior.' Minimal, non-overlapping tool sets outperform comprehensive tool coverage. Accuracy degrades past ~10 tools available simultaneously; best practice is fewer than 20.","source":"Ken Aizawa et al. (Anthropic) — 'Writing effective tools for AI agents—using AI agents' — https://www.anthropic.com/engineering/writing-tools-for-agents","date":"2025-09-11","relevanceToThesis":"Corroborates 'HOW tools &amp; skills live' sub-theme. Harness engineers the tool surface; bloated tool sets degrade reasoning just like bloated prompts. Knowledge routing (which tool to call, when) is a harness-design problem."},{"claim":"Lazy-loading information: agents should discover details through tool calls rather than receiving pre-loaded context. Exception: always-relevant instructions (like CLAUDE.md) load immediately to preserve caching efficiency. For long-horizon tasks: compaction (summarize + restart with condensed notes), self-documentation (persistent markdown memory), sub-agents (clean context windows for focused tasks).","source":"Cal (Applied AI Team Lead, Anthropic) — AWS re:Invent 2025 session AIM277 — https://dev.to/kazuya_dev/aws-reinvent-2025-what-anthropic-learned-building-ai-agents-in-2025-aim277-16lc","date":"2025-12-06","relevanceToThesis":"Directly addresses the 'context is ephemeral under autocompaction' sub-theme. Anthropic's own practitioners build for context loss — harness manages memory/recall externally, agents don't rely on context accumulation."},{"claim":"Knowledge engineering principle: 'The context window is the agent's cognitive space. Overloading it degrades performance, while keeping it focused lets the agent reason sharply.' Accuracy degrades past 10 available tools. Progressive disclosure (discovery → activation → execution layers) is the system design pattern that solves this.","source":"Aurimas Griciūnas — 'Agent Skills: Progressive Disclosure as a System Design Pattern' — https://www.newsletter.swirlai.com/p/agent-skills-progressive-disclosure","date":"2026-03-11","relevanceToThesis":"Third-party synthesis of the Anthropic pattern, naming it explicitly as a system design pattern. Adds the 'democratization' angle: Skills make harness configuration accessible to domain experts, not just prompt engineers — relevant to the knowledge-base curation sub-theme."},{"claim":"Simplicity, transparency, and tool documentation are the three foundational principles for effective agents. Tool creation deserves the same rigor as prompt engineering. Start with the simplest solution (often a single LLM call); add complexity only when measured to be necessary.","source":"Erik S. and Barry Zhang (Anthropic) — 'Building Effective AI Agents' — https://www.anthropic.com/research/building-effective-agents","date":"2024-12-19","relevanceToThesis":"Foundational baseline pre-dating the context-engineering era. Establishes that paved workflows (agents for undefined steps, workflows for defined ones) and minimal tool design are the starting point — supports the 'paved path' sub-theme."}],"bestArtifacts":["https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents","https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills","https://www.anthropic.com/engineering/writing-tools-for-agents","https://www.anthropic.com/research/building-effective-agents","https://dev.to/kazuya_dev/aws-reinvent-2025-what-anthropic-learned-building-ai-agents-in-2025-aim277-16lc"]},{"angle":"Harness engineering &amp; \"design loops not prompts\": the 2025-2026 practitioner consensus, grounded in Ryan Lopopolo/OpenAI's zero-human-code production work, Peter Steinberger's closed-loop agent workflow, Birgitta Böckeler/Thoughtworks's formal harness taxonomy, Aristidis Vasilopoulos's codified-context arXiv paper, and supporting voices (Karpathy on context engineering, Kun Chen's gnhf loop taxonomy). The thesis — stop writing piles of rules; inste
+... (truncated 61917 chars, full result in /private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/wvcb6lw47.output)</result>
+<usage><agent_count>6</agent_count><subagent_tokens>211359</subagent_tokens><tool_uses>108</tool_uses><duration_ms>378606</duration_ms></usage>
+</task-notification>
+
+---
+
+/goal can we use the updated context intelligence and the relevant guidance and skills and findings from this session to improve our base context thats loaded into each sesssion / system prompt / first message, recall etc, audit first, check cross harness touch points, check static vs dynamic boundaries, skills and tools in pi, and claude code cli and codex, and the static instructions, skills, AGENTS.md, imported items, and lets work on a new and improved version, while still version controlling the previous versions in case we want to revert, you can do this over night and I will stop other sessions so there is no conflict
+
+---
+
+/harness-loop actually use this harness loop to run goals and workflows and prompt and guide the agents to my desired outcome:
+/goal can we use the updated context intelligence and the relevant guidance and skills and findings from this session to    
+improve our base context thats loaded into each sesssion / system prompt / first message, recall etc, audit first, check      
+cross harness touch points, check static vs dynamic boundaries, skills and tools in pi, and claude code cli and codex, and    
+the static instructions, skills, AGENTS.md, imported items, and lets work on a new and improved version, while still version  
+controlling the previous versions in case we want to revert, you can do this over night and I will stop other sessions so     
+there is no conflict
+
+---
+
+do we need to update the set goal then?
+
+---
+
+<task-notification>
+<task-id>wqpx0uqwy</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/wqpx0uqwy.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Audit base context loaded into every Pi / Claude Code / Codex session against context-intelligence principles; produce a prioritized, reversible change spec" completed</summary>
+<result>{"audits":[{"findings":[{"location":"AGENTS.md § Tool Discipline (lines 125-126)","principle":"CROSS-HARNESS DEDUP + RIGHT ALTITUDE","issue":"Pi-specific primitives (`bash run_in_background:true`, `monitor_start`) described inline in a section that opens with generic tool discipline. These are Pi harness internals only — in Claude Code, `run_in_background` is a Bash tool parameter, not a harness primitive. Cross-harness readers get confused semantics. The paragraph is ~80 tokens of harness-routing noise for non-Pi work.","recommendation":"Move Pi-specific waiting strategy (the two sentences starting 'In Pi, bash run_in_background:true…' and 'monitor_start streams events…') into pi-dev.md § Cache footguns or a new § Async patterns. The Claude Code-applicable rule ('foreground sleep is blocked; use Monitor') stays.","approxTokens":80,"savingsTokens":55,"risk":"low"},{"location":"AGENTS.md § Tool Discipline (line 131)","principle":"RIGHT ALTITUDE — too specific, low frequency","issue":"The bullet 'Analyzing a captured prompt/session dump → read its &lt;cwd&gt; first; attribute every loaded &lt;project_instructions&gt;/AGENTS block…' is a very specific forensic-audit instruction that fires only during prompt-cache debugging sessions. It was added to patch a past mistake but is now permanent overhead on every task. ~40 tokens loaded for a case that arises &lt;5% of sessions.","recommendation":"Move to references/pi-dev-details.md or learning-scars.md. The general principle ('verify before deciding → cite concrete artifact') above it already covers the intent.","approxTokens":40,"savingsTokens":38,"risk":"low"},{"location":"HOW-I-WORK.md (entire file, 1000 tokens)","principle":"PROGRESSIVE DISCLOSURE — full body should be gated","issue":"HOW-I-WORK.md is 4,005 chars / ~1,000 tokens loaded every session. Sections 1-4 ('Think Before Coding', 'Simplicity First', 'Surgical Changes', 'Goal-Driven Execution') are well-written but mostly encode default behaviors for any competent agent. The two code examples (TS harness + Laravel routing) are illustrative scaffolding for a style preference — not action-gating rules. They cost ~120 tokens alone for pattern-matching content that is never directly invoked as lookup.","recommendation":"Keep only a 4-line condensed index in AGENTS.md: 'Coding discipline: think-before-code, min viable impl, surgical changes, goal-driven. See HOW-I-WORK.md.' Move the full body to a gated reference loaded on /code-craft or planning invocations. The 'For spec-backed work' block is already redundant with AGENTS.md § Workflows 'Spec-backed work' bullet.","approxTokens":1000,"savingsTokens":800,"risk":"med"},{"location":"AGENTS.md § Skill Auto-load table (lines 162-178)","principle":"HARNESS ESCALATION — prose that should be a hook/linter","issue":"The 12-row skill routing table is a lookup index that must be manually followed. It cannot be tested, drifts as skills are added/removed, and is ~200 tokens every session. skillOverrides in settings.json already configures most of these as name-only (no auto-trigger), so the table is documentation of a behavior that is already enforced by config, not a live routing rule.","recommendation":"The table entries whose skills are already in skillOverrides as name-only can be removed from the always-loaded prose — their enforcement is in settings.json. Retain only the 3-4 skills not covered by skillOverrides (k8s wrapper note is the main one) or skills that require conditional behavior that skillOverrides can't express. Consider auto-generating this table from skillOverrides at commit time via a scripts/validate-skills hook, making it a hook rather than prose.","approxTokens":200,"savingsTokens":130,"risk":"low"},{"location":"AGENTS.md § Agent &amp; Tool Routing — model/thinking routing table (lines 142-157)","principle":"RIGHT ALTITUDE — useful but over-specified","issue":"The 7-row model routing table with 3 columns (~180 tokens) is useful but partially aspirational: 'frontier/strongest practical' and 'fast ok' don't map to concrete model names the agent actually controls in Claude Code. In Claude Code the harness model is fixed at session start; the table describes subagent routing (spawned agents), not the main agent. The WebFetch/WebSearch pipeline rules (4 bullets, ~60 tokens) below it also duplicate content in SOUL.md ('Use tools before asking') and the Execution Policy.","recommendation":"Compress table to 3 rows: scouting, judgment/review, architecture. Merge WebFetch/WebSearch notes into a single 2-line rule. Remove 'Never use fast/mini models for review' — it's already implied by the table. ~80 token savings.","approxTokens":180,"savingsTokens":80,"risk":"low"},{"location":"AGENTS.md § Screenshots (lines 39-43)","principle":"SMALLEST HIGH-SIGNAL SET — low frequency, mechanical","issue":"A 4-line how-to for handling screenshot assets. This workflow triggers only on UI asset commits, which is a small fraction of tasks. The `sips`/`imageoptim` commands are mechanical; the agent can read the instructions once needed. ~50 tokens paid every session for a workflow used maybe weekly.","recommendation":"Move to references/screenshot-workflow.md and replace with a 1-liner: 'Screenshots: newest PNG in ~/Desktop or ~/Downloads; sips to check size, imageoptim to compress before committing. See references/screenshot-workflow.md.'","approxTokens":50,"savingsTokens":40,"risk":"low"},{"location":"AGENTS.md § Dream + Memory (lines 52-54)","principle":"SMALLEST HIGH-SIGNAL SET — near-zero signal","issue":"Three lines defining 'Dream' and 'Memory' semantics + the disable command. These are Pi system internals that Claude Code does not interact with directly. The only actionable content is the disable touch command, which is used only during debugging. settings.json already has `autoDreamEnabled: false`.","recommendation":"Remove from AGENTS.md. autoDreamEnabled:false in settings.json already enforces the off state. The memory disable path only matters for Pi sessions; move to pi-dev.md § Cache footguns or a Note in IDENTITY.md.","approxTokens":30,"savingsTokens":28,"risk":"low"},{"location":"AGENTS.md § ClickClack note (line 50, Important Locations)","principle":"SMALLEST HIGH-SIGNAL SET — stale/low-signal","issue":"'ClickClack cloned at ~/Projects/oss/clickclack; on first real boot, update it to work with Luke's personal lue-kube OpenClaw stack.' This is a one-time TODO note masquerading as a permanent location entry. 'On first real boot' implies it hasn't been done yet and is blocking work for a future moment, not a routing rule for the agent.","recommendation":"Either complete the task and remove, or move to a TODO file / AGENTS.md § This Repo as a pending item. Not a permanent location entry.","approxTokens":25,"savingsTokens":22,"risk":"low"},{"location":"SOUL.md §§ Voice + Vibe (lines 19-33)","principle":"CROSS-HARNESS DEDUP + RIGHT ALTITUDE","issue":"SOUL.md § Voice (7 bullets, ~100 tokens) and § Vibe (3-sentence paragraph, ~50 tokens) describe tone/personality. They partially duplicate SOUL.md § Core ('Brevity is mandatory', 'Have opinions'). § Vibe in particular ('Smart friend at the desk. Calm under pressure. Dry wit. Clean takes.') is aspirational prose — good framing but not falsifiable. 'Funny when it happens naturally. No forced jokes.' is the definition of a vibe-instruction, not a rule.","recommendation":"Collapse Voice + Vibe into 3 concrete rules. Keep Core as-is (it's falsifiable). Example merge: 'Terse. Opinionated. Dry wit when natural. No sycophancy. Swear when it lands.' The rest is already implied by the Core section.","approxTokens":150,"savingsTokens":80,"risk":"low"},{"location":"AGENTS.md § Long Session Hygiene (lines 222-226)","principle":"CROSS-HARNESS DEDUP","issue":"4-bullet section (~70 tokens) partially duplicates guidance already in: HOW-I-WORK.md § Goal-Driven Execution ('For spec-backed work' block), AGENTS.md § Workflows ('Architecture-heavy slice drift' is also in HOW-I-WO
+... (truncated 72631 chars, full result in /private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/wqpx0uqwy.output)</result>
+<usage><agent_count>5</agent_count><subagent_tokens>189683</subagent_tokens><tool_uses>124</tool_uses><duration_ms>569677</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8024c7c72fc1bf32</task-id>
+<tool-use-id>toolu_01HmMeG5GmAkMM2hA7KagD7W</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/195dddf9-f37c-43d8-9ffd-367d4d5589dd/tasks/a8024c7c72fc1bf32.output</output-file>
+<status>completed</status>
+<summary>Agent "Audit skills/tools base-context cost" completed</summary>
+<result>I have all the data needed. Here is the strict JSON output:
+
+```json
+{
+  "claudeCode": {
+    "skillCount": 86,
+    "totalDescriptionChars": 13426,
+    "estListingTokens": 150,
+    "skillListingBudgetFraction": "0.002",
+    "notes": {
+      "visibleInListing": 49,
+      "hiddenUserInvocableOnly": 37,
+      "budgetAt200kCtx": "400 tokens / ~1600 chars",
+      "fullListingChars": 8999,
+      "budgetEnforcement": "8999 chars &gt;&gt; 1600 char budget; CC progressively halves desc cap (250→125→62→31→20→names-only); likely renders names-only (~600 chars / ~150 tokens) for the 49 visible skills"
+    },
+    "top10BloatedDescriptions": [
+      {
+        "skill": "asset-of-value",
+        "chars": 431,
+        "why": "Laundry list of 15+ trigger keywords (AOV, Pavlo Phitidis, Aurik, owner/founder dependency…) — enumerated junk, not a trigger sentence"
+      },
+      {
+        "skill": "planning",
+        "chars": 341,
+        "why": "Parent skill listing child trigger hints inline in the description; that's the router's job, not the description's"
+      },
+      {
+        "skill": "feature-flag-development",
+        "chars": 334,
+        "why": "Workflow prose (safe defaults, rollout cohorts, telemetry…) belongs inside the skill, not in the trigger"
+      },
+      {
+        "skill": "spec-to-shipped-goal",
+        "chars": 333,
+        "why": "Full workflow pipeline summary (grilled spec → PRD → vertical issues → /goal…) is skill body content, not a trigger"
+      },
+      {
+        "skill": "grill-to-ship-workflow",
+        "chars": 315,
+        "why": "Repeats the same pipeline summary as spec-to-shipped-goal with different wording; likely describes when-to-use but buries it in process detail"
+      },
+      {
+        "skill": "agent-native-hardening",
+        "chars": 295,
+        "why": "Use-when covers audit/score/refactor/review — four distinct entry points blurred together; should be one sentence + child refs"
+      },
+      {
+        "skill": "matt-pocock",
+        "chars": 288,
+        "why": "Parent that enumerates all 12 child ref names in the description — child refs should be discovered via skill_search, not pre-listed in the trigger"
+      },
+      {
+        "skill": "testing",
+        "chars": 268,
+        "why": "Parent enumerating child trigger hints (TDD, red-green, test seams, mocks…) in the description — same pattern as planning/matt-pocock"
+      },
+      {
+        "skill": "utilities",
+        "chars": 261,
+        "why": "Parent listing child tool categories (1password, architecture-diagram, create-cli…) verbatim in description — router antipattern"
+      },
+      {
+        "skill": "hunk-review",
+        "chars": 248,
+        "why": "Implementation detail ('Inspects review focus, navigates files and hunks, posts comments, resolves threads') in trigger — these are body, not use-when"
+      }
+    ],
+    "contextInjectingHooks": [
+      "SessionStart: entire-check.sh (prints reminder if Entire not enabled — non-blocking stdout, injected into context)",
+      "SessionStart: agenticmail/mail-hook.js (unknown payload, runs on every session start)",
+      "SessionStart: codedb-warmup.sh (warms codedb — likely no stdout injection)",
+      "UserPromptSubmit: opik-prompt.sh (runs opik-cli-bridge — may inject observability context)",
+      "UserPromptSubmit: orca claude-hook.sh (Orca agent state — injected when ORCA_AGENT_HOOK_PORT is set)"
+    ]
+  },
+  "pi": {
+    "availableSkillsMechanism": "name+trigger (minimal mode: single-line '- N skills available. Use skill_search…' — no per-skill entries at all; catalogMode defaults to 'minimal')",
+    "availableSkillsApproxTokens": 125,
+    "deferredToolsApproxTokens": 110,
+    "eagerToolCount": 3,
+    "eagerToolNames": ["write_stdin", "exec_command", "apply_patch"],
+    "note": "The 3 eager tools are all in the third-party extension (Codex-bridge native tools). All 12 my-pi extension tools carry deferLoading:true. Pi core registers zero eager tools. The three third-party tools (write_stdin, exec_command, apply_patch) are the Claude Code native tool bridges — they need to be eager since they substitute for core read/write/bash.",
+    "eagerToolsThatShouldDefer": [],
+    "byteStable": true,
+    "notes": {
+      "minimalModeBlock": "~502 chars / ~125 tokens — a single line plus instructions; no per-skill descriptions loaded into prompt",
+      "deferredBlock": "~440 chars / ~110 tokens — a 2-line hint block; zero per-tool descriptions emitted",
+      "totalBaseContextFromSkillsAndTools": "~235 tokens",
+      "catalogMode": "minimal (DEFAULT; no explicit setting in ~/.pi/agent/settings.json)"
+    }
+  },
+  "codex": {
+    "promptsAreOnDemand": true,
+    "hasSkills": false,
+    "note": "~/.codex/prompts/*.md are slash-commands (acceptpr, fixissue, handoff, landpr, pickup) — user-invoked only, not auto-loaded into any session base context. Codex has no skill-loader mechanism; there is no ~/.codex/skills/ directory. Only per-project AGENTS.md and config.toml instructions form base context."
+  },
+  "topRecommendations": [
+    {
+      "harness": "claudeCode",
+      "change": "Trim the 10 bloated visible-skill descriptions to ≤80 chars each (trigger phrase only). The budget cap already forces names-only rendering at 200k context, but trimming descriptions ensures they stay useful at smaller context windows and reduces wasted chars in all cases.",
+      "estSavingsTokens": 450,
+      "risk": "low"
+    },
+    {
+      "harness": "claudeCode",
+      "change": "Audit the 4 parent skills (planning, matt-pocock, testing, utilities) that enumerate child ref names in their descriptions — strip child lists from descriptions, let skill_search handle discovery. Description should say 'Planning workflows' not list 12 child names.",
+      "estSavingsTokens": 200,
+      "risk": "low"
+    },
+    {
+      "harness": "claudeCode",
+      "change": "Review SessionStart hook: agenticmail/mail-hook.js — unknown payload runs on every session. If it injects context, scope it to mail-related projects only (check for AGENTS.md presence or repo name guard).",
+      "estSavingsTokens": "unknown — audit needed",
+      "risk": "med"
+    },
+    {
+      "harness": "claudeCode",
+      "change": "Move grill-to-ship-workflow and spec-to-shipped-goal to user-invocable-only (they are already workflow invocations, not ambient triggers). They are never auto-triggered by project context — they belong in the hidden set like code-review.",
+      "estSavingsTokens": 80,
+      "risk": "low"
+    },
+    {
+      "harness": "pi",
+      "change": "No action needed — minimal catalogMode is already optimal (~125 tokens for the full skills block). The deferred-tools block is also minimal (~110 tokens). Pi's base context cost from skills+tools surface is ~235 tokens total, which is excellent.",
+      "estSavingsTokens": 0,
+      "risk": "low"
+    }
+  ]
+}
+```
+
+**Key findings summary:**
+
+- **Claude Code**: 86 skills total; 37 are `user-invocable-only` (hidden from listing), leaving 49 visible. Full visible listing is 8,999 chars but the 0.2% budget at 200k context = ~1,600 chars, so CC almost certainly renders names-only (~150 tokens). The real cost is the 10 bloated descriptions that waste chars at smaller context windows. No per-description content survives into the prompt at full 200k context. Hooks of note: agenticmail's SessionStart hook runs on every session with unknown payload.
+
+- **Pi**: Already optimal. `catalogMode: minimal` emits a single-line `- N skills available...` instead of any per-skill entries (~125 tokens). The deferred-tools block is 2 lines (~110 tokens). Total skills+tools base context surface: ~235 tokens. The 3 eager tools (write_stdin, exec_command, apply_patch) are the Codex-bridge native tools and must be eager — nothing to defer there.
+
+- **Codex**: `~/.codex/prompts/*.md` are slash-commands only (acceptpr, fixissue, handoff, landpr, pickup). Not auto-loaded. No skill system exists for Codex.</result>
+<usage><subagent_tokens>50651</subagent_tokens><tool_uses>33</tool_uses><duration_ms>306440</duration_ms></usage>
+</task-notification>
