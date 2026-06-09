@@ -1,0 +1,70 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "5b9a9bc1b52d",
+  "session_id": "ef84f7c9-5128-4566-84d3-538b3a429692",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T07:12:11.459698Z",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "extensions/observability/pi-opik-cli-bridge.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "4bfb6469296e",
+  "token_usage": {
+    "input_tokens": 3600,
+    "cache_creation_tokens": 298131,
+    "cache_read_tokens": 5246422,
+    "output_tokens": 36056,
+    "api_call_count": 74
+  },
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T07:12:11.448618Z",
+    "agent_lines": 0,
+    "agent_removed": 1,
+    "human_added": 167,
+    "human_modified": 16,
+    "human_removed": 0,
+    "total_committed": 178,
+    "total_lines_changed": 184,
+    "agent_percentage": 0.5434782608695652,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 5,
+      "agent_lines_removed": 1
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 85,
+      "agent_lines_removed": 1
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 1,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "autoresearch.jsonl": 1
+      }
+    }
+  ]
+}
