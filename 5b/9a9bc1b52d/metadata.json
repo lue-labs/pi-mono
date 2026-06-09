@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "5b9a9bc1b52d",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/observability/pi-opik-cli-bridge.js",
+    "test/opik-cli-bridge-lifecycle.test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5b/9a9bc1b52d/0/metadata.json",
+      "transcript": "/5b/9a9bc1b52d/0/full.jsonl",
+      "content_hash": "/5b/9a9bc1b52d/0/content_hash.txt",
+      "prompt": "/5b/9a9bc1b52d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 44837,
+    "cache_creation_tokens": 1020133,
+    "cache_read_tokens": 33294676,
+    "output_tokens": 378977,
+    "api_call_count": 170
+  }
+}
