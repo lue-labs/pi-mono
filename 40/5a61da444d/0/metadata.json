@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "405a61da444d",
+  "session_id": "4474aee7-afd5-4d7f-a4f1-1cf492e644dc",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T07:12:17.209091Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/tokenjuice/CHANGELOG.md",
+    "extensions/tokenjuice/README.md",
+    "extensions/tokenjuice/tokenjuice.generated.js",
+    "extensions/tokenjuice/tool-result-hook.test.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-4-6",
+  "turn_id": "2c4dd5b5349d",
+  "token_usage": {
+    "input_tokens": 44837,
+    "cache_creation_tokens": 1020133,
+    "cache_read_tokens": 33294676,
+    "output_tokens": 378977,
+    "api_call_count": 170
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Enk4M2z6pSF4sdvkvxgVhr",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "2c4dd5b5349d",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 718,
+        "end": 719,
+        "entry_ids": [
+          "22063bd5-02cd-43fd-8029-65ea9c4455ff"
+        ],
+        "tool_use_id": "toolu_01Enk4M2z6pSF4sdvkvxgVhr"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Enk4M2z6pSF4sdvkvxgVhr"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T07:12:17.118455Z",
+    "agent_lines": 332,
+    "agent_removed": 39,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 332,
+    "total_lines_changed": 371,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

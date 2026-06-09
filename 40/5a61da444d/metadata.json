@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "405a61da444d",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/tokenjuice/CHANGELOG.md",
+    "extensions/tokenjuice/README.md",
+    "extensions/tokenjuice/tokenjuice.generated.js",
+    "extensions/tokenjuice/tool-result-hook.test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/40/5a61da444d/0/metadata.json",
+      "transcript": "/40/5a61da444d/0/full.jsonl",
+      "content_hash": "/40/5a61da444d/0/content_hash.txt",
+      "prompt": "/40/5a61da444d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 44837,
+    "cache_creation_tokens": 1020133,
+    "cache_read_tokens": 33294676,
+    "output_tokens": 378977,
+    "api_call_count": 170
+  }
+}
