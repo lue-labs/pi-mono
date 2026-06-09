@@ -1,0 +1,13 @@
+clean any run away orphaned processes
+
+---
+
+can you document this in my-pi or pi-mono-fork or both so we are aware of it
+
+---
+
+so the runaway processes are resolved?
+
+---
+
+anything else hammering resources?
