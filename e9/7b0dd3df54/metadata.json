@@ -3,8 +3,9 @@
   "checkpoint_id": "e97b0dd3df54",
   "strategy": "manual-commit",
   "branch": "fix/time-context-cache-relocation",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
+    "docs/artifacts/skills-extensions-tools-audit.html",
     "docs/plans/cc-memory-parity-plan-2026-06-10.md",
     "extensions/task-tools/src/store.ts"
   ],
@@ -14,13 +15,19 @@
       "transcript": "/e9/7b0dd3df54/0/full.jsonl",
       "content_hash": "/e9/7b0dd3df54/0/content_hash.txt",
       "prompt": "/e9/7b0dd3df54/0/prompt.txt"
+    },
+    {
+      "metadata": "/e9/7b0dd3df54/1/metadata.json",
+      "transcript": "/e9/7b0dd3df54/1/full.jsonl",
+      "content_hash": "/e9/7b0dd3df54/1/content_hash.txt",
+      "prompt": "/e9/7b0dd3df54/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 11246,
-    "cache_creation_tokens": 19268,
-    "cache_read_tokens": 50198,
-    "output_tokens": 108,
-    "api_call_count": 2
+    "input_tokens": 34347,
+    "cache_creation_tokens": 357925,
+    "cache_read_tokens": 3981843,
+    "output_tokens": 81665,
+    "api_call_count": 47
   }
 }
