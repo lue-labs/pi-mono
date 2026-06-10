@@ -3,7 +3,7 @@
   "checkpoint_id": "6b324122b19d",
   "strategy": "manual-commit",
   "branch": "fix/time-context-cache-relocation",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
     "docs/pi-fork-patch-inventory.md"
   ],
@@ -13,13 +13,19 @@
       "transcript": "/6b/324122b19d/0/full.jsonl",
       "content_hash": "/6b/324122b19d/0/content_hash.txt",
       "prompt": "/6b/324122b19d/0/prompt.txt"
+    },
+    {
+      "metadata": "/6b/324122b19d/1/metadata.json",
+      "transcript": "/6b/324122b19d/1/full.jsonl",
+      "content_hash": "/6b/324122b19d/1/content_hash.txt",
+      "prompt": "/6b/324122b19d/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 101795,
-    "cache_creation_tokens": 2755083,
-    "cache_read_tokens": 118224201,
-    "output_tokens": 624130,
-    "api_call_count": 715
+    "input_tokens": 124896,
+    "cache_creation_tokens": 3093740,
+    "cache_read_tokens": 122155846,
+    "output_tokens": 705687,
+    "api_call_count": 760
   }
 }
