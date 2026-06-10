@@ -1,0 +1,141 @@
+<task-notification>
+<task-id>bau1l3h4i</task-id>
+<tool-use-id>toolu_01T17eS1ZBdk37sf46Tk3VMT</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/bau1l3h4i.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR 142 CI checks until all complete" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b1ytyzmky</task-id>
+<tool-use-id>toolu_013xovu68AXEv977kmUpZ8A6</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/b1ytyzmky.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR 142 re-run checks after branch update" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bphqkhvhv</task-id>
+<tool-use-id>toolu_016BPARtFGEqfSfpx3oyvPPq</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/bphqkhvhv.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch for release PR 138 to refresh after merges" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a55f6789c67f8dae0</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/a55f6789c67f8dae0.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement pi-claude-conversion missing pieces" completed</summary>
+<result>Note: The safety classifier was unavailable when reviewing this subagent's work. Please carefully verify the subagent's actions and output before acting on them.
+
+You've hit your session limit · resets 4:40am (Africa/Johannesburg)</result>
+<usage><subagent_tokens>8995</subagent_tokens><tool_uses>252</tool_uses><duration_ms>3609503</duration_ms></usage>
+</task-notification>
+
+---
+
+continue
+
+---
+
+<task-notification>
+<task-id>bbcuhtuhm</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/bbcuhtuhm.output</output-file>
+<status>completed</status>
+<summary>Background command "Run all four gates on worker WIP in worktree" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bjx1pfdhe</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/bjx1pfdhe.output</output-file>
+<status>completed</status>
+<summary>Background command "Full extension gate after tool-search fix" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>by8id5ige</task-id>
+<tool-use-id>toolu_01SwHBoc1N8tQJK6xmBWcvhR</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/by8id5ige.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch release rerun attempt 2" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bs2vh1px8</task-id>
+<tool-use-id>toolu_01CrAfdXLMoyaJyVbNPDCArc</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/bs2vh1px8.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR 145 CI checks" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a3441e292fe8e972f</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/a3441e292fe8e972f.output</output-file>
+<status>completed</status>
+<summary>Agent "Root-cause pi-workflow agent-type test failures" completed</summary>
+<result>---
+
+**Root cause:** Real behavior regression, not stale tests.
+
+**What happened:** Commit `aa1265a5` ("carry-forward: uncommitted session files", from a general-purpose agent session) added calls to 5 functions in `index.ts` — `writeWorkflowTaskState`, `writeWorkflowControl`, `writeWorkflowHeartbeat`, `listWorkflowRuns`, and `killedRuns` — but simultaneously replaced `run-store.ts` with a stripped 158-line version that predated those symbols. Every Workflow tool invocation crashed at runtime with `TypeError: (0 , _runStore.writeWorkflowTaskState) is not a function` at `index.ts:497`.
+
+**Evidence:** `index.ts:32-49` imports all 5 missing symbols from `./run-store.ts`. `run-store.ts` (pre-fix) exports only 12 items, none of the 5. `git show aa1265a5` confirms the same commit added both the import block to `index.ts` AND the stripped `run-store.ts`.
+
+**Fix:** Restored the full `run-store.ts` by adding the missing exports: `killedRuns`, `writeWorkflowTaskState`/`readWorkflowTaskState` (task.json), `writeWorkflowControl`/`readWorkflowControl` (control.json), `writeWorkflowHeartbeat` (heartbeat.json), `listWorkflowRuns`/`WorkflowRunSummary`, and the enriched `readRunStatus` with heartbeat staleness + task/control display. Supporting types `WorkflowControlState`, `WorkflowTaskState` also restored. Existing functions (`appendJournal`, `loadJournal`, etc.) kept unchanged.
+
+**Files changed:**
+- `/tmp/my-pi-hotfix/extensions/pi-workflow/src/run-store.ts` — +144 lines of missing exports
+- `/tmp/my-pi-hotfix/.changeset/pi-workflow-run-store-missing-exports.md` — patch changeset (runtime code changed, release classification needed)
+
+**Test output (3/3):**
+```
+✓ object form agent({ agent: 'explore' }) forwards agentType and drops the forced system prompt
+✓ string+opts form agent('prompt', { agent: 'explore' }) also routes agentType
+✓ untyped agent() keeps the default general child + WORKFLOW_SUBAGENT_SYSTEM
+3/3 passed
+```
+
+**Commit sha:** `82dba075` on branch `fix/pi-workflow-agent-type-routing`
+
+**Runtime changeset:** Yes — `@valkyriweb/pi-workflow` patch, file `.changeset/pi-workflow-run-store-missing-exports.md`.</result>
+<usage><subagent_tokens>93589</subagent_tokens><tool_uses>135</tool_uses><duration_ms>678375</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhho903uu</task-id>
+<tool-use-id>toolu_01HpfthgYRho239LPvXLet5w</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/bhho903uu.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR 149 CI checks" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bffym2qhd</task-id>
+<tool-use-id>toolu_01S9KnvWBEvdA9erDqeKgSA4</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/a12f4789-5e19-4a8d-a441-fd46c07b7229/tasks/bffym2qhd.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR 148 CI checks" completed (exit code 0)</summary>
+</task-notification>
