@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "9705e60aad60",
+  "strategy": "manual-commit",
+  "branch": "lue/web-tools",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "extensions/skill-loader/src/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/97/05e60aad60/0/metadata.json",
+      "transcript": "/97/05e60aad60/0/full.jsonl",
+      "content_hash": "/97/05e60aad60/0/content_hash.txt",
+      "prompt": "/97/05e60aad60/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15867,
+    "cache_creation_tokens": 135950,
+    "cache_read_tokens": 9772805,
+    "output_tokens": 55645,
+    "api_call_count": 111
+  }
+}

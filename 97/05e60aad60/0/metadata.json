@@ -1,0 +1,160 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "9705e60aad60",
+  "session_id": "448c59b4-26b6-4709-828e-69079c7c756a",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T20:53:20.004591Z",
+  "branch": "lue/web-tools",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "extensions/skill-loader/src/index.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "0c4b0be07df8",
+  "token_usage": {
+    "input_tokens": 15867,
+    "cache_creation_tokens": 135950,
+    "cache_read_tokens": 9772805,
+    "output_tokens": 55645,
+    "api_call_count": 111
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01T3RpgdjH6fhxSNoXHbJhFY",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "k8s"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "0c4b0be07df8",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 123,
+        "end": 124,
+        "entry_ids": [
+          "afe01c4e-c7eb-4a54-a52a-d576bd1f51bd"
+        ],
+        "tool_use_id": "toolu_01T3RpgdjH6fhxSNoXHbJhFY"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01T3RpgdjH6fhxSNoXHbJhFY"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: k8s",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T20:53:19.989501Z",
+    "agent_lines": 22,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 22,
+    "total_lines_changed": 29,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 1011,
+      "user_lines_removed": 0,
+      "agent_lines_added": 15,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "packages/claude-chrome-mcp/CHANGELOG.md": 12,
+        "packages/claude-chrome-mcp/README.md": 91,
+        "packages/claude-chrome-mcp/package.json": 25,
+        "packages/claude-chrome-mcp/scripts/extract-tools.mjs": 109,
+        "packages/claude-chrome-mcp/src/bridge.mjs": 126,
+        "packages/claude-chrome-mcp/src/server.mjs": 97,
+        "packages/claude-chrome-mcp/src/tools.json": 551
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 1011,
+      "user_lines_removed": 0,
+      "agent_lines_added": 15,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "packages/claude-chrome-mcp/CHANGELOG.md": 12,
+        "packages/claude-chrome-mcp/README.md": 91,
+        "packages/claude-chrome-mcp/package.json": 25,
+        "packages/claude-chrome-mcp/scripts/extract-tools.mjs": 109,
+        "packages/claude-chrome-mcp/src/bridge.mjs": 126,
+        "packages/claude-chrome-mcp/src/server.mjs": 97,
+        "packages/claude-chrome-mcp/src/tools.json": 551
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 1011,
+      "user_lines_removed": 0,
+      "agent_lines_added": 15,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "packages/claude-chrome-mcp/CHANGELOG.md": 12,
+        "packages/claude-chrome-mcp/README.md": 91,
+        "packages/claude-chrome-mcp/package.json": 25,
+        "packages/claude-chrome-mcp/scripts/extract-tools.mjs": 109,
+        "packages/claude-chrome-mcp/src/bridge.mjs": 126,
+        "packages/claude-chrome-mcp/src/server.mjs": 97,
+        "packages/claude-chrome-mcp/src/tools.json": 551
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 1011,
+      "user_lines_removed": 0,
+      "agent_lines_added": 15,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "packages/claude-chrome-mcp/CHANGELOG.md": 12,
+        "packages/claude-chrome-mcp/README.md": 91,
+        "packages/claude-chrome-mcp/package.json": 25,
+        "packages/claude-chrome-mcp/scripts/extract-tools.mjs": 109,
+        "packages/claude-chrome-mcp/src/bridge.mjs": 126,
+        "packages/claude-chrome-mcp/src/server.mjs": 97,
+        "packages/claude-chrome-mcp/src/tools.json": 551
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 1011,
+      "user_lines_removed": 0,
+      "agent_lines_added": 37,
+      "agent_lines_removed": 7,
+      "user_added_per_file": {
+        "packages/claude-chrome-mcp/CHANGELOG.md": 12,
+        "packages/claude-chrome-mcp/README.md": 91,
+        "packages/claude-chrome-mcp/package.json": 25,
+        "packages/claude-chrome-mcp/scripts/extract-tools.mjs": 109,
+        "packages/claude-chrome-mcp/src/bridge.mjs": 126,
+        "packages/claude-chrome-mcp/src/server.mjs": 97,
+        "packages/claude-chrome-mcp/src/tools.json": 551
+      }
+    }
+  ]
+}
