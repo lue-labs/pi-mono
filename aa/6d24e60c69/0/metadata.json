@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "aa6d24e60c69",
+  "session_id": "019e99e3-a861-7100-b98a-e7b3d280058e",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T21:06:59.418002Z",
+  "branch": "lue/web-tools",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "scripts/check-live-prompt-health.mjs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "e8a54e5f0d67",
+  "checkpoint_transcript_start": 422,
+  "transcript_lines_at_start": 422,
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T21:06:59.376806Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 9,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 9,
+    "total_lines_changed": 10,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}

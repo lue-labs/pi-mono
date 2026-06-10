@@ -1,0 +1,18 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "aa6d24e60c69",
+  "strategy": "manual-commit",
+  "branch": "lue/web-tools",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "scripts/check-live-prompt-health.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/aa/6d24e60c69/0/metadata.json",
+      "transcript": "/aa/6d24e60c69/0/full.jsonl",
+      "content_hash": "/aa/6d24e60c69/0/content_hash.txt",
+      "prompt": "/aa/6d24e60c69/0/prompt.txt"
+    }
+  ]
+}
