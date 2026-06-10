@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "b8c1d1ef91b3",
+  "session_id": "384cb3c1-78af-4c15-8887-ada2dbb3fe67",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T13:29:13.731241Z",
+  "branch": "fix/time-context-cache-relocation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "89a481a9cb78",
+  "token_usage": {
+    "input_tokens": 8172,
+    "cache_creation_tokens": 11078,
+    "cache_read_tokens": 19560,
+    "output_tokens": 16,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T13:29:13.728177Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 0,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 5683,
+      "user_lines_removed": 7,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/artifacts/skills-extensions-tools-audit.html": 458,
+        "docs/goals/goal-2026-06-10T12-48-49Z-09726459.md": 4972,
+        "docs/pi-fork-patch-inventory.md": 1,
+        "docs/plans/cc-memory-parity-plan-2026-06-10.md": 12,
+        "extensions/claude-in-chrome/package.json": 19,
+        "extensions/claude-in-chrome/src/index.ts": 169,
+        "extensions/task-tools/src/store.ts": 18,
+        "extensions/task-tools/test/store-id-resolution.test.ts": 34
+      },
+      "user_removed_per_file": {
+        "docs/plans/cc-memory-parity-plan-2026-06-10.md": 4,
+        "extensions/task-tools/src/store.ts": 3
+      }
+    }
+  ]
+}

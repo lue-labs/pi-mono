@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "b8c1d1ef91b3",
+  "strategy": "manual-commit",
+  "branch": "fix/time-context-cache-relocation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b8/c1d1ef91b3/0/metadata.json",
+      "transcript": "/b8/c1d1ef91b3/0/full.jsonl",
+      "content_hash": "/b8/c1d1ef91b3/0/content_hash.txt",
+      "prompt": "/b8/c1d1ef91b3/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8172,
+    "cache_creation_tokens": 11078,
+    "cache_read_tokens": 19560,
+    "output_tokens": 16,
+    "api_call_count": 1
+  }
+}
