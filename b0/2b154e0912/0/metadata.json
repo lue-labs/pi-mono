@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "b02b154e0912",
+  "session_id": "0036ffbf-656a-4eff-89f8-29cbb91c4ebe",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T08:55:45.230409Z",
+  "branch": "fix/time-context-cache-relocation",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".changeset/time-context-cache-relocation.md"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "5d78f0a3f24a",
+  "token_usage": {
+    "input_tokens": 8897,
+    "cache_creation_tokens": 117807,
+    "cache_read_tokens": 1964717,
+    "output_tokens": 30217,
+    "api_call_count": 37
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T08:55:45.217669Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 5,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 5,
+    "total_lines_changed": 5,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 458,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/artifacts/skills-extensions-tools-audit.html": 458
+      }
+    }
+  ]
+}

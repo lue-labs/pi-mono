@@ -1,0 +1,49 @@
+In /Users/luke/Projects/personal/my-pi, commit aa1265a5 ("carry-forward: uncommitted session files") and related carry-forward commits caused at least four independent regressions on main, each by reverting a file to an older version while newer code still referenced its symbols:
+1. extensions/pi-workflow/src/planning-tasks.ts deleted while index.ts imported it (healed in PR #140)
+2. extensions/pi-workflow/src/discovery.ts lost setPluginWorkflowPaths/listPluginWorkflows exports while index.ts imported them (healed in PR #142)
+3. extensions/third-party/pi-codex-conversion/tests/cache-fix.test.mjs left asserting private:true + pinned version after the package became publishable (healed in PR #143)
+4. extensions/pi-workflow/src/run-store.ts stripped to a 158-line old version while index.ts calls writeWorkflowTaskState/writeWorkflowControl/writeWorkflowHeartbeat/listWorkflowRuns/killedRuns (healed in PR #148, check it merged first)
+
+Task: systematically audit for a fifth casualty. Approach: (a) git show aa1265a5 --stat to list every file it touched; (b) for each touched source file, cross-check that all symbols imported FROM it elsewhere in the repo actually exist in its current main version (a quick node/tsc resolution pass over the repo, or per-extension `tsc --noEmit`, catches missing exports); (c) run every extension's own test suite (extensions/*/package.json test scripts + test-load.mjs files) on a clean main checkout with full deps (npm install at root, pnpm --dir per extension where needed — note extensions/pi-memory and pi-workflow tests need workspace deps like @valkyriweb/pi-tui from the GitHub Packages registry); (d) also diff each feature commit between 2026-05-28 and aa1265a5 against current main to spot reverted hunks whose tests were also reverted (silent losses with no failing test). Report findings with file:line evidence; fix anything found on a branch + PR per repo conventions (Conventional Commits, changeset required by pre-push hook — never add an EMPTY changeset if a publish is pending; use SKIP_CHANGESET_CHECK=1 for no-release pushes).
+
+---
+
+do it
+
+---
+
+<task-notification>
+<task-id>bkef01wvc</task-id>
+<summary>Monitor event: "PR #148 CI checks after branch update"</summary>
+<event>dispatch: pass
+gate: pass</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bkef01wvc</task-id>
+<summary>Monitor event: "PR #148 CI checks after branch update"</summary>
+<event>gate: pass</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bkef01wvc</task-id>
+<summary>Monitor event: "PR #148 CI checks after branch update"</summary>
+<event>review: pass</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bkef01wvc</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/0036ffbf-656a-4eff-89f8-29cbb91c4ebe/tasks/bkef01wvc.output</output-file>
+<status>completed</status>
+<summary>Monitor "PR #148 CI checks after branch update" stream ended</summary>
+</task-notification>
