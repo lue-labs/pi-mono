@@ -1,0 +1,546 @@
+/goal audit my skills for overlap and give me a report to dedupe/clean up and do the same for my extensions in my-pi and third party extensions, and check which skills, extensions and tools I actually use, in the report give me suggestions and recommendations
+
+---
+
+theres a command to read the full raw file from tokenjuice, don't you see that or can use that?
+
+---
+
+<task-notification>
+<task-id>a6a12fe2b04342c4c</task-id>
+<tool-use-id>toolu_01G8cCZy3R17oxJdoXcaSmGf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/68a74bd3-9bcc-4e81-81fe-600a9db45400/tasks/a6a12fe2b04342c4c.output</output-file>
+<status>completed</status>
+<summary>Agent "Claude Code skill+tool usage" completed</summary>
+<result>I now have all the data needed. Here is the compact report:
+
+---
+
+## Claude Code Usage-Frequency Audit
+
+### Window &amp; Corpus
+- **Date range:** 2026-05-06 to 2026-06-10 (~35 days)
+- **Files:** 648 JSONL sessions across 163 project dirs (208 MB)
+- **No sampling** — full corpus processed
+
+---
+
+### 1. Tool Usage (ranked desc)
+
+| # | Tool | Count |
+|---|------|------:|
+| 1 | Bash | 14,718 |
+| 2 | Read | 4,104 |
+| 3 | Edit | 1,373 |
+| 4 | Write | 479 |
+| 5 | WebFetch | 217 |
+| 6 | TaskUpdate | 178 |
+| 7 | StructuredOutput | 167 |
+| 8 | ToolSearch | 153 |
+| 9 | TaskCreate | 109 |
+| 10 | WebSearch | 103 |
+| 11 | AskUserQuestion | 100 |
+| 12 | Agent | 95 |
+| 13 | Skill | 79 |
+| 14 | TaskOutput | 41 |
+| 15 | Workflow | 32 |
+| 16 | Monitor | 30 |
+| 17 | ScheduleWakeup | 30 |
+| 18 | TaskStop | 15 |
+| 19 | SendMessage | 12 |
+| 20 | CronCreate | 8 |
+| 21 | SendUserFile | 4 |
+| 22 | TaskList | 4 |
+| 23 | CronList | 3 |
+| 24 | PushNotification | 3 |
+| 25 | Grep | 3 |
+| 26 | CronDelete | 2 |
+| 27 | RemoteTrigger | 1 |
+| 28 | EnterPlanMode | 1 |
+| 29 | ExitPlanMode | 1 |
+
+**MCP tools — by server total:**
+
+| MCP Server | Total calls | Per-tool breakdown |
+|---|---:|---|
+| codedb | 126 | codedb_search 53, codedb_read 34, codedb_ls 17, codedb_outline 8, codedb_find 6, codedb_glob 5, codedb_tree 2, codedb_index 1 |
+| ccd_session | 121 | mark_chapter 110, spawn_task 8, dismiss_task 3 |
+| chrome-devtools | 84 | wait_for 19, take_snapshot 15, new_page 12, navigate_page 11, click 8, take_screenshot 8, evaluate_script 4, list_pages 6, resize_page 1 |
+| computer-use | 18 | computer_batch 8, request_access 5, list_granted_applications 2, open_application 2, screenshot 1 |
+| macos-automator | 8 | execute_script 8 |
+| flux-operator-mcp | 8 | reconcile_flux_kustomization 5, resume_flux_reconciliation 2, get_kubernetes_resources 1 |
+| ccd_session_mgmt | 7 | list_sessions 4, search_session_transcripts 3 |
+| oracle | 4 | consult 4 |
+| scheduled-tasks | 3 | list 1, update 1, create 1 |
+
+---
+
+### 2. Skill Usage — via `Skill` tool (ranked desc)
+
+Only 20 of 90 installed skills were invoked at all in this window.
+
+| Skill | Count |
+|---|---:|
+| k8s | 19 |
+| pi | 12 |
+| context-engineering | 6 |
+| pi-cache-stability | 4 |
+| autoreview | 2 |
+| browser-toolkit | 2 |
+| github | 2 |
+| github-cache-hygiene | 2 |
+| harness-loop | 2 |
+| html-artifacts | 2 |
+| computer-use | 1 |
+| diagnose | 1 |
+| go | 1 |
+| gpt-image-edit-prompts | 1 |
+| openclaw-relay | 1 |
+| opik | 1 |
+| oracle | 1 |
+| project-sdlc | 1 |
+| reviewers | 1 |
+| trackers | 1 |
+
+**Also seen (non-standard / typo/alias skill names in logs):** `pi-cache-stability`, `context-engineering/instruction-refiner`, `context-engineering/progressive-disclosure`, `lue-kube-image-build`, `github-cache-hygiene`, `skill` (2), `skill_search` (1), `goals`/`goal` (1 each)
+
+**`/command-name` slash invocations** (harness built-ins, not `Skill` tool):
+
+| Command | Count |
+|---|---:|
+| /goal | 42 |
+| /usage | 42 |
+| /context | 18 |
+| /compact | 13 |
+| /model | 12 |
+| /effort | 10 |
+| /plugin | 8 |
+| /loop | 7 |
+| /permissions | 7 |
+| /rename | 6 |
+| /harness-loop | 6 |
+| /status | 5 |
+| /desktop | 4 |
+| /clear | 4 |
+| /foo | 3 |
+| /schedule | 3 |
+| /effect | 2 |
+| /recap | 2 |
+| /exit | 2 |
+| /doctor | 2 |
+| /agents | 1 |
+| /memory | 1 |
+| /resume | 1 |
+| /go | 1 |
+| /login | 1 |
+| /github-deep-review | 1 |
+| /plan | 1 |
+
+---
+
+### 3. Zero-Use: MCP Servers (connected but 0 calls in window)
+
+| Server | Notes |
+|---|---|
+| ccd_directory | 0 calls |
+| Claude_Preview | 0 calls |
+| Claude_in_Chrome | 0 calls |
+| mcp-registry | 0 calls |
+| openaiDeveloperDocs | 0 calls |
+| plugin_design_asana | 0 calls |
+| plugin_design_atlassian | 0 calls |
+| plugin_design_figma | 0 calls |
+| plugin_design_intercom | 0 calls |
+| plugin_design_linear | 0 calls |
+| plugin_design_notion | 0 calls |
+| plugin_design_slack | 0 calls |
+
+---
+
+### 4. Zero-Use: Installed Skills (0 Skill-tool invocations in window)
+
+70 of 90 installed skills had zero `Skill` tool calls. Grouped by likely category:
+
+**Never invoked at all (candidates for removal/archival):**
+`adr`, `agent-context`, `agent-creator`, `agent-native-hardening`, `agent-transcript`, `asset-of-value`, `autofix-pr`, `chronicle`, `clawsweeper-status`, `cli-tool-fork`, `cloudflare-registrar`, `code-craft`, `code-craft-pr`, `code-review`, `codebase-improvement-stack`, `codegraph`, `codex-review`, `context`, `create-cli`, `deep-review`, `development`, `docs`, `docs-freshness-pr`, `effect`, `effect-incremental-adoption`, `effect-new-project`, `evals`, `feature-flag-development`, `frontend`, `github-author-context`, `github-deep-review`, `github-project-triage`, `gog`, `grill-to-ship-workflow`, `handoff`, `hunk-review`, `infra-deployment`, `mac-maintenance`, `macos`, `markit`, `matt-pocock`, `memory-agent`, `multica`, `native-macos`, `orca-cli`, `orchestration`, `paperclip`, `peekaboo`, `pi-intercom`, `pi-update`, `pi-workflow`, `planning`, `pr-bots`, `pr-pipeline-orchestrator`, `remote-mac`, `repo-intel`, `repowise`, `rusty-review`, `session-viewer`, `skill-authoring`, `skill-cleaner`, `skill-craft`, `skill-optimizer`, `skillos`, `smilerite-practice-kit-onboarding`, `spec-to-shipped-goal`, `ssh-doctor`, `team-onboarding`, `testing`, `utilities`
+
+**Note:** many of these are in `skillOverrides` as `"user-invocable-only"` or `"name-only"` — they load on demand rather than via the `Skill` tool, so zero `Skill` invocations doesn't necessarily mean zero actual use. The `"name-only"` ones (`code-craft`, `testing`, `frontend`, `adr`, `k8s`, `go`, `agent-native-hardening`, `browser-toolkit`, `project-sdlc`, `html-artifacts`, `planning`, `feature-flag-development`, `utilities`, `deep-review`, `diagnose`, `context-engineering`, `infra-deployment`, `development`, `oracle`, `docs`, `evals`, `matt-pocock`) are the ones most likely to have real use not captured here.</result>
+<usage><subagent_tokens>57164</subagent_tokens><tool_uses>36</tool_uses><duration_ms>368524</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a618f26d64464782a</task-id>
+<tool-use-id>toolu_01SmfyCwC5RdVNofqswAC8W7</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/68a74bd3-9bcc-4e81-81fe-600a9db45400/tasks/a618f26d64464782a.output</output-file>
+<status>completed</status>
+<summary>Agent "Skills overlap audit" completed</summary>
+<result>---
+
+## Cluster Map (90 personal skills)
+
+| Domain | Skills |
+|---|---|
+| **Code Review** | `reviewers` (parent), `code-review`, `codex-review`, `rusty-review`, `autoreview`, `deep-review`, `hunk-review`, `code-craft-pr`, `docs-freshness-pr` |
+| **PR Automation** | `pr-bots` (parent), `autofix-pr`, `pr-pipeline-orchestrator`, `go` |
+| **Code Quality / Craft** | `code-craft`, `development`, `codebase-improvement-stack`, `refactor`\* |
+| **Skill/Agent Authoring** | `skill-craft` (parent), `skill-authoring`, `skill-cleaner`, `skill-optimizer`, `skillos`, `agent-creator`, `context-engineering` |
+| **Planning / Spec** | `planning` (parent), `spec-to-shipped-goal`, `grill-to-ship-workflow`, `matt-pocock`, `harness-loop`, `feature-flag-development` |
+| **Docs / ADR** | `adr`, `docs` |
+| **Repo / SDLC / GitHub** | `project-sdlc`, `repo-intel` (parent), `codegraph`, `repowise`, `team-onboarding`, `github` (parent), `github-author-context`, `github-cache-hygiene`, `github-deep-review`, `github-project-triage`, `agent-native-hardening` |
+| **Memory / Context** | `agent-context` (parent), `memory-agent`, `handoff`, `chronicle`, `context`, `agent-transcript` |
+| **Frontend / Visual** | `frontend` (parent), `html-artifacts`, `gpt-image-edit-prompts`, `prototype`\* |
+| **Testing / Evals** | `testing`, `evals`, `opik`, `diagnose` |
+| **Worktrees / Orchestration** | `orca-cli`, `orchestration`, `pi-intercom` |
+| **Pi-Specific** | `pi` (parent), `pi-update`, `pi-cache-stability`, `pi-workflow` |
+| **TypeScript/Effect** | `effect` (parent), `effect-incremental-adoption`, `effect-new-project` |
+| **macOS** | `macos` (parent), `mac-maintenance`, `remote-mac`, `ssh-doctor`, `native-macos`, `peekaboo`, `computer-use` |
+| **CLI Tools** | `create-cli`, `cli-tool-fork` |
+| **Infrastructure** | `infra-deployment`, `k8s` |
+| **Issue Tracking** | `trackers` (parent), `multica`, `paperclip` |
+| **External Tools / APIs** | `browser-toolkit`, `gog`, `markit`, `oracle`, `cloudflare-registrar`, `codegraph`, `openclaw-relay`, `session-viewer` |
+| **Meta / Second-opinion** | `oracle`, `context-engineering` |
+| **Utilities** | `utilities` (parent), `adr` |
+| **Project-Specific** | `smilerite-practice-kit-onboarding`, `asset-of-value`, `clawsweeper-status` |
+| **Harness Config** | `agent-native-hardening`, `matt-pocock` (workflow collection) |
+
+\*`refactor` is harness-only (no filesystem dir). `prototype` is a child of `matt-pocock`, not top-level.
+
+---
+
+## Overlap Findings (ranked by severity)
+
+### 1. CRITICAL: `autoreview` vs `codex-review` vs `rusty-review` — near-complete overlap
+
+**Skills:** `autoreview`, `codex-review`, `rusty-review`
+
+**Why they overlap:** All three run code review as a closeout check on local changes or a PR branch. `codex-review` explicitly calls itself a "compatibility wrapper for `rusty-review --engine codex`." `autoreview` describes "Structured code review closeout via Codex (default) or Claude" — which is exactly what `rusty-review --engine codex` does. All three share identical trigger phrases: "Codex review / autoreview / second-model review / after non-trivial edits before commit/ship."
+
+**Recommendation:** Delete `codex-review` (it literally says it's a compat wrapper — the wrapper is the problem). Rename `rusty-review` to just be the canonical review runner; make `autoreview` point to `rusty-review` as a one-liner redirect OR delete `autoreview` too and consolidate into `reviewers`. Currently `reviewers` is the right parent router — `autoreview` is a parallel entry point that causes ambiguity.
+
+**Action:** Delete `codex-review`. Redirect `autoreview` description to "→ use `reviewers` → `rusty-review`" or delete it outright.
+
+---
+
+### 2. HIGH: `spec-to-shipped-goal` vs `grill-to-ship-workflow` — near-identical scope
+
+**Skills:** `spec-to-shipped-goal`, `grill-to-ship-workflow`
+
+**Why they overlap:** Both describe "fuzzy idea → grilled spec → PRD → issues → implementation → review → deploy." `spec-to-shipped-goal` says it loads `matt-pocock/grill-with-docs → to-prd → to-issues` as its spine. `grill-to-ship-workflow` has the same Phase 1 ("Grill with docs: make the idea precise before building") and same downstream phases. The trigger descriptions are nearly identical sentences.
+
+**Recommendation:** Merge into one. `grill-to-ship-workflow` has more workflow body and is slightly more tactical. `spec-to-shipped-goal` is a better name. Keep `spec-to-shipped-goal`, absorb the Phase guidance from `grill-to-ship-workflow`, delete `grill-to-ship-workflow`. Update AGENTS.md auto-load table if referenced.
+
+---
+
+### 3. HIGH: `skill-craft` vs `skill-authoring` — parent/child mismatch causing confusion
+
+**Skills:** `skill-craft` (router), `skill-authoring` (child), `skill-cleaner` (child), `skill-optimizer` (child), `skillos` (child)
+
+**Why they overlap:** `skill-craft` is the declared parent router. `skill-authoring` is listed as a child in `skill-craft` but also appears in the harness skill list as a directly invocable top-level skill with its own entry. A user asking "write a skill" could land on either. Both fire for the same ask.
+
+**Additional overlap:** `skillos` (cross-harness curation) is also a child of `skill-craft` but simultaneously registered in AGENTS.md as a standalone skill. The description overlap between `skill-craft` ("author/optimize/clean skills, build agents") and `skill-authoring` ("creating, rewriting, reviewing SKILL.md files") is maximal.
+
+**Recommendation:** Demote `skill-authoring`, `skill-cleaner`, `skill-optimizer`, `skillos` out of the top-level skill list via `skillOverrides` so only `skill-craft` fires. Each stays loadable by path but isn't a competing trigger. This is exactly the pattern other parents use (e.g., `reviewers` → `code-review`/`codex-review`/etc hidden).
+
+---
+
+### 4. HIGH: `development` vs `codebase-improvement-stack` — both fire for "improve this codebase"
+
+**Skills:** `development`, `codebase-improvement-stack`
+
+**Why they overlap:** `development` is a router for "implement, TDD, refactor, clean/natural code, code review, fix-until-green, feature flags, merge conflicts, ship." `codebase-improvement-stack` is "Full codebase improvement stack: /goal execution, Effect for TS/JS, code-craft, Matt Pocock architecture lens, codex review... PR cleanup, CI, deploy readiness. Use for quality loops, PR flows, issue triage." For any non-trivial implementation task both could reasonably fire. `codebase-improvement-stack` loads `development`'s children anyway (`code-craft`, `autofix-pr`, `project-sdlc`).
+
+**Recommendation:** `codebase-improvement-stack` should be a child reference of `development` loaded only for "full-codebase improvement loop" requests, not a parallel top-level skill. Or: clarify `development` as the routing entry point, and rename `codebase-improvement-stack` to something like `improvement-loop` with a sharper scope trigger ("full project quality pass" vs "implement this feature").
+
+---
+
+### 5. MEDIUM: `planning` vs `matt-pocock` — planning's PRD/grill work duplicated in matt-pocock
+
+**Skills:** `planning`, `matt-pocock`
+
+**Why they overlap:** `planning` explicitly says "PRDs, issue breakdowns, and grilling/stress-testing → use `/matt-pocock`", making itself a partial wrapper for matt-pocock. `matt-pocock` routes grill-with-docs, to-prd, to-issues, triage, premortem, prototype. `planning` routes brainstorming, premortem, goal prompts, handoff prompts — but also calls out to matt-pocock for the meaty planning work. A user saying "help me plan this feature" could land on either.
+
+**Recommendation:** Not a delete — these serve distinct purposes (planning is Luke's general thinking toolkit; matt-pocock is the imported MP workflow collection). But the description of `planning` needs sharpening to exclude triggers that belong squarely in `matt-pocock`. Current descriptions will both fire for "plan this feature" / "what could kill this plan". Clarify `planning` as "brainstorm, premortem, goal/handoff prompts, visual planning" and make it explicitly NOT the entry for PRDs/issues.
+
+---
+
+### 6. MEDIUM: `docs` — too thin, partially duplicates `markit` and `utilities`
+
+**Skills:** `docs`, `markit`, `utilities`
+
+**Why they overlap:** `docs` SKILL.md is 15 lines and routes to only 2 things: OpenAI docs and markdown conversion (via `markit`). The markdown conversion path is also covered by `utilities/references/markdown-converter.md` and the standalone `markit` skill. `utilities` has a `create-cli` sub-reference that duplicates the top-level `create-cli` skill (though it explicitly notes the original location).
+
+**Recommendation:** `docs` is too thin to justify a top-level entry. Either expand it meaningfully (add routes for vendor-docs, API-docs research, docs-backed implementation) or merge its two routes into `utilities` and delete it. The `markit` skill is clearly the canonical entry for conversion — `docs` just echoes it.
+
+---
+
+### 7. MEDIUM: `create-cli` vs `create-cli-skill` (harness built-in) — name collision risk
+
+**Skills:** `create-cli` (personal, CLI UX/spec), `create-cli-skill` (harness built-in, presumably creates a new SKILL.md)
+
+**Why they overlap:** Near-identical names. A user asking "create a CLI" will likely hit `create-cli` (good). But "create CLI skill" is ambiguous. Additionally, `utilities/references/create-cli.md` is a dead stub that says "Source before consolidation: `/Users/luke/Projects/agent-scripts/skills/create-cli`" — it's an archived copy of the standalone skill that adds no value.
+
+**Recommendation:** No change to `create-cli` itself (it's distinct). Delete `utilities/references/create-cli.md` (it's an empty consolidation artifact). Clarify `create-cli` description to say "CLI UX design and specification" vs "SKILL.md authoring."
+
+---
+
+### 8. MEDIUM: `agent-context` parent exposes 4 children that are also individually trigger-able
+
+**Skills:** `agent-context`, `memory-agent`, `handoff`, `chronicle`, `context`
+
+**Why they overlap:** All four children (`memory-agent`, `handoff`, `chronicle`, `context`) appear individually in the harness skill list AND are routed through `agent-context`. A user asking "write a handoff" could hit either `handoff` directly or `agent-context` → handoff. `context` is particularly narrow (one bash command) and arguably doesn't need to be a top-level skill at all.
+
+**Recommendation:** Demote `context` out of top-level (too narrow, harness-only Codex script). Keep `memory-agent`, `handoff`, `chronicle` as directly invocable since they have distinct, unambiguous triggers. The parent `agent-context` is still useful as a catch-all.
+
+---
+
+### 9. LOW: `gpt-image-edit-prompts` vs `utilities/references/openai-image-gen`
+
+**Skills:** `gpt-image-edit-prompts`, `utilities/references/openai-image-gen`
+
+**Why they overlap:** Superficially similar (both OpenAI image-related). Actually distinct: `openai-image-gen` = batch generation via API + gallery; `gpt-image-edit-prompts` = prompt patterns for image-to-image editing. No true overlap beyond domain. The `openai-image-gen` reference is a dead consolidation stub anyway.
+
+**Recommendation:** No action needed — distinct capabilities. Clean up the `utilities/references/openai-image-gen.md` stub content if it ever gets confused.
+
+---
+
+### 10. LOW: `skill-authoring` duplicates `anthropic-skills:skill-creator` (plugin)
+
+**Skills:** `skill-authoring` (personal), `anthropic-skills:skill-creator` (plugin), `skill-creator:skill-creator` (plugin)
+
+**Why they overlap:** There are two plugin-level skill-creator skills (`anthropic-skills:skill-creator`, `skill-creator:skill-creator`) alongside the personal `skill-authoring`. All three fire for "create a new skill." The personal `skill-authoring` has Luke-specific conventions (write-a-skill.md rubric, efficiency-check script, structure rules for agent-scripts repo) while the plugins are generic. These are not identical but trigger overlap exists.
+
+**Recommendation:** Add a "NOT for generic skill creation — use for agent-scripts repo skills following Luke's conventions" clarifier to `skill-authoring`'s description to route away from the plugins.
+
+---
+
+## Orphans / Oddities
+
+| Skill | Issue | Recommendation |
+|---|---|---|
+| `progressive-disclosure-workspace` | Directory exists with no `SKILL.md` — only `iteration-1/` and `trigger-evals.json`. Appears to be an autoresearch workspace, not a skill. | Delete or move to `.autoresearch*/` ignored dir |
+| `context` | 15-line SKILL.md that runs a single bash script. Codex-only (checks for a Codex memory section). Not useful in Claude Code context. | Demote from top-level or delete — it's a Codex-specific micro-helper |
+| `agent-transcript` | Very narrow: appends sanitized transcripts to GitHub PR/issue bodies during OpenClaw workflows. Not generally useful outside OpenClaw. | Fine as-is if OpenClaw is used; otherwise low-priority cleanup |
+| `docs` | 15 lines, routes to 2 things. Too thin. | Expand or merge into `utilities` |
+| `utilities/references/create-cli.md` | Stub file: "Source before consolidation: skills/create-cli". The real skill exists. | Delete the stub |
+| `utilities/references/openai-image-gen.md` | Same — consolidation stub, real skill is `gpt-image-edit-prompts` (different domain) | Delete the stub |
+| `utilities/references/caveman.md` | Stub pointing to Codex skills/caveman. `matt-pocock` references caveman in its router. | Check if stub body is empty; if so, delete |
+| `skill-authoring` + `skill-cleaner` + `skill-optimizer` + `skillos` | All four are children of `skill-craft` but also appear as direct top-level skills, causing routing ambiguity | Demote via `skillOverrides`; keep `skill-craft` as the sole top-level entry |
+| `smilerite-practice-kit-onboarding` | Client-specific onboarding skill. Legitimate but belongs in a project or client repo, not the global skill library. | Move to its project repo; delete from agent-scripts |
+| `clawsweeper-status` | Narrow ops snapshot skill. Fine if ClawSweeper is actively used; if abandoned, delete. | Keep only if the tool is active |
+| `codex-review` | Explicitly a "compat wrapper for `rusty-review --engine codex`". The wrapper IS the dead code. | Delete — just tell users to use `rusty-review` directly |
+| `docs-freshness-pr`, `code-craft-pr`, `pr-pipeline-orchestrator` | All three only make sense as pipeline stages after `codex-review`. They're hidden under `pr-bots` correctly, but also individually listed at top level. Fine since they have distinct invocations, but worth auditing whether standalone triggers cause premature firing. | Acceptable as-is; ensure descriptions are specific enough |</result>
+<usage><subagent_tokens>77415</subagent_tokens><tool_uses>89</tool_uses><duration_ms>426744</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a7c9dc04bdc047a1a</task-id>
+<tool-use-id>toolu_012QN2T7S6zbfSRFQXqTvQvK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/68a74bd3-9bcc-4e81-81fe-600a9db45400/tasks/a7c9dc04bdc047a1a.output</output-file>
+<status>completed</status>
+<summary>Agent "Pi extension + third-party audit" completed</summary>
+<result>---
+
+## Extension Status Table
+
+All 46 source directories. Status: **ENABLED** = in `my-pi-full` and loads at startup; **DEFERRED** = in bundle but `load: deferred`; **SOURCE-ONLY** = not in bundle at all (dead in prod unless loaded another way); **LOOSE-GLOBAL** = loaded from `~/.pi/agent/extensions/` directly.
+
+| Extension | Purpose | Status |
+|---|---|---|
+| **advisor** | Second-opinion LLM on current session (side-calls cheap model, /advisor command) | ENABLED (but `"advisor": { "enabled": false }` in settings — effectively disabled) |
+| **agent-view** | TUI panel showing live sub-agent output inline | ENABLED |
+| **agents-md-imports** | Expands `@import` directives in AGENTS.md/CLAUDE.md context files (Claude Code parity) | SOURCE-ONLY |
+| **boot-context-log** | On session start, logs per-source token breakdown to JSONL; `/boot-context` command | ENABLED |
+| **cache-base-prompt** | Relocates the cache boundary so global instructions sit in the stable cached prefix | ENABLED |
+| **codex-service-tier** | Reads service tier from Codex settings and passes it to the provider | ENABLED |
+| **computer-use** | Registers native macOS computer-use tool (AX tree, click, type, scroll via AX APIs) | ENABLED |
+| **context-forking** | `ForkContext` tool — lets model splice a fresh context branch from a specific turn | SOURCE-ONLY (also disabled: `context-forking.ts.disabled` in loose globals) |
+| **context-intelligence** | DEPRECATED PLACEHOLDER — README says it migrated to `extensions/skillseek/` (which doesn't exist yet) | SOURCE-ONLY (only a README) |
+| **context-usage** | `/context` command with provider-aware breakdown of system/tool/transcript tokens | ENABLED |
+| **dream-memory** | Full memory engine: journal extraction, obsidian markdown wiki, dream-consolidation agent at shutdown | SOURCE-ONLY |
+| **github-pr** | Footer status showing open PR for current branch; click opens PR URL | ENABLED |
+| **idle-return** | Idle-return dialog (CC "Willow Mode"): after 75 min idle + 100k tokens, offers continue vs compact | ENABLED |
+| **intercom-cache-guard** | Cache-safety filter for `pi-intercom` messages: rewrites dynamic intercom context to `/tmp` to prevent cache busts | ENABLED |
+| **kilocode-provider** | Registers Kilo.ai (OpenRouter-compatible 500+ models) as a pi provider with OAuth | SOURCE-ONLY (loaded via `~/.pi/agent/local-packages/kilocode-provider` in settings.json) |
+| **large-input-externalizer** | Intercepts user input &gt;20k chars, writes to `/tmp`, injects a reference instead | ENABLED |
+| **letta-shadow** | Shadow observer: posts compact session debrief to a self-hosted Letta agent at shutdown (A/B comparator) | ENABLED |
+| **mem0-shadow** | Shadow observer: same as letta-shadow but posts to self-hosted mem0 OSS server at shutdown (A/B comparator) | ENABLED |
+| **monitor** | Background process watcher — `monitor_start/status/read/stop/list`; wakes agent on exit or output event | ENABLED |
+| **native-tool-overrides** | Overrides core tool definitions (Read/Edit/Write/Bash/Grep etc.) with custom behaviors: Edit repair, Bash timeout-to-background, CC-style labels | ENABLED |
+| **notify** | Warp OSC-777 terminal notifications on session start/stop | ENABLED |
+| **observability** | Opik CLI bridge (OTEL spans to Opik) + deferred OTel exporter | ENABLED (opik bridge eager, otel exporter deferred) |
+| **openclaw-adaptor** | Bridges OpenClaw MCP tool catalog into spawned `pi --mode rpc` subprocess (static-at-spawn progressive disclosure) | SOURCE-ONLY |
+| **paperclip-cost-forwarder** | Mirrors per-turn token usage to Paperclip's cost-events pipeline | SOURCE-ONLY |
+| **pi-agent-panel** | Live panel of running background agents + shell jobs below the editor (CC CoordinatorTaskPanel port) | ENABLED |
+| **pi-ask-user-question** | `AskUserQuestion` tool — model-callable multiple-choice dialog with TUI rendering | ENABLED |
+| **pi-backpressure** | Pre-action gate runner driven by `pi-backpressure.toml`; runs quality/audit shell checks before tool execution | SOURCE-ONLY |
+| **pi-goal** | `/goal` and `/create-goal` commands + `GoalContinue` tool; durable goal files that survive compaction | ENABLED |
+| **pi-memory** | Primary memory system: per-project SQLite journal, recall-on-start, profile snapshot, dream-consolidation scheduling | ENABLED |
+| **pi-mode** | Plan/normal mode toggle — blocks mutating tools in plan mode; `EnterPlanMode`/`ExitPlanMode` tools (CC parity) | ENABLED |
+| **pi-recap** | `/recap` command — forks a background child to produce a one-line session recap | ENABLED |
+| **pi-routine** | Routine/loop scheduler with `routine_create/list/delete/kick` tools; catchup scan on session start | ENABLED |
+| **pi-semantic-grep** | `semantic_grep` tool — local embedding-based semantic search over code (SQLite + worker indexer) | ENABLED |
+| **pi-session-todo** | `TodoWrite` tool + TUI pane for session-scoped task list (CC parity) | SOURCE-ONLY |
+| **pi-thinking-keywords** | Injects ultrathink reminder message when prompt contains `/\bultrathink\b/i` (CC parity, cache-safe) | ENABLED |
+| **pi-workflow** | `Workflow` tool — JS sandbox orchestrator for multi-agent pipelines (CC clone); also has a DUPLICATE in loose globals | ENABLED (+ loose global `pi-workflow/` which appears to be the same code) |
+| **pi-worktree** | `Worktree` tool — creates/manages Pi-owned git worktrees; active-worktree reminder in context | ENABLED |
+| **session-title** | Auto-generates a short session title on first message / after compaction via cheap model | ENABLED |
+| **skill-loader** | Rewrites `&lt;available_skills&gt;` to compact `name: desc` list; `skill` tool loads SKILL.md on demand (CC progressive skill loading) | ENABLED |
+| **syntax-input** | Editor syntax highlighting for code fences as user types (fork-level patch) | ENABLED |
+| **task-tools** | `TaskCreate/Get/Update/List` tools + TUI pane for planning tasks (CC parity) | ENABLED |
+| **third-party** | Vendor directory containing `pi-codex-conversion` and `pi-context-lue` sources | SOURCE-ONLY |
+| **time-context** | Injects cache-safe current-time block per-turn; strips dynamic date from stable system prompt | ENABLED |
+| **tokenjuice** | Token budget enforcement / context compression (policy via my-pi policy wrapper, bundle stub is 2-line re-export) | SOURCE-ONLY (the REAL bundle is `~/.pi/agent/extensions/tokenjuice.js` — 9712 line loose global) |
+| **tool-search** | `tool_search` discovery tool — defers fat tool descriptions; model activates tools by name on demand | ENABLED |
+| **usage-soft-cap** | Per-turn Codex/Claude usage notice based on `codexbar usage`; injects soft-cap % block once per day | SOURCE-ONLY (loaded as loose global `~/.pi/agent/extensions/usage-soft-cap.mjs`) |
+
+**Loose globals in `~/.pi/agent/extensions/` and their state:**
+
+| File | State |
+|---|---|
+| `tokenjuice.js` | ACTIVE — the real 9712-line bundle (source dir is just a 2-line re-export stub) |
+| `usage-soft-cap.mjs` | ACTIVE — the production copy |
+| `herdr-agent-state.ts` | ACTIVE — Herdr integration (installs a socket bridge to Herdr pane tracker) |
+| `turn-tokens.ts` | ACTIVE — per-turn token footer using `@earendil-works/pi-coding-agent` |
+| `pi-workflow/` | ACTIVE — duplicate directory; same code as bundle's `extensions/pi-workflow` |
+| `context-forking.ts.disabled` | DISABLED |
+| `entire-check.ts.disabled` | DISABLED |
+| `monitor.disabled` | DISABLED |
+| `pi-context-lue.disabled` | DISABLED |
+| `tokenjuice.js.bak`, `.bak.1`, `.bak.2`, `.bak.3` | CRUFT — 4 backup files |
+
+---
+
+## Overlap Findings (ranked by severity)
+
+### 1. CRITICAL — Four memory systems in parallel (dream-memory + pi-memory + letta-shadow + mem0-shadow)
+
+**dream-memory** and **pi-memory** both: extract memories from sessions, persist them, inject recalled memories at session start, schedule consolidation agents. The difference is storage backend (Obsidian markdown wiki vs SQLite) and api generation (dream-memory uses `before_agent_start` for profile injection; pi-memory uses the same hook plus journal). Reading `pi-memory/index.ts` confirms it calls `enqueueDreamConsolidation` — dream-memory's consolidation function is imported inside pi-memory, meaning pi-memory already subsumes dream-memory's consolidation pipeline.
+
+**dream-memory is SOURCE-ONLY** (not in bundle) — it's dead in prod. But pi-memory IS enabled and is the production memory system.
+
+**letta-shadow** and **mem0-shadow** are explicitly labeled as "three-way comparator" experiments (quoting the source: "After 7 days, diff"). They are passive-observer shims that post debrief data to local self-hosted services (Letta on port 8284, mem0 on port 8765). Both are ENABLED in the bundle, meaning they run every session.
+
+**Recommendation:**
+- **Dream-memory**: source-only → dead. Check if the obsidian wiki at `~/obsidian/dream-memory/memory/` is still being written; if not, delete. If you want the markdown-wiki format back, pi-memory can be configured to write there. Either way, the source dir is stale — mark for deletion or archive.
+- **Letta-shadow + mem0-shadow**: If the 7-day comparison experiment is complete, drop one or both. Running both adds ~2 HTTP POSTs per session to localhost services that may or may not be up. Both silently swallow errors, so the risk is low, but the noise is real. If you've concluded the comparison, drop both (pi-memory is the winner). If the experiment is ongoing, that's intentional.
+
+### 2. HIGH — skill-loader and context-intelligence are the same feature; context-intelligence is a stale tombstone
+
+`context-intelligence/README.md` explicitly says: "Deprecated placeholder. The migrated progressive skill-loading extension now lives at `extensions/skillseek/`." That `skillseek/` dir doesn't exist — the migration landed in **skill-loader** instead (same CC-style progressive skill loading, same `skill` tool, same `&lt;available_skills&gt;` rewrite). `context-intelligence` is a directory with only a README.
+
+**Recommendation:** Delete `extensions/context-intelligence/`. Zero code, clear deprecation notice, replaced by skill-loader.
+
+### 3. HIGH — pi-workflow DUPLICATE (bundle + loose global)
+
+The bundle loads `extensions/pi-workflow/src/index.ts`. The loose globals folder `~/.pi/agent/extensions/pi-workflow/` contains a full copy with the same source. Pi will load both — this is a live duplicate registration of the Workflow tool.
+
+**Recommendation:** Delete `~/.pi/agent/extensions/pi-workflow/` (the loose copy). The bundle version is canonical and versioned.
+
+### 4. HIGH — task-tools vs pi-session-todo (overlapping task-list functionality)
+
+`task-tools` registers `TaskCreate/Get/Update/List` + TUI planning-task pane. `pi-session-todo` registers `TodoWrite` + session-scoped todo TUI pane. Both manage "list of things to do this session." The difference: task-tools is the heavier CC-style planning system (multi-state tasks, main-pane widget); pi-session-todo is a lighter `TodoWrite`-only approach. task-tools is ENABLED; pi-session-todo is SOURCE-ONLY.
+
+The model has two task-management paradigms and may reach for either. Having pi-session-todo source-present but not bundled is a coherent choice IF you're committed to task-tools. But the source sitting there is confusing.
+
+**Recommendation:** If task-tools is the winner, either add pi-session-todo to bundle (intentional addition) or delete its source. Currently it's just noise.
+
+### 5. MEDIUM — context-forking: disabled everywhere but source present
+
+`extensions/context-forking/` has full source. Loose global `context-forking.ts.disabled` is disabled. Not in bundle. This is a `ForkContext` tool that was being experimented with. Unclear if it's planned for future inclusion or abandoned.
+
+**Recommendation:** If not re-enabling, delete or archive. Otherwise add it to the bundle explicitly.
+
+### 6. MEDIUM — tokenjuice source-vs-loose-global split is confusing
+
+The bundle entry for tokenjuice points to `extensions/tokenjuice/index.js` — a 2-line re-export: `import register from "./tokenjuice.generated.js"` which doesn't exist in source. The real bundle is `~/.pi/agent/extensions/tokenjuice.js` (9712 lines). The memory note `tokenjuice-bundle-ahead-of-source.md` documents this: "never regenerate the tokenjuice pi bundle from source (src is behind)." But the bundle JSON still references the extensions source stub, which would fail to load — unless tokenjuice is loaded only from the loose global, not the bundle stub.
+
+**Recommendation:** Clarify the loading path. Either remove tokenjuice from the bundle manifest (since the loose global is the real one) or fix the stub. The current state is a foot-gun if anyone tries to regenerate.
+
+### 7. MEDIUM — usage-soft-cap is source-only + active as loose global — same split issue as tokenjuice
+
+`extensions/usage-soft-cap/index.mjs` exists in source but isn't in the bundle. The live file is `~/.pi/agent/extensions/usage-soft-cap.mjs`. These could have diverged.
+
+**Recommendation:** Either add to bundle and remove loose global, or document that the loose global is canonical.
+
+### 8. LOW — advisor is ENABLED in bundle but hard-disabled in settings
+
+The bundle loads `extensions/advisor/index.ts`. `settings.json` has `"advisor": { "enabled": false }`. The extension checks this config and returns early. So advisor is loaded (costs bundle bytes and a tiny runtime check) but never does anything.
+
+**Recommendation:** Either remove from bundle or accept the dead-weight (the extension gracefully no-ops).
+
+### 9. LOW — openclaw-adaptor, paperclip-cost-forwarder, pi-backpressure are source-only infrastructure
+
+These are real extensions with real source but not in the bundle:
+- **openclaw-adaptor**: only useful if OpenClaw is in use; intentionally not bundled by default.
+- **paperclip-cost-forwarder**: requires a Paperclip config file; no-ops without it — could be added to bundle safely.
+- **pi-backpressure**: TOML-driven gate runner; intentional opt-in (needs a `pi-backpressure.toml` in the project).
+
+These are coherent choices. Low cruft risk.
+
+---
+
+## Third-Party Package Table
+
+| Package | Source | Purpose | Overlaps first-party? | Load | Recommendation |
+|---|---|---|---|---|---|
+| `pi-intercom` (nicobailon) | `git:github.com/nicobailon/pi-intercom` | Cross-session inter-agent messaging broker (Unix socket); TUI compose/inbox for sending messages between pi instances | Loosely overlaps `pi-messenger` (same idea, different impl). `intercom-cache-guard` is a cache-safety shim specifically FOR this package. | Eager | **Keep** if cross-session messaging is used. Note: `intercom-cache-guard` first-party extension is glue code required by this package — if dropping pi-intercom, the guard becomes dead weight. |
+| `@howaboua/pi-smart-btw` | npm | "Async side-session questions" — inject clarifying questions from a background side-session into the main chat | Conceptually overlaps `pi-ask-user-question` (model asks user questions) but different flow: side-session vs inline dialog | Deferred | **Low priority**. Deferred already. If pi-ask-user-question covers the use case, consider dropping. Vendor is `@howaboua` — single-person npm org, unclear maintenance. |
+| `pi-diff-review` (badlogic) | `git:github.com/badlogic/pi-diff-review` | Interactive diff review workflow | Overlaps `@plannotator/pi-extension` (both do review workflows with user interaction). No first-party review extension. | Eager | **Assess duplication with plannotator**. Two third-party review extensions is redundant. Pick one. `pi-diff-review` uses `@earendil-works` (old upstream) imports — potential staleness risk. |
+| `pi-k-excalidraw` (kostyay) | `git:github.com/kostyay/pi-k-excalidraw` | Excalidraw diagram generation | No first-party overlap | Eager | **Keep** if used. Single-purpose, no conflict. Unpinned git source = risk if repo changes. |
+| `@howaboua/pi-vent` | npm | Logs repeated workflow friction to `VENT.md` | No first-party overlap | Eager | **Low value, low overlap**. A friction logger. Fine to keep; not critical. Same `@howaboua` maintenance concern. |
+| `@valkyriweb/pi-codex-conversion` | npm (own) | Adapts pi's tool/message format for Codex (openai-codex) models; `enabledWhen: { models: ["openai-codex/*"] }` | No direct overlap; enables Codex support | Conditional (Codex-only) | **Keep**. Own package, Codex-specific, correctly gated. |
+| `pi-assistant-provenance` | npm | Notifies model of mid-session model switches (e.g. when you switch from Sonnet to Fable mid-conversation) | No first-party overlap | Eager | **Keep** — solves a real confusion problem, no conflict. |
+| `@plannotator/pi-extension` | npm | Browser-based plan review with annotations; `plannotator_submit_plan` tool; code review and annotation commands | Overlaps `pi-diff-review` (both review workflows). Also partially overlaps `pi-mode` (plan mode). plannotator is heavier (browser UI). | Eager | **Keep plannotator, assess dropping pi-diff-review**. Plannotator is the more complete review system with a maintained npm package. |
+| `pi-messenger` | npm (deferred) | File-based inter-agent messaging (no daemon; mailbox files) | **Direct overlap with `pi-intercom`** — both do cross-session pi-to-pi messaging. pi-messenger is file-based; pi-intercom is socket-based. | Deferred | **Redundant with pi-intercom**. Pick one. pi-messenger is file-based (simpler, no broker process); pi-intercom has a broker daemon + TUI. File-based is more resilient. Current state: pi-messenger is deferred, pi-intercom is eager — this already implies pi-intercom is the preferred one. If so, drop pi-messenger or keep as fallback but document the choice. |
+| `pi-autoresearch` (davebcn87) | `git:github.com/davebcn87/pi-autoresearch` | Autonomous experiment loop: run agent, measure output, keep or discard (karpathy/autoresearch inspired) | No first-party overlap | Eager | **Keep if used**. Niche but no conflict. Unpinned git = staleness risk. Single-maintainer. |
+
+---
+
+## Cruft Summary
+
+**Delete immediately (zero-risk):**
+- `~/.pi/agent/extensions/tokenjuice.js.bak`, `.bak.1`, `.bak.2`, `.bak.3` — 4 stale backup files
+- `extensions/context-intelligence/` — only a README, explicit deprecation notice, replaced by skill-loader
+- `~/.pi/agent/extensions/pi-workflow/` — live duplicate of bundle extension; causes double tool registration
+
+**Archive / decide:**
+- `extensions/dream-memory/` — SOURCE-ONLY; pi-memory is the active memory system and already subsumes consolidation. If the Obsidian wiki output is still wanted, check if pi-memory writes there; otherwise archive and delete.
+- `extensions/context-forking/` — disabled in loose globals, not in bundle, has real source. Decide: add to bundle or delete.
+- `extensions/pi-session-todo/` — SOURCE-ONLY with a duplicate purpose (task-tools is the active version). Either add to bundle (if you want the lighter TodoWrite approach) or delete.
+
+**Clarify the loading model:**
+- `tokenjuice` source stub vs loose global — document that `~/.pi/agent/extensions/tokenjuice.js` is canonical, and either remove the source stub from the bundle manifest or fix it.
+- `usage-soft-cap` — same: consolidate source and loose global.
+
+**Third-party redundancy to resolve:**
+- `pi-messenger` (deferred) vs `pi-intercom` (eager) — pick one inter-agent messaging solution.
+- `pi-diff-review` vs `@plannotator/pi-extension` — pick one review workflow.
+- `intercom-cache-guard` (first-party) — only needed while pi-intercom is loaded; if pi-intercom is dropped, remove the guard.</result>
+<usage><subagent_tokens>81080</subagent_tokens><tool_uses>57</tool_uses><duration_ms>628205</duration_ms></usage>
+</task-notification>
+
+---
+
+give it to me as an html artefact
+
+---
+
+Continue the skills/extensions/tools audit: collect results from the 4 background agents and synthesize the dedupe/cleanup report.
+
+---
+
+<task-notification>
+<task-id>adb5c61c92d529879</task-id>
+<tool-use-id>toolu_01CuYXLXEBkwc6k9JAPgPkrB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/68a74bd3-9bcc-4e81-81fe-600a9db45400/tasks/adb5c61c92d529879.output</output-file>
+<status>completed</status>
+<summary>Agent "Pi session usage analysis" completed</summary>
+<result>Note: The safety classifier was unavailable when reviewing this subagent's work. Please carefully verify the subagent's actions and output before acting on them.
+
+You've hit your session limit · resets 9:40am (Africa/Johannesburg)</result>
+<usage><subagent_tokens>3242</subagent_tokens><tool_uses>74</tool_uses><duration_ms>1471638</duration_ms></usage>
+</task-notification>
