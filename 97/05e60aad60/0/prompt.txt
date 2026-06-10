@@ -37,3 +37,13 @@ do it
 <status>completed</status>
 <summary>Background command "Brief wait for check progress" completed (exit code 0)</summary>
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bicueyup2</task-id>
+<tool-use-id>toolu_011kxqjeQcmBMLrwxiZMerr9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/448c59b4-26b6-4709-828e-69079c7c756a/tasks/bicueyup2.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait until render/policy check passes on PR 289" completed (exit code 0)</summary>
+</task-notification>
