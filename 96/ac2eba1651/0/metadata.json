@@ -1,0 +1,102 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "96ac2eba1651",
+  "session_id": "448c59b4-26b6-4709-828e-69079c7c756a",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T19:47:14.948835Z",
+  "branch": "lue/web-tools",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/idle-wake/README.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "0e36dd03ea73",
+  "token_usage": {
+    "input_tokens": 8451,
+    "cache_creation_tokens": 50938,
+    "cache_read_tokens": 688040,
+    "output_tokens": 5209,
+    "api_call_count": 18
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01T3RpgdjH6fhxSNoXHbJhFY",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "k8s"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "0e36dd03ea73",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 123,
+        "end": 124,
+        "entry_ids": [
+          "afe01c4e-c7eb-4a54-a52a-d576bd1f51bd"
+        ],
+        "tool_use_id": "toolu_01T3RpgdjH6fhxSNoXHbJhFY"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01T3RpgdjH6fhxSNoXHbJhFY"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: k8s",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T19:47:14.936858Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 0,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1038,
+      "user_lines_removed": 1,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".changeset/retire-idle-wake-extension.md": 5,
+        "extensions/idle-wake/README.md": 7,
+        "package-lock.json": 15,
+        "packages/claude-chrome-mcp/CHANGELOG.md": 12,
+        "packages/claude-chrome-mcp/README.md": 91,
+        "packages/claude-chrome-mcp/package.json": 25,
+        "packages/claude-chrome-mcp/scripts/extract-tools.mjs": 109,
+        "packages/claude-chrome-mcp/src/bridge.mjs": 126,
+        "packages/claude-chrome-mcp/src/server.mjs": 97,
+        "packages/claude-chrome-mcp/src/tools.json": 551
+      },
+      "user_removed_per_file": {
+        "node_modules": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1038,
+      "agent_lines_removed": 1
+    }
+  ]
+}

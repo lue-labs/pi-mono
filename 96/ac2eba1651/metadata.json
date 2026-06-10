@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "96ac2eba1651",
+  "strategy": "manual-commit",
+  "branch": "lue/web-tools",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/idle-wake/README.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/96/ac2eba1651/0/metadata.json",
+      "transcript": "/96/ac2eba1651/0/full.jsonl",
+      "content_hash": "/96/ac2eba1651/0/content_hash.txt",
+      "prompt": "/96/ac2eba1651/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8451,
+    "cache_creation_tokens": 50938,
+    "cache_read_tokens": 688040,
+    "output_tokens": 5209,
+    "api_call_count": 18
+  }
+}
