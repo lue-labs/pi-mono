@@ -1,0 +1,57 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "8c5f7d136c73",
+  "session_id": "448c59b4-26b6-4709-828e-69079c7c756a",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T19:54:02.640449Z",
+  "branch": "lue/web-tools",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "0e36dd03ea73",
+  "token_usage": {
+    "input_tokens": 8747,
+    "cache_creation_tokens": 74793,
+    "cache_read_tokens": 1877605,
+    "output_tokens": 17341,
+    "api_call_count": 37
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01T3RpgdjH6fhxSNoXHbJhFY",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "k8s"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "0e36dd03ea73",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 123,
+        "end": 124,
+        "entry_ids": [
+          "afe01c4e-c7eb-4a54-a52a-d576bd1f51bd"
+        ],
+        "tool_use_id": "toolu_01T3RpgdjH6fhxSNoXHbJhFY"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01T3RpgdjH6fhxSNoXHbJhFY"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: k8s",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  }
+}

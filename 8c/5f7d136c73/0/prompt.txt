@@ -1,0 +1,11 @@
+login
+
+---
+
+can you switch my claude-bridge to my normal claude code auth
+
+---
+
+switch the claude-bridge auth to use my claude code oauth token, so just disable glens setup-token on the openclaw gateway  
+
+lue-kube cluster
