@@ -65,6 +65,11 @@ export interface CreateAgentSessionFromServicesOptions {
 	customTools?: ToolDefinition[];
 	/** See `CreateAgentSessionOptions.source`. Forwarded as-is. */
 	source?: CreateAgentSessionOptions["source"];
+	/**
+	 * Agent-tool services bound to the child session, enabling it to spawn its own
+	 * child agents. Omit to leave the child unable to delegate (engine unbound).
+	 */
+	agentToolServices?: CreateAgentSessionOptions["agentToolServices"];
 }
 
 /**
@@ -206,5 +211,6 @@ export async function createAgentSessionFromServices(
 		customTools: options.customTools,
 		sessionStartEvent: options.sessionStartEvent,
 		source: options.source,
+		agentToolServices: options.agentToolServices,
 	});
 }

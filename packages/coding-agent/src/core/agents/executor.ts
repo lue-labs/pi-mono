@@ -55,7 +55,11 @@ import type {
 	NormalizedAgentTaskConfig,
 } from "./types.ts";
 
-const GLOBAL_DENY_TOOLS = new Set(["agent"]);
+// Tools globally denied to every child regardless of depth. `agent` is NOT here:
+// nested delegation is gated per-depth via `allowAgentDelegation` (computed from
+// `subagents.maxDelegationDepth`) so children below the cap can fan out while the
+// boundary is enforced by withholding the child's engine binding (agentToolServices).
+const GLOBAL_DENY_TOOLS = new Set<string>();
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
 const MAX_PARALLEL_TASKS = 8;
@@ -68,6 +72,12 @@ export interface AgentToolParentServices {
 	authStorage: AuthStorage;
 	settingsManager: SettingsManager;
 	modelRegistry: ModelRegistry;
+	/**
+	 * Delegation depth of the session that owns these services. Top-level
+	 * interactive session = 0 (or undefined); each nested child increments by 1.
+	 * Gates whether this session's children may themselves delegate.
+	 */
+	depth?: number;
 }
 
 export interface AgentExecutorOptions {
@@ -185,10 +195,27 @@ function canonicalToolName(name: string): string {
 	return name.toLowerCase();
 }
 
+/** Read the configured nested-delegation cap (0 = no nesting). Clamped to 16. */
+export function getMaxDelegationDepth(settingsManager: SettingsManager): number {
+	const raw = settingsManager.getSubagentSettings().maxDelegationDepth;
+	if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return 0;
+	return Math.min(Math.floor(raw), 16);
+}
+
+/**
+ * Top-level (depth 0) always delegates. A nested child at depth `d` may delegate
+ * (spawn a depth `d+1` child) only while `d < maxDepth`.
+ */
+export function canDelegateAtDepth(depth: number, maxDepth: number): boolean {
+	return depth === 0 || depth < maxDepth;
+}
+
 export function resolveEffectiveTools(options: {
 	parentActiveTools: string[];
 	agent: AgentDefinition;
 	requestedTools?: string[];
+	/** When false (default), the `agent` tool is denied to the child. */
+	allowAgentDelegation?: boolean;
 }): { effectiveTools: string[]; deniedTools: string[] } {
 	// Map canonical name -> actual active tool name so matches resolve back to the
 	// real registered alias the child session must request.
@@ -216,7 +243,13 @@ export function resolveEffectiveTools(options: {
 		candidates = candidates.filter((tool) => allowed.has(canonicalToolName(tool)));
 	}
 
-	const deny = new Set([...(options.agent.denyTools ?? []), ...GLOBAL_DENY_TOOLS].map(canonicalToolName));
+	const deny = new Set(
+		[
+			...(options.agent.denyTools ?? []),
+			...GLOBAL_DENY_TOOLS,
+			...(options.allowAgentDelegation ? [] : ["agent"]),
+		].map(canonicalToolName),
+	);
 	const isDenied = (tool: string): boolean => deny.has(canonicalToolName(tool));
 	const effectiveTools = candidates.filter((tool) => hasParent(tool) && !isDenied(tool));
 	const deniedTools = candidates.filter((tool) => isDenied(tool));
@@ -624,6 +657,13 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		resolveContextPolicy(options.task.context).includeTranscript && Boolean(options.parentSystemPrompt);
 	let effectiveTools: string[];
 	let deniedTools: string[];
+	// Nested-delegation gate: a child at `childDepth` may itself delegate only while
+	// under the configured cap. When it may not, we withhold its engine binding
+	// (agentToolServices) below so any `agent` call fails closed.
+	const callerDepth = options.parentServices.depth ?? 0;
+	const maxDelegationDepth = getMaxDelegationDepth(options.parentServices.settingsManager);
+	const childDepth = callerDepth + 1;
+	const childCanDelegate = canDelegateAtDepth(childDepth, maxDelegationDepth);
 	if (isForkMode) {
 		const parentSet = new Set(options.parentActiveTools);
 		effectiveTools = options.task.tools
@@ -635,6 +675,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 			parentActiveTools: options.parentActiveTools,
 			agent,
 			requestedTools: options.task.tools,
+			allowAgentDelegation: childCanDelegate,
 		});
 		effectiveTools = resolved.effectiveTools;
 		deniedTools = resolved.deniedTools;
@@ -675,6 +716,18 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		model: effectiveModel,
 		thinkingLevel: thinking,
 		tools: effectiveTools,
+		// Record this child's delegation depth on its own agent-tool services. When the
+		// child later calls `agent`, executeAgentTool reads this depth and enforces the
+		// cap (subagents.maxDelegationDepth). Without this the depth would always read 0
+		// and nesting would be unbounded.
+		agentToolServices: {
+			cwd: childCwd,
+			agentDir: options.parentServices.agentDir,
+			authStorage: options.parentServices.authStorage,
+			settingsManager: options.parentServices.settingsManager,
+			modelRegistry: options.parentServices.modelRegistry,
+			depth: childDepth,
+		},
 		sessionStartEvent: { type: "session_start", reason: "startup", forkMetadata: options.task.forkMetadata },
 		// Tag the session-level source so non-input hooks (session_start,
 		// session_shutdown, turn_end, tool_call/tool_result, memory_note tool
@@ -716,7 +769,10 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		...options,
 		details,
 		startedAt,
-		prompt: buildChildTaskPrompt(options.task),
+		prompt: buildChildTaskPrompt(options.task, {
+			canDelegate: childCanDelegate,
+			remaining: childCanDelegate ? maxDelegationDepth - childDepth : 0,
+		}),
 	});
 }
 
@@ -866,10 +922,15 @@ async function resumeSingleBackgroundRun(
 		parentThinkingLevel: options.parentThinkingLevel,
 		model,
 	});
+	const callerDepth = options.parentServices.depth ?? 0;
+	const maxDelegationDepth = getMaxDelegationDepth(options.parentServices.settingsManager);
+	const childDepth = callerDepth + 1;
+	const childCanDelegate = canDelegateAtDepth(childDepth, maxDelegationDepth);
 	const { effectiveTools, deniedTools } = resolveEffectiveTools({
 		parentActiveTools: options.parentActiveTools,
 		agent,
 		requestedTools: task.tools,
+		allowAgentDelegation: childCanDelegate,
 	});
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
@@ -899,6 +960,14 @@ async function resumeSingleBackgroundRun(
 		model,
 		thinkingLevel: thinking,
 		tools: effectiveTools,
+		agentToolServices: {
+			cwd: options.parentServices.cwd,
+			agentDir: options.parentServices.agentDir,
+			authStorage: options.parentServices.authStorage,
+			settingsManager: options.parentServices.settingsManager,
+			modelRegistry: options.parentServices.modelRegistry,
+			depth: childDepth,
+		},
 		sessionStartEvent: {
 			type: "session_start",
 			reason: "resume",
@@ -1076,6 +1145,17 @@ export async function executeAgentTool(
 	input: AgentToolExecutionInput,
 	options: AgentExecutorOptions,
 ): Promise<AgentToolDetails> {
+	// Hard nested-delegation boundary. The caller's depth lives on its own agent-tool
+	// services; top-level = 0 (always allowed). This is mode-agnostic (covers fork
+	// children whose inherited tool list still carries the `agent` schema).
+	const callerDepth = options.parentServices.depth ?? 0;
+	const delegationCap = getMaxDelegationDepth(options.parentServices.settingsManager);
+	if (!canDelegateAtDepth(callerDepth, delegationCap)) {
+		throw new Error(
+			`Nested agent delegation is not permitted at depth ${callerDepth} ` +
+				`(subagents.maxDelegationDepth = ${delegationCap}). Complete this sub-task yourself and report back.`,
+		);
+	}
 	const recentRun = startAgentRecentRun(input.mode, input.tasks, { background: input.background });
 	if (!input.background) return executeAgentToolToCompletion(input, options, recentRun);
 

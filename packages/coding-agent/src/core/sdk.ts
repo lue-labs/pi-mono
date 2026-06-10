@@ -4,6 +4,7 @@ import { clampThinkingLevel, type Message, type Model, streamSimple } from "@val
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AgentSession } from "./agent-session.ts";
+import type { AgentToolParentServices } from "./agents/executor.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
@@ -96,6 +97,11 @@ export interface CreateAgentSessionOptions {
 	 * Defaults to `"interactive"`. See `AgentSessionConfig.source`.
 	 */
 	source?: InputSource;
+	/**
+	 * Agent-tool services to bind to the session. Carries the delegation `depth`
+	 * for nested child agents. When omitted, top-level services (depth 0) are built.
+	 */
+	agentToolServices?: AgentToolParentServices;
 }
 
 /** Result from createAgentSession */
@@ -478,7 +484,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		resourceLoader,
 		customTools: options.customTools,
 		modelRegistry,
-		agentToolServices: { cwd, agentDir, authStorage, settingsManager, modelRegistry },
+		// Honour explicitly-provided services (carry a delegation `depth` for nested
+		// child agents); otherwise default to top-level services (depth 0).
+		agentToolServices: options.agentToolServices ?? { cwd, agentDir, authStorage, settingsManager, modelRegistry },
 		initialActiveToolNames,
 		allowedToolNames,
 		excludedToolNames,

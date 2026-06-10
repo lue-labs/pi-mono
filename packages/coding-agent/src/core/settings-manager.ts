@@ -62,6 +62,13 @@ export interface SubagentDefaultSettings {
 export interface SubagentSettings {
 	defaults?: SubagentDefaultSettings;
 	providers?: Record<string, SubagentDefaultSettings>;
+	/**
+	 * Maximum nested delegation depth for the `agent` tool (children spawning
+	 * their own children). Top-level delegation is always allowed; this caps how
+	 * many further levels a child may nest. 0 (default) = no nesting, preserving
+	 * upstream single-layer behaviour. Capped at 16.
+	 */
+	maxDelegationDepth?: number;
 }
 
 export interface MarkdownSettings {

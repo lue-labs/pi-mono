@@ -80,11 +80,13 @@ describe("built-in agent definitions", () => {
 		expect(findAgentDefinition(registry, "Explore")?.id).toBe("Explore");
 	});
 
-	test("general and worker deny recursive agent", () => {
-		const agents = getBuiltinAgentDefinitions().filter((agent) => agent.id === "general" || agent.id === "worker");
-		expect(agents).toHaveLength(2);
-		for (const agent of agents) {
-			expect(agent.denyTools).toContain("agent");
-		}
+	test("worker denies recursive agent; general may nest (runtime depth-gated)", () => {
+		const byId = new Map(getBuiltinAgentDefinitions().map((agent) => [agent.id, agent]));
+		// worker is a leaf executor — never delegates.
+		expect(byId.get("worker")?.denyTools ?? []).toContain("agent");
+		// general is the one built-in allowed to fan out; whether it actually can is
+		// gated at runtime by subagents.maxDelegationDepth (default 0 = no nesting),
+		// so it must NOT statically deny the agent tool.
+		expect(byId.get("general")?.denyTools ?? []).not.toContain("agent");
 	});
 });

@@ -194,8 +194,29 @@ const CHILD_AGENT_REMINDER =
 	"them dispatch the follow-up work.\n" +
 	"</system-reminder>";
 
-export function buildChildTaskPrompt(task: AgentTaskConfig): string {
-	const parts = [CHILD_AGENT_REMINDER, "", "Complete this delegated task:", "", task.task.trim()];
+// When nested delegation is enabled and this child is still under the cap, tell it
+// it MAY delegate (and how many further levels remain) instead of the default
+// "agent tool not available" reminder. Kept depth-aware so the boundary child still
+// gets the hard no.
+function childAgentReminder(delegation?: { canDelegate: boolean; remaining: number }): string {
+	if (delegation?.canDelegate && delegation.remaining > 0) {
+		return (
+			"<system-reminder>\n" +
+			"You are a Pi child agent (subagent). You MAY delegate to your own child agents via " +
+			`the \`agent\` tool, up to ${delegation.remaining} more nested level(s). Delegate only for ` +
+			"genuinely parallel or large read-only sub-tasks; prefer doing the work yourself. Deeper " +
+			"children past the configured cap cannot delegate further.\n" +
+			"</system-reminder>"
+		);
+	}
+	return CHILD_AGENT_REMINDER;
+}
+
+export function buildChildTaskPrompt(
+	task: AgentTaskConfig,
+	delegation?: { canDelegate: boolean; remaining: number },
+): string {
+	const parts = [childAgentReminder(delegation), "", "Complete this delegated task:", "", task.task.trim()];
 	if (task.extraContext?.trim()) {
 		parts.push("", "Additional context:", task.extraContext.trim());
 	}
