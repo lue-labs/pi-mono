@@ -1,0 +1,71 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "db9d0001ae0a",
+  "session_id": "448c59b4-26b6-4709-828e-69079c7c756a",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-11T20:45:35.857199Z",
+  "branch": "lue/goal-wait-reload-test",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package-lock.json"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "0c4b0be07df8",
+  "token_usage": {
+    "input_tokens": 16290,
+    "cache_creation_tokens": 145495,
+    "cache_read_tokens": 11292517,
+    "output_tokens": 63055,
+    "api_call_count": 122
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01T3RpgdjH6fhxSNoXHbJhFY",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "k8s"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "0c4b0be07df8",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 123,
+        "end": 124,
+        "entry_ids": [
+          "afe01c4e-c7eb-4a54-a52a-d576bd1f51bd"
+        ],
+        "tool_use_id": "toolu_01T3RpgdjH6fhxSNoXHbJhFY"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01T3RpgdjH6fhxSNoXHbJhFY"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: k8s",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-11T20:45:35.789929Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 4079,
+    "human_modified": 15,
+    "human_removed": 0,
+    "total_committed": 4094,
+    "total_lines_changed": 4289,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
