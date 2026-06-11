@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "db9d0001ae0a",
+  "session_id": "048ce029-43c7-41ef-9e49-8400f4b38a97",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-11T20:45:35.218532Z",
+  "branch": "lue/goal-wait-reload-test",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "node_modules",
+    "package-lock.json"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "6ba5899560a0",
+  "token_usage": {
+    "input_tokens": 5361,
+    "cache_creation_tokens": 21941,
+    "cache_read_tokens": 227478,
+    "output_tokens": 2203,
+    "api_call_count": 7
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-11T20:45:35.206372Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 4078,
+    "human_modified": 16,
+    "human_removed": 0,
+    "total_committed": 4078,
+    "total_lines_changed": 4289,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1026,
+      "user_lines_removed": 1,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "package-lock.json": 15,
+        "packages/claude-chrome-mcp/CHANGELOG.md": 12,
+        "packages/claude-chrome-mcp/README.md": 91,
+        "packages/claude-chrome-mcp/package.json": 25,
+        "packages/claude-chrome-mcp/scripts/extract-tools.mjs": 109,
+        "packages/claude-chrome-mcp/src/bridge.mjs": 126,
+        "packages/claude-chrome-mcp/src/server.mjs": 97,
+        "packages/claude-chrome-mcp/src/tools.json": 551
+      },
+      "user_removed_per_file": {
+        "node_modules": 1
+      }
+    }
+  ]
+}

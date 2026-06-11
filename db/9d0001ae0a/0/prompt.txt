@@ -1,0 +1,1 @@
+can you switch back to normal auth in claude-bridge, comment out glen setup-token
