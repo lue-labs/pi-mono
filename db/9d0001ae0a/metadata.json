@@ -3,7 +3,7 @@
   "checkpoint_id": "db9d0001ae0a",
   "strategy": "manual-commit",
   "branch": "lue/goal-wait-reload-test",
-  "checkpoints_count": 2,
+  "checkpoints_count": 7,
   "files_touched": [
     "node_modules",
     "package-lock.json"
@@ -20,13 +20,19 @@
       "transcript": "/db/9d0001ae0a/1/full.jsonl",
       "content_hash": "/db/9d0001ae0a/1/content_hash.txt",
       "prompt": "/db/9d0001ae0a/1/prompt.txt"
+    },
+    {
+      "metadata": "/db/9d0001ae0a/2/metadata.json",
+      "transcript": "/db/9d0001ae0a/2/full.jsonl",
+      "content_hash": "/db/9d0001ae0a/2/content_hash.txt",
+      "prompt": "/db/9d0001ae0a/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 21651,
-    "cache_creation_tokens": 167436,
-    "cache_read_tokens": 11519995,
-    "output_tokens": 65258,
-    "api_call_count": 129
+    "input_tokens": 31034,
+    "cache_creation_tokens": 238256,
+    "cache_read_tokens": 12880053,
+    "output_tokens": 105280,
+    "api_call_count": 152
   }
 }

@@ -1,0 +1,94 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "db9d0001ae0a",
+  "session_id": "a57a9df7-bbab-4924-904c-9b1a2e8e44ff",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-11T20:45:36.10697Z",
+  "branch": "lue/goal-wait-reload-test",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "node_modules",
+    "package-lock.json"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "1438a4d682ec",
+  "token_usage": {
+    "input_tokens": 9383,
+    "cache_creation_tokens": 70820,
+    "cache_read_tokens": 1360058,
+    "output_tokens": 40022,
+    "api_call_count": 23
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-11T20:45:36.095194Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 4078,
+    "human_modified": 16,
+    "human_removed": 0,
+    "total_committed": 4078,
+    "total_lines_changed": 4289,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1026,
+      "user_lines_removed": 1,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "package-lock.json": 15,
+        "packages/claude-chrome-mcp/CHANGELOG.md": 12,
+        "packages/claude-chrome-mcp/README.md": 91,
+        "packages/claude-chrome-mcp/package.json": 25,
+        "packages/claude-chrome-mcp/scripts/extract-tools.mjs": 109,
+        "packages/claude-chrome-mcp/src/bridge.mjs": 126,
+        "packages/claude-chrome-mcp/src/server.mjs": 97,
+        "packages/claude-chrome-mcp/src/tools.json": 551
+      },
+      "user_removed_per_file": {
+        "node_modules": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1026,
+      "agent_lines_removed": 1
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1026,
+      "agent_lines_removed": 1
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 450,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1026,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "docs/research/cc-codex-background-lifecycle-2026-06-10.md": 450
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 450,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1026,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "docs/research/cc-codex-background-lifecycle-2026-06-10.md": 450
+      }
+    }
+  ]
+}

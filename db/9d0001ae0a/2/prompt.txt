@@ -1,0 +1,19 @@
+Can you run a once off run that switches the current claude-bridge/ token to use glens setup token on my macbook, and then nudge any open pi sessions with intercom, or computer use (they are running in Rusty.app that is already open)
+
+make sure they keep working so that I use the full 5 hour window of Glens usage on his claude code subscription, which resets in 15hrs, you can see in safari the current state with computer use
+
+---
+
+yes
+
+---
+
+what caused me to use 41% of my usage in one day?
+
+---
+
+what was the cause of most of the token usage, which skills, which tools, which subagents, etc
+
+---
+
+document this into a report in my-pi as TOKEN-AUDIT.md find any other relevant data like cache bursts, opportunities to tighten token usage on bash and read tools etc
