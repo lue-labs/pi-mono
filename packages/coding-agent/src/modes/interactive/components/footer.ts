@@ -17,6 +17,22 @@ function sanitizeStatusText(text: string): string {
 		.trim();
 }
 
+function splitTopRightStatus(text: string): { topRight?: string; remaining?: string } {
+	const cleaned = sanitizeStatusText(text);
+	const topRightParts: string[] = [];
+	const remaining = cleaned
+		.replace(/(?:^|\s)([⚡🧠][^⚡🧠]*?(?=\s+[⚡🧠]|$))/gu, (_match, part: string) => {
+			const trimmed = part.trim();
+			if (trimmed) topRightParts.push(trimmed);
+			return " ";
+		})
+		.replace(/ +/g, " ")
+		.trim();
+	const topRight = topRightParts.join(" ");
+	if (!topRight) return { remaining: cleaned };
+	return { topRight, remaining: remaining || undefined };
+}
+
 /**
  * Format token counts for compact footer display.
  */
@@ -244,7 +260,25 @@ export class FooterComponent implements Component {
 		if (sessionName) {
 			pwdContent += sep + theme.fg("accent", sessionName);
 		}
-		const pwdLine = truncateToWidth(pwdContent, width, theme.fg("dim", "..."));
+		const extensionStatuses = this.footerData.getExtensionStatuses();
+		const sortedStatusParts = Array.from(extensionStatuses.entries())
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([, text]) => splitTopRightStatus(text));
+		const topRightStatuses = sortedStatusParts
+			.map((part) => part.topRight)
+			.filter((part): part is string => Boolean(part));
+		const bottomStatuses = sortedStatusParts
+			.map((part) => part.remaining)
+			.filter((part): part is string => Boolean(part));
+		const topRightStatus = topRightStatuses.length > 0 ? theme.fg("dim", topRightStatuses.join(" ")) : "";
+
+		let pwdLine: string;
+		if (topRightStatus && visibleWidth(pwdContent) + 2 + visibleWidth(topRightStatus) <= width) {
+			const padding = " ".repeat(width - visibleWidth(pwdContent) - visibleWidth(topRightStatus));
+			pwdLine = pwdContent + padding + topRightStatus;
+		} else {
+			pwdLine = truncateToWidth(pwdContent, width, theme.fg("dim", "..."));
+		}
 
 		// ── Line 2: token stats · context% ··············· model · thinking ───────
 		const leftParts: string[] = [];
@@ -362,13 +396,11 @@ export class FooterComponent implements Component {
 			lines.push(backgroundStatusLine);
 		}
 
-		// Add extension statuses on a single line, sorted by key alphabetically
-		const extensionStatuses = this.footerData.getExtensionStatuses();
-		if (extensionStatuses.size > 0) {
-			const sortedStatuses = Array.from(extensionStatuses.entries())
-				.sort(([a], [b]) => a.localeCompare(b))
-				.map(([, text]) => sanitizeStatusText(text));
-			const statusLine = sortedStatuses.join(" ");
+		// Add extension statuses on a single line, sorted by key alphabetically.
+		// Compact glyph-only observability snippets (⚡ cost, 🧠 recall) are promoted
+		// to line 1's right edge so the footer's lowest line stays for actionable text.
+		if (bottomStatuses.length > 0) {
+			const statusLine = bottomStatuses.join(" ");
 			// Truncate to terminal width with dim ellipsis for consistency with footer style
 			lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
 		}
