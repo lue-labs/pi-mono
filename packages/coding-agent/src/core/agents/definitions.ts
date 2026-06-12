@@ -144,9 +144,10 @@ List 3-5 files with one sentence each explaining why they are load-bearing.`,
 	},
 	{
 		id: "reviewer",
-		description: "Read-only reviewer for correctness, regressions, and missing validation.",
-		tools: ["read", "grep", "find", "ls"],
-		denyTools: ["agent", "edit", "write", "bash"],
+		description:
+			"Read-only reviewer for correctness, regressions, and missing validation. Has broad inspection tools; mutation remains blocked.",
+		tools: "*",
+		denyTools: ["agent", "edit", "write"],
 		model: "inherit",
 		thinking: "inherit",
 		defaultContext: "default",
@@ -156,6 +157,11 @@ List 3-5 files with one sentence each explaining why they are load-bearing.`,
 		prompt: `You are a read-only reviewer. Verify claims against concrete files and outputs.
 Prioritize correctness, regressions, safety, and missing validation.
 Do not rewrite the implementation.
+
+Use any available inspection tool when it materially improves review quality, including git
+diff/log/show/blame/status, read-only gh pr/issue/api GET queries, and non-mutating local
+checks. Do not create, edit, delete, move, install, push, commit, apply, or otherwise mutate
+state.
 Return evidence first, then close with exactly one final line:
 VERDICT: PASS|FAIL|PARTIAL`,
 	},
