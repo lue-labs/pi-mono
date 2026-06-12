@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "cf93d85057e7",
+  "strategy": "manual-commit",
+  "branch": "work/pi-skill-workshop",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/pi-worktree/src/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cf/93d85057e7/0/metadata.json",
+      "transcript": "/cf/93d85057e7/0/full.jsonl",
+      "content_hash": "/cf/93d85057e7/0/content_hash.txt",
+      "prompt": "/cf/93d85057e7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6306,
+    "cache_creation_tokens": 40871,
+    "cache_read_tokens": 464408,
+    "output_tokens": 5468,
+    "api_call_count": 12
+  }
+}

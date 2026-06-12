@@ -1,0 +1,1 @@
+I think lets set the auto compaction threshold for claude-bridge/opus models to 300K on claude code cli, and then 280K on pi
