@@ -14,6 +14,7 @@ import { getTextOutput, invalidArgText, shortenPath, str } from "./render-utils.
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import {
 	DEFAULT_MAX_BYTES,
+	FULL_TRUNCATION,
 	formatSize,
 	GREP_MAX_LINE_LENGTH,
 	type TruncationResult,
@@ -55,6 +56,12 @@ const grepSchema = Type.Object({
 	),
 	timeout: Type.Optional(
 		Type.Number({ description: "Timeout in seconds (default: 30, max 300)", exclusiveMinimum: 0, maximum: 300 }),
+	),
+	full: Type.Optional(
+		Type.Boolean({
+			description:
+				"Return ALL matches with no match-count/byte/line truncation (and skip tokenjuice compaction). Use only when you genuinely need every match. Defaults to false.",
+		}),
 	),
 });
 
@@ -383,6 +390,7 @@ export function createGrepToolDefinition(
 				type,
 				multiline,
 				timeout,
+				full,
 			}: {
 				pattern: string;
 				path?: string;
@@ -399,6 +407,7 @@ export function createGrepToolDefinition(
 				type?: string;
 				multiline?: boolean;
 				timeout?: number;
+				full?: boolean;
 			},
 			signal?: AbortSignal,
 			_onUpdate?,
@@ -458,7 +467,7 @@ export function createGrepToolDefinition(
 							return;
 						}
 						const contextValue = context && context > 0 ? context : 0;
-						const effectiveLimit = Math.max(1, limit ?? DEFAULT_LIMIT);
+						const effectiveLimit = full ? Number.MAX_SAFE_INTEGER : Math.max(1, limit ?? DEFAULT_LIMIT);
 						const formatPath = (filePath: string): string => {
 							if (isDirectory) {
 								const relative = path.relative(searchPath, filePath);
@@ -552,7 +561,9 @@ export function createGrepToolDefinition(
 								const sanitized = lineText.replace(/\r/g, "");
 								const isMatchLine = current === lineNumber;
 								// Truncate long lines so grep output stays compact.
-								const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
+								const { text: truncatedText, wasTruncated } = full
+									? { text: sanitized, wasTruncated: false }
+									: truncateLine(sanitized);
 								if (wasTruncated) linesTruncated = true;
 								if (isMatchLine) block.push(`${relativePath}:${current}: ${truncatedText}`);
 								else block.push(`${relativePath}-${current}- ${truncatedText}`);
@@ -610,16 +621,21 @@ export function createGrepToolDefinition(
 											.replace(/\r\n/g, "\n")
 											.replace(/\r/g, "")
 											.replace(/\n$/, "");
-										const { text: truncatedText } = truncateLine(sanitized);
+										const { text: truncatedText } = full ? { text: sanitized } : truncateLine(sanitized);
 										outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
 									} else {
 										const block = await formatBlock(match.filePath, match.lineNumber);
 										outputLines.push(...block);
 									}
 								}
-								const partialOutput = truncateHead(outputLines.join("\n"), {
-									maxLines: Number.MAX_SAFE_INTEGER,
-								}).content;
+								const partialOutput = truncateHead(
+									outputLines.join("\n"),
+									full
+										? FULL_TRUNCATION
+										: {
+												maxLines: Number.MAX_SAFE_INTEGER,
+											},
+								).content;
 								settle(() =>
 									resolve(
 										formatGrepTimeoutResult({
@@ -730,7 +746,9 @@ export function createGrepToolDefinition(
 										.replace(/\r\n/g, "\n")
 										.replace(/\r/g, "")
 										.replace(/\n$/, "");
-									const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
+									const { text: truncatedText, wasTruncated } = full
+										? { text: sanitized, wasTruncated: false }
+										: truncateLine(sanitized);
 									if (wasTruncated) linesTruncated = true;
 									outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
 								} else {
@@ -741,7 +759,10 @@ export function createGrepToolDefinition(
 
 							const rawOutput = outputLines.join("\n");
 							// Apply byte truncation. There is no line limit here because the match limit already capped rows.
-							const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+							const truncation = truncateHead(
+								rawOutput,
+								full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
+							);
 							let output = truncation.content;
 							const details: GrepToolDetails = {
 								mode: outputOptions.mode,

@@ -11,7 +11,7 @@ import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/type
 import { pathExists, resolveToCwd } from "./path-utils.ts";
 import { getTextOutput, invalidArgText, shortenPath, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
-import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
+import { DEFAULT_MAX_BYTES, FULL_TRUNCATION, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
 function toPosixPath(value: string): string {
 	return value.split(path.sep).join("/");
@@ -25,6 +25,12 @@ const findSchema = Type.Object({
 	limit: Type.Optional(Type.Number({ description: "Maximum number of results (default: 1000)" })),
 	timeout: Type.Optional(
 		Type.Number({ description: "Timeout in seconds (default: 30, max 300)", exclusiveMinimum: 0, maximum: 300 }),
+	),
+	full: Type.Optional(
+		Type.Boolean({
+			description:
+				"Return ALL results with no result-count/byte truncation (and skip tokenjuice compaction). Use only when you genuinely need every match. Defaults to false.",
+		}),
 	),
 });
 
@@ -253,7 +259,8 @@ export function createFindToolDefinition(
 				path: searchDir,
 				limit,
 				timeout,
-			}: { pattern: string; path?: string; limit?: number; timeout?: number },
+				full,
+			}: { pattern: string; path?: string; limit?: number; timeout?: number; full?: boolean },
 			signal?: AbortSignal,
 			_onUpdate?,
 			_ctx?,
@@ -287,7 +294,7 @@ export function createFindToolDefinition(
 				(async () => {
 					try {
 						const searchPath = resolveToCwd(searchDir || ".", cwd);
-						const effectiveLimit = limit ?? DEFAULT_LIMIT;
+						const effectiveLimit = full ? Number.MAX_SAFE_INTEGER : (limit ?? DEFAULT_LIMIT);
 						const ops = customOps ?? defaultFindOperations;
 
 						// If custom operations provide glob(), use that instead of fd.
@@ -349,7 +356,10 @@ export function createFindToolDefinition(
 							});
 							const resultLimitReached = relativized.length >= effectiveLimit;
 							const rawOutput = relativized.join("\n");
-							const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+							const truncation = truncateHead(
+								rawOutput,
+								full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
+							);
 							let resultOutput = truncation.content;
 							const details: FindToolDetails = {};
 							const notices: string[] = [];
@@ -501,7 +511,10 @@ export function createFindToolDefinition(
 
 							const resultLimitReached = relativized.length >= effectiveLimit;
 							const rawOutput = relativized.join("\n");
-							const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+							const truncation = truncateHead(
+								rawOutput,
+								full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
+							);
 							let resultOutput = truncation.content;
 							const details: FindToolDetails = {};
 							const notices: string[] = [];
