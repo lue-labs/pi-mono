@@ -1,0 +1,5 @@
+can we fix this: pi
+Error: Failed to load extension "/Users/luke/.pi/agent/local-packages/kilocode-provider/dist/index.mjs": Failed to load extension: ResolveMessage: Cannot find package 'effect' from '/Users/luke/Projects/personal/my-pi/extensions/kilocode-provider/dist/index.mjs'
+Error: Failed to load extension "/Users/luke/.pi/agent/npm/node_modules/@valkyriweb/pi-codex-conversion/src/index.ts": Failed to load extension: ResolveMessage: Cannot find package 'web-tree-sitter' from '/Users/luke/Projects/personal/my-pi/extensions/third-party/pi-codex-conversion/src/shell/bash.ts'
+
+and can we make the model loading deferred for start up for pi, is that possible? With cached provider / model data, is that how pi does it currently?
