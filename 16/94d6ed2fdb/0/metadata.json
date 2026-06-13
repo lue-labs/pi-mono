@@ -1,0 +1,59 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "1694d6ed2fdb",
+  "session_id": "019ec24b-72f5-7972-80bb-b85177595cf6",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-13T22:21:55.729765Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "5797599a9609",
+  "checkpoint_transcript_start": 159,
+  "transcript_lines_at_start": 159,
+  "token_usage": {
+    "input_tokens": 1157527,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 21358208,
+    "output_tokens": 98929,
+    "api_call_count": 265
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2750,
+      "user_lines_removed": 248,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "CONTEXT.md": 24,
+        "docs/artifacts/pi-bridge-routing-review.html": 827,
+        "docs/goals/goal-2026-06-13T18-53-31Z-93f47dee.md": 691,
+        "docs/pi-bridge-intelligent-routing-rubric.md": 119,
+        "docs/skill-reparenting-plan.md": 59,
+        "docs/skill-store-federation-plan.md": 173,
+        "extensions/kilocode-provider/dist/index.mjs": 157,
+        "extensions/kilocode-provider/index.ts": 98,
+        "extensions/skill-workshop/src/scanner.ts": 2,
+        "extensions/skill-workshop/test-load.mjs": 22,
+        "prototypes/skill-sync/README.md": 47,
+        "prototypes/skill-sync/executor-skills-source.mjs": 71,
+        "prototypes/skill-sync/executor-store.mjs": 43,
+        "prototypes/skill-sync/profile.mjs": 90,
+        "prototypes/skill-sync/skills-mcp.mjs": 94,
+        "prototypes/skill-sync/sync.mjs": 180,
+        "prototypes/skill-sync/test-executor-path.mjs": 53
+      },
+      "user_removed_per_file": {
+        "docs/pi-bridge-intelligent-routing-rubric.md": 82,
+        "extensions/kilocode-provider/dist/index.mjs": 101,
+        "extensions/kilocode-provider/index.ts": 57,
+        "extensions/kilocode-provider/package.json": 3,
+        "extensions/skill-workshop/src/scanner.ts": 1,
+        "extensions/skill-workshop/test-load.mjs": 1,
+        "package-lock.json": 3
+      }
+    }
+  ]
+}
