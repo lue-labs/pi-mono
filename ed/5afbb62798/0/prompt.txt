@@ -1,0 +1,28 @@
+can we do that for all providers/models?
+
+---
+
+can we open issues on github to update these: ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Update Available                                                                                                             
+New version 0.79.3 is available. Run pi update                                                                               
+Changelog: open changelog                                                                                                    
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Package Updates Available                                                                                                    
+Package updates are available. Run pi update                                                                                 
+Packages:                                                                                                                    
+- pi-mcp-adapter                                                                                                             
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+---
+
+can we now work on both updates in a draft PR
+
+---
+
+autoreivew then merge / ship / babysit pr
+
+---
+
+can we set this to node.js 24 as the default
