@@ -1,16 +1,45 @@
 name: Upstream Sync
 
-# Weekly check for new commits on the upstream fork. Opens a PR with the merge
-# (never force-pushes to main). Conflicts arrive as draft PRs.
+# Checks for new commits on the upstream fork daily and surfaces them as a PR.
+# NEVER auto-merges to main — Luke's rule: fork divergence is intentional; always
+# cherry-pick upstream changes explicitly after review.
 #
-# Source-of-truth registry: ~/Projects/personal/agent-system/FORKS.md
-# Owner routine: CTO agent on Multica (home workspace).
+# Behavior:
+#   - Runs daily at 06:00 SAST (04:00 UTC).
+#   - If fork is up-to-date → no-op (notices logged, no PR).
+#   - If upstream has new commits → creates/refreshes branch sync/upstream-YYYY-MM-DD,
+#     attempts git merge --no-ff. Clean merge → ready-for-review PR. Conflicts → draft PR
+#     with conflict report + manual resolution instructions.
+#   - Idempotent: re-running on the same day reuses the same branch and updates the PR.
+#   - Stale same-day-less sync branches without an open PR are deleted on each run.
+#
+# Dry-run via workflow_dispatch:
+#   - Navigate to Actions → Upstream Sync → Run workflow.
+#   - Set "dry_run" input to "true".
+#   - The job reports what it would do (commits behind, merge outcome) but skips
+#     the push and PR steps entirely. Safe to run at any time.
+#
+# Secrets:
+#   - UPSTREAM_SYNC_TOKEN (optional): fine-grained PAT with contents:write +
+#     pull-requests:write. Falls back to GITHUB_TOKEN when absent.
+#
+# Labels expected on the repo (create if missing):
+#   gh label create upstream-sync   --color 0075ca --description "Automated upstream sync PR"
+#   gh label create needs-conflict-resolution --color e4e669 --description "Sync PR has merge conflicts"
+#
+# Registry / owner routine: agent-system/FORKS.md
+# CTO agent triage: Multica home workspace (daily sync-PR sweep).
 
 on:
   schedule:
-    # Mondays 06:00 SAST = 04:00 UTC. Weekly.
-    - cron: "0 4 * * 1"
+    # Daily 06:00 SAST = 04:00 UTC.
+    - cron: "0 4 * * *"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — report diff but skip push and PR creation"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -50,8 +79,23 @@ jobs:
         if: steps.check.outputs.skip == 'true'
         run: echo "::notice::Fork is up to date with ${UPSTREAM_REPO}@${UPSTREAM_BRANCH}. Nothing to do."
 
+      # Dry-run: report diff summary and exit cleanly without touching the remote.
+      - name: Dry-run report
+        if: steps.check.outputs.skip != 'true' && inputs.dry_run == 'true'
+        run: |
+          BEHIND="${{ steps.check.outputs.behind }}"
+          echo "::notice::DRY RUN — would open/refresh sync PR for ${BEHIND} upstream commit(s)."
+          echo ""
+          echo "=== Commits that would be merged ==="
+          git log --oneline "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}"
+          echo ""
+          echo "=== Diffstat ==="
+          git diff --stat "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}" | tail -5
+          echo ""
+          echo "Dry run complete. No branches pushed, no PRs opened."
+
       - name: Clean up stale sync branches
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && inputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
         run: |
@@ -76,15 +120,16 @@ jobs:
             done
 
       - name: Configure git author
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && inputs.dry_run != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Create sync branch and attempt merge
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && inputs.dry_run != 'true'
         id: merge
         run: |
+          set -euo pipefail
           DATE=$(date -u +%Y-%m-%d)
           BRANCH="sync/upstream-${DATE}"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
@@ -102,13 +147,25 @@ jobs:
             git checkout -B "${BRANCH}" "origin/${FORK_BRANCH}"
           fi
 
+          # Build commit log and diffstat for the PR body before attempting merge.
+          COMMIT_LOG=$(git log --oneline "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}" | head -40)
+          DIFFSTAT=$(git diff --stat "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}" | tail -5)
+          {
+            echo "commit_log<<EOF"
+            echo "${COMMIT_LOG}"
+            echo "EOF"
+            echo "diffstat<<EOF"
+            echo "${DIFFSTAT}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
           if git merge --no-ff --no-edit "upstream/${UPSTREAM_BRANCH}"; then
             echo "draft=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Clean merge."
           else
             # Capture conflicted paths, abort, mark draft.
             CONFLICTS=$(git diff --name-only --diff-filter=U | head -30)
-            echo "::warning::Merge conflicts:%0A${CONFLICTS}"
+            echo "::warning::Merge conflicts detected."
             git merge --abort
             # Reset to fork main and add an empty marker commit so GitHub can open a draft PR.
             git checkout -B "${BRANCH}" "origin/${FORK_BRANCH}"
@@ -124,13 +181,15 @@ jobs:
           git push origin "${BRANCH}" --force-with-lease
 
       - name: Open or update PR
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && inputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
           BRANCH: ${{ steps.merge.outputs.branch }}
           DRAFT: ${{ steps.merge.outputs.draft }}
           CONFLICTS: ${{ steps.merge.outputs.conflicts }}
           BEHIND: ${{ steps.check.outputs.behind }}
+          COMMIT_LOG: ${{ steps.merge.outputs.commit_log }}
+          DIFFSTAT: ${{ steps.merge.outputs.diffstat }}
         run: |
           set -e
 
@@ -156,20 +215,31 @@ jobs:
           git push origin ${BRANCH}
           \`\`\`
 
-          Triggered by weekly upstream sync. Registry: \`agent-system/FORKS.md\`.
+          **Do not merge this PR until conflicts are resolved.**
+          Registry: \`agent-system/FORKS.md\`.
           EOF
           )
           else
             BODY=$(cat <<EOF
-          Automated weekly sync from \`${UPSTREAM_REPO}@${UPSTREAM_BRANCH}\`.
+          Automated daily sync from \`${UPSTREAM_REPO}@${UPSTREAM_BRANCH}\`.
 
           - Commits pulled: ${BEHIND}
           - Strategy: \`git merge --no-ff\` (preserves fork lineage)
 
-          Awaiting:
+          ### Upstream commits
+          \`\`\`
+          ${COMMIT_LOG}
+          \`\`\`
+
+          ### Diffstat
+          \`\`\`
+          ${DIFFSTAT}
+          \`\`\`
+
+          ### Checklist
           - [ ] Warden review (when runner is online)
           - [ ] CTO agent triage
-          - [ ] Merge
+          - [ ] Luke review + explicit merge (divergence is intentional — never auto-merge)
 
           Registry: \`agent-system/FORKS.md\`.
           EOF
@@ -197,10 +267,23 @@ jobs:
             echo "::notice::Opened ${PR_URL}"
             LABELS='["upstream-sync"]'
             [ "${DRAFT}" = "true" ] && LABELS='["upstream-sync","needs-conflict-resolution"]'
-            # Best-effort label add (skip silently if labels don't exist yet)
+            # Best-effort label add (skip silently if labels don't exist yet).
             gh api \
               --method POST \
               "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/labels" \
               --input - <<<"{\"labels\":${LABELS}}" 2>/dev/null || \
-              echo "::warning::Could not add labels (may not exist). Run: gh label create upstream-sync; gh label create needs-conflict-resolution"
+              echo "::warning::Could not add labels (may not exist). Run: gh label create upstream-sync --color 0075ca && gh label create needs-conflict-resolution --color e4e669"
           fi
+
+      # Warden review — placeholder; activate once the valkyriweb self-hosted runner is
+      # registered. See FORKS.md § Runner topology.
+      # Uncomment and wire WARDEN_ANTHROPIC_API_KEY when runner is ready.
+      #
+      # - name: Warden review
+      #   if: steps.check.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.merge.outputs.draft != 'true'
+      #   env:
+      #     ANTHROPIC_API_KEY: ${{ secrets.WARDEN_ANTHROPIC_API_KEY }}
+      #     BRANCH: ${{ steps.merge.outputs.branch }}
+      #   run: |
+      #     # warden-cli review --pr-branch "${BRANCH}" --repo "${GITHUB_REPOSITORY}"
+      #     echo "::notice::Warden review pending runner registration."
