@@ -3,10 +3,12 @@
   "checkpoint_id": "f2bdb454d7b6",
   "strategy": "manual-commit",
   "branch": "fix/kilocode-resilient-model-loading",
-  "checkpoints_count": 1,
+  "checkpoints_count": 4,
   "files_touched": [
+    "extensions/kilocode-provider/dist/index.mjs",
     "extensions/kilocode-provider/index.ts",
-    "extensions/kilocode-provider/package.json"
+    "extensions/kilocode-provider/package.json",
+    "package-lock.json"
   ],
   "sessions": [
     {
@@ -14,13 +16,19 @@
       "transcript": "/f2/bdb454d7b6/0/full.jsonl",
       "content_hash": "/f2/bdb454d7b6/0/content_hash.txt",
       "prompt": "/f2/bdb454d7b6/0/prompt.txt"
+    },
+    {
+      "metadata": "/f2/bdb454d7b6/1/metadata.json",
+      "transcript": "/f2/bdb454d7b6/1/full.jsonl",
+      "content_hash": "/f2/bdb454d7b6/1/content_hash.txt",
+      "prompt": "/f2/bdb454d7b6/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1252521,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 22069888,
-    "output_tokens": 104861,
-    "api_call_count": 277
+    "input_tokens": 1261861,
+    "cache_creation_tokens": 74439,
+    "cache_read_tokens": 23519590,
+    "output_tokens": 136033,
+    "api_call_count": 302
   }
 }

@@ -1,0 +1,11 @@
+ting
+
+---
+
+What's the current state of the issues and PRs and stuff on the repo for myPy, as well as then for py dash mono, the forks that I've got, my fork and py repo... my private repo? Oh, it's not private, but on my account.
+<system-reminder>Message sent at Tue 2026-06-16 11:19:28 UTC.</system-reminder>
+
+---
+
+Kathy, can you use the workflow tooling UltraCard and see... just do some more orientation and exploration of the current yarns and issues in a bit more detail? I'll be to decide on which one should be focused on or what we can deduplicate. So think spin off a agent that can specifically take the overlapping duplicate PRs and just close whichever one is not relevant to merge the work between them. And then, yeah, figure out what else can be addressed or prioritized. Let's get some agents so we can get them done
+<system-reminder>Message sent at Tue 2026-06-16 11:25:33 UTC.</system-reminder>
