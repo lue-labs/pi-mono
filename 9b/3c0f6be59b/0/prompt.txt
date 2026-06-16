@@ -1,0 +1,30 @@
+In valkyriweb/my-pi, PR #200 (branch `fix/provider-family-reload`, extension `extensions/provider-family-reload/src/index.ts` around line 29): the `model_select` event handler `await`s `ctx.reload()` *inline inside the emit loop*. An autoreview (Claude engine) flagged this as a latent robustness hazard (P2): awaiting `ctx.reload()` mid-emit invalidates the runner, so any *future* sibling `model_select` subscriber would receive a stale `ctx`. No impact today because provider-family-reload is the sole `model_select` subscriber.
+
+Task: defer the reload so it runs *after* the emit loop completes (e.g. schedule via `queueMicrotask`/`setImmediate` or return-then-reload), rather than awaiting inline. Preserve the existing behavior/test (the extension's test asserts it does NOT register a slash command and that reload fires on family switch). Add a test for the currently-untested reset handlers while you're there (the same autoreview noted that gap). Verify with `npm run test:provider-family-reload:smoke` and the extension's typecheck. This is a non-blocking hardening — #200 itself is already MERGEABLE with green gate CI.
+
+---
+
+yes
+
+---
+
+<create-pr-command>
+## Overview
+
+Create a pull request for the changes in this session.
+
+## Steps
+
+1. Check for uncommitted changes. If any exist, stage and commit them with a message that describes what changed and why.
+2. Push the branch to the remote.
+3. Open a PR with `gh pr create`. Write a title that summarizes the change and a body that covers what changed, why, and anything a reviewer should know. If the repo has a PR template, follow it.
+4. Report the PR URL when done. Wrap the URL in a `<pr-created>` tag on its own line so the UI can render a live status card, like this: `<pr-created>https://github.com/owner/repo/pull/123</pr-created>`
+
+If a PR already exists for this branch, push any new commits and report the existing URL wrapped in the same `<pr-created>` tag instead of creating a duplicate.
+
+## Target
+
+Repository: valkyriweb/my-pi
+Branch: advisor/010-dependency-audit
+Working directory: /Users/luke/Projects/personal/my-pi
+</create-pr-command>
