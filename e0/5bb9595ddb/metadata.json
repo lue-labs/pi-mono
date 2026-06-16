@@ -3,7 +3,7 @@
   "checkpoint_id": "e05bb9595ddb",
   "strategy": "manual-commit",
   "branch": "advisor/010-dependency-audit",
-  "checkpoints_count": 3,
+  "checkpoints_count": 4,
   "files_touched": [
     "package-lock.json",
     "package.json"
@@ -20,13 +20,19 @@
       "transcript": "/e0/5bb9595ddb/1/full.jsonl",
       "content_hash": "/e0/5bb9595ddb/1/content_hash.txt",
       "prompt": "/e0/5bb9595ddb/1/prompt.txt"
+    },
+    {
+      "metadata": "/e0/5bb9595ddb/2/metadata.json",
+      "transcript": "/e0/5bb9595ddb/2/full.jsonl",
+      "content_hash": "/e0/5bb9595ddb/2/content_hash.txt",
+      "prompt": "/e0/5bb9595ddb/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 28519,
-    "cache_creation_tokens": 788797,
-    "cache_read_tokens": 34241263,
-    "output_tokens": 307179,
-    "api_call_count": 199
+    "input_tokens": 38826,
+    "cache_creation_tokens": 976210,
+    "cache_read_tokens": 41440315,
+    "output_tokens": 422442,
+    "api_call_count": 256
   }
 }

@@ -1,0 +1,68 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "e05bb9595ddb",
+  "session_id": "f07a249f-7880-452a-a9fe-571cabfd6aa3",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T21:48:26.233431Z",
+  "branch": "advisor/010-dependency-audit",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "aa028fdb589d",
+  "token_usage": {
+    "input_tokens": 10307,
+    "cache_creation_tokens": 187413,
+    "cache_read_tokens": 7199052,
+    "output_tokens": 115263,
+    "api_call_count": 57
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 4200,
+      "user_lines_removed": 126,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-16T18-44-55Z-ad01270b.md": 46,
+        "docs/pr-reviews/pr75-review.md": 138,
+        "docs/tui-claude-parity/01-claude-code-tui-evidence.md": 206,
+        "docs/tui-claude-parity/02-feature-catalog.md": 80,
+        "docs/tui-claude-parity/03-implementation-plan.md": 170,
+        "docs/tui-claude-parity/04-theme-toggle.md": 104,
+        "docs/tui-claude-parity/README.md": 63,
+        "docs/tui-claude-parity/themes/claude-code.json": 89,
+        "extensions/suggested-tasks/README.md": 88,
+        "extensions/suggested-tasks/RESEARCH.md": 245,
+        "extensions/suggested-tasks/actions.ts": 122,
+        "extensions/suggested-tasks/index.ts": 178,
+        "extensions/suggested-tasks/package.json": 30,
+        "extensions/suggested-tasks/smoke-tmux.sh": 85,
+        "extensions/suggested-tasks/store.ts": 162,
+        "extensions/suggested-tasks/test-load.mjs": 164,
+        "extensions/suggested-tasks/ui.ts": 115,
+        "package-lock.json": 199,
+        "plans/001-readme-extension-list.md": 129,
+        "plans/002-root-scratch-file-cleanup.md": 111,
+        "plans/003-pi-routine-osascript-hardening.md": 127,
+        "plans/004-config-parse-error-surfacing.md": 122,
+        "plans/005-cache-stability-contract-harness.md": 148,
+        "plans/006-untested-extension-coverage.md": 131,
+        "plans/007-extension-gate-runner.md": 130,
+        "plans/008-shared-extension-config-facade.md": 149,
+        "plans/009-dream-memory-module-split.md": 131,
+        "plans/010-dependency-audit-pass.md": 124,
+        "plans/README.md": 105,
+        "plans/orientation-outcomes.md": 370,
+        "plans/park-unblock-plans.md": 139
+      },
+      "user_removed_per_file": {
+        "package-lock.json": 126
+      }
+    }
+  ]
+}
