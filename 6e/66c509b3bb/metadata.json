@@ -3,7 +3,7 @@
   "checkpoint_id": "6e66c509b3bb",
   "strategy": "manual-commit",
   "branch": "advisor/009-dream-memory-split",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "extensions/dream-memory/src/active-memory.ts",
     "extensions/dream-memory/src/active-memory/recall-state.ts"
@@ -20,13 +20,19 @@
       "transcript": "/6e/66c509b3bb/1/full.jsonl",
       "content_hash": "/6e/66c509b3bb/1/content_hash.txt",
       "prompt": "/6e/66c509b3bb/1/prompt.txt"
+    },
+    {
+      "metadata": "/6e/66c509b3bb/2/metadata.json",
+      "transcript": "/6e/66c509b3bb/2/full.jsonl",
+      "content_hash": "/6e/66c509b3bb/2/content_hash.txt",
+      "prompt": "/6e/66c509b3bb/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 11012,
-    "cache_creation_tokens": 99995,
-    "cache_read_tokens": 6078975,
-    "output_tokens": 67119,
-    "api_call_count": 39
+    "input_tokens": 21035,
+    "cache_creation_tokens": 258379,
+    "cache_read_tokens": 10774341,
+    "output_tokens": 158017,
+    "api_call_count": 83
   }
 }

@@ -1,0 +1,64 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "6e66c509b3bb",
+  "session_id": "f07a249f-7880-452a-a9fe-571cabfd6aa3",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T21:32:21.090257Z",
+  "branch": "advisor/009-dream-memory-split",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/dream-memory/src/active-memory.ts",
+    "extensions/dream-memory/src/active-memory/recall-state.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "239cb07755e5",
+  "token_usage": {
+    "input_tokens": 10023,
+    "cache_creation_tokens": 158384,
+    "cache_read_tokens": 4695366,
+    "output_tokens": 90898,
+    "api_call_count": 44
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-16T21:32:21.016637Z",
+    "agent_lines": 344,
+    "agent_removed": 302,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 344,
+    "total_lines_changed": 646,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2096,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-16T18-44-55Z-ad01270b.md": 46,
+        "docs/pr-reviews/pr75-review.md": 138,
+        "plans/001-readme-extension-list.md": 129,
+        "plans/002-root-scratch-file-cleanup.md": 111,
+        "plans/003-pi-routine-osascript-hardening.md": 127,
+        "plans/004-config-parse-error-surfacing.md": 122,
+        "plans/005-cache-stability-contract-harness.md": 148,
+        "plans/006-untested-extension-coverage.md": 131,
+        "plans/007-extension-gate-runner.md": 130,
+        "plans/008-shared-extension-config-facade.md": 149,
+        "plans/009-dream-memory-module-split.md": 131,
+        "plans/010-dependency-audit-pass.md": 124,
+        "plans/README.md": 105,
+        "plans/orientation-outcomes.md": 366,
+        "plans/park-unblock-plans.md": 139
+      }
+    }
+  ]
+}
