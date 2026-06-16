@@ -1,0 +1,9 @@
+PR #211 (valkyriweb/my-pi, branch `refactor/monitor-module-split`) splits the 1357-LOC `extensions/monitor/index.ts` into 11 focused modules + a barrel re-export. It cannot rebase onto current `origin/main`: a content conflict in `extensions/monitor/index.ts` against commit `d3cc3d0c` "feat(monitor): bound persistent monitors with a long safety ceiling (#221)" (and possibly later main commits touching that file).
+
+Task: rebase the branch onto `origin/main` and resolve the conflict by re-applying #221's persistent-monitor ceiling logic into the correct new split module (likely the runtime/state module, not the barrel), preserving the split's structure and the barrel's complete re-export surface. Then per the converged criteria in `plans/orientation-outcomes.md` §2: add an empty changeset (`.changeset/monitor-module-split.md` with just `---\n---\n`, no version bumps), run `node extensions/monitor/test-load.mjs` (export-surface gate), and `npm run typecheck` + `npm run test:extension-gate:ci` green from a worktree. Do the work in a git worktree under /tmp/, not the main checkout. Do not merge — leave it ready.
+
+Context: this was the one BLOCKED item from an automated triage run; conflict detail captured at /tmp/rebase-conflicts-pr211.txt during that run (may be gone by the time you read this — re-derive via `git rebase origin/main`).
+
+---
+
+do it

@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "9b3c0f6be59b",
+  "session_id": "f07a249f-7880-452a-a9fe-571cabfd6aa3",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T21:53:45.495461Z",
+  "branch": "advisor/010-dependency-audit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/security-audit-2026-06-17.md"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "aa028fdb589d",
+  "token_usage": {
+    "input_tokens": 10440,
+    "cache_creation_tokens": 191854,
+    "cache_read_tokens": 7614263,
+    "output_tokens": 120533,
+    "api_call_count": 59
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-16T21:53:45.467465Z",
+    "agent_lines": 43,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 43,
+    "total_lines_changed": 43,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

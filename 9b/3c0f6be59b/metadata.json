@@ -3,7 +3,7 @@
   "checkpoint_id": "9b3c0f6be59b",
   "strategy": "manual-commit",
   "branch": "advisor/010-dependency-audit",
-  "checkpoints_count": 3,
+  "checkpoints_count": 5,
   "files_touched": [
     "docs/security-audit-2026-06-17.md"
   ],
@@ -19,13 +19,19 @@
       "transcript": "/9b/3c0f6be59b/1/full.jsonl",
       "content_hash": "/9b/3c0f6be59b/1/content_hash.txt",
       "prompt": "/9b/3c0f6be59b/1/prompt.txt"
+    },
+    {
+      "metadata": "/9b/3c0f6be59b/2/metadata.json",
+      "transcript": "/9b/3c0f6be59b/2/full.jsonl",
+      "content_hash": "/9b/3c0f6be59b/2/content_hash.txt",
+      "prompt": "/9b/3c0f6be59b/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 28799,
-    "cache_creation_tokens": 923469,
-    "cache_read_tokens": 35595864,
-    "output_tokens": 318833,
-    "api_call_count": 210
+    "input_tokens": 39239,
+    "cache_creation_tokens": 1115323,
+    "cache_read_tokens": 43210127,
+    "output_tokens": 439366,
+    "api_call_count": 269
   }
 }
