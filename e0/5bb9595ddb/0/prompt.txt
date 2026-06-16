@@ -1,0 +1,7 @@
+In valkyriweb/my-pi, PR #200 (branch `fix/provider-family-reload`, extension `extensions/provider-family-reload/src/index.ts` around line 29): the `model_select` event handler `await`s `ctx.reload()` *inline inside the emit loop*. An autoreview (Claude engine) flagged this as a latent robustness hazard (P2): awaiting `ctx.reload()` mid-emit invalidates the runner, so any *future* sibling `model_select` subscriber would receive a stale `ctx`. No impact today because provider-family-reload is the sole `model_select` subscriber.
+
+Task: defer the reload so it runs *after* the emit loop completes (e.g. schedule via `queueMicrotask`/`setImmediate` or return-then-reload), rather than awaiting inline. Preserve the existing behavior/test (the extension's test asserts it does NOT register a slash command and that reload fires on family switch). Add a test for the currently-untested reset handlers while you're there (the same autoreview noted that gap). Verify with `npm run test:provider-family-reload:smoke` and the extension's typecheck. This is a non-blocking hardening — #200 itself is already MERGEABLE with green gate CI.
+
+---
+
+yes

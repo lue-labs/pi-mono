@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "e05bb9595ddb",
+  "strategy": "manual-commit",
+  "branch": "advisor/010-dependency-audit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "package-lock.json",
+    "package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e0/5bb9595ddb/0/metadata.json",
+      "transcript": "/e0/5bb9595ddb/0/full.jsonl",
+      "content_hash": "/e0/5bb9595ddb/0/content_hash.txt",
+      "prompt": "/e0/5bb9595ddb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10462,
+    "cache_creation_tokens": 106744,
+    "cache_read_tokens": 4244187,
+    "output_tokens": 70217,
+    "api_call_count": 51
+  }
+}

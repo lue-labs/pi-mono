@@ -1,0 +1,84 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "e05bb9595ddb",
+  "session_id": "7d198943-6b4f-41cf-8dbc-7f7680eafae1",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T21:48:22.237829Z",
+  "branch": "advisor/010-dependency-audit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "package-lock.json",
+    "package.json"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "660f6470cc50",
+  "token_usage": {
+    "input_tokens": 10462,
+    "cache_creation_tokens": 106744,
+    "cache_read_tokens": 4244187,
+    "output_tokens": 70217,
+    "api_call_count": 51
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-16T21:48:22.224976Z",
+    "agent_lines": 276,
+    "agent_removed": 52,
+    "human_added": 73,
+    "human_modified": 126,
+    "human_removed": 0,
+    "total_committed": 475,
+    "total_lines_changed": 527,
+    "agent_percentage": 62.239089184060724,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 851,
+      "user_lines_removed": 137,
+      "agent_lines_added": 3347,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/tui-claude-parity/03-implementation-plan.md": 157,
+        "docs/tui-claude-parity/04-theme-toggle.md": 11,
+        "docs/tui-claude-parity/README.md": 63,
+        "extensions/suggested-tasks/README.md": 88,
+        "extensions/suggested-tasks/RESEARCH.md": 245,
+        "extensions/suggested-tasks/actions.ts": 3,
+        "extensions/suggested-tasks/smoke-tmux.sh": 85,
+        "package-lock.json": 199
+      },
+      "user_removed_per_file": {
+        "docs/tui-claude-parity/04-theme-toggle.md": 4,
+        "docs/tui-claude-parity/themes/claude-code.json": 2,
+        "extensions/suggested-tasks/actions.ts": 5,
+        "package-lock.json": 126
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 665,
+      "user_lines_removed": 11,
+      "agent_lines_added": 3948,
+      "agent_lines_removed": 178,
+      "user_added_per_file": {
+        "docs/tui-claude-parity/03-implementation-plan.md": 170,
+        "docs/tui-claude-parity/04-theme-toggle.md": 11,
+        "docs/tui-claude-parity/README.md": 63,
+        "extensions/suggested-tasks/README.md": 88,
+        "extensions/suggested-tasks/RESEARCH.md": 245,
+        "extensions/suggested-tasks/actions.ts": 3,
+        "extensions/suggested-tasks/smoke-tmux.sh": 85
+      },
+      "user_removed_per_file": {
+        "docs/tui-claude-parity/04-theme-toggle.md": 4,
+        "docs/tui-claude-parity/themes/claude-code.json": 2,
+        "extensions/suggested-tasks/actions.ts": 5
+      }
+    }
+  ]
+}
