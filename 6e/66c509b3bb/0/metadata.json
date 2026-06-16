@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "6e66c509b3bb",
+  "session_id": "7d198943-6b4f-41cf-8dbc-7f7680eafae1",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T21:32:17.692133Z",
+  "branch": "advisor/009-dream-memory-split",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/dream-memory/src/active-memory.ts",
+    "extensions/dream-memory/src/active-memory/recall-state.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "6458cfe20198",
+  "token_usage": {
+    "input_tokens": 9896,
+    "cache_creation_tokens": 68140,
+    "cache_read_tokens": 1615414,
+    "output_tokens": 39869,
+    "api_call_count": 26
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-16T21:32:17.656394Z",
+    "agent_lines": 344,
+    "agent_removed": 302,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 344,
+    "total_lines_changed": 646,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2708,
+      "user_lines_removed": 22,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-16T18-44-55Z-ad01270b.md": 46,
+        "docs/pr-reviews/pr75-review.md": 138,
+        "extensions/fusion/src/index.ts": 12,
+        "extensions/fusion/test/fusion.test.mjs": 27,
+        "extensions/suggested-tasks/actions.ts": 124,
+        "extensions/suggested-tasks/index.ts": 166,
+        "extensions/suggested-tasks/package.json": 30,
+        "extensions/suggested-tasks/store.ts": 134,
+        "extensions/suggested-tasks/ui.ts": 115,
+        "plans/001-readme-extension-list.md": 129,
+        "plans/002-root-scratch-file-cleanup.md": 111,
+        "plans/003-pi-routine-osascript-hardening.md": 127,
+        "plans/004-config-parse-error-surfacing.md": 122,
+        "plans/005-cache-stability-contract-harness.md": 148,
+        "plans/006-untested-extension-coverage.md": 131,
+        "plans/007-extension-gate-runner.md": 130,
+        "plans/008-shared-extension-config-facade.md": 149,
+        "plans/009-dream-memory-module-split.md": 131,
+        "plans/010-dependency-audit-pass.md": 124,
+        "plans/README.md": 105,
+        "plans/orientation-outcomes.md": 370,
+        "plans/park-unblock-plans.md": 139
+      },
+      "user_removed_per_file": {
+        "extensions/fusion/src/index.ts": 21,
+        "extensions/fusion/test/fusion.test.mjs": 1
+      }
+    }
+  ]
+}
