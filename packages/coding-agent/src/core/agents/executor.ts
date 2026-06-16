@@ -78,6 +78,12 @@ export interface AgentToolParentServices {
 	 * Gates whether this session's children may themselves delegate.
 	 */
 	depth?: number;
+	/**
+	 * Run id of the AgentRecentRun that spawned the session owning these services.
+	 * Threaded so a nested delegation can link its own run back to its parent run
+	 * for tree-structured visibility in the agents view. Undefined at top level.
+	 */
+	parentRunId?: string;
 }
 
 export interface AgentExecutorOptions {
@@ -727,6 +733,8 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 			settingsManager: options.parentServices.settingsManager,
 			modelRegistry: options.parentServices.modelRegistry,
 			depth: childDepth,
+			// Link this child's future delegations back to the run that spawned it.
+			parentRunId: options.taskId,
 		},
 		sessionStartEvent: { type: "session_start", reason: "startup", forkMetadata: options.task.forkMetadata },
 		// Tag the session-level source so non-input hooks (session_start,
@@ -967,6 +975,8 @@ async function resumeSingleBackgroundRun(
 			settingsManager: options.parentServices.settingsManager,
 			modelRegistry: options.parentServices.modelRegistry,
 			depth: childDepth,
+			// Link this child's future delegations back to the run being resumed.
+			parentRunId: recentRun.id,
 		},
 		sessionStartEvent: {
 			type: "session_start",
@@ -1156,7 +1166,13 @@ export async function executeAgentTool(
 				`(subagents.maxDelegationDepth = ${delegationCap}). Complete this sub-task yourself and report back.`,
 		);
 	}
-	const recentRun = startAgentRecentRun(input.mode, input.tasks, { background: input.background });
+	const recentRun = startAgentRecentRun(input.mode, input.tasks, {
+		background: input.background,
+		// callerDepth = depth of the session that invoked `agent`; the run inherits it
+		// so the agents view can mark nested delegations and link them to their parent.
+		depth: callerDepth,
+		parentRunId: options.parentServices.parentRunId,
+	});
 	if (!input.background) return executeAgentToolToCompletion(input, options, recentRun);
 
 	let abortController = new AbortController();

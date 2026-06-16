@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canDelegateAtDepth, getMaxDelegationDepth, resolveEffectiveTools } from "../src/core/agents/executor.ts";
+import {
+	type AgentExecutorOptions,
+	type AgentToolExecutionInput,
+	canDelegateAtDepth,
+	executeAgentTool,
+	getMaxDelegationDepth,
+	resolveEffectiveTools,
+} from "../src/core/agents/executor.ts";
 import type { AgentDefinition } from "../src/core/agents/types.ts";
 
 function agent(partial: Partial<AgentDefinition>): AgentDefinition {
@@ -133,4 +140,49 @@ describe("nested-delegation depth gate", () => {
 		expect(getMaxDelegationDepth(mgr(3.9))).toBe(3);
 		expect(getMaxDelegationDepth(mgr(999))).toBe(16);
 	});
+});
+
+// The `canDelegateAtDepth` truth table above guards the pure predicate. This block
+// guards the *runtime* gate in `executeAgentTool`, which is the ONLY boundary that
+// covers fork-mode children: a fork child inherits the parent's full tool list
+// (including the `agent` schema), bypassing `resolveEffectiveTools`. Without this
+// gate a fork child at/over the cap could recurse unbounded. The gate throws before
+// any child session is created, so it is deterministic with a minimal fixture.
+describe("executeAgentTool runtime nesting gate (fork-mode coverage)", () => {
+	const options = (callerDepth: number, cap: number): AgentExecutorOptions =>
+		({
+			parentServices: {
+				cwd: "/tmp",
+				agentDir: "/tmp",
+				authStorage: {},
+				settingsManager: { getSubagentSettings: () => ({ maxDelegationDepth: cap }) },
+				modelRegistry: {},
+				depth: callerDepth,
+			},
+			parentActiveTools: [],
+			parentSessionManager: {},
+			parentModel: undefined,
+			parentThinkingLevel: "medium",
+		}) as unknown as AgentExecutorOptions;
+	const input = {
+		mode: "single",
+		tasks: [{ agent: "echo", task: "noop" }],
+		background: false,
+	} as unknown as AgentToolExecutionInput;
+
+	it("throws for a fork child at the cap (depth 5, cap 5)", async () => {
+		await expect(executeAgentTool(input, options(5, 5))).rejects.toThrow(/not permitted at depth 5/);
+	});
+
+	it("throws for a fork child past the cap (depth 6, cap 5)", async () => {
+		await expect(executeAgentTool(input, options(6, 5))).rejects.toThrow(/not permitted at depth 6/);
+	});
+
+	it("throws for any nesting when the cap is the default 0 (depth 1, cap 0)", async () => {
+		await expect(executeAgentTool(input, options(1, 0))).rejects.toThrow(/not permitted at depth 1/);
+	});
+
+	// Depth 0 (top level) is always allowed by the short-circuit; that branch is
+	// covered side-effect-free by the `canDelegateAtDepth(0, 0) === true` truth-table
+	// test above, so we do not drive a real run here.
 });

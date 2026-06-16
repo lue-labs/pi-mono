@@ -11,6 +11,10 @@ export type AgentRunExecution = "foreground" | "background";
 
 export interface AgentRecentRun {
 	id: string;
+	/** Delegation depth that initiated this run: 0 = top-level, >0 = nested sub-agent. */
+	depth: number;
+	/** Run id that spawned the session which started this run (tree linkage). */
+	parentRunId?: string;
 	mode: AgentToolMode;
 	execution: AgentRunExecution;
 	status: AgentToolStatus;
@@ -210,11 +214,13 @@ function findMutableRun(runId: string): AgentRecentRun | undefined {
 export function startAgentRecentRun(
 	mode: AgentToolMode,
 	tasks: Array<{ agent: string; task: string }>,
-	options?: { background?: boolean },
+	options?: { background?: boolean; depth?: number; parentRunId?: string },
 ): AgentRecentRun {
 	const timestamp = nowIso();
 	const run: AgentRecentRun = {
 		id: `agent-${nextRunId++}`,
+		depth: options?.depth ?? 0,
+		parentRunId: options?.parentRunId,
 		mode,
 		execution: options?.background ? "background" : "foreground",
 		status: "running",
@@ -452,6 +458,9 @@ function formatRunDetail(run: AgentRunDetails, index: number): string[] {
 			lines.push(
 				`   - ${tool.name}${tool.argsPreview ? ` ${tool.argsPreview}` : ""}${tool.isError ? " (error)" : ""}`,
 			);
+			// Show the tool's result, not just its name (CC 2.1.178: subagent
+			// transcript shows tool results). resultPreview is already captured per call.
+			if (tool.resultPreview) lines.push(`     → ${tool.resultPreview}`);
 		}
 	}
 	if (run.invokedSkills.count > 0)
@@ -517,6 +526,10 @@ export function formatAgentStatus(runs = listAgentRecentRuns(), detailId?: strin
 			`started: ${detailRun.startedAt}`,
 			`updated: ${detailRun.updatedAt}`,
 		);
+		if (detailRun.depth > 0)
+			lines.push(
+				`nested: depth ${detailRun.depth}${detailRun.parentRunId ? ` (parent ${detailRun.parentRunId})` : ""}`,
+			);
 		if (detailRun.resumable) lines.push(`resumable: yes (/agents resume ${detailRun.id} [-- prompt])`);
 		if (detailRun.needsAttention) lines.push(`needs attention: ${detailRun.attentionMessage ?? "check run"}`);
 		if (detailRun.error) lines.push(`error: ${detailRun.error}`);
@@ -539,8 +552,14 @@ export function formatAgentStatus(runs = listAgentRecentRuns(), detailId?: strin
 		const attention = run.needsAttention
 			? ` needs-attention${run.attentionMessage ? `: ${run.attentionMessage}` : ""}`
 			: "";
+		// Nesting marker (depth > 0 = a sub-agent's own delegation) and fan-out
+		// progress (done/total across child runs, CC 2.1.161) make nested and
+		// parallel work visible at a glance in the agents view.
+		const nesting = run.depth > 0 ? ` ↳L${run.depth}` : "";
+		const doneCount = run.runs.filter((child) => child.status !== "running").length;
+		const fanout = run.runs.length > 1 ? ` [${doneCount}/${run.runs.length} done]` : "";
 		lines.push(
-			`${run.id} ${run.mode} ${run.execution} ${run.status}${resumable}${attention} ${formatDuration(run)} agents: ${run.agents.join(", ")}${sessions}${outputs}${error}`,
+			`${run.id} ${run.mode} ${run.execution} ${run.status}${nesting}${resumable}${attention} ${formatDuration(run)} agents: ${run.agents.join(", ")}${fanout}${sessions}${outputs}${error}`,
 		);
 	}
 	lines.push(
