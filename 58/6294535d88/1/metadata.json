@@ -25,6 +25,71 @@
     "output_tokens": 0,
     "api_call_count": 0
   },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_013qwLGAyGuo4rKtbP4CUct8",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "autoreview"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "252d4afd9c86",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 147,
+        "end": 148,
+        "entry_ids": [
+          "d40968b4-3648-4c6d-abd8-aeedafc1dcde"
+        ],
+        "tool_use_id": "toolu_013qwLGAyGuo4rKtbP4CUct8"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_013qwLGAyGuo4rKtbP4CUct8"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: autoreview",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01RVtY55gvwWR6ScSKDh4E5X",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "code-craft"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "252d4afd9c86",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 168,
+        "end": 169,
+        "entry_ids": [
+          "8e3ca114-c1eb-488b-8d36-48d03b96b82d"
+        ],
+        "tool_use_id": "toolu_01RVtY55gvwWR6ScSKDh4E5X"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01RVtY55gvwWR6ScSKDh4E5X"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: code-craft",
+        "default_collapsed": true
+      }
+    }
+  ],
   "session_metrics": {
     "turn_count": 3
   },
