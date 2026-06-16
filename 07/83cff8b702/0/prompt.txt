@@ -44,3 +44,8 @@
 <status>failed</status>
 <summary>Background command "Autoreview dedup branch with Claude engine (tracked bg)" failed with exit code 1</summary>
 </task-notification>
+
+---
+
+1. autoreview and babysit to merge
+2. autoreview and babysit to merge
