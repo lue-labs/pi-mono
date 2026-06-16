@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "9dbcb4ae45e7",
+  "session_id": "08c2950a-180b-450d-9721-6be2067f54b2",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T18:41:02.08562Z",
+  "branch": "fix/kilocode-resilient-model-loading",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/kilocode-provider/dist/index.mjs",
+    "extensions/kilocode-provider/index.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "2a9d997f091f",
+  "checkpoint_transcript_start": 46,
+  "transcript_lines_at_start": 46,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-16T18:41:02.08199Z",
+    "agent_lines": 10,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "total_lines_changed": 12,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1635,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/cc-vs-pi-startup-tokens.md": 228,
+        "plans/001-readme-extension-list.md": 129,
+        "plans/002-root-scratch-file-cleanup.md": 111,
+        "plans/003-pi-routine-osascript-hardening.md": 127,
+        "plans/004-config-parse-error-surfacing.md": 122,
+        "plans/005-cache-stability-contract-harness.md": 148,
+        "plans/006-untested-extension-coverage.md": 131,
+        "plans/007-extension-gate-runner.md": 130,
+        "plans/008-shared-extension-config-facade.md": 149,
+        "plans/009-dream-memory-module-split.md": 131,
+        "plans/010-dependency-audit-pass.md": 124,
+        "plans/README.md": 105
+      }
+    }
+  ]
+}

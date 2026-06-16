@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "9dbcb4ae45e7",
+  "strategy": "manual-commit",
+  "branch": "fix/kilocode-resilient-model-loading",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/kilocode-provider/dist/index.mjs",
+    "extensions/kilocode-provider/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9d/bcb4ae45e7/0/metadata.json",
+      "transcript": "/9d/bcb4ae45e7/0/full.jsonl",
+      "content_hash": "/9d/bcb4ae45e7/0/content_hash.txt",
+      "prompt": "/9d/bcb4ae45e7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 2
+  }
+}
