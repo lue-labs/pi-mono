@@ -28,3 +28,7 @@ Repository: valkyriweb/my-pi
 Branch: advisor/010-dependency-audit
 Working directory: /Users/luke/Projects/personal/my-pi
 </create-pr-command>
+
+---
+
+ok classify or liase with other sessions to see who is handling it and ask them to commit or get onto worktree for it
