@@ -69,15 +69,30 @@ describe("agent runs selector formatting", () => {
 		expect(formatAgentRunRow(run({ depth: 0 }), false)).not.toContain("\u21b3L");
 	});
 
-	// B4: fan-out done/total appears once a run has more than one child.
+	// B4: fan-out done/total appears once a run has more than one requested task.
 	test("row shows fan-out done/total across child runs", () => {
 		const fanned = run({
 			mode: "parallel",
+			tasks: ["a", "b", "c"],
 			runs: [child("a", "completed"), child("b", "completed"), child("c", "running")],
 		});
 		expect(formatAgentRunRow(fanned, false)).toContain("[2/3]");
-		// A single-child run has no fan-out indicator (regex avoids matching ANSI "[").
-		expect(formatAgentRunRow(run({ runs: [child("a", "running")] }), false)).not.toMatch(/\[\d+\/\d+\]/);
+		// A single-task run has no fan-out indicator (regex avoids matching ANSI "[").
+		expect(formatAgentRunRow(run({ tasks: ["t"], runs: [child("a", "running")] }), false)).not.toMatch(
+			/\[\d+\/\d+\]/,
+		);
+	});
+
+	// B4 regression: the denominator is the requested task count, not observed
+	// child details. A parallel run with 3 requested tasks but only 1 child started
+	// (others still queued past the concurrency limit) must read [1/3], never [1/1].
+	test("fan-out total counts requested tasks, not just started children", () => {
+		const queued = run({
+			mode: "parallel",
+			tasks: ["a", "b", "c"],
+			runs: [child("a", "completed")],
+		});
+		expect(formatAgentRunRow(queued, false)).toContain("[1/3]");
 	});
 
 	// B2 + C1: the detail view names the parent and inlines each child's tool

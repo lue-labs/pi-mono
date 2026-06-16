@@ -291,11 +291,12 @@ describe("nested sub-agent visibility & transcript", () => {
 		expect(nested.parentRunId).toBe(top.id);
 	});
 
-	// A2 (deterministic depth-5 reach) + parity "up to 5 levels deep": a full
-	// 5-deep delegation chain renders every nesting level distinctly, and the
-	// deepest run links back to its parent. No model needed — this exercises the
-	// depth/parent threading + render path that the runtime gate caps at the same 5.
-	test("renders all five nesting levels distinctly (depth-5 reach)", () => {
+	// The depth marker is render-agnostic: it formats whatever nesting level a run
+	// carries, L1..L5, each distinctly, and the detail view links back to the parent.
+	// (Real reach with cap 5 tops out at an L4 *run* marker because a depth-5 caller
+	// is gated before it can start a run; depth-5 *sessions* are proven to spawn in
+	// test/suite/nested-delegation-depth.test.ts. This pins the formatter itself.)
+	test("renders the depth marker distinctly for every nesting level", () => {
 		let parentRunId: string | undefined;
 		const ids: string[] = [];
 		for (let depth = 0; depth <= 5; depth++) {
@@ -335,6 +336,27 @@ describe("nested sub-agent visibility & transcript", () => {
 		expect(status).toContain("\u21b3L1");
 		expect(status).toContain("[1/2 done]");
 		expect(formatAgentStatus(undefined, run.id)).toContain("nested: depth 1 (parent agent-0)");
+	});
+
+	// B4 regression: fan-out total is the requested task count, not started children.
+	// 3 parallel tasks with only 1 child started (others queued past the concurrency
+	// limit) must read [1/3 done], never [1/1 done].
+	test("fan-out total counts requested tasks, not just started children", () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "a", task: "t" },
+				{ agent: "b", task: "t" },
+				{ agent: "c", task: "t" },
+			],
+			{ background: true },
+		);
+		updateAgentRecentRunProgress(run, {
+			mode: "parallel",
+			status: "running",
+			runs: [makeRunDetails("completed")],
+		});
+		expect(formatAgentStatus()).toContain("[1/3 done]");
 	});
 
 	// C1: the detail view shows tool RESULTS, not just tool names (CC 2.1.178).

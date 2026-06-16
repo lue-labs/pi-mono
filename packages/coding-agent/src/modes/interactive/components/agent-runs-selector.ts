@@ -41,7 +41,10 @@ export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): strin
 	const resumable = run.resumable ? theme.fg("warning", " resumable") : "";
 	const attention = run.needsAttention ? theme.fg("warning", " needs attention") : "";
 	const nesting = run.depth > 0 ? theme.fg("muted", ` ↳L${run.depth}`) : "";
-	const fanout = run.runs.length > 1 ? theme.fg("muted", ` [${countSettledChildren(run)}/${run.runs.length}]`) : "";
+	// Total is the requested task count (`tasks`), not observed `runs`: children still
+	// queued (parallel beyond the concurrency limit, or later chain steps) have no
+	// `runs[]` entry yet, so `runs.length` understates the total mid-flight.
+	const fanout = run.tasks.length > 1 ? theme.fg("muted", ` [${countSettledChildren(run)}/${run.tasks.length}]`) : "";
 	return `${prefix}${id}${nesting} ${execution} ${agentRunStatusText(run.status)}${resumable}${attention}${fanout} ${theme.fg("muted", run.agents.join(", "))}`;
 }
 

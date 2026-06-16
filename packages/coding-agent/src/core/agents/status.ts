@@ -557,7 +557,10 @@ export function formatAgentStatus(runs = listAgentRecentRuns(), detailId?: strin
 		// parallel work visible at a glance in the agents view.
 		const nesting = run.depth > 0 ? ` ↳L${run.depth}` : "";
 		const doneCount = run.runs.filter((child) => child.status !== "running").length;
-		const fanout = run.runs.length > 1 ? ` [${doneCount}/${run.runs.length} done]` : "";
+		// Denominator is the requested task count, not observed child details: queued
+		// children (parallel beyond the concurrency limit, or later chain steps) have no
+		// `runs[]` entry yet, so `runs.length` would understate the total and mislead.
+		const fanout = run.tasks.length > 1 ? ` [${doneCount}/${run.tasks.length} done]` : "";
 		lines.push(
 			`${run.id} ${run.mode} ${run.execution} ${run.status}${nesting}${resumable}${attention} ${formatDuration(run)} agents: ${run.agents.join(", ")}${fanout}${sessions}${outputs}${error}`,
 		);
