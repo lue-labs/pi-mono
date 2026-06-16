@@ -1,0 +1,102 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "9b3c0f6be59b",
+  "session_id": "b62dec1f-961c-4ba2-aa99-9664f73211fe",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T21:53:45.121869Z",
+  "branch": "advisor/010-dependency-audit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/security-audit-2026-06-17.md"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "e5e96f579d67",
+  "token_usage": {
+    "input_tokens": 18057,
+    "cache_creation_tokens": 682053,
+    "cache_read_tokens": 29997076,
+    "output_tokens": 236962,
+    "api_call_count": 148
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_013qwLGAyGuo4rKtbP4CUct8",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "autoreview"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "e5e96f579d67",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 147,
+        "end": 148,
+        "entry_ids": [
+          "d40968b4-3648-4c6d-abd8-aeedafc1dcde"
+        ],
+        "tool_use_id": "toolu_013qwLGAyGuo4rKtbP4CUct8"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_013qwLGAyGuo4rKtbP4CUct8"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: autoreview",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01RVtY55gvwWR6ScSKDh4E5X",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "code-craft"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "e5e96f579d67",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 168,
+        "end": 169,
+        "entry_ids": [
+          "8e3ca114-c1eb-488b-8d36-48d03b96b82d"
+        ],
+        "tool_use_id": "toolu_01RVtY55gvwWR6ScSKDh4E5X"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01RVtY55gvwWR6ScSKDh4E5X"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: code-craft",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-16T21:53:45.053705Z",
+    "agent_lines": 43,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 43,
+    "total_lines_changed": 43,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
