@@ -1852,10 +1852,7 @@ async function generateModels() {
 
 	for (const candidate of allModels) {
 		if (candidate.api === "openai-completions" && candidate.id.includes("deepseek-v4")) {
-			const preservesNativeReasoningEffort =
-				candidate.provider === "openrouter" ||
-				candidate.provider === "opencode" ||
-				candidate.provider === "opencode-go";
+			const preservesNativeReasoningEffort = candidate.provider === "openrouter" || candidate.provider === "opencode";
 			candidate.compat = {
 				...candidate.compat,
 				...(preservesNativeReasoningEffort
