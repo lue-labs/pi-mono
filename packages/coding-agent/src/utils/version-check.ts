@@ -1,3 +1,4 @@
+import { compare, valid } from "semver";
 import { getPiUserAgent } from "./pi-user-agent.ts";
 
 const LATEST_VERSION_URL = "https://pi.dev/api/latest-version";
@@ -7,6 +8,15 @@ export interface LatestPiRelease {
 	version: string;
 	packageName?: string;
 	note?: string;
+}
+
+export function comparePackageVersions(leftVersion: string, rightVersion: string): number | undefined {
+	const left = valid(leftVersion.trim());
+	const right = valid(rightVersion.trim());
+	if (!left || !right) {
+		return undefined;
+	}
+	return compare(left, right);
 }
 
 interface ParsedVersion {
@@ -27,22 +37,6 @@ function parsePackageVersion(version: string): ParsedVersion | undefined {
 		patch: Number.parseInt(match[3], 10),
 		prerelease: match[4],
 	};
-}
-
-export function comparePackageVersions(leftVersion: string, rightVersion: string): number | undefined {
-	const left = parsePackageVersion(leftVersion);
-	const right = parsePackageVersion(rightVersion);
-	if (!left || !right) {
-		return undefined;
-	}
-
-	if (left.major !== right.major) return left.major - right.major;
-	if (left.minor !== right.minor) return left.minor - right.minor;
-	if (left.patch !== right.patch) return left.patch - right.patch;
-	if (left.prerelease === right.prerelease) return 0;
-	if (!left.prerelease) return 1;
-	if (!right.prerelease) return -1;
-	return left.prerelease.localeCompare(right.prerelease);
 }
 
 export function isNewerPackageVersion(candidateVersion: string, currentVersion: string): boolean {

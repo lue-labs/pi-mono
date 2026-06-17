@@ -79,6 +79,9 @@ export type CacheRetention = "none" | "short" | "long";
 
 export type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
 
+/** Provider-scoped environment overrides. Values take precedence over process.env. */
+export type ProviderEnv = Record<string, string>;
+
 export interface ProviderResponse {
 	status: number;
 	headers: Record<string, string>;
@@ -159,6 +162,12 @@ export interface StreamOptions {
 	 * For example, Anthropic uses `user_id` for abuse tracking and rate limiting.
 	 */
 	metadata?: Record<string, unknown>;
+	/**
+	 * Provider-scoped environment values. These take precedence over process.env for
+	 * provider configuration such as regional settings, endpoint placeholders, and
+	 * proxy variables.
+	 */
+	env?: ProviderEnv;
 }
 
 export type ProviderStreamOptions = StreamOptions & Record<string, unknown>;
@@ -278,6 +287,8 @@ export interface Usage {
 	output: number;
 	cacheRead: number;
 	cacheWrite: number;
+	/** Subset of `cacheWrite` written with 1h retention. Only Anthropic reports this split. */
+	cacheWrite1h?: number;
 	totalTokens: number;
 	cost: {
 		input: number;
