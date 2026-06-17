@@ -105,8 +105,32 @@ describe("session selector path/delete interactions", () => {
 		// session selector uses the global theme instance
 		initTheme("dark");
 	});
+
+	it("defaults to showing only named sessions", async () => {
+		const sessions = [
+			makeSession({ id: "named", name: "Named Session", firstMessage: "named first" }),
+			makeSession({ id: "unnamed", firstMessage: "unnamed first" }),
+		];
+
+		const selector = new SessionSelectorComponent(
+			async () => sessions,
+			async () => [],
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings },
+		);
+		await flushPromises();
+
+		const output = stripAnsi(selector.render(120).join("\n"));
+		expect(output).toContain("Name: Named");
+		expect(output).toContain("Named Session");
+		expect(output).not.toContain("unnamed first");
+	});
+
 	it("does not treat Ctrl+Backspace as delete when search query is non-empty", async () => {
-		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
+		const sessions = [makeSession({ id: "a", name: "A" }), makeSession({ id: "b", name: "B" })];
 
 		const selector = new SessionSelectorComponent(
 			async () => sessions,
@@ -130,7 +154,7 @@ describe("session selector path/delete interactions", () => {
 	});
 
 	it("enters confirmation mode on Ctrl+D even with a non-empty search query", async () => {
-		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
+		const sessions = [makeSession({ id: "a", name: "A" }), makeSession({ id: "b", name: "B" })];
 
 		const selector = new SessionSelectorComponent(
 			async () => sessions,
@@ -154,7 +178,7 @@ describe("session selector path/delete interactions", () => {
 	});
 
 	it("enters confirmation mode on Ctrl+Backspace when search query is empty", async () => {
-		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
+		const sessions = [makeSession({ id: "a", name: "A" }), makeSession({ id: "b", name: "B" })];
 
 		const selector = new SessionSelectorComponent(
 			async () => sessions,

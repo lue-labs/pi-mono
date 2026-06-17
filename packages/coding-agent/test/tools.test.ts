@@ -60,6 +60,20 @@ describe("built-in tool execution modes", () => {
 	});
 });
 
+describe("full opt-out param", () => {
+	it("exposes an optional boolean `full` on every truncating tool", () => {
+		const tools = createAllToolDefinitions(process.cwd());
+		for (const name of ["read", "bash", "grep", "find", "ls"]) {
+			const props = (tools[name as keyof typeof tools].parameters as any)?.properties ?? {};
+			expect(props.full, `${name} should expose a full param`).toBeDefined();
+			expect(props.full.type).toBe("boolean");
+			// must be opt-in: not in the schema's required set
+			const required = (tools[name as keyof typeof tools].parameters as any)?.required ?? [];
+			expect(required).not.toContain("full");
+		}
+	});
+});
+
 // Helper to extract text from content blocks
 function getTextOutput(result: any): string {
 	return (
@@ -116,6 +130,20 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("Line 2000");
 			expect(output).not.toContain("Line 2001");
 			expect(output).toContain("[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]");
+		});
+
+		it("should return the entire file when full is set, lifting the line cap", async () => {
+			const testFile = join(testDir, "large-full.txt");
+			const lines = Array.from({ length: 2500 }, (_, i) => `Line ${i + 1}`);
+			writeFileSync(testFile, lines.join("\n"));
+
+			const result = await readTool.execute("test-call-full", { path: testFile, full: true });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("Line 1");
+			expect(output).toContain("Line 2000");
+			expect(output).toContain("Line 2500");
+			expect(output).not.toContain("Use offset=");
 		});
 
 		it("should truncate when byte limit exceeded", async () => {

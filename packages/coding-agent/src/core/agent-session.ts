@@ -670,6 +670,12 @@ export class AgentSession {
 		}
 	}
 
+	async sendNotification<T = unknown>(
+		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
+	): Promise<void> {
+		await this.sendCustomMessage(message, { deliverAs: "followUp", wakeOnIdle: true });
+	}
+
 	private _emitQueueUpdate(): void {
 		this._emit({
 			type: "queue_update",
@@ -1599,6 +1605,25 @@ export class AgentSession {
 		}
 	}
 
+	private async _continueAgentRun(): Promise<void> {
+		try {
+			// A turn is starting — cancel any pending idle notification wake. The
+			// notification that scheduled it is already in messages[], so this turn
+			// reads it; firing another wake afterwards would add a spurious extra turn.
+			this._cancelIdleWake();
+			await this._refilterSystemPromptIfNeeded();
+			const heartbeatTarget = this._findLastAssistantMessage()?.timestamp;
+			this._sessionHeartbeatTargetTimestamp = heartbeatTarget;
+			this._noteCacheHeartbeatActivity();
+			await this.agent.continue();
+			while (await this._handlePostAgentRun()) {
+				await this.agent.continue();
+			}
+		} finally {
+			this._flushPendingBashMessages();
+		}
+	}
+
 	private async _handlePostAgentRun(): Promise<boolean> {
 		const msg = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
@@ -2144,16 +2169,8 @@ export class AgentSession {
 				this._scheduleIdleWake();
 				return;
 			}
-			void this.sendCustomMessage(
-				{
-					customType: "idle-wake",
-					content:
-						"Background work finished while you were idle (see the completion notification above). Handle it now: read the result, continue the task it unblocks, or report the outcome. Do not wait for further user input if the next step is clear.",
-					display: false,
-				},
-				{ deliverAs: "followUp", triggerTurn: true },
-			).catch(() => {
-				/* sendCustomMessage logs its own runtime errors; never crash the timer. */
+			void this._continueAgentRun().catch(() => {
+				/* Continuation errors surface through the agent run; never crash the timer. */
 			});
 		}, AgentSession.IDLE_WAKE_DEBOUNCE_MS);
 		this._idleWakeTimer.unref?.();
@@ -3151,16 +3168,13 @@ export class AgentSession {
 		lines.push(
 			`\nThe background agent has finished. Do NOT call \`agent\` action=status/detail to verify — the run is terminal. Read output_path or session_path if you need the full transcript.`,
 		);
-		void this.sendCustomMessage(
-			{
-				customType: "agent_completion",
-				content: lines.join("\n"),
-				display: false,
-				details: notification,
-			},
-			{ deliverAs: "followUp", wakeOnIdle: true },
-		).catch(() => {
-			/* sendCustomMessage logs its own runtime errors; don't crash the lifecycle listener. */
+		void this.sendNotification({
+			customType: "agent_completion",
+			content: lines.join("\n"),
+			display: false,
+			details: notification,
+		}).catch(() => {
+			/* sendNotification logs its own runtime errors; don't crash the lifecycle listener. */
 		});
 	}
 
@@ -3196,16 +3210,13 @@ export class AgentSession {
 		lines.push(
 			`\nBackground bash job ${job.id} finished (${job.status}${exitNote}). Read output_path for stdout/stderr with Read or bash_output(${job.id}) \u2014 do NOT re-run the command to "check".`,
 		);
-		void this.sendCustomMessage(
-			{
-				customType: "bash_completion",
-				content: lines.join("\n"),
-				display: false,
-				details: { id: job.id, status: job.status, exitCode: job.exitCode, logPath: job.logPath },
-			},
-			{ deliverAs: "followUp", wakeOnIdle: true },
-		).catch(() => {
-			/* sendCustomMessage logs its own errors; never crash the bg lifecycle listener. */
+		void this.sendNotification({
+			customType: "bash_completion",
+			content: lines.join("\n"),
+			display: false,
+			details: { id: job.id, status: job.status, exitCode: job.exitCode, logPath: job.logPath },
+		}).catch(() => {
+			/* sendNotification logs its own errors; never crash the bg lifecycle listener. */
 		});
 	}
 
@@ -3282,6 +3293,29 @@ export class AgentSession {
 						runner.emitError({
 							extensionPath: "<runtime>",
 							event: "send_message",
+							error: err instanceof Error ? err.message : String(err),
+						});
+					});
+				},
+				sendNotification: (message) => {
+					const callerStack = new Error("sendNotification callsite").stack;
+					this.sendNotification(message).catch((err) => {
+						try {
+							const diagPath = `${process.env.HOME}/.pi/agent/logs/runtime-errors.log`;
+							mkdirSync(dirname(diagPath), { recursive: true });
+							appendFileSync(
+								diagPath,
+								`\n[${new Date().toISOString()}] send_notification error: ${err instanceof Error ? err.message : String(err)}\n` +
+									`customType=${(message as { customType?: string })?.customType ?? "?"}\n` +
+									`err.stack:\n${err instanceof Error ? err.stack : "(no stack)"}\n` +
+									`caller.stack:\n${callerStack}\n`,
+							);
+						} catch {
+							/* swallow logging errors */
+						}
+						runner.emitError({
+							extensionPath: "<runtime>",
+							event: "send_notification",
 							error: err instanceof Error ? err.message : String(err),
 						});
 					});

@@ -719,7 +719,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 	private keybindings: KeybindingsManager;
 	private scope: SessionScope = "current";
 	private sortMode: SortMode = "threaded";
-	private nameFilter: NameFilter = "all";
+	private nameFilter: NameFilter = "named";
 	private currentSessions: SessionInfo[] | null = null;
 	private allSessions: SessionInfo[] | null = null;
 	private currentSessionsLoader: SessionsLoader;

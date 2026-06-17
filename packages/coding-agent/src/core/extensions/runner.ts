@@ -360,6 +360,7 @@ export class ExtensionRunner {
 	): void {
 		// Copy actions into the shared runtime (all extension APIs reference this)
 		this.runtime.sendMessage = actions.sendMessage;
+		this.runtime.sendNotification = actions.sendNotification;
 		this.runtime.sendUserMessage = actions.sendUserMessage;
 		this.runtime.appendEntry = actions.appendEntry;
 		this.runtime.setSessionName = actions.setSessionName;
@@ -941,6 +942,14 @@ export class ExtensionRunner {
 			shutdown: () => {
 				runner.assertActive();
 				runner.shutdownHandler();
+			},
+			reload: () => {
+				runner.assertActive();
+				return runner.reloadHandler();
+			},
+			sendNotification: (message) => {
+				runner.assertActive();
+				runner.runtime.sendNotification(message);
 			},
 			getContextUsage: () => {
 				runner.assertActive();

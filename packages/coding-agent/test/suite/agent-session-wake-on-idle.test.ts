@@ -1,8 +1,9 @@
-// Ported from my-pi extensions/idle-wake/test.mjs when the wake moved into
-// core (sendCustomMessage wakeOnIdle option). Scenarios: idle wake drives one
-// continuation turn; busy delivery never schedules a wake; same-window
-// notifications debounce into one wake; non-flagged custom messages don't
-// wake; a turn starting inside the debounce window cancels the pending wake.
+// Ported from my-pi extensions/idle-wake/test.mjs when notification wakes moved
+// into core (sendCustomMessage wakeOnIdle option). Scenarios: idle notification
+// drives one continuation turn without adding a synthetic prompt; busy delivery
+// never schedules a wake; same-window notifications debounce into one wake;
+// non-flagged custom messages don't wake; a turn starting inside the debounce
+// window cancels the pending wake.
 
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
@@ -48,7 +49,22 @@ describe("AgentSession wakeOnIdle", () => {
 		await sleep(DEBOUNCE_MS + 150);
 		await harness.session.agent.waitForIdle();
 
-		expect(idleWakeMessages(harness)).toHaveLength(1);
+		expect(idleWakeMessages(harness)).toHaveLength(0);
+		expect(harness.eventsOfType("agent_start")).toHaveLength(1);
+		expect(harness.getPendingResponseCount()).toBe(0);
+	});
+
+	it("sendNotification queues the notification and wakes when idle", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("handled notification")]);
+
+		await harness.session.sendNotification(completion("bash_completion"));
+
+		await sleep(DEBOUNCE_MS + 150);
+		await harness.session.agent.waitForIdle();
+
+		expect(idleWakeMessages(harness)).toHaveLength(0);
 		expect(harness.eventsOfType("agent_start")).toHaveLength(1);
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
@@ -72,7 +88,7 @@ describe("AgentSession wakeOnIdle", () => {
 		// Past the window: no second wake pending.
 		await sleep(DEBOUNCE_MS + 150);
 
-		expect(idleWakeMessages(harness)).toHaveLength(1);
+		expect(idleWakeMessages(harness)).toHaveLength(0);
 		expect(harness.eventsOfType("agent_start")).toHaveLength(1);
 	});
 
@@ -162,7 +178,7 @@ describe("AgentSession wakeOnIdle", () => {
 		await sleep(DEBOUNCE_MS + 150);
 		await harness.session.agent.waitForIdle();
 
-		expect(idleWakeMessages(harness)).toHaveLength(1);
+		expect(idleWakeMessages(harness)).toHaveLength(0);
 		expect(harness.eventsOfType("agent_start")).toHaveLength(1);
 	});
 

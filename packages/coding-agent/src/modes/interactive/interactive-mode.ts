@@ -1760,6 +1760,9 @@ export class InteractiveMode {
 				shutdown: () => {
 					this.shutdownRequested = true;
 				},
+				sendNotification: (message) => {
+					void session.sendNotification(message);
+				},
 				getContextUsage: () => session.getContextUsage(),
 				compact: (options) => {
 					void (async () => {
