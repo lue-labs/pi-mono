@@ -3,8 +3,11 @@ import { getBuiltinAgentDefinitions } from "../src/core/agents/definitions.ts";
 import { resolveEffectiveTools } from "../src/core/agents/executor.ts";
 
 const generalPurpose = getBuiltinAgentDefinitions().find((agent) => agent.id === "general");
-// Use `explore` for read-only agent assertions; the fork removed `scout` because it overlapped `explore`.
+// `explore` is a read-only agent that intentionally retains guarded read-only `bash`;
+// `plan` is a read-only agent that denies bash outright. The fork removed `scout`
+// because it overlapped `explore`.
 const explore = getBuiltinAgentDefinitions().find((agent) => agent.id === "explore");
+const plan = getBuiltinAgentDefinitions().find((agent) => agent.id === "plan");
 
 describe("agent tool permissions", () => {
 	test("child cannot gain inactive parent tools", () => {
@@ -27,13 +30,22 @@ describe("agent tool permissions", () => {
 		expect(result.deniedTools).toEqual(["agent"]);
 	});
 
-	test("read-only agents do not receive bash even if parent has it", () => {
+	test("bash-denying read-only agents do not receive bash even if parent has it", () => {
+		const result = resolveEffectiveTools({
+			parentActiveTools: ["agent", "read", "bash", "grep", "find", "ls"],
+			agent: plan ?? getBuiltinAgentDefinitions()[0],
+		});
+		expect(result.effectiveTools).not.toContain("bash");
+		expect(result.effectiveTools).toContain("read");
+	});
+
+	test("explore retains guarded read-only bash even though it is a read-only agent", () => {
 		const result = resolveEffectiveTools({
 			parentActiveTools: ["agent", "read", "bash", "grep", "find", "ls"],
 			agent: explore ?? getBuiltinAgentDefinitions()[0],
 		});
-		expect(result.effectiveTools).toEqual(["read", "grep", "find", "ls"]);
-		expect(result.effectiveTools).not.toContain("bash");
+		expect(result.effectiveTools).toContain("bash");
+		expect(result.effectiveTools).toEqual(["read", "bash", "grep", "find", "ls"]);
 	});
 
 	test("bash brings bash_output and bash_kill along when parent has them", () => {
