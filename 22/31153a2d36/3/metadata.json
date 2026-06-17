@@ -1,0 +1,55 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "2231153a2d36",
+  "session_id": "019ed23d-1716-7070-8594-c1c9bf693a9e",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-17T02:02:19.866547Z",
+  "branch": "advisor/009-dream-memory-split",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "extensions/dream-memory/src/active-memory.ts",
+    "extensions/dream-memory/src/active-memory/recall-routing.ts",
+    "extensions/dream-memory/src/active-memory/recall-selection.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "a0380f2b1460",
+  "initial_attribution": {
+    "calculated_at": "2026-06-17T02:02:19.85979Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 547,
+    "human_removed": 216,
+    "total_committed": 0,
+    "total_lines_changed": 763,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2096,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-16T18-44-55Z-ad01270b.md": 46,
+        "docs/pr-reviews/pr75-review.md": 138,
+        "plans/001-readme-extension-list.md": 129,
+        "plans/002-root-scratch-file-cleanup.md": 111,
+        "plans/003-pi-routine-osascript-hardening.md": 127,
+        "plans/004-config-parse-error-surfacing.md": 122,
+        "plans/005-cache-stability-contract-harness.md": 148,
+        "plans/006-untested-extension-coverage.md": 131,
+        "plans/007-extension-gate-runner.md": 130,
+        "plans/008-shared-extension-config-facade.md": 149,
+        "plans/009-dream-memory-module-split.md": 131,
+        "plans/010-dependency-audit-pass.md": 124,
+        "plans/README.md": 105,
+        "plans/orientation-outcomes.md": 366,
+        "plans/park-unblock-plans.md": 139
+      }
+    }
+  ]
+}
