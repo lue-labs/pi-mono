@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "c2ad60640484",
+  "session_id": "019ed23d-1716-7070-8594-c1c9bf693a9e",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-17T17:37:36.653168Z",
+  "branch": "lue/fuse-failure-reporting",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-skill-workshop-audit.md",
+    "extensions/skill-workshop/src/autocapture.ts",
+    "extensions/skill-workshop/src/config.ts",
+    "extensions/skill-workshop/src/index.ts",
+    "extensions/skill-workshop/src/schema.ts",
+    "extensions/skill-workshop/test-autocapture.mjs",
+    "package.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "a0380f2b1460",
+  "checkpoint_transcript_start": 8,
+  "transcript_lines_at_start": 8,
+  "initial_attribution": {
+    "calculated_at": "2026-06-17T17:37:36.644028Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 237,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 237,
+    "total_lines_changed": 239,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
