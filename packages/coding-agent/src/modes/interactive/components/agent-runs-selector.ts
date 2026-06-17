@@ -7,6 +7,86 @@ import { keyHint, rawKeyHint } from "./keybinding-hints.ts";
 
 export type AgentRunsSelectorAction = "detail" | "interrupt" | "cancel" | "resume";
 
+function agentRunStatusText(status: AgentToolStatus): string {
+	switch (status) {
+		case "completed":
+			return theme.fg("success", status);
+		case "failed":
+		case "cancelled":
+			return theme.fg("error", status);
+		case "interrupted":
+			return theme.fg("warning", status);
+		default:
+			return theme.fg("accent", status);
+	}
+}
+
+function agentRunDuration(run: AgentRecentRun): string {
+	return run.durationMs !== undefined ? formatAgentDurationMs(run.durationMs) : "running";
+}
+
+/**
+ * Count of child runs that have left the running state — the "done" half of the
+ * fan-out `done/total` indicator (CC 2.1.161).
+ */
+function countSettledChildren(run: AgentRecentRun): number {
+	return run.runs.filter((child) => child.status !== "running").length;
+}
+
+/** Compact list row for the agent-runs selector. Pure (depends only on `run`). */
+export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): string {
+	const prefix = selected ? `${theme.fg("accent", "→ ")}` : "  ";
+	const id = selected ? theme.fg("accent", run.id) : theme.fg("text", run.id);
+	const execution = run.execution === "background" ? "bg" : "fg";
+	const resumable = run.resumable ? theme.fg("warning", " resumable") : "";
+	const attention = run.needsAttention ? theme.fg("warning", " needs attention") : "";
+	const nesting = run.depth > 0 ? theme.fg("muted", ` ↳L${run.depth}`) : "";
+	// Total is the requested task count (`tasks`), not observed `runs`: children still
+	// queued (parallel beyond the concurrency limit, or later chain steps) have no
+	// `runs[]` entry yet, so `runs.length` understates the total mid-flight.
+	const fanout = run.tasks.length > 1 ? theme.fg("muted", ` [${countSettledChildren(run)}/${run.tasks.length}]`) : "";
+	return `${prefix}${id}${nesting} ${execution} ${agentRunStatusText(run.status)}${resumable}${attention}${fanout} ${theme.fg("muted", run.agents.join(", "))}`;
+}
+
+/**
+ * Detail panel for the selected run, including an inline transcript of each
+ * child's recent tool calls *with their results* and live status — so a
+ * subagent's progress is visible without leaving the runs view (CC 2.1.178).
+ * Pure (depends only on `run`).
+ */
+export function formatAgentRunDetailView(run: AgentRecentRun | undefined): string {
+	if (!run) return theme.fg("muted", "No native agent runs yet");
+	const lines = [
+		`${theme.fg("accent", run.id)} ${run.mode} ${run.execution} ${run.status} ${agentRunDuration(run)}`,
+		`agents: ${run.agents.join(", ") || "n/a"}`,
+	];
+	if (run.depth > 0) lines.push(`nested: depth ${run.depth}${run.parentRunId ? ` (parent ${run.parentRunId})` : ""}`);
+	if (run.resumable) lines.push(`resumable: yes (${keyHint("app.agents.resume", "resume")})`);
+	if (run.needsAttention) lines.push(`needs attention: ${run.attentionMessage ?? "check run"}`);
+	if (run.sessionRefs.length > 0) {
+		lines.push(
+			`sessions: ${run.sessionRefs
+				.map((ref) => ref.sessionId ?? ref.sessionPath)
+				.filter(Boolean)
+				.join(", ")}`,
+		);
+	}
+	if (run.outputPaths.length > 0) lines.push(`outputs: ${run.outputPaths.join(", ")}`);
+	if (run.error) lines.push(`error: ${run.error}`);
+	for (const child of run.runs) {
+		const tools = child.recentToolCalls.slice(-6);
+		if (tools.length === 0) continue;
+		lines.push(theme.fg("muted", `↳ ${child.agent} (${child.status})`));
+		for (const tool of tools) {
+			const args = tool.argsPreview ? ` ${tool.argsPreview}` : "";
+			const err = tool.isError ? theme.fg("error", " (error)") : "";
+			lines.push(`  • ${tool.name}${args}${err}`);
+			if (tool.resultPreview) lines.push(theme.fg("muted", `    → ${tool.resultPreview}`));
+		}
+	}
+	return lines.join("\n");
+}
+
 export class AgentRunsSelectorComponent extends Container {
 	private readonly getRuns: () => AgentRecentRun[];
 	private readonly onAction: (action: AgentRunsSelectorAction, run: AgentRecentRun) => void;
@@ -32,52 +112,12 @@ export class AgentRunsSelectorComponent extends Container {
 		return this.displayedRuns[this.selectedIndex];
 	}
 
-	private statusText(status: AgentToolStatus): string {
-		switch (status) {
-			case "completed":
-				return theme.fg("success", status);
-			case "failed":
-			case "cancelled":
-				return theme.fg("error", status);
-			case "interrupted":
-				return theme.fg("warning", status);
-			default:
-				return theme.fg("accent", status);
-		}
-	}
-
-	private formatDuration(run: AgentRecentRun): string {
-		return run.durationMs !== undefined ? formatAgentDurationMs(run.durationMs) : "running";
-	}
-
 	private formatRunRow(run: AgentRecentRun, selected: boolean): string {
-		const prefix = selected ? `${theme.fg("accent", "→ ")}` : "  ";
-		const id = selected ? theme.fg("accent", run.id) : theme.fg("text", run.id);
-		const execution = run.execution === "background" ? "bg" : "fg";
-		const resumable = run.resumable ? theme.fg("warning", " resumable") : "";
-		const attention = run.needsAttention ? theme.fg("warning", " needs attention") : "";
-		return `${prefix}${id} ${execution} ${this.statusText(run.status)}${resumable}${attention} ${theme.fg("muted", run.agents.join(", "))}`;
+		return formatAgentRunRow(run, selected);
 	}
 
 	private formatDetail(run: AgentRecentRun | undefined): string {
-		if (!run) return theme.fg("muted", "No native agent runs yet");
-		const lines = [
-			`${theme.fg("accent", run.id)} ${run.mode} ${run.execution} ${run.status} ${this.formatDuration(run)}`,
-			`agents: ${run.agents.join(", ") || "n/a"}`,
-		];
-		if (run.resumable) lines.push(`resumable: yes (${keyHint("app.agents.resume", "resume")})`);
-		if (run.needsAttention) lines.push(`needs attention: ${run.attentionMessage ?? "check run"}`);
-		if (run.sessionRefs.length > 0) {
-			lines.push(
-				`sessions: ${run.sessionRefs
-					.map((ref) => ref.sessionId ?? ref.sessionPath)
-					.filter(Boolean)
-					.join(", ")}`,
-			);
-		}
-		if (run.outputPaths.length > 0) lines.push(`outputs: ${run.outputPaths.join(", ")}`);
-		if (run.error) lines.push(`error: ${run.error}`);
-		return lines.join("\n");
+		return formatAgentRunDetailView(run);
 	}
 
 	private rebuild(): void {

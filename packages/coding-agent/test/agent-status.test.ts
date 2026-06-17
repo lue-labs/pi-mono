@@ -54,6 +54,20 @@ function makeRunDetails(status: AgentRunDetails["status"] = "completed"): AgentR
 	};
 }
 
+function makeRunDetailsWithTools(toolNames: string[], status: AgentRunDetails["status"] = "running"): AgentRunDetails {
+	return {
+		...makeRunDetails(status),
+		toolCallCount: toolNames.length,
+		recentToolCalls: toolNames.map((name, index) => ({
+			name,
+			argsPreview: `arg-${index}`,
+			startedAt: 1,
+			endedAt: 2,
+			resultPreview: `${name} result ${index}`,
+		})),
+	};
+}
+
 describe("native agent status", () => {
 	beforeEach(() => {
 		clearAgentRecentRunsForTests();
@@ -249,5 +263,152 @@ describe("native agent status", () => {
 		const result = await resumeAgentRecentRun(run.id, "continue");
 		expect(resume).toHaveBeenCalledWith("continue");
 		expect(result.ok).toBe(true);
+	});
+});
+
+describe("nested sub-agent visibility & transcript", () => {
+	beforeEach(() => {
+		clearAgentRecentRunsForTests();
+		tempDir = mkdtempSync(join(tmpdir(), "agent-nesting-"));
+		childSessionPath = join(tempDir, "child-session.jsonl");
+		writeFileSync(childSessionPath, `${JSON.stringify({ type: "session", version: 1, id: "child-session" })}\n`);
+	});
+	afterEach(() => {
+		if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	// B1: the run model carries delegation depth + parent linkage.
+	test("records delegation depth and parent run id", () => {
+		const top = startAgentRecentRun("single", [{ agent: "scout", task: "t" }]);
+		expect(top.depth).toBe(0);
+		expect(top.parentRunId).toBeUndefined();
+
+		const nested = startAgentRecentRun("single", [{ agent: "scout", task: "t" }], {
+			depth: 2,
+			parentRunId: top.id,
+		});
+		expect(nested.depth).toBe(2);
+		expect(nested.parentRunId).toBe(top.id);
+	});
+
+	// The depth marker is render-agnostic: it formats whatever nesting level a run
+	// carries, L1..L5, each distinctly, and the detail view links back to the parent.
+	// (Real reach with cap 5 tops out at an L4 *run* marker because a depth-5 caller
+	// is gated before it can start a run; depth-5 *sessions* are proven to spawn in
+	// test/suite/nested-delegation-depth.test.ts. This pins the formatter itself.)
+	test("renders the depth marker distinctly for every nesting level", () => {
+		let parentRunId: string | undefined;
+		const ids: string[] = [];
+		for (let depth = 0; depth <= 5; depth++) {
+			const run = startAgentRecentRun("single", [{ agent: `lvl${depth}`, task: "t" }], {
+				background: true,
+				depth,
+				parentRunId,
+			});
+			ids.push(run.id);
+			parentRunId = run.id;
+		}
+
+		const status = formatAgentStatus();
+		for (let depth = 1; depth <= 5; depth++) {
+			expect(status).toContain(`\u21b3L${depth}`);
+		}
+		expect(formatAgentStatus(undefined, ids[5])).toContain(`nested: depth 5 (parent ${ids[4]})`);
+	});
+
+	// B3 + B4: the agents view marks nested runs and shows fan-out done/total.
+	test("renders a nesting marker and fan-out done/total", () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "a", task: "t" },
+				{ agent: "b", task: "t" },
+			],
+			{ background: true, depth: 1, parentRunId: "agent-0" },
+		);
+		updateAgentRecentRunProgress(run, {
+			mode: "parallel",
+			status: "running",
+			runs: [makeRunDetails("completed"), makeRunDetails("running")],
+		});
+
+		const status = formatAgentStatus();
+		expect(status).toContain("\u21b3L1");
+		expect(status).toContain("[1/2 done]");
+		expect(formatAgentStatus(undefined, run.id)).toContain("nested: depth 1 (parent agent-0)");
+	});
+
+	// B4 regression: fan-out total is the requested task count, not started children.
+	// 3 parallel tasks with only 1 child started (others queued past the concurrency
+	// limit) must read [1/3 done], never [1/1 done].
+	test("fan-out total counts requested tasks, not just started children", () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "a", task: "t" },
+				{ agent: "b", task: "t" },
+				{ agent: "c", task: "t" },
+			],
+			{ background: true },
+		);
+		updateAgentRecentRunProgress(run, {
+			mode: "parallel",
+			status: "running",
+			runs: [makeRunDetails("completed")],
+		});
+		expect(formatAgentStatus()).toContain("[1/3 done]");
+	});
+
+	// C1: the detail view shows tool RESULTS, not just tool names (CC 2.1.178).
+	test("shows subagent tool results in the run detail", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "t" }], { background: true });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [makeRunDetailsWithTools(["read"])],
+		});
+
+		const detail = formatAgentStatus(undefined, run.id);
+		expect(detail).toContain("recent tools:");
+		expect(detail).toContain("read");
+		expect(detail).toContain("\u2192 read result 0");
+	});
+
+	// C2: the rendered detail reflects newly appended tool calls as progress
+	// arrives — the data flow the subscribed AgentsPane re-renders live.
+	test("reflects newly appended tool calls as progress arrives", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "t" }], { background: true });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [makeRunDetailsWithTools(["grep"])],
+		});
+		expect(formatAgentStatus(undefined, run.id)).toContain("grep");
+
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [makeRunDetailsWithTools(["grep", "read"])],
+		});
+		const detail = formatAgentStatus(undefined, run.id);
+		expect(detail).toContain("grep");
+		expect(detail).toContain("read");
+	});
+
+	// B5: a failing run reaches a terminal status — never stuck "running".
+	test("a failing run reaches a terminal failed status", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "t" }], { background: true });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [makeRunDetails("running")],
+		});
+		expect(run.status).toBe("running");
+
+		failAgentRecentRun(run, new Error("child crashed"));
+		expect(run.status).toBe("failed");
+		const status = formatAgentStatus();
+		expect(status).toContain("failed");
+		expect(status).toContain("child crashed");
 	});
 });
