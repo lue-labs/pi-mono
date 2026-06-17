@@ -3,7 +3,7 @@
   "checkpoint_id": "f835f5700d71",
   "strategy": "manual-commit",
   "branch": "lue/fuse-failure-reporting",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "docs/headroom-dogfood.md",
     "package.json",
@@ -20,6 +20,12 @@
       "metadata": "/f8/35f5700d71/1/metadata.json",
       "transcript": "/f8/35f5700d71/1/full.jsonl",
       "content_hash": "/f8/35f5700d71/1/content_hash.txt",
+      "prompt": ""
+    },
+    {
+      "metadata": "/f8/35f5700d71/2/metadata.json",
+      "transcript": "/f8/35f5700d71/2/full.jsonl",
+      "content_hash": "/f8/35f5700d71/2/content_hash.txt",
       "prompt": ""
     }
   ]
