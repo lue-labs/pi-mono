@@ -15,10 +15,9 @@ const pingTool: AgentTool = {
 	execute: async () => ({ content: [{ type: "text", text: "pong" }], details: {} }),
 };
 
-// A snapshot of the raw emitted event (own enumerable keys preserved, including
-// identity keys whose value is undefined) so tests can assert both the stamped
-// values AND that the emit path threads the keys at all (the latter is absent on
-// baseline, making the top-level case non-vacuous).
+// A snapshot of the raw emitted event (own enumerable keys preserved) so tests
+// can assert both the stamped values and which optional identity keys are
+// present. Optional keys are omitted when undefined.
 type CapturedEvent = Record<string, unknown>;
 
 describe("agent telemetry identity: agentId / parentAgentId on emitted tool events", () => {
@@ -76,11 +75,10 @@ describe("agent telemetry identity: agentId / parentAgentId on emitted tool even
 		const { calls, results } = await runOnePing(undefined);
 
 		expect(calls).toHaveLength(1);
-		// Non-vacuous: the emit path now always threads the identity keys (they are
-		// absent entirely on baseline), even though their values are undefined for
-		// the top-level session, which is not an agent run.
-		expect(Object.keys(calls[0] ?? {})).toEqual(expect.arrayContaining(["agentId", "parentAgentId"]));
-		expect(Object.keys(results[0] ?? {})).toEqual(expect.arrayContaining(["agentId", "parentAgentId"]));
+		// Top-level sessions are not agent runs, so the optional fields are omitted
+		// entirely rather than serialized as undefined-valued keys.
+		expect(Object.keys(calls[0] ?? {})).not.toEqual(expect.arrayContaining(["agentId", "parentAgentId"]));
+		expect(Object.keys(results[0] ?? {})).not.toEqual(expect.arrayContaining(["agentId", "parentAgentId"]));
 		expect(calls[0]?.agentId).toBeUndefined();
 		expect(calls[0]?.parentAgentId).toBeUndefined();
 		expect(results[0]?.agentId).toBeUndefined();
@@ -91,8 +89,12 @@ describe("agent telemetry identity: agentId / parentAgentId on emitted tool even
 		const { calls, results } = await runOnePing({ runId: "run-root-child" });
 
 		expect(calls[0]?.agentId).toBe("run-root-child");
+		expect(Object.keys(calls[0] ?? {})).toContain("agentId");
+		expect(Object.keys(calls[0] ?? {})).not.toContain("parentAgentId");
 		expect(calls[0]?.parentAgentId).toBeUndefined();
 		expect(results[0]?.agentId).toBe("run-root-child");
+		expect(Object.keys(results[0] ?? {})).toContain("agentId");
+		expect(Object.keys(results[0] ?? {})).not.toContain("parentAgentId");
 		expect(results[0]?.parentAgentId).toBeUndefined();
 	});
 });

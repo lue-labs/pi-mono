@@ -236,6 +236,11 @@ export interface AgentRunIdentity {
 	parentRunId?: string;
 }
 
+type AgentRunEventIdentity = {
+	agentId?: string;
+	parentAgentId?: string;
+};
+
 export interface AgentSessionConfig {
 	agent: Agent;
 	sessionManager: SessionManager;
@@ -598,6 +603,14 @@ export class AgentSession {
 		return result.ok ? { apiKey: result.apiKey, headers: result.headers, env: result.env } : {};
 	}
 
+	private _agentRunEventIdentity(): AgentRunEventIdentity {
+		const identity = this._agentRunIdentity;
+		return {
+			...(identity?.runId !== undefined ? { agentId: identity.runId } : {}),
+			...(identity?.parentRunId !== undefined ? { parentAgentId: identity.parentRunId } : {}),
+		};
+	}
+
 	/**
 	 * Install tool hooks once on the Agent instance.
 	 *
@@ -619,8 +632,7 @@ export class AgentSession {
 					toolName: toolCall.name,
 					toolCallId: toolCall.id,
 					input: args as Record<string, unknown>,
-					agentId: this._agentRunIdentity?.runId,
-					parentAgentId: this._agentRunIdentity?.parentRunId,
+					...this._agentRunEventIdentity(),
 				});
 			} catch (err) {
 				if (err instanceof Error) {
@@ -646,8 +658,7 @@ export class AgentSession {
 				content: currentResult.content,
 				details: currentResult.details,
 				isError,
-				agentId: this._agentRunIdentity?.runId,
-				parentAgentId: this._agentRunIdentity?.parentRunId,
+				...this._agentRunEventIdentity(),
 			});
 
 			if (!hookResult) {
