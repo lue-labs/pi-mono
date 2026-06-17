@@ -68,9 +68,9 @@ describe("theme syntax highlighting", () => {
 
 	it("keeps cli-highlight default styled scopes mapped to theme styles", () => {
 		expect(highlightCode("const re = /foo+/gi;", "javascript")[0]).toContain(
-			"\x1b[38;2;206;145;120m/foo+/gi\x1b[39m",
+			"\x1b[38;2;152;195;121m/foo+/gi\x1b[39m",
 		);
 		expect(highlightCode("@decorator", "python")[0]).toBe("\x1b[38;2;128;128;128m@decorator\x1b[39m");
-		expect(highlightCode("<div></div>", "html")[0]).toContain("\x1b[38;2;86;156;214mdiv\x1b[39m");
+		expect(highlightCode("<div></div>", "html")[0]).toContain("\x1b[38;2;198;120;221mdiv\x1b[39m");
 	});
 });
