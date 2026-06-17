@@ -263,6 +263,86 @@ describe("openai-completions tool_choice", () => {
 		expect(unsupported.compat?.zaiToolStream).toBeUndefined();
 	});
 
+	it("stores z.ai GLM-5.2 effort metadata", () => {
+		for (const provider of ["zai", "zai-coding-cn"] as const) {
+			const model = getModel(provider, "glm-5.2")!;
+			expect(model.compat?.supportsReasoningEffort).toBe(true);
+			expect(model.thinkingLevelMap).toEqual({
+				minimal: null,
+				low: "high",
+				medium: "high",
+				high: "high",
+				xhigh: "max",
+			});
+		}
+	});
+
+	it("maps z.ai GLM-5.2 thinking levels to reasoning_effort", async () => {
+		const model = getModel("zai", "glm-5.2")!;
+		const cases = [
+			{ reasoning: "low", effort: "high" },
+			{ reasoning: "medium", effort: "high" },
+			{ reasoning: "high", effort: "high" },
+			{ reasoning: "xhigh", effort: "max" },
+		] as const;
+
+		for (const testCase of cases) {
+			let payload: unknown;
+
+			await streamSimple(
+				model,
+				{
+					messages: [
+						{
+							role: "user",
+							content: "Hi",
+							timestamp: Date.now(),
+						},
+					],
+				},
+				{
+					apiKey: "test",
+					reasoning: testCase.reasoning,
+					onPayload: (params: unknown) => {
+						payload = params;
+					},
+				},
+			).result();
+
+			const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+			expect(params.thinking).toEqual({ type: "enabled" });
+			expect(params.reasoning_effort).toBe(testCase.effort);
+		}
+	});
+
+	it("omits z.ai GLM-5.2 reasoning_effort when thinking is off", async () => {
+		const model = getModel("zai", "glm-5.2")!;
+		let payload: unknown;
+
+		await streamSimple(
+			model,
+			{
+				messages: [
+					{
+						role: "user",
+						content: "Hi",
+						timestamp: Date.now(),
+					},
+				],
+			},
+			{
+				apiKey: "test",
+				onPayload: (params: unknown) => {
+					payload = params;
+				},
+			},
+		).result();
+
+		const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+		expect(params.thinking).toEqual({ type: "disabled" });
+		expect(params.reasoning_effort).toBeUndefined();
+	});
+
 	it("omits tool_stream for unsupported z.ai models", async () => {
 		const model = pickModel("zai", (m) => !hasCompatFlag("zaiToolStream")(m));
 		const tools: Tool[] = [
@@ -1095,6 +1175,32 @@ describe("openai-completions tool_choice", () => {
 		const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
 		expect(params.thinking).toEqual({ type: "enabled" });
 		expect(params.reasoning_effort).toBeUndefined();
+	});
+
+	it("omits disabled thinking for Moonshot Kimi K2.7 Code models", async () => {
+		const cases = [getModel("moonshotai", "kimi-k2.7-code"), getModel("moonshotai-cn", "kimi-k2.7-code")];
+
+		for (const model of cases) {
+			expect(model).toBeDefined();
+			let payload: unknown;
+
+			await streamSimple(
+				model!,
+				{
+					messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+				},
+				{
+					apiKey: "test",
+					onPayload: (params: unknown) => {
+						payload = params;
+					},
+				},
+			).result();
+
+			const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+			expect(params.thinking).toBeUndefined();
+			expect(params.reasoning_effort).toBeUndefined();
+		}
 	});
 
 	it("keeps disabled thinking for Moonshot Kimi K2.6 when thinking is off", async () => {
