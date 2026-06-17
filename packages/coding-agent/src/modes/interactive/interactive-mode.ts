@@ -144,6 +144,7 @@ import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
+import { getModelSearchText } from "./model-search.ts";
 import {
 	detectTerminalBackgroundTheme,
 	getAvailableThemes,
@@ -559,11 +560,12 @@ export class InteractiveMode {
 				const items = models.map((m) => ({
 					id: m.id,
 					provider: m.provider,
+					name: m.name,
 					label: `${m.provider}/${m.id}`,
 				}));
 
-				// Fuzzy filter by model ID + provider (allows "opus anthropic" to match)
-				const filtered = fuzzyFilter(items, prefix, (item) => `${item.id} ${item.provider}`);
+				// Fuzzy filter by model ID + provider in either order.
+				const filtered = fuzzyFilter(items, prefix, getModelSearchText);
 
 				if (filtered.length === 0) return null;
 

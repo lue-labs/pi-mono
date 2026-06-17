@@ -1,17 +1,17 @@
 {
 	"name": "@valkyriweb/pi-coding-agent",
-	"version": "0.79.5",
+	"version": "0.79.6",
 	"lockfileVersion": 3,
 	"requires": true,
 	"packages": {
 		"": {
 			"name": "@valkyriweb/pi-coding-agent",
-			"version": "0.79.5",
+			"version": "0.79.6",
 			"license": "MIT",
 			"dependencies": {
-				"@valkyriweb/pi-agent-core": "0.79.5",
-				"@valkyriweb/pi-ai": "0.79.5",
-				"@valkyriweb/pi-tui": "0.79.5",
+				"@valkyriweb/pi-agent-core": "0.79.6",
+				"@valkyriweb/pi-ai": "0.79.6",
+				"@valkyriweb/pi-tui": "0.79.6",
 				"@silvia-odwyer/photon-node": "0.3.4",
 				"chalk": "5.6.2",
 				"cross-spawn": "7.0.6",
@@ -898,11 +898,11 @@
 			}
 		},
 		"node_modules/@valkyriweb/pi-agent-core": {
-			"version": "0.79.5",
-			"resolved": "https://registry.npmjs.org/@valkyriweb/pi-agent-core/-/pi-agent-core-0.79.5.tgz",
+			"version": "0.79.6",
+			"resolved": "https://registry.npmjs.org/@valkyriweb/pi-agent-core/-/pi-agent-core-0.79.6.tgz",
 			"license": "MIT",
 			"dependencies": {
-				"@valkyriweb/pi-ai": "0.79.5",
+				"@valkyriweb/pi-ai": "0.79.6",
 				"ignore": "7.0.5",
 				"typebox": "1.1.38",
 				"yaml": "2.9.0"
@@ -912,8 +912,8 @@
 			}
 		},
 		"node_modules/@valkyriweb/pi-ai": {
-			"version": "0.79.5",
-			"resolved": "https://registry.npmjs.org/@valkyriweb/pi-ai/-/pi-ai-0.79.5.tgz",
+			"version": "0.79.6",
+			"resolved": "https://registry.npmjs.org/@valkyriweb/pi-ai/-/pi-ai-0.79.6.tgz",
 			"license": "MIT",
 			"dependencies": {
 				"@anthropic-ai/sdk": "0.91.1",
@@ -935,8 +935,8 @@
 			}
 		},
 		"node_modules/@valkyriweb/pi-tui": {
-			"version": "0.79.5",
-			"resolved": "https://registry.npmjs.org/@valkyriweb/pi-tui/-/pi-tui-0.79.5.tgz",
+			"version": "0.79.6",
+			"resolved": "https://registry.npmjs.org/@valkyriweb/pi-tui/-/pi-tui-0.79.6.tgz",
 			"license": "MIT",
 			"dependencies": {
 				"get-east-asian-width": "1.6.0",
