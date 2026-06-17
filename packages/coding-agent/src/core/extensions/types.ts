@@ -1165,6 +1165,10 @@ export type InputEventResult =
 interface ToolCallEventBase {
 	type: "tool_call";
 	toolCallId: string;
+	/** Agent-run id this call belongs to (sub-agent runs only; undefined for the top-level session). */
+	agentId?: string;
+	/** The run that spawned this call's agent run; undefined at top level. */
+	parentAgentId?: string;
 }
 
 export interface BashToolCallEvent extends ToolCallEventBase {
@@ -1229,6 +1233,10 @@ interface ToolResultEventBase {
 	input: Record<string, unknown>;
 	content: (TextContent | ImageContent | ToolReferenceContent)[];
 	isError: boolean;
+	/** Agent-run id this result belongs to (sub-agent runs only; undefined for the top-level session). */
+	agentId?: string;
+	/** The run that spawned this result's agent run; undefined at top level. */
+	parentAgentId?: string;
 }
 
 export interface BashToolResultEvent extends ToolResultEventBase {

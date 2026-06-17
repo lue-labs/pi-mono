@@ -736,6 +736,13 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 			// Link this child's future delegations back to the run that spawned it.
 			parentRunId: options.taskId,
 		},
+		// Telemetry identity: this run is `options.taskId`; its parent is the caller's
+		// own run id (undefined at the top level). Lets observability exporters
+		// correlate a sub-agent's spans and link them to the spawning run.
+		agentRunIdentity: {
+			runId: options.taskId,
+			parentRunId: options.parentServices.parentRunId,
+		},
 		sessionStartEvent: { type: "session_start", reason: "startup", forkMetadata: options.task.forkMetadata },
 		// Tag the session-level source so non-input hooks (session_start,
 		// session_shutdown, turn_end, tool_call/tool_result, memory_note tool
@@ -977,6 +984,12 @@ async function resumeSingleBackgroundRun(
 			depth: childDepth,
 			// Link this child's future delegations back to the run being resumed.
 			parentRunId: recentRun.id,
+		},
+		// Telemetry identity: stable across resume — this run is `recentRun.id`, its
+		// parent the run that originally spawned it.
+		agentRunIdentity: {
+			runId: recentRun.id,
+			parentRunId: recentRun.parentRunId,
 		},
 		sessionStartEvent: {
 			type: "session_start",

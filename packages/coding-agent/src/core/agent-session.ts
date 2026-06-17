@@ -223,6 +223,19 @@ export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
 // Types
 // ============================================================================
 
+/**
+ * Identity of the agent run a session represents, for observability/telemetry
+ * correlation. Stamped onto emitted `tool_call`/`tool_result` events as
+ * `agentId` (this run) and `parentAgentId` (the run that spawned it). Both
+ * undefined for the top-level interactive session (it is not an agent run).
+ */
+export interface AgentRunIdentity {
+	/** This session's own agent-run id (`AgentRecentRun.id`). */
+	runId?: string;
+	/** The run that spawned this session; undefined at top level. */
+	parentRunId?: string;
+}
+
 export interface AgentSessionConfig {
 	agent: Agent;
 	sessionManager: SessionManager;
@@ -253,6 +266,8 @@ export interface AgentSessionConfig {
 	extensionRunnerRef?: { current?: ExtensionRunner };
 	/** Services shared with native child agent sessions. */
 	agentToolServices?: AgentToolParentServices;
+	/** Identity of this session's agent run, for telemetry correlation across nested sub-agents. */
+	agentRunIdentity?: AgentRunIdentity;
 	/** Session start event metadata emitted when extensions bind to this runtime. */
 	sessionStartEvent?: SessionStartEvent;
 	/**
@@ -465,6 +480,7 @@ export class AgentSession {
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
 	private _agentToolServices?: AgentToolParentServices;
+	private _agentRunIdentity?: AgentRunIdentity;
 	private _extensionUIContext?: ExtensionUIContext;
 	private _extensionMode: ExtensionMode = "print";
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
@@ -517,6 +533,7 @@ export class AgentSession {
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._agentToolServices = config.agentToolServices;
+		this._agentRunIdentity = config.agentRunIdentity;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 		if (config.source) this._source = config.source;
 
@@ -602,6 +619,8 @@ export class AgentSession {
 					toolName: toolCall.name,
 					toolCallId: toolCall.id,
 					input: args as Record<string, unknown>,
+					agentId: this._agentRunIdentity?.runId,
+					parentAgentId: this._agentRunIdentity?.parentRunId,
 				});
 			} catch (err) {
 				if (err instanceof Error) {
@@ -627,6 +646,8 @@ export class AgentSession {
 				content: currentResult.content,
 				details: currentResult.details,
 				isError,
+				agentId: this._agentRunIdentity?.runId,
+				parentAgentId: this._agentRunIdentity?.parentRunId,
 			});
 
 			if (!hookResult) {
