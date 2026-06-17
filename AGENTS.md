@@ -35,6 +35,10 @@ Canonical setup registry lives in `~/Projects/personal/my-pi/docs/pi-setup/`, no
 
 - TEMP 2026-05-20: Claude Code 2.1.145 read-truncation handoff lives at `packages/coding-agent/docs/claude-code-2.1.145-read-truncation-handoff.md`; delete this AGENTS.md line after seen/triaged.
 
+## Mac resource pressure
+
+If work changes child agents, tool loading, MCP adapters, monitors, background commands, session storage, prompt/cache behavior, or local runtime cleanup, read `~/Projects/personal/mac-resource-ops/VISION.md` and `~/Projects/personal/mac-resource-ops/docs/resource-graph.md` first. Prefer cheap child context where safe, lazy/deferred tools, bounded jobs, and explicit reaping/cleanup paths.
+
 ## Local Pi Docs
 
 Read local docs before changing the matching surface:
