@@ -3,7 +3,7 @@
   "checkpoint_id": "c2ad60640484",
   "strategy": "manual-commit",
   "branch": "lue/fuse-failure-reporting",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/pi-skill-workshop-audit.md",
     "extensions/skill-workshop/src/autocapture.ts",
@@ -18,6 +18,12 @@
       "metadata": "/c2/ad60640484/0/metadata.json",
       "transcript": "/c2/ad60640484/0/full.jsonl",
       "content_hash": "/c2/ad60640484/0/content_hash.txt",
+      "prompt": ""
+    },
+    {
+      "metadata": "/c2/ad60640484/1/metadata.json",
+      "transcript": "/c2/ad60640484/1/full.jsonl",
+      "content_hash": "/c2/ad60640484/1/content_hash.txt",
       "prompt": ""
     }
   ]
