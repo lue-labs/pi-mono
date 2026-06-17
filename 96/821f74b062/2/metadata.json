@@ -1,7 +1,9 @@
 {
   "cli_version": "0.7.3",
   "checkpoint_id": "96821f74b062",
+  "session_id": "019ed23c-9465-7c13-afa1-e5a3aecb8d82",
   "strategy": "manual-commit",
+  "created_at": "2026-06-17T11:52:20.431225Z",
   "branch": "wip/auto-merge-p2-mixed-closeout",
   "checkpoints_count": 0,
   "files_touched": [
@@ -50,24 +52,21 @@
     "test/extension-coverage-gate.test.mjs",
     "test/profile-cache-contract.test.mjs"
   ],
-  "sessions": [
-    {
-      "metadata": "/96/821f74b062/0/metadata.json",
-      "transcript": "/96/821f74b062/0/full.jsonl",
-      "content_hash": "/96/821f74b062/0/content_hash.txt",
-      "prompt": ""
-    },
-    {
-      "metadata": "/96/821f74b062/1/metadata.json",
-      "transcript": "/96/821f74b062/1/full.jsonl",
-      "content_hash": "/96/821f74b062/1/content_hash.txt",
-      "prompt": ""
-    },
-    {
-      "metadata": "/96/821f74b062/2/metadata.json",
-      "transcript": "/96/821f74b062/2/full.jsonl",
-      "content_hash": "/96/821f74b062/2/content_hash.txt",
-      "prompt": ""
-    }
-  ]
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "03d6efa2354d",
+  "checkpoint_transcript_start": 8,
+  "transcript_lines_at_start": 8,
+  "initial_attribution": {
+    "calculated_at": "2026-06-17T11:52:20.373267Z",
+    "agent_lines": 4402,
+    "agent_removed": 195,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4402,
+    "total_lines_changed": 4597,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
 }
