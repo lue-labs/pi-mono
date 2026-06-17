@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "7f013f6465db",
+  "session_id": "019ed23d-1716-7070-8594-c1c9bf693a9e",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-17T16:22:05.983045Z",
+  "branch": "lue/fuse-failure-reporting",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "scripts/headroom-dogfood.mjs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "a0380f2b1460",
+  "checkpoint_transcript_start": 8,
+  "transcript_lines_at_start": 8,
+  "initial_attribution": {
+    "calculated_at": "2026-06-17T16:22:05.976423Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 5,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 5,
+    "total_lines_changed": 7,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
