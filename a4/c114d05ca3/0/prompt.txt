@@ -1,0 +1,27 @@
+the headroom session in pi that I'm working on added headroom to do some testing, but then caused these errors, can we resolve this:
+ Error: {"type":"error","error":{"details":null,"type":"invalid_request_error","message":"`cache_control.scope: \"global\"`   
+ is only valid when every preceding block is also globally scoped. A block with `scope: \"global\"` was found after content   
+ with a narrower cache scope. Note that tool definitions render before `system` blocks, so `scope: \"global\"` on `system[0]` 
+ is not a true prefix when tools are present. Remove `scope: \"global\"` from the non-prefix block, or ensure all preceding   
+ content also uses `scope: \"global\"`."},"request_id":"req_011Cc92yw44p3gwrXHmi8CGx"        }
+
+---
+
+the opensync session in pi that I'm working on added headroom to do some testing, but then caused these errors, can we resolve this:
+ Error: {"type":"error","error":{"details":null,"type":"invalid_request_error","message":"`cache_control.scope: \"global\"`   
+ is only valid when every preceding block is also globally scoped. A block with `scope: \"global\"` was found after content   
+ with a narrower cache scope. Note that tool definitions render before `system` blocks, so `scope: \"global\"` on `system[0]` 
+ is not a true prefix when tools are present. Remove `scope: \"global\"` from the non-prefix block, or ensure all preceding   
+ content also uses `scope: \"global\"`."},"request_id":"req_011Cc92yw44p3gwrXHmi8CGx"        }
+
+---
+
+continue
+
+---
+
+ok commit and push
+
+---
+
+fix the stale claim
