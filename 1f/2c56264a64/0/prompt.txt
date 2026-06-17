@@ -1,0 +1,1 @@
+switch my claude-bridge to normal oauth and setup token off

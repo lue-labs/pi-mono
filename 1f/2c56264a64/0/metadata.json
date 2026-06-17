@@ -1,0 +1,68 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "1f2c56264a64",
+  "session_id": "e8ebb4aa-7232-4d39-979c-0a21fbd9c974",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-17T18:19:20.621062Z",
+  "branch": "lue/fuse-failure-reporting",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/usage-efficiency-plan.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "56c1face81c0",
+  "token_usage": {
+    "input_tokens": 5498,
+    "cache_creation_tokens": 27883,
+    "cache_read_tokens": 243435,
+    "output_tokens": 4397,
+    "api_call_count": 7
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-17T18:19:20.616327Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 1,
+    "total_committed": 0,
+    "total_lines_changed": 1,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 608,
+      "user_lines_removed": 34,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-17T12-29-01Z-a9ef3d59.md": 248,
+        "docs/goals/goal-2026-06-17T13-57-59Z-5fc017ed.md": 55,
+        "docs/usage-efficiency-plan.md": 3,
+        "extensions/fusion/README.md": 14,
+        "extensions/fusion/src/core.ts": 67,
+        "extensions/fusion/src/fusion.ts": 83,
+        "extensions/fusion/src/index.ts": 35,
+        "extensions/fusion/src/prompts.ts": 35,
+        "extensions/fusion/src/tool.ts": 22,
+        "extensions/fusion/test/fusion.test.mjs": 46
+      },
+      "user_removed_per_file": {
+        "docs/usage-efficiency-plan.md": 1,
+        "extensions/fusion/README.md": 1,
+        "extensions/fusion/src/core.ts": 7,
+        "extensions/fusion/src/fusion.ts": 12,
+        "extensions/fusion/src/index.ts": 11,
+        "extensions/fusion/src/prompts.ts": 1,
+        "extensions/fusion/src/tool.ts": 1
+      }
+    }
+  ]
+}
