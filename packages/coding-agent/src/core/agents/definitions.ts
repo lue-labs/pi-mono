@@ -6,7 +6,9 @@ export const BUILTIN_AGENT_DEFINITIONS: AgentDefinition[] = [
 		description:
 			"Delegated task execution for children that must write files OR run bash with mutation (rm/mv/git push/npm install/...) OR mix search+edit+verify in one run. For pure read-only investigation use `explore` (now has read-only bash for git log/diff/cat etc.); for scoped implementation with known file paths use `worker`.",
 		tools: "*",
-		denyTools: ["agent"],
+		// No denyTools["agent"]: general is the one builtin allowed to nest. Whether it
+		// can actually delegate is gated at runtime by `subagents.maxDelegationDepth`
+		// (default 0 = no nesting) via the executor's engine-binding depth cap.
 		model: "inherit",
 		thinking: "inherit",
 		defaultContext: "default",
