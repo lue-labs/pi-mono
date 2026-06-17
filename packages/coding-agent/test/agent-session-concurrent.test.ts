@@ -454,10 +454,15 @@ describe("AgentSession concurrent prompt guard", () => {
 				) => Promise<undefined>;
 				invalidate: (message?: string) => void;
 				fireSessionDispose?: () => void;
+				applySystemPromptBuildFilters: (
+					systemPrompt: string,
+					systemPromptOptions: BuildSystemPromptOptions,
+				) => Promise<string>;
 			};
 		};
 		sessionWithRunner._extensionRunner = {
 			hasHandlers: (eventType) => eventType === "tool_call",
+			applySystemPromptBuildFilters: async (systemPrompt: string) => systemPrompt,
 			fireSessionDispose: () => {},
 			emit: async () => {},
 			emitMessageEnd: async () => undefined,
@@ -601,10 +606,15 @@ describe("AgentSession concurrent prompt guard", () => {
 				) => Promise<undefined>;
 				invalidate: (message?: string) => void;
 				fireSessionDispose?: () => void;
+				applySystemPromptBuildFilters: (
+					systemPrompt: string,
+					systemPromptOptions: BuildSystemPromptOptions,
+				) => Promise<string>;
 			};
 		};
 		sessionWithRunner._extensionRunner = {
 			hasHandlers: () => false,
+			applySystemPromptBuildFilters: async (systemPrompt: string) => systemPrompt,
 			fireSessionDispose: () => {},
 			emit: async () => {},
 			emitMessageEnd: async (event) => {

@@ -132,14 +132,20 @@ describe("bedrock convertMessages skips unknown content types", () => {
 		expect(p.messages[0].content).toEqual([{ text: "<empty>" }]);
 	});
 
-	it("replaces blank user string content with a placeholder", async () => {
+	it("drops a lone blank user string message (filtered upstream by transformMessages)", async () => {
+		// A user message whose entire content is blank carries no visible content, so
+		// transformMessages (hasVisibleUserContent) removes it before the bedrock
+		// converter runs -- this preserves assistant tool_use -> toolResult adjacency
+		// (CACHE CRITICAL). The per-message "<empty>" placeholder still applies to a
+		// message that keeps a non-empty content array which only empties out during
+		// conversion (e.g. the unknown-only blocks case above), since that array counts
+		// as visible content and is not dropped upstream.
 		const payload = await capturePayload({
 			messages: [{ role: "user", content: "   ", timestamp: Date.now() }],
 		});
 		expect(payload).toBeDefined();
 		const p = payload as { messages: Array<{ role: string; content: unknown[] }> };
-		expect(p.messages).toHaveLength(1);
-		expect(p.messages[0].content).toEqual([{ text: "<empty>" }]);
+		expect(p.messages).toHaveLength(0);
 	});
 
 	it("filters blank user text blocks when other content remains", async () => {
