@@ -70,6 +70,8 @@ export interface CreateAgentSessionFromServicesOptions {
 	 * child agents. Omit to leave the child unable to delegate (engine unbound).
 	 */
 	agentToolServices?: CreateAgentSessionOptions["agentToolServices"];
+	/** Identity of this session's agent run, forwarded to telemetry. See `CreateAgentSessionOptions.agentRunIdentity`. */
+	agentRunIdentity?: CreateAgentSessionOptions["agentRunIdentity"];
 }
 
 /**
@@ -212,5 +214,6 @@ export async function createAgentSessionFromServices(
 		sessionStartEvent: options.sessionStartEvent,
 		source: options.source,
 		agentToolServices: options.agentToolServices,
+		agentRunIdentity: options.agentRunIdentity,
 	});
 }

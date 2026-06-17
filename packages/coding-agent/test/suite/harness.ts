@@ -9,7 +9,7 @@ import type { AgentMessage, AgentTool } from "@valkyriweb/pi-agent-core";
 import { Agent } from "@valkyriweb/pi-agent-core";
 import type { FauxModelDefinition, FauxProviderRegistration, FauxResponseStep, Model } from "@valkyriweb/pi-ai";
 import { registerFauxProvider } from "@valkyriweb/pi-ai";
-import { AgentSession, type AgentSessionEvent } from "../../src/core/agent-session.ts";
+import { type AgentRunIdentity, AgentSession, type AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
 import { convertToLlm } from "../../src/core/messages.ts";
@@ -67,6 +67,8 @@ export interface HarnessOptions {
 	extensionFactories?: Array<ExtensionFactory | CreateTestExtensionsResultInput>;
 	withConfiguredAuth?: boolean;
 	provider?: string;
+	/** Identity of the agent run this session represents (for telemetry-identity tests). */
+	agentRunIdentity?: AgentRunIdentity;
 }
 
 export interface Harness {
@@ -183,6 +185,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		allowedToolNames: options.allowedToolNames,
 		excludedToolNames: options.excludedToolNames,
 		extensionRunnerRef,
+		agentRunIdentity: options.agentRunIdentity,
 	});
 
 	const events: AgentSessionEvent[] = [];

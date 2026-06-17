@@ -3,7 +3,7 @@ import { Agent, type AgentMessage, type ThinkingLevel } from "@valkyriweb/pi-age
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@valkyriweb/pi-ai";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
-import { AgentSession } from "./agent-session.ts";
+import { type AgentRunIdentity, AgentSession } from "./agent-session.ts";
 import type { AgentToolParentServices } from "./agents/executor.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
@@ -102,6 +102,11 @@ export interface CreateAgentSessionOptions {
 	 * for nested child agents. When omitted, top-level services (depth 0) are built.
 	 */
 	agentToolServices?: AgentToolParentServices;
+	/**
+	 * Identity of the agent run this session represents, for observability
+	 * correlation. Stamped onto emitted tool events as `agentId`/`parentAgentId`.
+	 */
+	agentRunIdentity?: AgentRunIdentity;
 }
 
 /** Result from createAgentSession */
@@ -489,6 +494,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// Honour explicitly-provided services (carry a delegation `depth` for nested
 		// child agents); otherwise default to top-level services (depth 0).
 		agentToolServices: options.agentToolServices ?? { cwd, agentDir, authStorage, settingsManager, modelRegistry },
+		agentRunIdentity: options.agentRunIdentity,
 		initialActiveToolNames,
 		allowedToolNames,
 		excludedToolNames,
