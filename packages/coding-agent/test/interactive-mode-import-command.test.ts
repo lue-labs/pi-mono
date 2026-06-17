@@ -12,6 +12,7 @@ type InteractiveModePrototype = {
 type ImportCommandContext = {
 	loadingAnimation?: { stop: () => void };
 	statusContainer: { clear: () => void };
+	stopWorkingLoader: () => void;
 	runtimeHost: { importFromJsonl: (inputPath: string, cwdOverride?: string) => Promise<{ cancelled: boolean }> };
 	showError: (message: string) => void;
 	showStatus: (message: string) => void;
@@ -70,6 +71,7 @@ describe("InteractiveMode /import parsing", () => {
 			}),
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
+			stopWorkingLoader: vi.fn(),
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, '/import "path/to/session.jsonl"');
@@ -102,6 +104,7 @@ describe("InteractiveMode /import parsing", () => {
 			}),
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
+			stopWorkingLoader: vi.fn(),
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, "/import john's/session.jsonl");
@@ -133,6 +136,7 @@ describe("InteractiveMode /import parsing", () => {
 			handleFatalRuntimeError,
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
+			stopWorkingLoader: vi.fn(),
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, "/import /tmp/missing-session.jsonl");

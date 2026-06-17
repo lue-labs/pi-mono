@@ -33,8 +33,13 @@ describe("shouldRunFirstTimeSetup", () => {
 		}
 	});
 
-	it("returns true when experimental, default agent dir, and no settings.json", () => {
-		expect(shouldRunFirstTimeSetup(settingsPath)).toBe(true);
+	it("never runs on an unofficial (fork) distribution even when other conditions favor setup", () => {
+		// First-time setup is gated to the official Pi distribution via
+		// isOfficialDistribution in startup-ui.ts; this fork (@valkyriweb) is
+		// deliberately treated as unofficial, so setup never runs regardless of
+		// experimental mode, default agent dir, or a missing settings.json. The
+		// remaining cases below stay false for the same reason on this fork.
+		expect(shouldRunFirstTimeSetup(settingsPath)).toBe(false);
 	});
 
 	it("returns false when experimental features are disabled", () => {

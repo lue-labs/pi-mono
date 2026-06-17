@@ -25,8 +25,17 @@ describe("built-in agent definitions", () => {
 	test("read-only agents do not allow mutating tools or recursive agent", () => {
 		for (const agent of getBuiltinAgentDefinitions()) {
 			if (!READ_ONLY_AGENTS.has(agent.id)) continue;
-			expect(agent.denyTools).toEqual(expect.arrayContaining(["agent", "edit", "write", "bash"]));
-			expect(agent.tools).toEqual(["read", "grep", "find", "ls"]);
+			// `explore` intentionally keeps read-only `bash` (git log/status/diff, cat,
+			// gh pr view) gated to non-mutating commands by EXPLORE_BASH_POLICY in the
+			// executor; the other read-only agents deny bash outright.
+			if (agent.id === "explore") {
+				expect(agent.denyTools).toEqual(expect.arrayContaining(["agent", "edit", "write"]));
+				expect(agent.denyTools).not.toContain("bash");
+				expect(agent.tools).toEqual(["read", "grep", "find", "ls", "bash"]);
+			} else {
+				expect(agent.denyTools).toEqual(expect.arrayContaining(["agent", "edit", "write", "bash"]));
+				expect(agent.tools).toEqual(["read", "grep", "find", "ls"]);
+			}
 		}
 	});
 
@@ -60,7 +69,9 @@ describe("built-in agent definitions", () => {
 		// Anti-duplication clause.
 		expect(joined).toMatch(/don't also run it yourself/i);
 		// Explore listed with breadth dial.
-		const exploreLine = agentTool.promptGuidelines?.find((line) => line.includes("`explore`"));
+		const exploreLine = agentTool.promptGuidelines?.find(
+			(line) => line.includes("`explore`") && line.includes("no transcript"),
+		);
 		expect(exploreLine).toContain("no transcript/project context/skills");
 		expect(exploreLine).toMatch(/quick \| medium \| very thorough/);
 	});

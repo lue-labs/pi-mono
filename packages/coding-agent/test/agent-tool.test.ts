@@ -89,10 +89,10 @@ describe("agent tool", () => {
 
 	test("future Claude fields reject instead of being silently ignored", () => {
 		expect(() =>
-			normalizeAgentToolAliases({ agent: "explore", task: "find", cwd: "/tmp" } as Parameters<
+			normalizeAgentToolAliases({ agent: "explore", task: "find", worktree: "/tmp" } as Parameters<
 				typeof normalizeAgentToolAliases
 			>[0]),
-		).toThrow("cwd is not supported yet");
+		).toThrow("worktree is not supported yet");
 	});
 
 	test("all-tool registry includes agent, Agent, and Task with Claude-style fields", () => {
