@@ -3,7 +3,7 @@
   "checkpoint_id": "1f2c56264a64",
   "strategy": "manual-commit",
   "branch": "lue/fuse-failure-reporting",
-  "checkpoints_count": 1,
+  "checkpoints_count": 4,
   "files_touched": [
     "docs/usage-efficiency-plan.md"
   ],
@@ -13,13 +13,19 @@
       "transcript": "/1f/2c56264a64/0/full.jsonl",
       "content_hash": "/1f/2c56264a64/0/content_hash.txt",
       "prompt": "/1f/2c56264a64/0/prompt.txt"
+    },
+    {
+      "metadata": "/1f/2c56264a64/1/metadata.json",
+      "transcript": "/1f/2c56264a64/1/full.jsonl",
+      "content_hash": "/1f/2c56264a64/1/content_hash.txt",
+      "prompt": "/1f/2c56264a64/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 5498,
-    "cache_creation_tokens": 27883,
-    "cache_read_tokens": 243435,
-    "output_tokens": 4397,
-    "api_call_count": 7
+    "input_tokens": 14225,
+    "cache_creation_tokens": 194462,
+    "cache_read_tokens": 6329697,
+    "output_tokens": 83932,
+    "api_call_count": 63
   }
 }

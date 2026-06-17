@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "1f2c56264a64",
+  "session_id": "fc2c23fc-b044-40fc-ba0f-293993e1ba25",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-17T18:19:20.972292Z",
+  "branch": "lue/fuse-failure-reporting",
+  "checkpoints_count": 3,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/usage-efficiency-plan.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "29799566fe93",
+  "token_usage": {
+    "input_tokens": 8727,
+    "cache_creation_tokens": 166579,
+    "cache_read_tokens": 6086262,
+    "output_tokens": 79535,
+    "api_call_count": 56
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-17T18:19:20.951945Z",
+    "agent_lines": 3,
+    "agent_removed": 1,
+    "human_added": 303,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 306,
+    "total_lines_changed": 307,
+    "agent_percentage": 1.3029315960912053,
+    "metric_version": 2
+  }
+}
