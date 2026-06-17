@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "b22a962cb1eb",
+  "strategy": "manual-commit",
+  "branch": "lue/fuse-failure-reporting",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/headroom-dogfood.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b2/2a962cb1eb/0/metadata.json",
+      "transcript": "/b2/2a962cb1eb/0/full.jsonl",
+      "content_hash": "/b2/2a962cb1eb/0/content_hash.txt",
+      "prompt": "/b2/2a962cb1eb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8727,
+    "cache_creation_tokens": 166579,
+    "cache_read_tokens": 6086262,
+    "output_tokens": 79535,
+    "api_call_count": 56
+  }
+}
