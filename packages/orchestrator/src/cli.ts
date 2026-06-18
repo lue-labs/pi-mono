@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { cwd } from "node:process";
 import { fileURLToPath } from "node:url";
+import { sendIpcRequest } from "./ipc/client.ts";
 import { serve } from "./serve.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,8 +14,20 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, "../package.json"), 
 
 function printHelp(): void {
 	console.log(
-		`orchestrator v${packageJson.version}\n\nUsage:\n  orchestrator serve\n  orchestrator --help\n  orchestrator --version`,
+		`orchestrator v${packageJson.version}\n\nUsage:\n  orchestrator serve\n  orchestrator list\n  orchestrator spawn [--cwd <path>] [--label <label>]\n  orchestrator status <instance-id>\n  orchestrator stop <instance-id>\n  orchestrator --help\n  orchestrator --version`,
 	);
+}
+
+function printResponse(response: unknown): void {
+	console.log(JSON.stringify(response, null, 2));
+}
+
+function getFlagValue(args: string[], flag: string): string | undefined {
+	const index = args.indexOf(flag);
+	if (index === -1 || index + 1 >= args.length) {
+		return undefined;
+	}
+	return args[index + 1];
 }
 
 async function main(): Promise<void> {
@@ -31,6 +45,38 @@ async function main(): Promise<void> {
 
 	if (args[0] === "serve") {
 		await serve();
+		return;
+	}
+
+	if (args[0] === "list") {
+		printResponse(await sendIpcRequest({ type: "list" }));
+		return;
+	}
+
+	if (args[0] === "spawn") {
+		const spawnCwd = getFlagValue(args, "--cwd") ?? cwd();
+		const label = getFlagValue(args, "--label");
+		printResponse(await sendIpcRequest({ type: "spawn", cwd: spawnCwd, label }));
+		return;
+	}
+
+	if (args[0] === "status") {
+		const instanceId = args[1];
+		if (!instanceId) {
+			console.error("Usage: orchestrator status <instance-id>");
+			process.exit(1);
+		}
+		printResponse(await sendIpcRequest({ type: "status", instanceId }));
+		return;
+	}
+
+	if (args[0] === "stop") {
+		const instanceId = args[1];
+		if (!instanceId) {
+			console.error("Usage: orchestrator stop <instance-id>");
+			process.exit(1);
+		}
+		printResponse(await sendIpcRequest({ type: "stop", instanceId }));
 		return;
 	}
 
