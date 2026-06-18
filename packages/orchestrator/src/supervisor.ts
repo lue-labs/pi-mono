@@ -6,8 +6,11 @@ import {
 	createAgentSessionRuntime,
 	createAgentSessionServices,
 	getAgentDir,
+	type RpcCommand,
+	type RpcResponse,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { handleRpcCommand } from "./rpc-bridge.ts";
 import { getInstance, loadInstances, removeInstance, upsertInstance } from "./storage.ts";
 import type { InstanceRecord } from "./types.ts";
 
@@ -93,6 +96,15 @@ export class OrchestratorSupervisor {
 		this.liveInstances.delete(instanceId);
 		removeInstance(instanceId);
 		return cloneInstance(live.record);
+	}
+
+	async handleRpc(instanceId: string, command: RpcCommand): Promise<RpcResponse | undefined> {
+		const live = this.liveInstances.get(instanceId);
+		if (!live) {
+			return undefined;
+		}
+
+		return handleRpcCommand(live.runtime, command);
 	}
 }
 

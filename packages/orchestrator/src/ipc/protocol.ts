@@ -1,3 +1,4 @@
+import type { RpcCommand, RpcResponse } from "@earendil-works/pi-coding-agent";
 import type { InstanceStatus } from "../types.ts";
 
 export interface SpawnRequest {
@@ -22,11 +23,18 @@ export interface StatusRequest {
 	instanceId: string;
 }
 
+export interface RpcRequest {
+	type: "rpc";
+	instanceId: string;
+	command: RpcCommand;
+}
+
 export interface RequestMap {
 	spawn: SpawnRequest;
 	list: ListRequest;
 	stop: StopRequest;
 	status: StatusRequest;
+	rpc: RpcRequest;
 }
 
 export type OrchestratorRequest = RequestMap[keyof RequestMap];
@@ -64,6 +72,11 @@ export interface StatusResponse extends ResponseBase {
 	instance?: InstanceSummary;
 }
 
+export interface RpcBridgeResponse extends ResponseBase {
+	type: "rpc_result";
+	response: RpcResponse;
+}
+
 export interface ErrorResponse extends ResponseBase {
 	type: "error";
 	ok: false;
@@ -75,6 +88,7 @@ export interface ResponseMap {
 	list: ListResponse;
 	stop: StopResponse;
 	status: StatusResponse;
+	rpc: RpcBridgeResponse;
 }
 
 export type OrchestratorResponse = ResponseMap[keyof ResponseMap] | ErrorResponse;

@@ -9,6 +9,8 @@ import {
 	type OrchestratorRequest,
 	type OrchestratorResponse,
 	parseRequestLine,
+	type RpcBridgeResponse,
+	type RpcRequest,
 	type SpawnRequest,
 	type SpawnResponse,
 	type StatusRequest,
@@ -22,6 +24,7 @@ export interface IpcRequestHandler {
 	(request: ListRequest): Promise<ListResponse | ErrorResponse> | ListResponse | ErrorResponse;
 	(request: StopRequest): Promise<StopResponse | ErrorResponse> | StopResponse | ErrorResponse;
 	(request: StatusRequest): Promise<StatusResponse | ErrorResponse> | StatusResponse | ErrorResponse;
+	(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse> | RpcBridgeResponse | ErrorResponse;
 	(request: OrchestratorRequest): Promise<OrchestratorResponse> | OrchestratorResponse;
 }
 

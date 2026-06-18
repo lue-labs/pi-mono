@@ -14,7 +14,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, "../package.json"), 
 
 function printHelp(): void {
 	console.log(
-		`orchestrator v${packageJson.version}\n\nUsage:\n  orchestrator serve\n  orchestrator list\n  orchestrator spawn [--cwd <path>] [--label <label>]\n  orchestrator status <instance-id>\n  orchestrator stop <instance-id>\n  orchestrator --help\n  orchestrator --version`,
+		`orchestrator v${packageJson.version}\n\nUsage:\n  orchestrator serve\n  orchestrator list\n  orchestrator spawn [--cwd <path>] [--label <label>]\n  orchestrator status <instance-id>\n  orchestrator stop <instance-id>\n  orchestrator rpc <instance-id> <json-command>\n  orchestrator --help\n  orchestrator --version`,
 	);
 }
 
@@ -77,6 +77,23 @@ async function main(): Promise<void> {
 			process.exit(1);
 		}
 		printResponse(await sendIpcRequest({ type: "stop", instanceId }));
+		return;
+	}
+
+	if (args[0] === "rpc") {
+		const instanceId = args[1];
+		const commandJson = args[2];
+		if (!instanceId || !commandJson) {
+			console.error("Usage: orchestrator rpc <instance-id> <json-command>");
+			process.exit(1);
+		}
+		printResponse(
+			await sendIpcRequest({
+				type: "rpc",
+				instanceId,
+				command: JSON.parse(commandJson),
+			}),
+		);
 		return;
 	}
 

@@ -5,6 +5,8 @@ import type {
 	ListResponse,
 	OrchestratorRequest,
 	OrchestratorResponse,
+	RpcBridgeResponse,
+	RpcRequest,
 	SpawnRequest,
 	SpawnResponse,
 	StatusRequest,
@@ -38,6 +40,7 @@ export async function handleIpcRequest(request: SpawnRequest): Promise<SpawnResp
 export async function handleIpcRequest(request: ListRequest): Promise<ListResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StopRequest): Promise<StopResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StatusRequest): Promise<StatusResponse | ErrorResponse>;
+export async function handleIpcRequest(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse> {
 	switch (request.type) {
@@ -84,6 +87,19 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 				type: "stop_result",
 				ok: true,
 				instanceId: request.instanceId,
+			};
+		}
+
+		case "rpc": {
+			const response = await supervisor.handleRpc(request.instanceId, request.command);
+			if (!response) {
+				return unknownInstanceError(request.instanceId);
+			}
+
+			return {
+				type: "rpc_result",
+				ok: true,
+				response,
 			};
 		}
 	}
