@@ -381,6 +381,21 @@ export interface ContextUsage {
 	contextWindow: number;
 	/** Context usage as percentage of context window, or null if tokens is unknown. */
 	percent: number | null;
+	/** Optional diagnostic detail used by TUI/status surfaces; callers must tolerate absence. */
+	details?: {
+		source: "provider_usage" | "loaded_estimate";
+		/** Loaded context estimate: system prompt + transcript + schemas that are actually loaded. */
+		loadedContextTokens?: number;
+		/** Provider-reported usage when available; usually conservative for compaction/extensions. */
+		providerUsageTokens?: number;
+		systemPromptTokens?: number;
+		transcriptTokens?: number;
+		loadedToolSchemaTokens?: number;
+		deferredToolSchemaTokens?: number;
+		loadedToolCount?: number;
+		deferredToolCount?: number;
+		loadedDeferredToolCount?: number;
+	};
 }
 
 export interface CompactOptions {

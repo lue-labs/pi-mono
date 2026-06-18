@@ -70,6 +70,8 @@ function getContextUsageFor(options: {
 	activeToolNames?: string[];
 	contextWindow?: number;
 	nativeDeferredTools?: boolean;
+	loadedDeferredToolNames?: string[];
+	useProviderUsage?: boolean;
 }) {
 	const contextWindow = options.contextWindow ?? 1000;
 	const branch = options.branch ?? [];
@@ -80,6 +82,8 @@ function getContextUsageFor(options: {
 		activeToolNames: options.activeToolNames ?? [],
 		contextWindow,
 		nativeDeferredTools: options.nativeDeferredTools,
+		loadedDeferredToolNames: options.loadedDeferredToolNames,
+		useProviderUsage: options.useProviderUsage,
 	});
 	const service: ContextUsageSnapshotService = {
 		get: () => snapshot,
@@ -109,10 +113,14 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: 150,
 			contextWindow: 1000,
 			percent: 15,
+		});
+		expect(usage?.details).toMatchObject({
+			source: "loaded_estimate",
+			loadedToolSchemaTokens: 40,
 		});
 	});
 
@@ -130,14 +138,14 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: expectedTokens,
 			contextWindow: 1000,
 			percent: (expectedTokens / 1000) * 100,
 		});
 	});
 
-	it("counts deferred tool schemas after they become active", () => {
+	it("counts deferred tool schemas after they become active on fallback providers", () => {
 		const deferredTool = {
 			...toolDefinition("deferred_tool", "d".repeat(400)),
 			deferLoading: true,
@@ -150,18 +158,19 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: expectedTokens,
 			contextWindow: 1000,
 			percent: (expectedTokens / 1000) * 100,
 		});
 	});
 
-	it("does not count active native-deferred schemas as loaded context", () => {
+	it("does not count active native-deferred schemas as loaded context before discovery", () => {
 		const deferredTool = {
 			...toolDefinition("Find", "d".repeat(400)),
 			deferLoading: true,
 		};
+		const deferredTokens = estimateToolSchemaTokens([deferredTool]);
 		const usage = getContextUsageFor({
 			systemPrompt: "x".repeat(200),
 			toolDefinitions: [deferredTool],
@@ -170,10 +179,43 @@ describe("AgentSession context usage", () => {
 			nativeDeferredTools: true,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: 50,
 			contextWindow: 1000,
 			percent: 5,
+		});
+		expect(usage?.details).toMatchObject({
+			loadedToolSchemaTokens: 0,
+			deferredToolSchemaTokens: deferredTokens,
+			deferredToolCount: 1,
+		});
+	});
+
+	it("counts discovered native-deferred schemas as loaded context", () => {
+		const deferredTool = {
+			...toolDefinition("Find", "d".repeat(400)),
+			deferLoading: true,
+		};
+		const loadedToolTokens = estimateToolSchemaTokens([deferredTool]);
+		const expectedTokens = 50 + loadedToolTokens;
+		const usage = getContextUsageFor({
+			systemPrompt: "x".repeat(200),
+			toolDefinitions: [deferredTool],
+			activeToolNames: [deferredTool.name],
+			contextWindow: 1000,
+			nativeDeferredTools: true,
+			loadedDeferredToolNames: [deferredTool.name],
+		});
+
+		expect(usage).toMatchObject({
+			tokens: expectedTokens,
+			contextWindow: 1000,
+			percent: (expectedTokens / 1000) * 100,
+		});
+		expect(usage?.details).toMatchObject({
+			loadedToolSchemaTokens: loadedToolTokens,
+			deferredToolSchemaTokens: 0,
+			loadedDeferredToolCount: 1,
 		});
 	});
 
@@ -189,20 +231,26 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: 120,
 			contextWindow: 1000,
 			percent: 12,
 		});
+		expect(usage?.details?.source).toBe("provider_usage");
 	});
 
-	it("prefers completed assistant transcript usage over a stale service estimate", () => {
+	it("keeps provider usage as the public token count while merging snapshot details", () => {
 		const branch = [
 			messageEntry(assistantMessage(110), "assistant"),
 			messageEntry(userMessage("u".repeat(40)), "trailing-user"),
 		];
 		const service: ContextUsageSnapshotService = {
-			get: () => ({ tokens: 500, contextWindow: 1000, percent: 50 }),
+			get: () => ({
+				tokens: 500,
+				contextWindow: 1000,
+				percent: 50,
+				details: { source: "loaded_estimate", loadedContextTokens: 140, deferredToolSchemaTokens: 30 },
+			}),
 		};
 
 		const usage = AgentSession.prototype.getContextUsage.call({
@@ -217,10 +265,16 @@ describe("AgentSession context usage", () => {
 			},
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: 120,
 			contextWindow: 1000,
 			percent: 12,
+			details: {
+				source: "provider_usage",
+				providerUsageTokens: 120,
+				loadedContextTokens: 140,
+				deferredToolSchemaTokens: 30,
+			},
 		});
 	});
 
@@ -285,7 +339,7 @@ describe("AgentSession context usage", () => {
 
 		handlers.get("before_agent_start")?.[0]?.({ systemPrompt: preparedPrompt }, ctx);
 
-		expect(service?.get()).toEqual({
+		expect(service?.get()).toMatchObject({
 			tokens: expectedTokens,
 			contextWindow: 1000,
 			percent: (expectedTokens / 1000) * 100,

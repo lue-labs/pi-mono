@@ -4,6 +4,7 @@ import {
 	estimateContextUsageSnapshot,
 } from "../context-usage.ts";
 import { getDeferredToolCapabilities } from "../deferred-tool-capabilities.ts";
+import { scanDiscoveredDeferredToolNames } from "../deferred-tools.ts";
 import { addAction, load } from "./extension-hooks.ts";
 import type { ContextUsage, ExtensionAPI, ExtensionContext } from "./types.ts";
 
@@ -38,13 +39,20 @@ export function hookContextUsage(pi: ExtensionAPI): void {
 			return;
 		}
 
+		const branch = ctx.sessionManager.getBranch();
+		const discoveryScanInputs: unknown[] = [];
+		for (const entry of branch) {
+			discoveryScanInputs.push(entry);
+			if (entry.type === "message") discoveryScanInputs.push(entry.message);
+		}
 		snapshot = estimateContextUsageSnapshot({
-			branch: ctx.sessionManager.getBranch(),
+			branch,
 			systemPrompt,
 			toolDefinitions: pi.tools.definitions(),
 			activeToolNames: pi.tools.active(),
 			contextWindow,
 			nativeDeferredTools: getDeferredToolCapabilities(ctx.model).nativeDeferredTools,
+			loadedDeferredToolNames: scanDiscoveredDeferredToolNames(discoveryScanInputs),
 		});
 	};
 

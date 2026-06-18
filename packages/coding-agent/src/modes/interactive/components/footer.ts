@@ -235,10 +235,11 @@ export class FooterComponent implements Component {
 
 		const contextUsage = this.session.getContextUsage();
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
-		const contextPercentValue = contextUsage?.percent ?? 0;
-		const contextPercent = contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
-		const contextTokens = contextUsage?.tokens ?? null;
-		const knownTokens = contextTokens ?? 0;
+		const displayContextTokens = contextUsage?.details?.loadedContextTokens ?? contextUsage?.tokens ?? null;
+		const contextPercentValue =
+			displayContextTokens === null || contextWindow <= 0 ? 0 : (displayContextTokens / contextWindow) * 100;
+		const contextPercent = displayContextTokens === null ? "?" : contextPercentValue.toFixed(1);
+		const knownTokens = displayContextTokens ?? 0;
 
 		// CWD with ~ substitution
 		const basePwd = formatCwdForFooter(
@@ -333,9 +334,11 @@ export class FooterComponent implements Component {
 
 		// Context % — each piece coloured independently (no outer dim wrapper)
 		const autoIndicator = this.autoCompactEnabled ? " (auto)" : "";
-		const contextTokensDisplay = contextTokens === null ? "?" : formatTokens(contextTokens);
+		const contextTokensDisplay = displayContextTokens === null ? "?" : formatTokens(displayContextTokens);
 		const percentLabel = contextPercent === "?" ? "?%" : `${contextPercent}%`;
-		const tokensLabel = `${contextTokensDisplay}/${formatTokens(contextWindow)}${autoIndicator}`;
+		const deferredToolTokens = contextUsage?.details?.deferredToolSchemaTokens ?? 0;
+		const deferredLabel = deferredToolTokens > 0 ? `+d${formatTokens(deferredToolTokens)}` : "";
+		const tokensLabel = `${contextTokensDisplay}${deferredLabel}/${formatTokens(contextWindow)}${autoIndicator}`;
 
 		let ctxPct: string;
 		if (contextPercentValue > 90) {

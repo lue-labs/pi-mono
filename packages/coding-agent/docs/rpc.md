@@ -534,7 +534,7 @@ Response:
 }
 ```
 
-`tokens` contains assistant usage totals for the current session state. `contextUsage` contains the actual current context-window estimate used for compaction and footer display.
+`tokens` contains assistant usage totals for the current session state. `contextUsage.tokens` is the provider-backed/conservative context-window count when available, with estimated trailing messages added. Deferred-tool-aware status surfaces may also use `contextUsage.details.loadedContextTokens` to display the loaded prompt separately from unloaded provider-deferred tool schemas (`contextUsage.details.deferredToolSchemaTokens`).
 
 `contextUsage` is omitted when no model or context window is available. `contextUsage.tokens` and `contextUsage.percent` are `null` immediately after compaction until a fresh post-compaction assistant response provides valid usage data.
 

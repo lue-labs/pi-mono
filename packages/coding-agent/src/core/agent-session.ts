@@ -4242,6 +4242,11 @@ export class AgentSession {
 			}
 		}
 
+		const contextUsageService =
+			this._extensionRunner?.getService<ContextUsageSnapshotService>(CONTEXT_USAGE_SERVICE_ID);
+		const serviceUsage = contextUsageService?.get();
+		const matchingServiceUsage = serviceUsage?.contextWindow === contextWindow ? serviceUsage : undefined;
+
 		const estimate = estimateContextTokens(this.messages);
 		if (estimate.lastUsageIndex !== null) {
 			const tokens = estimate.tokens;
@@ -4249,13 +4254,15 @@ export class AgentSession {
 				tokens,
 				contextWindow,
 				percent: (tokens / contextWindow) * 100,
+				details: {
+					...matchingServiceUsage?.details,
+					source: "provider_usage",
+					providerUsageTokens: tokens,
+				},
 			};
 		}
 
-		const contextUsageService =
-			this._extensionRunner?.getService<ContextUsageSnapshotService>(CONTEXT_USAGE_SERVICE_ID);
-		const serviceUsage = contextUsageService?.get();
-		if (serviceUsage && serviceUsage.contextWindow === contextWindow) return serviceUsage;
+		if (matchingServiceUsage) return matchingServiceUsage;
 
 		const systemPromptTokens = estimateSystemPromptTokens(this.systemPrompt);
 		const tokens = estimate.tokens + systemPromptTokens;
