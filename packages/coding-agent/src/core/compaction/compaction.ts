@@ -862,6 +862,7 @@ export async function compact(
 						thinkingLevel,
 						streamFn,
 						env,
+						cacheSafeContext,
 					)
 				: Promise.resolve("No prior history."),
 			generateTurnPrefixSummary(

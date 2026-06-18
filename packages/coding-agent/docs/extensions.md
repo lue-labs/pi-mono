@@ -926,7 +926,7 @@ Current working directory.
 Use `CONFIG_DIR_NAME` instead of hardcoding `.pi` when constructing project-local config paths. Rebranded distributions can use a different config directory name.
 
 ```typescript
-import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, type ExtensionAPI } from "@valkyriweb/pi-coding-agent";
 import { join } from "node:path";
 
 export default function (pi: ExtensionAPI) {
