@@ -4,12 +4,26 @@ import { getSocketPath } from "../config.ts";
 import {
 	type ErrorResponse,
 	encodeMessage,
+	type ListRequest,
+	type ListResponse,
 	type OrchestratorRequest,
+	type OrchestratorResponse,
 	parseRequestLine,
-	type ResponseFor,
+	type SpawnRequest,
+	type SpawnResponse,
+	type StatusRequest,
+	type StatusResponse,
+	type StopRequest,
+	type StopResponse,
 } from "./protocol.ts";
 
-export type IpcRequestHandler = <T extends OrchestratorRequest>(request: T) => Promise<ResponseFor<T>> | ResponseFor<T>;
+export interface IpcRequestHandler {
+	(request: SpawnRequest): Promise<SpawnResponse | ErrorResponse> | SpawnResponse | ErrorResponse;
+	(request: ListRequest): Promise<ListResponse | ErrorResponse> | ListResponse | ErrorResponse;
+	(request: StopRequest): Promise<StopResponse | ErrorResponse> | StopResponse | ErrorResponse;
+	(request: StatusRequest): Promise<StatusResponse | ErrorResponse> | StatusResponse | ErrorResponse;
+	(request: OrchestratorRequest): Promise<OrchestratorResponse> | OrchestratorResponse;
+}
 
 export async function startIpcServer(handler: IpcRequestHandler): Promise<Server> {
 	const socketPath = getSocketPath();
