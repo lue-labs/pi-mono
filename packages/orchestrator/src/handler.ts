@@ -39,6 +39,7 @@ export async function handleIpcRequest(request: SpawnRequest): Promise<SpawnResp
 export async function handleIpcRequest(request: ListRequest): Promise<ListResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StopRequest): Promise<StopResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StatusRequest): Promise<StatusResponse | ErrorResponse>;
+export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse> {
 	switch (request.type) {
 		case "spawn": {
