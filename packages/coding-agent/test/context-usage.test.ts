@@ -272,7 +272,10 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 			percent: 12,
 		});
-		expect(usage?.details?.source).toBe("provider_usage");
+		expect(usage?.details).toMatchObject({
+			source: "provider_usage",
+			providerUsageTokens: 110,
+		});
 	});
 
 	it("keeps provider usage as the public token count while merging snapshot details", () => {
@@ -307,7 +310,7 @@ describe("AgentSession context usage", () => {
 			percent: 12,
 			details: {
 				source: "provider_usage",
-				providerUsageTokens: 120,
+				providerUsageTokens: 110,
 				loadedContextTokens: 140,
 				deferredToolSchemaTokens: 30,
 			},

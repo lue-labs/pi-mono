@@ -4257,7 +4257,7 @@ export class AgentSession {
 				details: {
 					...matchingServiceUsage?.details,
 					source: "provider_usage",
-					providerUsageTokens: tokens,
+					providerUsageTokens: estimate.usageTokens,
 				},
 			};
 		}

@@ -191,7 +191,7 @@ export function estimateContextUsageSnapshot(options: ContextUsageSnapshotOption
 			tokens += estimateEntryTokens(options.branch[i]);
 		}
 		details.source = "provider_usage";
-		details.providerUsageTokens = tokens;
+		details.providerUsageTokens = lastAssistantUsage.tokens;
 	} else {
 		tokens = loadedContextTokens;
 	}

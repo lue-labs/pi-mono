@@ -236,10 +236,15 @@ export class FooterComponent implements Component {
 		const contextUsage = this.session.getContextUsage();
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
 		const deferredToolTokens = contextUsage?.details?.deferredToolSchemaTokens ?? 0;
+		const loadedDeferredToolCount = contextUsage?.details?.loadedDeferredToolCount ?? 0;
+		const loadedContextTokens = contextUsage?.details?.loadedContextTokens ?? null;
+		const providerContextTokens = contextUsage?.tokens ?? null;
 		const displayContextTokens =
-			deferredToolTokens > 0
-				? (contextUsage?.details?.loadedContextTokens ?? contextUsage?.tokens ?? null)
-				: (contextUsage?.tokens ?? null);
+			deferredToolTokens > 0 && loadedContextTokens !== null
+				? loadedContextTokens
+				: loadedDeferredToolCount > 0 && loadedContextTokens !== null
+					? Math.max(providerContextTokens ?? 0, loadedContextTokens)
+					: providerContextTokens;
 		const contextPercentValue =
 			displayContextTokens === null || contextWindow <= 0 ? 0 : (displayContextTokens / contextWindow) * 100;
 		const contextPercent = displayContextTokens === null ? "?" : contextPercentValue.toFixed(1);
