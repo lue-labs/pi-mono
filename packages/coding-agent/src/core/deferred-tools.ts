@@ -228,8 +228,13 @@ export function scanDeferredToolStateEntries(entries: Iterable<unknown>): string
 
 export function scanDiscoveredDeferredToolNames(messages: Iterable<unknown>): string[] {
 	const discovered = new Set<string>();
-	for (const name of scanDeferredToolStateEntries(messages)) discovered.add(name);
 	for (const rawMessage of messages) {
+		const stateEntry = rawMessage as DeferredToolStateEntryLike;
+		if (stateEntry.customType === DEFERRED_TOOL_STATE_CUSTOM_TYPE) {
+			const snapshot = parseDeferredToolStateSnapshot(stateEntry.data ?? stateEntry.details);
+			for (const name of snapshot?.discoveredToolNames ?? []) discovered.add(name);
+		}
+
 		const message = rawMessage as MessageLike;
 		for (const name of message.deferredToolState?.discoveredToolNames ?? []) discovered.add(name);
 		for (const name of scanPromptVisibleDeferredToolNames([message])) discovered.add(name);

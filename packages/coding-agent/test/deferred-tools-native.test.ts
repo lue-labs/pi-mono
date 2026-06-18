@@ -186,6 +186,17 @@ describe("scanDiscoveredDeferredToolNames — history-based reconstruction", () 
 		expect(scanDiscoveredDeferredToolNames(history)).toEqual([]);
 	});
 
+	it("preserves tool_reference blocks from single-pass history iterables", () => {
+		function* history() {
+			yield {
+				role: "tool",
+				content: [{ type: "tool_reference", name: "alpha" }],
+			};
+		}
+
+		expect(scanDiscoveredDeferredToolNames(history())).toEqual(["alpha"]);
+	});
+
 	it("can scan only prompt-visible tool_reference blocks for loaded-context accounting", () => {
 		const history = [
 			{
