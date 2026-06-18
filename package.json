@@ -12,7 +12,7 @@
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",
-		"build": "cd packages/tui && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../coding-agent && npm run build:ts && cd ../.. && npm run test:build-gate",
+		"build": "cd packages/tui && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../coding-agent && npm run build:ts && cd ../orchestrator && npm run build && cd ../.. && npm run test:build-gate",
 		"build:binary": "npm --prefix packages/coding-agent run build",
 		"check": "biome check --write --error-on-warnings . && npm run check:changelog && npm run check:pinned-deps && npm run check:ts-imports && npm run check:shrinkwrap && tsgo --noEmit && npm run check:browser-smoke",
 		"check:browser-smoke": "node scripts/check-browser-smoke.mjs",
