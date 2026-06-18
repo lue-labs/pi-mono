@@ -1,4 +1,4 @@
-import type { RpcCommand, RpcResponse } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent, RpcCommand, RpcResponse } from "@earendil-works/pi-coding-agent";
 import type { InstanceStatus } from "../types.ts";
 
 export interface SpawnRequest {
@@ -29,12 +29,23 @@ export interface RpcRequest {
 	command: RpcCommand;
 }
 
+export interface AttachRequest {
+	type: "attach";
+	instanceId: string;
+}
+
+export interface AttachRpcRequest {
+	type: "attach_rpc";
+	command: RpcCommand;
+}
+
 export interface RequestMap {
 	spawn: SpawnRequest;
 	list: ListRequest;
 	stop: StopRequest;
 	status: StatusRequest;
 	rpc: RpcRequest;
+	attach: AttachRequest;
 }
 
 export type OrchestratorRequest = RequestMap[keyof RequestMap];
@@ -79,6 +90,21 @@ export interface RpcBridgeResponse extends ResponseBase {
 	response: RpcResponse;
 }
 
+export interface AttachReadyResponse extends ResponseBase {
+	type: "attach_ready";
+	instance?: InstanceSummary;
+}
+
+export interface AttachEventResponse {
+	type: "attach_event";
+	event: AgentSessionEvent;
+}
+
+export interface AttachRpcResponse {
+	type: "attach_rpc_result";
+	response: RpcResponse;
+}
+
 export interface ErrorResponse extends ResponseBase {
 	type: "error";
 	ok: false;
@@ -91,9 +117,12 @@ export interface ResponseMap {
 	stop: StopResponse;
 	status: StatusResponse;
 	rpc: RpcBridgeResponse;
+	attach: AttachReadyResponse;
 }
 
 export type OrchestratorResponse = ResponseMap[keyof ResponseMap] | ErrorResponse;
+export type AttachClientRequest = AttachRpcRequest;
+export type AttachServerResponse = AttachReadyResponse | AttachEventResponse | AttachRpcResponse | ErrorResponse;
 
 export type ResponseFor<T extends OrchestratorRequest> = T extends { type: infer K }
 	? K extends keyof ResponseMap
@@ -101,7 +130,7 @@ export type ResponseFor<T extends OrchestratorRequest> = T extends { type: infer
 		: ErrorResponse
 	: ErrorResponse;
 
-export function encodeMessage(message: OrchestratorRequest | OrchestratorResponse): string {
+export function encodeMessage(message: unknown): string {
 	return `${JSON.stringify(message)}\n`;
 }
 

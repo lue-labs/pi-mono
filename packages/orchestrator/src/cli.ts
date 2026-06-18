@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { cwd } from "node:process";
 import { fileURLToPath } from "node:url";
+import { getSocketPath } from "./config.ts";
 import { sendIpcRequest } from "./ipc/client.ts";
+import { encodeMessage } from "./ipc/protocol.ts";
 import { serve } from "./serve.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,7 +17,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, "../package.json"), 
 
 function printHelp(): void {
 	console.log(
-		`orchestrator v${packageJson.version}\n\nUsage:\n  orchestrator serve\n  orchestrator list\n  orchestrator spawn [--cwd <path>] [--label <label>]\n  orchestrator status <instance-id>\n  orchestrator stop <instance-id>\n  orchestrator rpc <instance-id> <json-command>\n  orchestrator --help\n  orchestrator --version`,
+		`orchestrator v${packageJson.version}\n\nUsage:\n  orchestrator serve\n  orchestrator list\n  orchestrator spawn [--cwd <path>] [--label <label>]\n  orchestrator status <instance-id>\n  orchestrator stop <instance-id>\n  orchestrator rpc <instance-id> <json-command>\n  orchestrator attach <instance-id>\n  orchestrator --help\n  orchestrator --version`,
 	);
 }
 
@@ -28,6 +31,39 @@ function getFlagValue(args: string[], flag: string): string | undefined {
 		return undefined;
 	}
 	return args[index + 1];
+}
+
+async function attach(instanceId: string): Promise<void> {
+	const socket = createConnection(getSocketPath());
+	process.stdin.setEncoding("utf8");
+
+	await new Promise<void>((resolve, reject) => {
+		socket.once("connect", () => {
+			socket.write(encodeMessage({ type: "attach", instanceId }));
+			resolve();
+		});
+		socket.once("error", reject);
+	});
+
+	socket.on("data", (chunk: Buffer | string) => {
+		process.stdout.write(chunk.toString());
+	});
+	socket.on("error", (error) => {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exit(1);
+	});
+	socket.on("end", () => {
+		process.exit(0);
+	});
+	process.stdin.on("data", (chunk: string) => {
+		const lines = chunk
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0);
+		for (const line of lines) {
+			socket.write(encodeMessage({ type: "attach_rpc", command: JSON.parse(line) }));
+		}
+	});
 }
 
 async function main(): Promise<void> {
@@ -94,6 +130,16 @@ async function main(): Promise<void> {
 				command: JSON.parse(commandJson),
 			}),
 		);
+		return;
+	}
+
+	if (args[0] === "attach") {
+		const instanceId = args[1];
+		if (!instanceId) {
+			console.error("Usage: orchestrator attach <instance-id>");
+			process.exit(1);
+		}
+		await attach(instanceId);
 		return;
 	}
 

@@ -11,22 +11,33 @@ function error(id: string | undefined, command: string, message: string): RpcRes
 	return { id, type: "response", command, success: false, error: message };
 }
 
-function unsupported(id: string | undefined, command: RpcCommand["type"]): RpcResponse {
-	return error(id, command, `Unsupported RPC command in orchestrator bridge: ${command}`);
-}
-
 export async function handleRpcCommand(runtime: AgentSessionRuntime, command: RpcCommand): Promise<RpcResponse> {
 	const session = runtime.session;
 	const id = command.id;
 
 	switch (command.type) {
 		case "prompt": {
-			await session.prompt(command.message, {
-				images: command.images,
-				streamingBehavior: command.streamingBehavior,
-				source: "rpc",
+			return await new Promise<RpcResponse>((resolve) => {
+				let settled = false;
+				void session
+					.prompt(command.message, {
+						images: command.images,
+						streamingBehavior: command.streamingBehavior,
+						source: "rpc",
+						preflightResult: (didSucceed) => {
+							if (!settled && didSucceed) {
+								settled = true;
+								resolve(success(id, "prompt"));
+							}
+						},
+					})
+					.catch((rpcError: unknown) => {
+						if (!settled) {
+							settled = true;
+							resolve(error(id, "prompt", rpcError instanceof Error ? rpcError.message : String(rpcError)));
+						}
+					});
 			});
-			return success(id, "prompt");
 		}
 
 		case "steer": {
@@ -44,11 +55,30 @@ export async function handleRpcCommand(runtime: AgentSessionRuntime, command: Rp
 			return success(id, "abort");
 		}
 
-		case "new_session":
-		case "switch_session":
-		case "fork":
-		case "clone":
-			return unsupported(id, command.type);
+		case "new_session": {
+			const options = command.parentSession ? { parentSession: command.parentSession } : undefined;
+			const result = await runtime.newSession(options);
+			return success(id, "new_session", result);
+		}
+
+		case "switch_session": {
+			const result = await runtime.switchSession(command.sessionPath);
+			return success(id, "switch_session", result);
+		}
+
+		case "fork": {
+			const result = await runtime.fork(command.entryId);
+			return success(id, "fork", { text: result.selectedText ?? "", cancelled: result.cancelled });
+		}
+
+		case "clone": {
+			const leafId = session.sessionManager.getLeafId();
+			if (!leafId) {
+				return error(id, "clone", "Cannot clone session: no current entry selected");
+			}
+			const result = await runtime.fork(leafId, { position: "at" });
+			return success(id, "clone", { cancelled: result.cancelled });
+		}
 
 		case "get_state": {
 			const state: RpcSessionState = {

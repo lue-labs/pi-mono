@@ -2,6 +2,10 @@ import { existsSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server } from "node:net";
 import { getSocketPath } from "../config.ts";
 import {
+	type AttachClientRequest,
+	type AttachReadyResponse,
+	type AttachRequest,
+	type AttachRpcResponse,
 	type ErrorResponse,
 	encodeMessage,
 	type ListRequest,
@@ -25,7 +29,18 @@ export interface IpcRequestHandler {
 	(request: StopRequest): Promise<StopResponse | ErrorResponse> | StopResponse | ErrorResponse;
 	(request: StatusRequest): Promise<StatusResponse | ErrorResponse> | StatusResponse | ErrorResponse;
 	(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse> | RpcBridgeResponse | ErrorResponse;
+	(request: AttachRequest): Promise<AttachReadyResponse | ErrorResponse> | AttachReadyResponse | ErrorResponse;
 	(request: OrchestratorRequest): Promise<OrchestratorResponse> | OrchestratorResponse;
+	attach(
+		instanceId: string,
+		onEvent: (response: AttachRpcResponse) => void,
+		onSessionEvent: (event: import("@earendil-works/pi-coding-agent").AgentSessionEvent) => void,
+	):
+		| {
+				handleRequest(request: AttachClientRequest): Promise<void>;
+				close(): void;
+		  }
+		| undefined;
 }
 
 export async function startIpcServer(handler: IpcRequestHandler): Promise<Server> {
@@ -50,6 +65,63 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 			try {
 				const request = parseRequestLine(line);
+				if (request.type === "attach") {
+					const response = await handler(request);
+					if (!response.ok || !response.instance) {
+						socket.end(encodeMessage(response));
+						return;
+					}
+
+					const attachment = handler.attach(
+						request.instanceId,
+						(response) => {
+							socket.write(encodeMessage(response));
+						},
+						(event) => {
+							socket.write(encodeMessage({ type: "attach_event", event }));
+						},
+					);
+					if (!attachment) {
+						socket.end(
+							encodeMessage({ type: "error", ok: false, error: `Unknown instance: ${request.instanceId}` }),
+						);
+						return;
+					}
+
+					socket.write(encodeMessage(response));
+					socket.removeAllListeners("data");
+					socket.on("data", (attachChunk: Buffer | string) => {
+						buffer += attachChunk.toString();
+						for (;;) {
+							const attachNewlineIndex = buffer.indexOf("\n");
+							if (attachNewlineIndex === -1) {
+								break;
+							}
+							const attachLine = buffer.slice(0, attachNewlineIndex).trim();
+							buffer = buffer.slice(attachNewlineIndex + 1);
+							if (!attachLine) {
+								continue;
+							}
+							void (async () => {
+								try {
+									const attachRequest = JSON.parse(attachLine) as AttachClientRequest;
+									await attachment.handleRequest(attachRequest);
+								} catch (attachError) {
+									socket.write(
+										encodeMessage({
+											type: "error",
+											ok: false,
+											error: attachError instanceof Error ? attachError.message : String(attachError),
+										}),
+									);
+								}
+							})();
+						}
+					});
+					socket.once("close", () => attachment.close());
+					return;
+				}
+
 				const response = await handler(request);
 				socket.end(encodeMessage(response));
 			} catch (error) {

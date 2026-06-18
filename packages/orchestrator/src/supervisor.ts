@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+	type AgentSessionEvent,
+	type AgentSessionEventListener,
 	type AgentSessionRuntime,
 	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionFromServices,
@@ -18,6 +20,8 @@ import type { InstanceRecord } from "./types.ts";
 interface LiveInstance {
 	runtime: AgentSessionRuntime;
 	record: InstanceRecord;
+	subscribers: Set<AgentSessionEventListener>;
+	unsubscribeSession?: () => void;
 }
 
 function cloneInstance(record: InstanceRecord): InstanceRecord {
@@ -56,12 +60,56 @@ async function createRuntime(cwd: string): Promise<AgentSessionRuntime> {
 export class OrchestratorSupervisor {
 	private readonly liveInstances = new Map<string, LiveInstance>();
 
+	private syncInstanceRecord(live: LiveInstance): void {
+		live.record = {
+			...live.record,
+			sessionId: live.runtime.session.sessionId,
+			sessionFile: live.runtime.session.sessionFile,
+			lastSeenAt: new Date().toISOString(),
+		};
+		upsertInstance(live.record);
+	}
+
+	private bindLiveInstance(live: LiveInstance): void {
+		live.unsubscribeSession?.();
+		live.unsubscribeSession = live.runtime.session.subscribe((event) => {
+			for (const subscriber of live.subscribers) {
+				subscriber(event);
+			}
+		});
+		live.runtime.setRebindSession(async () => {
+			this.syncInstanceRecord(live);
+			this.bindLiveInstance(live);
+		});
+	}
+
 	updateInstance(instance: InstanceRecord): void {
 		const live = this.liveInstances.get(instance.id);
 		if (live) {
 			live.record = instance;
 		}
 		upsertInstance(instance);
+	}
+
+	attachInstance(
+		instanceId: string,
+		onEvent: (event: AgentSessionEvent) => void,
+	): { handleRpc(command: RpcCommand): Promise<RpcResponse>; close(): void } | undefined {
+		const live = this.liveInstances.get(instanceId);
+		if (!live) {
+			return undefined;
+		}
+		live.subscribers.add(onEvent);
+		return {
+			handleRpc: async (command) => {
+				const response = await handleRpcCommand(live.runtime, command);
+				this.syncInstanceRecord(live);
+				return response;
+			},
+			close: () => {
+				live.subscribers.delete(onEvent);
+			},
+		};
 	}
 
 	getLiveInstance(instanceId: string): InstanceRecord | undefined {
@@ -114,7 +162,9 @@ export class OrchestratorSupervisor {
 		};
 
 		const registeredRecord = await radiusPresence.registerPi(record);
-		this.liveInstances.set(registeredRecord.id, { runtime, record: registeredRecord });
+		const live: LiveInstance = { runtime, record: registeredRecord, subscribers: new Set() };
+		this.bindLiveInstance(live);
+		this.liveInstances.set(registeredRecord.id, live);
 		upsertInstance(registeredRecord);
 		return cloneInstance(registeredRecord);
 	}
@@ -126,6 +176,8 @@ export class OrchestratorSupervisor {
 		}
 
 		await radiusPresence.disconnectPi(live.record);
+		live.unsubscribeSession?.();
+		live.runtime.setRebindSession(undefined);
 		await live.runtime.dispose();
 		this.liveInstances.delete(instanceId);
 		removeInstance(instanceId);
@@ -138,7 +190,9 @@ export class OrchestratorSupervisor {
 			return undefined;
 		}
 
-		return handleRpcCommand(live.runtime, command);
+		const response = await handleRpcCommand(live.runtime, command);
+		this.syncInstanceRecord(live);
+		return response;
 	}
 
 	async shutdown(): Promise<void> {

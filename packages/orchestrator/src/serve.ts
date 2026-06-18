@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { getSocketPath } from "./config.ts";
-import { handleIpcRequest } from "./handler.ts";
+import { attachIpcInstance, handleIpcRequest } from "./handler.ts";
 import { startIpcServer } from "./ipc/server.ts";
 import { getRadiusOrchestratorBaseUrl, isRadiusEnabled, radiusPresence } from "./radius.ts";
 import { supervisor } from "./supervisor.ts";
@@ -19,7 +19,11 @@ export async function serve(): Promise<void> {
 	} else {
 		console.log("radius integration disabled: set PI_RADIUS_API_KEY to enable");
 	}
-	const server = await startIpcServer(handleIpcRequest);
+	const server = await startIpcServer(
+		Object.assign(handleIpcRequest, {
+			attach: attachIpcInstance,
+		}),
+	);
 	console.log(`orchestrator listening on ${socketPath}`);
 
 	let shutdownPromise: Promise<void> | undefined;

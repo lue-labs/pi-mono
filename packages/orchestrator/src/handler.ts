@@ -1,4 +1,8 @@
+import type { AgentSessionEvent, RpcCommand } from "@earendil-works/pi-coding-agent";
 import type {
+	AttachReadyResponse,
+	AttachRequest,
+	AttachRpcResponse,
 	ErrorResponse,
 	InstanceSummary,
 	ListRequest,
@@ -43,6 +47,7 @@ export async function handleIpcRequest(request: ListRequest): Promise<ListRespon
 export async function handleIpcRequest(request: StopRequest): Promise<StopResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StatusRequest): Promise<StatusResponse | ErrorResponse>;
 export async function handleIpcRequest(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse>;
+export async function handleIpcRequest(request: AttachRequest): Promise<AttachReadyResponse | ErrorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse> {
 	switch (request.type) {
@@ -104,5 +109,38 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 				response,
 			};
 		}
+
+		case "attach": {
+			const instance = supervisor.getInstance(request.instanceId);
+			if (!instance) {
+				return unknownInstanceError(request.instanceId);
+			}
+			return {
+				type: "attach_ready",
+				ok: true,
+				instance: toInstanceSummary(instance),
+			};
+		}
 	}
+}
+
+export function attachIpcInstance(
+	instanceId: string,
+	onResponse: (response: AttachRpcResponse) => void,
+	onSessionEvent: (event: AgentSessionEvent) => void,
+): { handleRequest(request: { type: "attach_rpc"; command: RpcCommand }): Promise<void>; close(): void } | undefined {
+	const handle = supervisor.attachInstance(instanceId, onSessionEvent);
+	if (!handle) {
+		return undefined;
+	}
+
+	return {
+		async handleRequest(request): Promise<void> {
+			const response = await handle.handleRpc(request.command);
+			onResponse({ type: "attach_rpc_result", response });
+		},
+		close(): void {
+			handle.close();
+		},
+	};
 }
