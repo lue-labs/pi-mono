@@ -113,6 +113,9 @@ function estimateMessageTokens(message: AgentMessage): number {
 			return estimateContentTokens(message.content);
 		case "bashExecution":
 			return estimateTextTokens(message.command) + estimateTextTokens(message.output);
+		case "branchSummary":
+		case "compactionSummary":
+			return estimateTextTokens(message.summary);
 	}
 	return 0;
 }

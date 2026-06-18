@@ -125,6 +125,41 @@ describe("AgentSession context usage", () => {
 		});
 	});
 
+	it("counts prompt-visible synthetic summary messages", () => {
+		const usage = getContextUsageFor({
+			systemPrompt: "",
+			branch: [
+				messageEntry(
+					{
+						role: "branchSummary",
+						summary: "b".repeat(40),
+						fromId: "root",
+						timestamp: Date.now(),
+					} as unknown as AgentMessage,
+					"branch-summary",
+				),
+				messageEntry(
+					{
+						role: "compactionSummary",
+						summary: "c".repeat(80),
+						tokensBefore: 1000,
+						timestamp: Date.now(),
+					} as unknown as AgentMessage,
+					"compaction-summary",
+				),
+			],
+			contextWindow: 1000,
+			useProviderUsage: false,
+		});
+
+		expect(usage).toMatchObject({
+			tokens: 30,
+			contextWindow: 1000,
+			percent: 3,
+		});
+		expect(usage?.details?.transcriptTokens).toBe(30);
+	});
+
 	it("does not count deferred tool schemas until they are active", () => {
 		const activeTool = toolDefinition("active_tool", "a".repeat(16));
 		const inactiveDeferredTool = {
