@@ -1,4 +1,10 @@
-import type { AgentSessionEvent, RpcCommand, RpcResponse } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentSessionEvent,
+	RpcCommand,
+	RpcExtensionUIRequest,
+	RpcExtensionUIResponse,
+	RpcResponse,
+} from "@earendil-works/pi-coding-agent";
 import type { InstanceStatus } from "../types.ts";
 
 export interface SpawnRequest {
@@ -121,8 +127,13 @@ export interface ResponseMap {
 }
 
 export type OrchestratorResponse = ResponseMap[keyof ResponseMap] | ErrorResponse;
-export type AttachClientRequest = AttachRpcRequest;
-export type AttachServerResponse = AttachReadyResponse | AttachEventResponse | AttachRpcResponse | ErrorResponse;
+export type AttachClientRequest = AttachRpcRequest | RpcExtensionUIResponse;
+export type AttachServerResponse =
+	| AttachReadyResponse
+	| AttachEventResponse
+	| AttachRpcResponse
+	| RpcExtensionUIRequest
+	| ErrorResponse;
 export type ProtocolMessage = OrchestratorRequest | OrchestratorResponse | AttachClientRequest | AttachServerResponse;
 
 export type ResponseFor<T extends OrchestratorRequest> = T extends { type: infer K }

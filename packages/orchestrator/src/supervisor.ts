@@ -9,9 +9,12 @@ import {
 	createAgentSessionServices,
 	getAgentDir,
 	type RpcCommand,
+	type RpcExtensionUIRequest,
+	type RpcExtensionUIResponse,
 	type RpcResponse,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { AttachUiBridge, bindAttachExtensions } from "./attach-ui.ts";
 import { radiusPresence } from "./radius.ts";
 import { handleRpcCommand } from "./rpc-bridge.ts";
 import { getInstance, loadInstances, removeInstance, saveInstances, upsertInstance } from "./storage.ts";
@@ -21,6 +24,7 @@ interface LiveInstance {
 	runtime: AgentSessionRuntime;
 	record: InstanceRecord;
 	subscribers: Set<AgentSessionEventListener>;
+	uiBridge: AttachUiBridge;
 	unsubscribeSession?: () => void;
 }
 
@@ -70,7 +74,8 @@ export class OrchestratorSupervisor {
 		upsertInstance(live.record);
 	}
 
-	private bindLiveInstance(live: LiveInstance): void {
+	private async bindLiveInstance(live: LiveInstance): Promise<void> {
+		await bindAttachExtensions(live.runtime, live.uiBridge);
 		live.unsubscribeSession?.();
 		live.unsubscribeSession = live.runtime.session.subscribe((event) => {
 			for (const subscriber of live.subscribers) {
@@ -79,7 +84,7 @@ export class OrchestratorSupervisor {
 		});
 		live.runtime.setRebindSession(async () => {
 			this.syncInstanceRecord(live);
-			this.bindLiveInstance(live);
+			await this.bindLiveInstance(live);
 		});
 	}
 
@@ -94,20 +99,33 @@ export class OrchestratorSupervisor {
 	attachInstance(
 		instanceId: string,
 		onEvent: (event: AgentSessionEvent) => void,
-	): { handleRpc(command: RpcCommand): Promise<RpcResponse>; close(): void } | undefined {
+		onUiRequest: (request: RpcExtensionUIRequest) => void,
+	):
+		| {
+				handleRpc(command: RpcCommand): Promise<RpcResponse>;
+				handleUiResponse(response: RpcExtensionUIResponse): void;
+				close(): void;
+		  }
+		| undefined {
 		const live = this.liveInstances.get(instanceId);
 		if (!live) {
 			return undefined;
 		}
 		live.subscribers.add(onEvent);
+		const detachUi = live.uiBridge.attach(onUiRequest);
 		return {
 			handleRpc: async (command) => {
 				const response = await handleRpcCommand(live.runtime, command);
 				this.syncInstanceRecord(live);
 				return response;
 			},
+			handleUiResponse: (response) => {
+				live.uiBridge.handleResponse(response);
+			},
 			close: () => {
+				detachUi();
 				live.subscribers.delete(onEvent);
+				live.uiBridge.cancelPendingRequests();
 			},
 		};
 	}
@@ -162,8 +180,13 @@ export class OrchestratorSupervisor {
 		};
 
 		const registeredRecord = await radiusPresence.registerPi(record);
-		const live: LiveInstance = { runtime, record: registeredRecord, subscribers: new Set() };
-		this.bindLiveInstance(live);
+		const live: LiveInstance = {
+			runtime,
+			record: registeredRecord,
+			subscribers: new Set(),
+			uiBridge: new AttachUiBridge(),
+		};
+		await this.bindLiveInstance(live);
 		this.liveInstances.set(registeredRecord.id, live);
 		upsertInstance(registeredRecord);
 		return cloneInstance(registeredRecord);
@@ -177,6 +200,7 @@ export class OrchestratorSupervisor {
 
 		await radiusPresence.disconnectPi(live.record);
 		live.unsubscribeSession?.();
+		live.uiBridge.cancelPendingRequests();
 		live.runtime.setRebindSession(undefined);
 		await live.runtime.dispose();
 		this.liveInstances.delete(instanceId);

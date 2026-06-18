@@ -1,4 +1,9 @@
-import type { AgentSessionEvent, RpcCommand } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentSessionEvent,
+	RpcCommand,
+	RpcExtensionUIRequest,
+	RpcExtensionUIResponse,
+} from "@earendil-works/pi-coding-agent";
 import type {
 	AttachReadyResponse,
 	AttachRequest,
@@ -128,16 +133,26 @@ export function attachIpcInstance(
 	instanceId: string,
 	onResponse: (response: AttachRpcResponse) => void,
 	onSessionEvent: (event: AgentSessionEvent) => void,
-): { handleRequest(request: { type: "attach_rpc"; command: RpcCommand }): Promise<void>; close(): void } | undefined {
-	const handle = supervisor.attachInstance(instanceId, onSessionEvent);
+	onUiRequest: (request: RpcExtensionUIRequest) => void,
+):
+	| {
+			handleRequest(request: { type: "attach_rpc"; command: RpcCommand } | RpcExtensionUIResponse): Promise<void>;
+			close(): void;
+	  }
+	| undefined {
+	const handle = supervisor.attachInstance(instanceId, onSessionEvent, onUiRequest);
 	if (!handle) {
 		return undefined;
 	}
 
 	return {
 		async handleRequest(request): Promise<void> {
-			const response = await handle.handleRpc(request.command);
-			onResponse({ type: "attach_rpc_result", response });
+			if (request.type === "attach_rpc") {
+				const response = await handle.handleRpc(request.command);
+				onResponse({ type: "attach_rpc_result", response });
+				return;
+			}
+			handle.handleUiResponse(request);
 		},
 		close(): void {
 			handle.close();

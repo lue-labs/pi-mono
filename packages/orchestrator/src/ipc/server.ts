@@ -35,6 +35,7 @@ export interface IpcRequestHandler {
 		instanceId: string,
 		onEvent: (response: AttachRpcResponse) => void,
 		onSessionEvent: (event: import("@earendil-works/pi-coding-agent").AgentSessionEvent) => void,
+		onUiRequest: (request: import("@earendil-works/pi-coding-agent").RpcExtensionUIRequest) => void,
 	):
 		| {
 				handleRequest(request: AttachClientRequest): Promise<void>;
@@ -79,6 +80,9 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 						},
 						(event) => {
 							socket.write(encodeMessage({ type: "attach_event", event }));
+						},
+						(request) => {
+							socket.write(encodeMessage(request));
 						},
 					);
 					if (!attachment) {

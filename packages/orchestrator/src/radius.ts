@@ -8,6 +8,8 @@ const DEFAULT_RADIUS_URL = "https://radius.pi.dev/";
 const DEFAULT_ORCHESTRATOR_BASE_PATH = "/v1/";
 const ORCHESTRATOR_VERSION = "0.79.6";
 const NOT_FOUND_RETRY_THRESHOLD = 3;
+const HEARTBEAT_BACKOFF_BASE_MS = 1_000;
+const HEARTBEAT_BACKOFF_MAX_MS = 30_000;
 const RADIUS_PROVIDER = "radius";
 
 interface RegisterMachineResponse extends RadiusRegistration {
@@ -25,9 +27,11 @@ interface RadiusPresenceCoordinator {
 }
 
 interface PiHeartbeatState {
-	timer: NodeJS.Timeout;
+	timer?: NodeJS.Timeout;
+	intervalMs: number;
 	radiusPiId: string;
 	consecutiveNotFoundCount: number;
+	transientFailureCount: number;
 }
 
 class RadiusHttpError extends Error {
@@ -75,6 +79,15 @@ function isNotFoundError(error: unknown): error is RadiusHttpError {
 	return error instanceof RadiusHttpError && error.status === 404;
 }
 
+function computeBackoffDelayMs(failureCount: number): number {
+	const exponentialDelay = Math.min(
+		HEARTBEAT_BACKOFF_MAX_MS,
+		HEARTBEAT_BACKOFF_BASE_MS * 2 ** Math.max(0, failureCount - 1),
+	);
+	const jitterMs = Math.floor(Math.random() * Math.max(250, exponentialDelay / 4));
+	return Math.min(HEARTBEAT_BACKOFF_MAX_MS, exponentialDelay + jitterMs);
+}
+
 export function getRadiusUrl(): string {
 	return process.env.PI_RADIUS_URL || DEFAULT_RADIUS_URL;
 }
@@ -119,7 +132,9 @@ export function isRadiusEnabled(): boolean {
 
 export class RadiusPresence {
 	private machineHeartbeatTimer?: NodeJS.Timeout;
+	private machineHeartbeatIntervalMs = 0;
 	private machineConsecutiveNotFoundCount = 0;
+	private machineTransientFailureCount = 0;
 	private readonly piHeartbeatStates = new Map<string, PiHeartbeatState>();
 	private machine?: MachineRecord;
 	private coordinator?: RadiusPresenceCoordinator;
@@ -140,11 +155,13 @@ export class RadiusPresence {
 
 	async stop(): Promise<void> {
 		if (this.machineHeartbeatTimer) {
-			clearInterval(this.machineHeartbeatTimer);
+			clearTimeout(this.machineHeartbeatTimer);
 			this.machineHeartbeatTimer = undefined;
 		}
 		for (const [instanceId, state] of this.piHeartbeatStates) {
-			clearInterval(state.timer);
+			if (state.timer) {
+				clearTimeout(state.timer);
+			}
 			this.piHeartbeatStates.delete(instanceId);
 		}
 		if (!this.machine || !isRadiusEnabled()) {
@@ -179,7 +196,9 @@ export class RadiusPresence {
 	async disconnectPi(instance: InstanceRecord): Promise<void> {
 		const state = this.piHeartbeatStates.get(instance.id);
 		if (state) {
-			clearInterval(state.timer);
+			if (state.timer) {
+				clearTimeout(state.timer);
+			}
 			this.piHeartbeatStates.delete(instance.id);
 		}
 		if (!isRadiusEnabled() || !instance.radiusPiId) {
@@ -209,31 +228,54 @@ export class RadiusPresence {
 		};
 		saveMachine(this.machine);
 		this.machineConsecutiveNotFoundCount = 0;
+		this.machineTransientFailureCount = 0;
 		return registered;
 	}
 
 	private startMachineHeartbeat(intervalMs: number): void {
+		this.machineHeartbeatIntervalMs = intervalMs;
+		this.scheduleMachineHeartbeat(intervalMs);
+	}
+
+	private scheduleMachineHeartbeat(delayMs: number): void {
 		if (this.machineHeartbeatTimer) {
-			clearInterval(this.machineHeartbeatTimer);
+			clearTimeout(this.machineHeartbeatTimer);
 		}
-		this.machineHeartbeatTimer = setInterval(() => {
+		this.machineHeartbeatTimer = setTimeout(() => {
 			void this.heartbeatMachine();
-		}, intervalMs);
+		}, delayMs);
 	}
 
 	private startPiHeartbeat(instanceId: string, intervalMs: number, radiusPiId: string): void {
 		const existingState = this.piHeartbeatStates.get(instanceId);
-		if (existingState) {
-			clearInterval(existingState.timer);
+		if (existingState?.timer) {
+			clearTimeout(existingState.timer);
 		}
-		const timer = setInterval(() => {
-			void this.heartbeatPi(instanceId);
-		}, intervalMs);
-		this.piHeartbeatStates.set(instanceId, {
-			timer,
+		const state: PiHeartbeatState = existingState ?? {
+			intervalMs,
 			radiusPiId,
 			consecutiveNotFoundCount: 0,
-		});
+			transientFailureCount: 0,
+		};
+		state.intervalMs = intervalMs;
+		state.radiusPiId = radiusPiId;
+		state.consecutiveNotFoundCount = 0;
+		state.transientFailureCount = 0;
+		this.piHeartbeatStates.set(instanceId, state);
+		this.schedulePiHeartbeat(instanceId, intervalMs);
+	}
+
+	private schedulePiHeartbeat(instanceId: string, delayMs: number): void {
+		const state = this.piHeartbeatStates.get(instanceId);
+		if (!state) {
+			return;
+		}
+		if (state.timer) {
+			clearTimeout(state.timer);
+		}
+		state.timer = setTimeout(() => {
+			void this.heartbeatPi(instanceId);
+		}, delayMs);
 	}
 
 	private async heartbeatMachine(): Promise<void> {
@@ -247,21 +289,31 @@ export class RadiusPresence {
 				socketPath: getSocketPath(),
 			});
 			this.machineConsecutiveNotFoundCount = 0;
+			this.machineTransientFailureCount = 0;
+			this.scheduleMachineHeartbeat(this.machineHeartbeatIntervalMs);
 		} catch (error) {
 			if (!isNotFoundError(error)) {
-				console.error("Radius machine heartbeat failed", error);
+				this.machineTransientFailureCount += 1;
+				const delayMs = computeBackoffDelayMs(this.machineTransientFailureCount);
+				console.error(`Radius machine heartbeat failed; retrying in ${delayMs}ms`, error);
+				this.scheduleMachineHeartbeat(delayMs);
 				return;
 			}
 
+			this.machineTransientFailureCount = 0;
 			this.machineConsecutiveNotFoundCount += 1;
 			if (this.machineConsecutiveNotFoundCount < NOT_FOUND_RETRY_THRESHOLD) {
+				this.scheduleMachineHeartbeat(this.machineHeartbeatIntervalMs);
 				return;
 			}
 
 			try {
 				await this.reRegisterMachineAndPis();
 			} catch (recoveryError) {
-				console.error("Radius machine re-registration failed", recoveryError);
+				this.machineTransientFailureCount += 1;
+				const delayMs = computeBackoffDelayMs(this.machineTransientFailureCount);
+				console.error(`Radius machine re-registration failed; retrying in ${delayMs}ms`, recoveryError);
+				this.scheduleMachineHeartbeat(delayMs);
 			}
 		}
 	}
@@ -279,14 +331,21 @@ export class RadiusPresence {
 		try {
 			await maybePost(`pis/${state.radiusPiId}/heartbeat`, {});
 			state.consecutiveNotFoundCount = 0;
+			state.transientFailureCount = 0;
+			this.schedulePiHeartbeat(instanceId, state.intervalMs);
 		} catch (error) {
 			if (!isNotFoundError(error)) {
-				console.error(`Radius Pi heartbeat failed for instance ${instanceId}`, error);
+				state.transientFailureCount += 1;
+				const delayMs = computeBackoffDelayMs(state.transientFailureCount);
+				console.error(`Radius Pi heartbeat failed for instance ${instanceId}; retrying in ${delayMs}ms`, error);
+				this.schedulePiHeartbeat(instanceId, delayMs);
 				return;
 			}
 
+			state.transientFailureCount = 0;
 			state.consecutiveNotFoundCount += 1;
 			if (state.consecutiveNotFoundCount < NOT_FOUND_RETRY_THRESHOLD) {
+				this.schedulePiHeartbeat(instanceId, state.intervalMs);
 				return;
 			}
 
@@ -294,9 +353,16 @@ export class RadiusPresence {
 				const recovered = await this.reRegisterPi(instanceId);
 				if (!recovered) {
 					console.error(`Radius Pi re-registration skipped for instance ${instanceId}`);
+					this.schedulePiHeartbeat(instanceId, computeBackoffDelayMs(1));
 				}
 			} catch (recoveryError) {
-				console.error(`Radius Pi re-registration failed for instance ${instanceId}`, recoveryError);
+				state.transientFailureCount += 1;
+				const delayMs = computeBackoffDelayMs(state.transientFailureCount);
+				console.error(
+					`Radius Pi re-registration failed for instance ${instanceId}; retrying in ${delayMs}ms`,
+					recoveryError,
+				);
+				this.schedulePiHeartbeat(instanceId, delayMs);
 			}
 		}
 	}
@@ -320,7 +386,9 @@ export class RadiusPresence {
 		if (!instance) {
 			const state = this.piHeartbeatStates.get(instanceId);
 			if (state) {
-				clearInterval(state.timer);
+				if (state.timer) {
+					clearTimeout(state.timer);
+				}
 				this.piHeartbeatStates.delete(instanceId);
 			}
 			return false;

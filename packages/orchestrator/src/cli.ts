@@ -4,6 +4,7 @@ import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { cwd } from "node:process";
 import { fileURLToPath } from "node:url";
+import type { RpcCommand, RpcExtensionUIResponse } from "@earendil-works/pi-coding-agent";
 import { getSocketPath } from "./config.ts";
 import { sendIpcRequest } from "./ipc/client.ts";
 import { encodeMessage } from "./ipc/protocol.ts";
@@ -61,7 +62,12 @@ async function attach(instanceId: string): Promise<void> {
 			.map((line) => line.trim())
 			.filter((line) => line.length > 0);
 		for (const line of lines) {
-			socket.write(encodeMessage({ type: "attach_rpc", command: JSON.parse(line) }));
+			const parsed = JSON.parse(line) as RpcCommand | RpcExtensionUIResponse;
+			if (parsed.type === "extension_ui_response") {
+				socket.write(encodeMessage(parsed));
+				continue;
+			}
+			socket.write(encodeMessage({ type: "attach_rpc", command: parsed }));
 		}
 	});
 }
