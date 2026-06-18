@@ -1,3 +1,5 @@
+import type { InstanceStatus } from "../types.ts";
+
 export interface SpawnRequest {
 	type: "spawn";
 	cwd: string;
@@ -31,7 +33,7 @@ export type OrchestratorRequest = RequestMap[keyof RequestMap];
 
 export interface InstanceSummary {
 	id: string;
-	status: "starting" | "online" | "stopping" | "stopped" | "error";
+	status: InstanceStatus;
 	cwd: string;
 	label?: string;
 	sessionId?: string;
