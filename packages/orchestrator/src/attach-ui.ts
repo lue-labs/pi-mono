@@ -6,8 +6,6 @@ import type {
 	RpcExtensionUIResponse,
 } from "@earendil-works/pi-coding-agent";
 
-import { theme } from "../../coding-agent/src/modes/interactive/theme/theme.ts";
-
 type DialogRequest =
 	| Extract<RpcExtensionUIRequest, { method: "select" }>
 	| Extract<RpcExtensionUIRequest, { method: "confirm" }>
@@ -24,6 +22,7 @@ interface PendingExtensionRequest {
 export class AttachUiBridge {
 	private readonly pendingRequests = new Map<string, PendingExtensionRequest>();
 	private onRequest?: (request: RpcExtensionUIRequest) => void;
+	private themeOverride?: unknown;
 
 	attach(onRequest: (request: RpcExtensionUIRequest) => void): () => void {
 		this.onRequest = onRequest;
@@ -32,6 +31,13 @@ export class AttachUiBridge {
 				this.onRequest = undefined;
 			}
 		};
+	}
+
+	setThemeOverride(theme: unknown): void {
+		// This comes from attach host context over JSONL IPC. Pi's Theme is a runtime class,
+		// not a wire-safe protocol type, so this remains opaque until we define a proper
+		// serializable theme snapshot/DTO for the attach protocol.
+		this.themeOverride = theme;
 	}
 
 	handleResponse(response: RpcExtensionUIResponse): void {
@@ -44,6 +50,7 @@ export class AttachUiBridge {
 	}
 
 	createUiContext(): ExtensionUIContext {
+		const uiBridge = this;
 		const requestDialog = <T>(
 			request: DialogRequest,
 			fallbackValue: T,
@@ -154,8 +161,10 @@ export class AttachUiBridge {
 			addAutocompleteProvider: () => {},
 			setEditorComponent: () => {},
 			getEditorComponent: () => undefined,
-			get theme() {
-				return theme;
+			get theme(): ExtensionUIContext["theme"] {
+				// If the attach host provides a theme object, forward it. Otherwise attach mode
+				// still has no real TUI/theme runtime, so fall back to an empty placeholder.
+				return (uiBridge.themeOverride ?? {}) as ExtensionUIContext["theme"];
 			},
 			getAllThemes: () => [],
 			getTheme: () => undefined,

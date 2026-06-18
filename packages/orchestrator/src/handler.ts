@@ -5,6 +5,7 @@ import type {
 	RpcExtensionUIResponse,
 } from "@earendil-works/pi-coding-agent";
 import type {
+	AttachHostContextRequest,
 	AttachReadyResponse,
 	AttachRequest,
 	AttachRpcResponse,
@@ -136,7 +137,9 @@ export function attachIpcInstance(
 	onUiRequest: (request: RpcExtensionUIRequest) => void,
 ):
 	| {
-			handleRequest(request: { type: "attach_rpc"; command: RpcCommand } | RpcExtensionUIResponse): Promise<void>;
+			handleRequest(
+				request: { type: "attach_rpc"; command: RpcCommand } | AttachHostContextRequest | RpcExtensionUIResponse,
+			): Promise<void>;
 			close(): void;
 	  }
 	| undefined {
@@ -150,6 +153,10 @@ export function attachIpcInstance(
 			if (request.type === "attach_rpc") {
 				const response = await handle.handleRpc(request.command);
 				onResponse({ type: "attach_rpc_result", response });
+				return;
+			}
+			if (request.type === "attach_host_context") {
+				handle.setHostTheme(request.theme);
 				return;
 			}
 			handle.handleUiResponse(request);

@@ -45,6 +45,11 @@ export interface AttachRpcRequest {
 	command: RpcCommand;
 }
 
+export interface AttachHostContextRequest {
+	type: "attach_host_context";
+	theme?: unknown;
+}
+
 export interface RequestMap {
 	spawn: SpawnRequest;
 	list: ListRequest;
@@ -127,7 +132,7 @@ export interface ResponseMap {
 }
 
 export type OrchestratorResponse = ResponseMap[keyof ResponseMap] | ErrorResponse;
-export type AttachClientRequest = AttachRpcRequest | RpcExtensionUIResponse;
+export type AttachClientRequest = AttachRpcRequest | AttachHostContextRequest | RpcExtensionUIResponse;
 export type AttachServerResponse =
 	| AttachReadyResponse
 	| AttachEventResponse
