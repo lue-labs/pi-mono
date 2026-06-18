@@ -4213,6 +4213,11 @@ export class AgentSession {
 		const contextWindow = model.contextWindow ?? 0;
 		if (contextWindow <= 0) return undefined;
 
+		const contextUsageService =
+			this._extensionRunner?.getService<ContextUsageSnapshotService>(CONTEXT_USAGE_SERVICE_ID);
+		const serviceUsage = contextUsageService?.get();
+		const matchingServiceUsage = serviceUsage?.contextWindow === contextWindow ? serviceUsage : undefined;
+
 		// After compaction, the last assistant usage reflects pre-compaction context size.
 		// We can only trust usage from an assistant that responded after the latest compaction.
 		// If no such assistant exists, context token count is unknown until the next LLM response.
@@ -4238,14 +4243,9 @@ export class AgentSession {
 			}
 
 			if (!hasPostCompactionUsage) {
-				return { tokens: null, contextWindow, percent: null };
+				return { tokens: null, contextWindow, percent: null, details: matchingServiceUsage?.details };
 			}
 		}
-
-		const contextUsageService =
-			this._extensionRunner?.getService<ContextUsageSnapshotService>(CONTEXT_USAGE_SERVICE_ID);
-		const serviceUsage = contextUsageService?.get();
-		const matchingServiceUsage = serviceUsage?.contextWindow === contextWindow ? serviceUsage : undefined;
 
 		const estimate = estimateContextTokens(this.messages);
 		if (estimate.lastUsageIndex !== null) {

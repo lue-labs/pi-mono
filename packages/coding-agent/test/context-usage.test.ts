@@ -317,6 +317,52 @@ describe("AgentSession context usage", () => {
 		});
 	});
 
+	it("preserves loaded-context details when provider usage is unknown after compaction", () => {
+		const branch = [
+			messageEntry(assistantMessage(220), "pre-compaction-assistant"),
+			{
+				type: "compaction",
+				id: "compact",
+				parentId: "pre-compaction-assistant",
+				timestamp: "2026-05-28T00:01:00.000Z",
+				summary: "summary",
+				firstKeptEntryId: "compact",
+				tokensBefore: 1000,
+			} as unknown as SessionEntry,
+		];
+		const service: ContextUsageSnapshotService = {
+			get: () => ({
+				tokens: 180,
+				contextWindow: 1000,
+				percent: 18,
+				details: { source: "loaded_estimate", loadedContextTokens: 180, deferredToolSchemaTokens: 30 },
+			}),
+		};
+
+		const usage = AgentSession.prototype.getContextUsage.call({
+			model: { contextWindow: 1000 },
+			systemPrompt: "",
+			messages: branch.filter((entry) => entry.type === "message").map((entry) => entry.message),
+			sessionManager: {
+				getBranch: () => branch,
+			},
+			_extensionRunner: {
+				getService: (id: string) => (id === CONTEXT_USAGE_SERVICE_ID ? service : undefined),
+			},
+		});
+
+		expect(usage).toMatchObject({
+			tokens: null,
+			contextWindow: 1000,
+			percent: null,
+			details: {
+				source: "loaded_estimate",
+				loadedContextTokens: 180,
+				deferredToolSchemaTokens: 30,
+			},
+		});
+	});
+
 	it("ignores queued refreshes from stale extension contexts", async () => {
 		const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void>>();
 		const pi = {
