@@ -56,6 +56,23 @@ async function createRuntime(cwd: string): Promise<AgentSessionRuntime> {
 export class OrchestratorSupervisor {
 	private readonly liveInstances = new Map<string, LiveInstance>();
 
+	updateInstance(instance: InstanceRecord): void {
+		const live = this.liveInstances.get(instance.id);
+		if (live) {
+			live.record = instance;
+		}
+		upsertInstance(instance);
+	}
+
+	getLiveInstance(instanceId: string): InstanceRecord | undefined {
+		const live = this.liveInstances.get(instanceId);
+		return live ? cloneInstance(live.record) : undefined;
+	}
+
+	listLiveInstances(): InstanceRecord[] {
+		return [...this.liveInstances.values()].map((live) => cloneInstance(live.record));
+	}
+
 	async recoverAfterRestart(): Promise<void> {
 		const recoveredAt = new Date().toISOString();
 		const instances = loadInstances().map((instance) => ({
@@ -132,3 +149,15 @@ export class OrchestratorSupervisor {
 }
 
 export const supervisor = new OrchestratorSupervisor();
+
+radiusPresence.setCoordinator({
+	getLiveInstance(instanceId) {
+		return supervisor.getLiveInstance(instanceId);
+	},
+	listLiveInstances() {
+		return supervisor.listLiveInstances();
+	},
+	updateInstance(instance) {
+		supervisor.updateInstance(instance);
+	},
+});

@@ -6,6 +6,7 @@ import type { InstanceRecord, MachineRecord, RadiusRegistration } from "./types.
 const DEFAULT_RADIUS_URL = "https://radius.pi.dev/";
 const DEFAULT_ORCHESTRATOR_BASE_PATH = "/v1/";
 const ORCHESTRATOR_VERSION = "0.79.6";
+const NOT_FOUND_RETRY_THRESHOLD = 3;
 
 interface RegisterMachineResponse extends RadiusRegistration {
 	id: string;
@@ -13,6 +14,28 @@ interface RegisterMachineResponse extends RadiusRegistration {
 
 interface RegisterPiResponse extends RadiusRegistration {
 	id: string;
+}
+
+interface RadiusPresenceCoordinator {
+	getLiveInstance(instanceId: string): InstanceRecord | undefined;
+	listLiveInstances(): InstanceRecord[];
+	updateInstance(instance: InstanceRecord): void;
+}
+
+interface PiHeartbeatState {
+	timer: NodeJS.Timeout;
+	radiusPiId: string;
+	consecutiveNotFoundCount: number;
+}
+
+class RadiusHttpError extends Error {
+	readonly status: number;
+
+	constructor(status: number, message: string) {
+		super(message);
+		this.name = "RadiusHttpError";
+		this.status = status;
+	}
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -26,7 +49,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 	});
 
 	if (!response.ok) {
-		throw new Error(`Radius request failed: ${response.status} ${await response.text()}`);
+		throw new RadiusHttpError(response.status, `Radius request failed: ${response.status} ${await response.text()}`);
 	}
 
 	return (await response.json()) as T;
@@ -42,8 +65,12 @@ async function maybePost(path: string, body: unknown): Promise<void> {
 		body: JSON.stringify(body),
 	});
 	if (!response.ok) {
-		throw new Error(`Radius request failed: ${response.status} ${await response.text()}`);
+		throw new RadiusHttpError(response.status, `Radius request failed: ${response.status} ${await response.text()}`);
 	}
+}
+
+function isNotFoundError(error: unknown): error is RadiusHttpError {
+	return error instanceof RadiusHttpError && error.status === 404;
 }
 
 export function getRadiusUrl(): string {
@@ -73,36 +100,22 @@ export function isRadiusEnabled(): boolean {
 
 export class RadiusPresence {
 	private machineHeartbeatTimer?: NodeJS.Timeout;
-	private readonly piHeartbeatTimers = new Map<string, NodeJS.Timeout>();
+	private machineConsecutiveNotFoundCount = 0;
+	private readonly piHeartbeatStates = new Map<string, PiHeartbeatState>();
 	private machine?: MachineRecord;
+	private coordinator?: RadiusPresenceCoordinator;
+
+	setCoordinator(coordinator: RadiusPresenceCoordinator): void {
+		this.coordinator = coordinator;
+	}
 
 	async start(label?: string): Promise<MachineRecord | undefined> {
 		if (!isRadiusEnabled()) {
 			return undefined;
 		}
 
-		const existingMachine = loadMachine();
-		const registered = await post<RegisterMachineResponse>("machines/register", {
-			machineId: existingMachine?.id,
-			label,
-			hostname: hostname(),
-			platform: platform(),
-			arch: process.arch,
-			version: ORCHESTRATOR_VERSION,
-			capabilities: { spawn: true, relay: false, iroh: false },
-		});
-
-		const timestamp = new Date().toISOString();
-		this.machine = {
-			id: registered.id,
-			createdAt: existingMachine?.createdAt ?? timestamp,
-			lastSeenAt: timestamp,
-			label,
-		};
-		saveMachine(this.machine);
-		this.machineHeartbeatTimer = setInterval(() => {
-			void this.heartbeatMachine();
-		}, registered.heartbeatIntervalMs);
+		const registered = await this.registerMachine(label);
+		this.startMachineHeartbeat(registered.heartbeatIntervalMs);
 		return this.machine;
 	}
 
@@ -111,9 +124,9 @@ export class RadiusPresence {
 			clearInterval(this.machineHeartbeatTimer);
 			this.machineHeartbeatTimer = undefined;
 		}
-		for (const [instanceId, timer] of this.piHeartbeatTimers) {
-			clearInterval(timer);
-			this.piHeartbeatTimers.delete(instanceId);
+		for (const [instanceId, state] of this.piHeartbeatStates) {
+			clearInterval(state.timer);
+			this.piHeartbeatStates.delete(instanceId);
 		}
 		if (!this.machine || !isRadiusEnabled()) {
 			return;
@@ -139,15 +152,16 @@ export class RadiusPresence {
 			capabilities: { rpc: true, relay: false, iroh: false },
 			sessionId: instance.sessionId,
 		});
+		const registeredInstance = { ...instance, radiusPiId: registered.id };
 		this.startPiHeartbeat(instance.id, registered.heartbeatIntervalMs, registered.id);
-		return { ...instance, radiusPiId: registered.id };
+		return registeredInstance;
 	}
 
 	async disconnectPi(instance: InstanceRecord): Promise<void> {
-		const timer = this.piHeartbeatTimers.get(instance.id);
-		if (timer) {
-			clearInterval(timer);
-			this.piHeartbeatTimers.delete(instance.id);
+		const state = this.piHeartbeatStates.get(instance.id);
+		if (state) {
+			clearInterval(state.timer);
+			this.piHeartbeatStates.delete(instance.id);
 		}
 		if (!isRadiusEnabled() || !instance.radiusPiId) {
 			return;
@@ -155,32 +169,152 @@ export class RadiusPresence {
 		await maybePost(`pis/${instance.radiusPiId}/disconnect`, {});
 	}
 
+	private async registerMachine(label?: string): Promise<RegisterMachineResponse> {
+		const existingMachine = this.machine ?? loadMachine();
+		const registered = await post<RegisterMachineResponse>("machines/register", {
+			machineId: existingMachine?.id,
+			label,
+			hostname: hostname(),
+			platform: platform(),
+			arch: process.arch,
+			version: ORCHESTRATOR_VERSION,
+			capabilities: { spawn: true, relay: false, iroh: false },
+		});
+
+		const timestamp = new Date().toISOString();
+		this.machine = {
+			id: registered.id,
+			createdAt: existingMachine?.createdAt ?? timestamp,
+			lastSeenAt: timestamp,
+			label,
+		};
+		saveMachine(this.machine);
+		this.machineConsecutiveNotFoundCount = 0;
+		return registered;
+	}
+
+	private startMachineHeartbeat(intervalMs: number): void {
+		if (this.machineHeartbeatTimer) {
+			clearInterval(this.machineHeartbeatTimer);
+		}
+		this.machineHeartbeatTimer = setInterval(() => {
+			void this.heartbeatMachine();
+		}, intervalMs);
+	}
+
 	private startPiHeartbeat(instanceId: string, intervalMs: number, radiusPiId: string): void {
-		const existingTimer = this.piHeartbeatTimers.get(instanceId);
-		if (existingTimer) {
-			clearInterval(existingTimer);
+		const existingState = this.piHeartbeatStates.get(instanceId);
+		if (existingState) {
+			clearInterval(existingState.timer);
 		}
 		const timer = setInterval(() => {
-			void this.heartbeatPi(radiusPiId);
+			void this.heartbeatPi(instanceId);
 		}, intervalMs);
-		this.piHeartbeatTimers.set(instanceId, timer);
+		this.piHeartbeatStates.set(instanceId, {
+			timer,
+			radiusPiId,
+			consecutiveNotFoundCount: 0,
+		});
 	}
 
 	private async heartbeatMachine(): Promise<void> {
 		if (!this.machine || !isRadiusEnabled()) {
 			return;
 		}
-		await maybePost(`machines/${this.machine.id}/heartbeat`, {
-			cwd: getOrchestratorDir(),
-			socketPath: getSocketPath(),
-		});
+
+		try {
+			await maybePost(`machines/${this.machine.id}/heartbeat`, {
+				cwd: getOrchestratorDir(),
+				socketPath: getSocketPath(),
+			});
+			this.machineConsecutiveNotFoundCount = 0;
+		} catch (error) {
+			if (!isNotFoundError(error)) {
+				console.error("Radius machine heartbeat failed", error);
+				return;
+			}
+
+			this.machineConsecutiveNotFoundCount += 1;
+			if (this.machineConsecutiveNotFoundCount < NOT_FOUND_RETRY_THRESHOLD) {
+				return;
+			}
+
+			try {
+				await this.reRegisterMachineAndPis();
+			} catch (recoveryError) {
+				console.error("Radius machine re-registration failed", recoveryError);
+			}
+		}
 	}
 
-	private async heartbeatPi(radiusPiId: string): Promise<void> {
+	private async heartbeatPi(instanceId: string): Promise<void> {
 		if (!isRadiusEnabled()) {
 			return;
 		}
-		await maybePost(`pis/${radiusPiId}/heartbeat`, {});
+
+		const state = this.piHeartbeatStates.get(instanceId);
+		if (!state) {
+			return;
+		}
+
+		try {
+			await maybePost(`pis/${state.radiusPiId}/heartbeat`, {});
+			state.consecutiveNotFoundCount = 0;
+		} catch (error) {
+			if (!isNotFoundError(error)) {
+				console.error(`Radius Pi heartbeat failed for instance ${instanceId}`, error);
+				return;
+			}
+
+			state.consecutiveNotFoundCount += 1;
+			if (state.consecutiveNotFoundCount < NOT_FOUND_RETRY_THRESHOLD) {
+				return;
+			}
+
+			try {
+				const recovered = await this.reRegisterPi(instanceId);
+				if (!recovered) {
+					console.error(`Radius Pi re-registration skipped for instance ${instanceId}`);
+				}
+			} catch (recoveryError) {
+				console.error(`Radius Pi re-registration failed for instance ${instanceId}`, recoveryError);
+			}
+		}
+	}
+
+	private async reRegisterMachineAndPis(): Promise<void> {
+		const registered = await this.registerMachine(this.machine?.label);
+		this.startMachineHeartbeat(registered.heartbeatIntervalMs);
+
+		const instances = this.coordinator?.listLiveInstances() ?? [];
+		for (const instance of instances) {
+			try {
+				await this.reRegisterPi(instance.id);
+			} catch (error) {
+				console.error(`Radius Pi re-registration failed for instance ${instance.id}`, error);
+			}
+		}
+	}
+
+	private async reRegisterPi(instanceId: string): Promise<boolean> {
+		const instance = this.coordinator?.getLiveInstance(instanceId);
+		if (!instance) {
+			const state = this.piHeartbeatStates.get(instanceId);
+			if (state) {
+				clearInterval(state.timer);
+				this.piHeartbeatStates.delete(instanceId);
+			}
+			return false;
+		}
+
+		if (!this.machine) {
+			await this.reRegisterMachineAndPis();
+			return true;
+		}
+
+		const registeredInstance = await this.registerPi(instance);
+		this.coordinator?.updateInstance(registeredInstance);
+		return true;
 	}
 }
 
