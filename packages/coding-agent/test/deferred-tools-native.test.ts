@@ -27,6 +27,7 @@ import {
 	planDeferredToolSearchResult,
 	scanDeferredToolStateEntries,
 	scanDiscoveredDeferredToolNames,
+	scanPromptVisibleDeferredToolNames,
 	searchDeferredTools,
 	snapshotDeferredToolState,
 } from "../src/core/deferred-tools.ts";
@@ -183,6 +184,33 @@ describe("scanDiscoveredDeferredToolNames — history-based reconstruction", () 
 			{ role: "tool", content: [{ type: "text", text: "no tools here" }] },
 		];
 		expect(scanDiscoveredDeferredToolNames(history)).toEqual([]);
+	});
+
+	it("preserves tool_reference blocks from single-pass history iterables", () => {
+		function* history() {
+			yield {
+				role: "tool",
+				content: [{ type: "tool_reference", name: "alpha" }],
+			};
+		}
+
+		expect(scanDiscoveredDeferredToolNames(history())).toEqual(["alpha"]);
+	});
+
+	it("can scan only prompt-visible tool_reference blocks for loaded-context accounting", () => {
+		const history = [
+			{
+				customType: DEFERRED_TOOL_STATE_CUSTOM_TYPE,
+				data: createDeferredToolStateEntryData(["state_only"]),
+			},
+			{
+				role: "tool",
+				content: [{ type: "tool_reference", name: "prompt_visible" }],
+			},
+		];
+
+		expect(scanDiscoveredDeferredToolNames(history).sort()).toEqual(["prompt_visible", "state_only"]);
+		expect(scanPromptVisibleDeferredToolNames(history)).toEqual(["prompt_visible"]);
 	});
 });
 

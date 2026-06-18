@@ -7,6 +7,7 @@ import {
 	estimateContextUsageSnapshot,
 	estimateToolSchemaTokens,
 } from "../src/core/context-usage.ts";
+import { createDeferredToolStateEntryData, DEFERRED_TOOL_STATE_CUSTOM_TYPE } from "../src/core/deferred-tools.ts";
 import { hookContextUsage } from "../src/core/extensions/context-usage.ts";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
@@ -70,6 +71,8 @@ function getContextUsageFor(options: {
 	activeToolNames?: string[];
 	contextWindow?: number;
 	nativeDeferredTools?: boolean;
+	loadedDeferredToolNames?: string[];
+	useProviderUsage?: boolean;
 }) {
 	const contextWindow = options.contextWindow ?? 1000;
 	const branch = options.branch ?? [];
@@ -80,6 +83,8 @@ function getContextUsageFor(options: {
 		activeToolNames: options.activeToolNames ?? [],
 		contextWindow,
 		nativeDeferredTools: options.nativeDeferredTools,
+		loadedDeferredToolNames: options.loadedDeferredToolNames,
+		useProviderUsage: options.useProviderUsage,
 	});
 	const service: ContextUsageSnapshotService = {
 		get: () => snapshot,
@@ -109,11 +114,50 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: 150,
 			contextWindow: 1000,
 			percent: 15,
 		});
+		expect(usage?.details).toMatchObject({
+			source: "loaded_estimate",
+			loadedToolSchemaTokens: 40,
+		});
+	});
+
+	it("counts prompt-visible synthetic summary messages", () => {
+		const usage = getContextUsageFor({
+			systemPrompt: "",
+			branch: [
+				messageEntry(
+					{
+						role: "branchSummary",
+						summary: "b".repeat(40),
+						fromId: "root",
+						timestamp: Date.now(),
+					} as unknown as AgentMessage,
+					"branch-summary",
+				),
+				messageEntry(
+					{
+						role: "compactionSummary",
+						summary: "c".repeat(80),
+						tokensBefore: 1000,
+						timestamp: Date.now(),
+					} as unknown as AgentMessage,
+					"compaction-summary",
+				),
+			],
+			contextWindow: 1000,
+			useProviderUsage: false,
+		});
+
+		expect(usage).toMatchObject({
+			tokens: 30,
+			contextWindow: 1000,
+			percent: 3,
+		});
+		expect(usage?.details?.transcriptTokens).toBe(30);
 	});
 
 	it("does not count deferred tool schemas until they are active", () => {
@@ -130,14 +174,14 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: expectedTokens,
 			contextWindow: 1000,
 			percent: (expectedTokens / 1000) * 100,
 		});
 	});
 
-	it("counts deferred tool schemas after they become active", () => {
+	it("counts deferred tool schemas after they become active on fallback providers", () => {
 		const deferredTool = {
 			...toolDefinition("deferred_tool", "d".repeat(400)),
 			deferLoading: true,
@@ -150,18 +194,19 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: expectedTokens,
 			contextWindow: 1000,
 			percent: (expectedTokens / 1000) * 100,
 		});
 	});
 
-	it("does not count active native-deferred schemas as loaded context", () => {
+	it("does not count active native-deferred schemas as loaded context before discovery", () => {
 		const deferredTool = {
 			...toolDefinition("Find", "d".repeat(400)),
 			deferLoading: true,
 		};
+		const deferredTokens = estimateToolSchemaTokens([deferredTool]);
 		const usage = getContextUsageFor({
 			systemPrompt: "x".repeat(200),
 			toolDefinitions: [deferredTool],
@@ -170,10 +215,43 @@ describe("AgentSession context usage", () => {
 			nativeDeferredTools: true,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: 50,
 			contextWindow: 1000,
 			percent: 5,
+		});
+		expect(usage?.details).toMatchObject({
+			loadedToolSchemaTokens: 0,
+			deferredToolSchemaTokens: deferredTokens,
+			deferredToolCount: 1,
+		});
+	});
+
+	it("counts discovered native-deferred schemas as loaded context", () => {
+		const deferredTool = {
+			...toolDefinition("Find", "d".repeat(400)),
+			deferLoading: true,
+		};
+		const loadedToolTokens = estimateToolSchemaTokens([deferredTool]);
+		const expectedTokens = 50 + loadedToolTokens;
+		const usage = getContextUsageFor({
+			systemPrompt: "x".repeat(200),
+			toolDefinitions: [deferredTool],
+			activeToolNames: [deferredTool.name],
+			contextWindow: 1000,
+			nativeDeferredTools: true,
+			loadedDeferredToolNames: [deferredTool.name],
+		});
+
+		expect(usage).toMatchObject({
+			tokens: expectedTokens,
+			contextWindow: 1000,
+			percent: (expectedTokens / 1000) * 100,
+		});
+		expect(usage?.details).toMatchObject({
+			loadedToolSchemaTokens: loadedToolTokens,
+			deferredToolSchemaTokens: 0,
+			loadedDeferredToolCount: 1,
 		});
 	});
 
@@ -189,20 +267,29 @@ describe("AgentSession context usage", () => {
 			contextWindow: 1000,
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: 120,
 			contextWindow: 1000,
 			percent: 12,
 		});
+		expect(usage?.details).toMatchObject({
+			source: "provider_usage",
+			providerUsageTokens: 110,
+		});
 	});
 
-	it("prefers completed assistant transcript usage over a stale service estimate", () => {
+	it("keeps provider usage as the public token count while merging snapshot details", () => {
 		const branch = [
 			messageEntry(assistantMessage(110), "assistant"),
 			messageEntry(userMessage("u".repeat(40)), "trailing-user"),
 		];
 		const service: ContextUsageSnapshotService = {
-			get: () => ({ tokens: 500, contextWindow: 1000, percent: 50 }),
+			get: () => ({
+				tokens: 500,
+				contextWindow: 1000,
+				percent: 50,
+				details: { source: "loaded_estimate", loadedContextTokens: 140, deferredToolSchemaTokens: 30 },
+			}),
 		};
 
 		const usage = AgentSession.prototype.getContextUsage.call({
@@ -217,10 +304,62 @@ describe("AgentSession context usage", () => {
 			},
 		});
 
-		expect(usage).toEqual({
+		expect(usage).toMatchObject({
 			tokens: 120,
 			contextWindow: 1000,
 			percent: 12,
+			details: {
+				source: "provider_usage",
+				providerUsageTokens: 110,
+				loadedContextTokens: 140,
+				deferredToolSchemaTokens: 30,
+			},
+		});
+	});
+
+	it("preserves loaded-context details when provider usage is unknown after compaction", () => {
+		const branch = [
+			messageEntry(assistantMessage(220), "pre-compaction-assistant"),
+			{
+				type: "compaction",
+				id: "compact",
+				parentId: "pre-compaction-assistant",
+				timestamp: "2026-05-28T00:01:00.000Z",
+				summary: "summary",
+				firstKeptEntryId: "compact",
+				tokensBefore: 1000,
+			} as unknown as SessionEntry,
+		];
+		const service: ContextUsageSnapshotService = {
+			get: () => ({
+				tokens: 180,
+				contextWindow: 1000,
+				percent: 18,
+				details: { source: "loaded_estimate", loadedContextTokens: 180, deferredToolSchemaTokens: 30 },
+			}),
+		};
+
+		const usage = AgentSession.prototype.getContextUsage.call({
+			model: { contextWindow: 1000 },
+			systemPrompt: "",
+			messages: branch.filter((entry) => entry.type === "message").map((entry) => entry.message),
+			sessionManager: {
+				getBranch: () => branch,
+			},
+			_extensionRunner: {
+				getService: (id: string) => (id === CONTEXT_USAGE_SERVICE_ID ? service : undefined),
+			},
+		});
+
+		expect(usage).toMatchObject({
+			tokens: null,
+			contextWindow: 1000,
+			percent: null,
+			details: {
+				source: "loaded_estimate",
+				loadedContextTokens: 180,
+				deferredToolSchemaTokens: 30,
+			},
 		});
 	});
 
@@ -254,6 +393,201 @@ describe("AgentSession context usage", () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 
+	it("counts only prompt-visible deferred tool references as loaded schemas", () => {
+		let service: ContextUsageSnapshotService | undefined;
+		const stateOnlyTool = {
+			...toolDefinition("state_only", "s".repeat(64)),
+			deferLoading: true,
+		};
+		const promptVisibleTool = {
+			...toolDefinition("prompt_visible", "p".repeat(64)),
+			deferLoading: true,
+		};
+		const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void>>();
+		const pi = {
+			harness: {
+				provide: (_id: string, providedService: ContextUsageSnapshotService) => {
+					service = providedService;
+				},
+			},
+			tools: {
+				definitions: () => [stateOnlyTool, promptVisibleTool],
+				active: () => [stateOnlyTool.name, promptVisibleTool.name],
+			},
+			on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => void) => {
+				handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+			},
+		} as unknown as ExtensionAPI;
+		hookContextUsage(pi);
+
+		const stateEntry = {
+			type: "custom",
+			id: "state",
+			parentId: null,
+			timestamp: "2026-05-28T00:00:00.000Z",
+			customType: DEFERRED_TOOL_STATE_CUSTOM_TYPE,
+			data: createDeferredToolStateEntryData([stateOnlyTool.name]),
+		} as unknown as SessionEntry;
+		const toolReferenceEntry = {
+			...messageEntry(
+				{
+					role: "tool",
+					content: [{ type: "tool_reference", name: promptVisibleTool.name }],
+					timestamp: Date.now(),
+				} as unknown as AgentMessage,
+				"tool-reference",
+			),
+			parentId: "state",
+		};
+		const entries = [stateEntry, toolReferenceEntry];
+		const ctx = {
+			model: { id: "claude-sonnet-4-5", provider: "anthropic", contextWindow: 1000, api: "anthropic-messages" },
+			sessionManager: {
+				getEntries: () => entries,
+				getLeafId: () => "tool-reference",
+			},
+		} as unknown as ExtensionContext;
+
+		handlers.get("before_agent_start")?.[0]?.({ systemPrompt: "system" }, ctx);
+
+		expect(service?.get()?.details).toMatchObject({
+			loadedToolSchemaTokens: estimateToolSchemaTokens([promptVisibleTool]),
+			deferredToolSchemaTokens: estimateToolSchemaTokens([stateOnlyTool]),
+			loadedDeferredToolCount: 1,
+			deferredToolCount: 1,
+		});
+	});
+
+	it("does not treat Codex transcript tool references as provider-loaded schemas", () => {
+		let service: ContextUsageSnapshotService | undefined;
+		const deferredTool = {
+			...toolDefinition("codex_deferred", "d".repeat(64)),
+			deferLoading: true,
+		};
+		const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void>>();
+		const pi = {
+			harness: {
+				provide: (_id: string, providedService: ContextUsageSnapshotService) => {
+					service = providedService;
+				},
+			},
+			tools: {
+				definitions: () => [deferredTool],
+				active: () => [deferredTool.name],
+			},
+			on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => void) => {
+				handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+			},
+		} as unknown as ExtensionAPI;
+		hookContextUsage(pi);
+
+		const entries = [
+			messageEntry(
+				{
+					role: "tool",
+					content: [{ type: "tool_reference", name: deferredTool.name }],
+					timestamp: Date.now(),
+				} as unknown as AgentMessage,
+				"tool-reference",
+			),
+		];
+		const ctx = {
+			model: {
+				id: "gpt-5.1-codex-max",
+				provider: "openai-codex",
+				contextWindow: 1000,
+				api: "openai-codex-responses",
+			},
+			sessionManager: {
+				getEntries: () => entries,
+				getLeafId: () => "tool-reference",
+			},
+		} as unknown as ExtensionContext;
+
+		handlers.get("before_agent_start")?.[0]?.({ systemPrompt: "system" }, ctx);
+
+		expect(service?.get()?.details).toMatchObject({
+			loadedToolSchemaTokens: 0,
+			deferredToolSchemaTokens: estimateToolSchemaTokens([deferredTool]),
+			loadedDeferredToolCount: 0,
+			deferredToolCount: 1,
+		});
+	});
+
+	it("does not count compacted-away tool references as loaded schemas", () => {
+		let service: ContextUsageSnapshotService | undefined;
+		const compactedTool = {
+			...toolDefinition("compacted_away", "c".repeat(64)),
+			deferLoading: true,
+		};
+		const promptVisibleTool = {
+			...toolDefinition("prompt_visible", "p".repeat(64)),
+			deferLoading: true,
+		};
+		const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void>>();
+		const pi = {
+			harness: {
+				provide: (_id: string, providedService: ContextUsageSnapshotService) => {
+					service = providedService;
+				},
+			},
+			tools: {
+				definitions: () => [compactedTool, promptVisibleTool],
+				active: () => [compactedTool.name, promptVisibleTool.name],
+			},
+			on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => void) => {
+				handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+			},
+		} as unknown as ExtensionAPI;
+		hookContextUsage(pi);
+
+		const preCompactionToolReference = messageEntry(
+			{
+				role: "tool",
+				content: [{ type: "tool_reference", name: compactedTool.name }],
+				timestamp: Date.now(),
+			} as unknown as AgentMessage,
+			"pre-compaction",
+		);
+		const compaction = {
+			type: "compaction",
+			id: "compact",
+			parentId: "pre-compaction",
+			timestamp: "2026-05-28T00:01:00.000Z",
+			summary: "summary",
+			firstKeptEntryId: "post-compaction",
+			tokensBefore: 1000,
+		} as unknown as SessionEntry;
+		const postCompactionToolReference = {
+			...messageEntry(
+				{
+					role: "tool",
+					content: [{ type: "tool_reference", name: promptVisibleTool.name }],
+					timestamp: Date.now(),
+				} as unknown as AgentMessage,
+				"post-compaction",
+			),
+			parentId: "compact",
+		};
+		const entries = [preCompactionToolReference, compaction, postCompactionToolReference];
+		const ctx = {
+			model: { id: "claude-sonnet-4-5", provider: "anthropic", contextWindow: 1000, api: "anthropic-messages" },
+			sessionManager: {
+				getEntries: () => entries,
+				getLeafId: () => "post-compaction",
+			},
+		} as unknown as ExtensionContext;
+
+		handlers.get("before_agent_start")?.[0]?.({ systemPrompt: "system" }, ctx);
+
+		expect(service?.get()?.details).toMatchObject({
+			loadedToolSchemaTokens: estimateToolSchemaTokens([promptVisibleTool]),
+			deferredToolSchemaTokens: estimateToolSchemaTokens([compactedTool]),
+			loadedDeferredToolCount: 1,
+			deferredToolCount: 1,
+		});
+	});
+
 	it("updates the cached snapshot from the prepared prompt before agent start", () => {
 		let service: ContextUsageSnapshotService | undefined;
 		const activeTool = toolDefinition("active_tool", "a".repeat(64));
@@ -274,10 +608,12 @@ describe("AgentSession context usage", () => {
 		} as unknown as ExtensionAPI;
 		hookContextUsage(pi);
 
+		const entry = messageEntry(userMessage("u".repeat(40)));
 		const ctx = {
 			model: { contextWindow: 1000 },
 			sessionManager: {
-				getBranch: () => [messageEntry(userMessage("u".repeat(40)))],
+				getEntries: () => [entry],
+				getLeafId: () => entry.id,
 			},
 		} as unknown as ExtensionContext;
 		const preparedPrompt = "x".repeat(400);
@@ -285,7 +621,7 @@ describe("AgentSession context usage", () => {
 
 		handlers.get("before_agent_start")?.[0]?.({ systemPrompt: preparedPrompt }, ctx);
 
-		expect(service?.get()).toEqual({
+		expect(service?.get()).toMatchObject({
 			tokens: expectedTokens,
 			contextWindow: 1000,
 			percent: (expectedTokens / 1000) * 100,

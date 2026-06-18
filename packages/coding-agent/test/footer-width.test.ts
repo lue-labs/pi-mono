@@ -9,6 +9,7 @@ import {
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
 import { FooterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 type AssistantUsage = {
 	input: number;
@@ -28,6 +29,18 @@ function createSession(options: {
 	entries?: unknown[];
 	branchEntries?: unknown[];
 	isStreaming?: boolean;
+	contextUsage?: {
+		tokens: number | null;
+		contextWindow: number;
+		percent: number | null;
+		details?: {
+			source?: "provider_usage" | "loaded_estimate";
+			loadedContextTokens?: number;
+			deferredToolSchemaTokens?: number;
+			loadedDeferredToolCount?: number;
+			nativeDeferredTools?: boolean;
+		};
+	};
 }): AgentSession {
 	const usage = options.usage;
 	const entries =
@@ -61,7 +74,7 @@ function createSession(options: {
 			getSessionName: () => options.sessionName,
 			getCwd: () => "/tmp/project",
 		},
-		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
+		getContextUsage: () => options.contextUsage ?? { tokens: 24_600, contextWindow: 200_000, percent: 12.3 },
 		modelRegistry: {
 			isUsingOAuth: () => false,
 		},
@@ -129,6 +142,106 @@ describe("FooterComponent width handling", () => {
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 		}
+	});
+
+	it("shows unloaded provider-deferred tool schema tokens separately from loaded estimates", () => {
+		const session = createSession({
+			sessionName: "",
+			contextUsage: {
+				tokens: 24_600,
+				contextWindow: 200_000,
+				percent: 12.3,
+				details: { source: "loaded_estimate", loadedContextTokens: 24_600, deferredToolSchemaTokens: 11_100 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const rendered = stripAnsi(footer.render(120).join("\n"));
+
+		expect(rendered).toContain("25k+d11k/200k");
+	});
+
+	it("keeps provider-backed tokens primary while still showing deferred schema budget", () => {
+		const session = createSession({
+			sessionName: "",
+			contextUsage: {
+				tokens: 35_700,
+				contextWindow: 200_000,
+				percent: 17.85,
+				details: {
+					source: "provider_usage",
+					loadedContextTokens: 24_600,
+					deferredToolSchemaTokens: 11_100,
+					nativeDeferredTools: true,
+				},
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const rendered = stripAnsi(footer.render(120).join("\n"));
+
+		expect(rendered).toContain("36k+d11k/200k");
+		expect(rendered).not.toContain("25k+d11k/200k");
+	});
+
+	it("uses loaded context as a floor when the last native-deferred schema has just loaded", () => {
+		const session = createSession({
+			sessionName: "",
+			contextUsage: {
+				tokens: 35_700,
+				contextWindow: 200_000,
+				percent: 17.85,
+				details: {
+					source: "provider_usage",
+					loadedContextTokens: 48_200,
+					deferredToolSchemaTokens: 0,
+					loadedDeferredToolCount: 1,
+					nativeDeferredTools: true,
+				},
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const rendered = stripAnsi(footer.render(120).join("\n"));
+
+		expect(rendered).toContain("48k/200k");
+		expect(rendered).not.toContain("36k/200k");
+	});
+
+	it("does not turn unknown post-compaction context usage into a concrete percent", () => {
+		const session = createSession({
+			sessionName: "",
+			contextUsage: {
+				tokens: null,
+				contextWindow: 200_000,
+				percent: null,
+				details: { source: "loaded_estimate", loadedContextTokens: 24_600, deferredToolSchemaTokens: 11_100 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const rendered = stripAnsi(footer.render(120).join("\n"));
+
+		expect(rendered).toContain("?% ?+d11k/200k");
+		expect(rendered).not.toContain("25k+d11k/200k");
+	});
+
+	it("uses provider-backed context usage when there is no deferred schema budget to split", () => {
+		const session = createSession({
+			sessionName: "",
+			contextUsage: {
+				tokens: 50_000,
+				contextWindow: 200_000,
+				percent: 25,
+				details: { loadedContextTokens: 24_600, deferredToolSchemaTokens: 0 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const rendered = stripAnsi(footer.render(120).join("\n"));
+
+		expect(rendered).toContain("50k/200k");
+		expect(rendered).not.toContain("25k/200k");
 	});
 
 	it("keeps stats line within width for wide model and provider names", () => {

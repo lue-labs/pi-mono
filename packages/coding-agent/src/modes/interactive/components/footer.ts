@@ -235,10 +235,31 @@ export class FooterComponent implements Component {
 
 		const contextUsage = this.session.getContextUsage();
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
-		const contextPercentValue = contextUsage?.percent ?? 0;
-		const contextPercent = contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
-		const contextTokens = contextUsage?.tokens ?? null;
-		const knownTokens = contextTokens ?? 0;
+		const contextUsageDetails = contextUsage?.details;
+		const deferredToolTokens = contextUsageDetails?.deferredToolSchemaTokens ?? 0;
+		const loadedDeferredToolCount = contextUsageDetails?.loadedDeferredToolCount ?? 0;
+		const loadedContextTokens = contextUsageDetails?.loadedContextTokens ?? null;
+		const providerContextTokens = contextUsage?.tokens ?? null;
+		const useLoadedEstimate =
+			providerContextTokens !== null &&
+			contextUsageDetails?.source === "loaded_estimate" &&
+			loadedContextTokens !== null;
+		const useLoadedDeferredFloor =
+			contextUsageDetails?.source === "provider_usage" &&
+			contextUsageDetails.nativeDeferredTools === true &&
+			providerContextTokens !== null &&
+			loadedContextTokens !== null &&
+			deferredToolTokens === 0 &&
+			loadedDeferredToolCount > 0;
+		const displayContextTokens = useLoadedEstimate
+			? loadedContextTokens
+			: useLoadedDeferredFloor
+				? Math.max(providerContextTokens, loadedContextTokens)
+				: providerContextTokens;
+		const contextPercentValue =
+			displayContextTokens === null || contextWindow <= 0 ? 0 : (displayContextTokens / contextWindow) * 100;
+		const contextPercent = displayContextTokens === null ? "?" : contextPercentValue.toFixed(1);
+		const knownTokens = displayContextTokens ?? 0;
 
 		// CWD with ~ substitution
 		const basePwd = formatCwdForFooter(
@@ -333,9 +354,10 @@ export class FooterComponent implements Component {
 
 		// Context % — each piece coloured independently (no outer dim wrapper)
 		const autoIndicator = this.autoCompactEnabled ? " (auto)" : "";
-		const contextTokensDisplay = contextTokens === null ? "?" : formatTokens(contextTokens);
+		const contextTokensDisplay = displayContextTokens === null ? "?" : formatTokens(displayContextTokens);
 		const percentLabel = contextPercent === "?" ? "?%" : `${contextPercent}%`;
-		const tokensLabel = `${contextTokensDisplay}/${formatTokens(contextWindow)}${autoIndicator}`;
+		const deferredLabel = deferredToolTokens > 0 ? `+d${formatTokens(deferredToolTokens)}` : "";
+		const tokensLabel = `${contextTokensDisplay}${deferredLabel}/${formatTokens(contextWindow)}${autoIndicator}`;
 
 		let ctxPct: string;
 		if (contextPercentValue > 90) {

@@ -9,6 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Report loaded context usage separately from unloaded provider-deferred tool schemas in context-usage diagnostics and the TUI footer.
 - Expose `ctx.reload()` on extension event contexts so model-switch handlers can rebuild provider-specific runtime resources without queuing slash-command text.
 
 This file is fork-owned (`.gitattributes` `merge=ours`) so upstream syncs no

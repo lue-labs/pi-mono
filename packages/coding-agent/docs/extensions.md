@@ -994,7 +994,7 @@ pi.on("tool_call", (event, ctx) => {
 
 ### ctx.getContextUsage()
 
-Returns current context usage for the active model. Uses last assistant usage when available, then estimates tokens for trailing messages.
+Returns current context usage for the active model. `tokens` uses provider-reported assistant usage when available, then estimates trailing messages. `details.loadedContextTokens` may be present for native deferred-tool providers; it excludes unloaded provider-deferred tool schemas so status surfaces can show loaded context separately from searchable/deferred schema budget.
 
 ```typescript
 const usage = ctx.getContextUsage();

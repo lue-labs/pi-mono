@@ -4,11 +4,17 @@ import {
 	estimateContextUsageSnapshot,
 } from "../context-usage.ts";
 import { getDeferredToolCapabilities } from "../deferred-tool-capabilities.ts";
+import { scanPromptVisibleDeferredToolNames } from "../deferred-tools.ts";
+import { buildSessionContext, type SessionEntry } from "../session-manager.ts";
 import { addAction, load } from "./extension-hooks.ts";
 import type { ContextUsage, ExtensionAPI, ExtensionContext } from "./types.ts";
 
 function isStaleContextError(error: unknown): boolean {
 	return error instanceof Error && error.message.includes("extension ctx is stale");
+}
+
+function serializesToolReferenceBlocks(model: ExtensionContext["model"]): boolean {
+	return model?.api === "anthropic-messages";
 }
 
 async function getEffectiveSystemPrompt(ctx: ExtensionContext): Promise<string> {
@@ -38,13 +44,31 @@ export function hookContextUsage(pi: ExtensionAPI): void {
 			return;
 		}
 
+		const sessionContext = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
+		const contextEntries = sessionContext.messages.map((message, index): SessionEntry => {
+			const timestamp =
+				typeof message.timestamp === "number"
+					? new Date(message.timestamp).toISOString()
+					: new Date().toISOString();
+			return {
+				type: "message",
+				id: `context-${index}`,
+				parentId: index === 0 ? null : `context-${index - 1}`,
+				timestamp,
+				message,
+			};
+		});
+		const capabilities = getDeferredToolCapabilities(ctx.model);
 		snapshot = estimateContextUsageSnapshot({
-			branch: ctx.sessionManager.getBranch(),
+			branch: contextEntries,
 			systemPrompt,
 			toolDefinitions: pi.tools.definitions(),
 			activeToolNames: pi.tools.active(),
 			contextWindow,
-			nativeDeferredTools: getDeferredToolCapabilities(ctx.model).nativeDeferredTools,
+			nativeDeferredTools: capabilities.nativeDeferredTools,
+			loadedDeferredToolNames: serializesToolReferenceBlocks(ctx.model)
+				? scanPromptVisibleDeferredToolNames(sessionContext.messages)
+				: [],
 		});
 	};
 

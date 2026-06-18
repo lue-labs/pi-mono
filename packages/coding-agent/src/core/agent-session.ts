@@ -4213,6 +4213,11 @@ export class AgentSession {
 		const contextWindow = model.contextWindow ?? 0;
 		if (contextWindow <= 0) return undefined;
 
+		const contextUsageService =
+			this._extensionRunner?.getService<ContextUsageSnapshotService>(CONTEXT_USAGE_SERVICE_ID);
+		const serviceUsage = contextUsageService?.get();
+		const matchingServiceUsage = serviceUsage?.contextWindow === contextWindow ? serviceUsage : undefined;
+
 		// After compaction, the last assistant usage reflects pre-compaction context size.
 		// We can only trust usage from an assistant that responded after the latest compaction.
 		// If no such assistant exists, context token count is unknown until the next LLM response.
@@ -4238,7 +4243,7 @@ export class AgentSession {
 			}
 
 			if (!hasPostCompactionUsage) {
-				return { tokens: null, contextWindow, percent: null };
+				return { tokens: null, contextWindow, percent: null, details: matchingServiceUsage?.details };
 			}
 		}
 
@@ -4249,13 +4254,15 @@ export class AgentSession {
 				tokens,
 				contextWindow,
 				percent: (tokens / contextWindow) * 100,
+				details: {
+					...matchingServiceUsage?.details,
+					source: "provider_usage",
+					providerUsageTokens: estimate.usageTokens,
+				},
 			};
 		}
 
-		const contextUsageService =
-			this._extensionRunner?.getService<ContextUsageSnapshotService>(CONTEXT_USAGE_SERVICE_ID);
-		const serviceUsage = contextUsageService?.get();
-		if (serviceUsage && serviceUsage.contextWindow === contextWindow) return serviceUsage;
+		if (matchingServiceUsage) return matchingServiceUsage;
 
 		const systemPromptTokens = estimateSystemPromptTokens(this.systemPrompt);
 		const tokens = estimate.tokens + systemPromptTokens;
