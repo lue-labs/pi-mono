@@ -7,7 +7,7 @@ import type { ImageContent } from "@valkyriweb/pi-ai";
 import chalk from "chalk";
 import { resolve } from "path";
 import { resolveReadPath } from "../core/tools/path-utils.ts";
-import { formatDimensionNote, resizeImage } from "../utils/image-resize.ts";
+import { formatDimensionNote, type ImageResizeOptions, resizeImage } from "../utils/image-resize.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.ts";
 
 export interface ProcessedFiles {
@@ -16,13 +16,35 @@ export interface ProcessedFiles {
 }
 
 export interface ProcessFileOptions {
-	/** Whether to auto-resize images to 2000x2000 max. Default: true */
+	/** Whether to auto-resize images. Default: true */
 	autoResizeImages?: boolean;
+	/** Optional image resize budget. Defaults preserve core's 2000x2000 / 4.5MB base64 behavior. */
+	imageResizeOptions?: ImageResizeOptions;
+}
+
+function parsePositiveIntEnv(name: string): number | undefined {
+	const raw = process.env[name];
+	if (!raw) return undefined;
+	const value = Number.parseInt(raw, 10);
+	return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+export function getImageResizeOptionsFromEnv(): ImageResizeOptions | undefined {
+	const maxDimension = parsePositiveIntEnv("PI_IMAGE_INLINE_MAX_DIMENSION");
+	const maxBytes = parsePositiveIntEnv("PI_IMAGE_INLINE_MAX_BYTES");
+	const jpegQuality = parsePositiveIntEnv("PI_IMAGE_INLINE_JPEG_QUALITY");
+	if (maxDimension === undefined && maxBytes === undefined && jpegQuality === undefined) return undefined;
+	return {
+		...(maxDimension !== undefined ? { maxWidth: maxDimension, maxHeight: maxDimension } : {}),
+		...(maxBytes !== undefined ? { maxBytes } : {}),
+		...(jpegQuality !== undefined ? { jpegQuality: Math.min(jpegQuality, 100) } : {}),
+	};
 }
 
 /** Process @file arguments into text content and image attachments */
 export async function processFileArguments(fileArgs: string[], options?: ProcessFileOptions): Promise<ProcessedFiles> {
 	const autoResizeImages = options?.autoResizeImages ?? true;
+	const imageResizeOptions = options?.imageResizeOptions ?? getImageResizeOptionsFromEnv();
 	let text = "";
 	const images: ImageContent[] = [];
 
@@ -55,7 +77,7 @@ export async function processFileArguments(fileArgs: string[], options?: Process
 			let dimensionNote: string | undefined;
 
 			if (autoResizeImages) {
-				const resized = await resizeImage(content, mimeType);
+				const resized = await resizeImage(content, mimeType, imageResizeOptions);
 				if (!resized) {
 					text += `<file name="${absolutePath}">[Image omitted: could not be resized below the inline image size limit.]</file>\n`;
 					continue;

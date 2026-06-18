@@ -8,7 +8,7 @@ import { type Static, Type } from "typebox";
 import { getReadmePath } from "../../config.ts";
 import { keyHint, keyText } from "../../modes/interactive/components/keybinding-hints.ts";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../modes/interactive/theme/theme.ts";
-import { formatDimensionNote, resizeImage } from "../../utils/image-resize.ts";
+import { formatDimensionNote, type ImageResizeOptions, resizeImage } from "../../utils/image-resize.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../utils/paths.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
@@ -58,8 +58,10 @@ const defaultReadOperations: ReadOperations = {
 export interface ReadToolOptions {
 	toolName?: "read" | "Read";
 	label?: string;
-	/** Whether to auto-resize images to 2000x2000 max. Default: true */
+	/** Whether to auto-resize images. Default: true */
 	autoResizeImages?: boolean;
+	/** Optional image resize budget. Defaults preserve core's 2000x2000 / 4.5MB base64 behavior. */
+	imageResizeOptions?: ImageResizeOptions;
 	/** Custom operations for file reading. Default: local filesystem */
 	operations?: ReadOperations;
 }
@@ -208,6 +210,7 @@ export function createReadToolDefinition(
 	options?: ReadToolOptions,
 ): ToolDefinition<typeof readSchema, ReadToolDetails | undefined> {
 	const autoResizeImages = options?.autoResizeImages ?? true;
+	const imageResizeOptions = options?.imageResizeOptions;
 	const ops = options?.operations ?? defaultReadOperations;
 	const toolName = options?.toolName ?? "read";
 	const label = options?.label ?? "Read";
@@ -258,7 +261,7 @@ export function createReadToolDefinition(
 								const buffer = await ops.readFile(absolutePath);
 								if (autoResizeImages) {
 									// Resize image if needed before sending it back to the model.
-									const resized = await resizeImage(buffer, mimeType);
+									const resized = await resizeImage(buffer, mimeType, imageResizeOptions);
 									if (!resized) {
 										let textNote = `Read image file [${mimeType}]\n[Image omitted: could not be resized below the inline image size limit.]`;
 										if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
