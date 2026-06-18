@@ -232,6 +232,15 @@ export function scanDiscoveredDeferredToolNames(messages: Iterable<unknown>): st
 	for (const rawMessage of messages) {
 		const message = rawMessage as MessageLike;
 		for (const name of message.deferredToolState?.discoveredToolNames ?? []) discovered.add(name);
+		for (const name of scanPromptVisibleDeferredToolNames([message])) discovered.add(name);
+	}
+	return Array.from(discovered);
+}
+
+export function scanPromptVisibleDeferredToolNames(messages: Iterable<unknown>): string[] {
+	const discovered = new Set<string>();
+	for (const rawMessage of messages) {
+		const message = rawMessage as MessageLike;
 		for (const block of contentBlocks(message.content)) {
 			if (isDeferredToolReferenceBlock(block)) discovered.add(block.name);
 		}

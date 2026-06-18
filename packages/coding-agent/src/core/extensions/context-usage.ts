@@ -4,7 +4,7 @@ import {
 	estimateContextUsageSnapshot,
 } from "../context-usage.ts";
 import { getDeferredToolCapabilities } from "../deferred-tool-capabilities.ts";
-import { scanDiscoveredDeferredToolNames } from "../deferred-tools.ts";
+import { scanPromptVisibleDeferredToolNames } from "../deferred-tools.ts";
 import { addAction, load } from "./extension-hooks.ts";
 import type { ContextUsage, ExtensionAPI, ExtensionContext } from "./types.ts";
 
@@ -40,11 +40,7 @@ export function hookContextUsage(pi: ExtensionAPI): void {
 		}
 
 		const branch = ctx.sessionManager.getBranch();
-		const discoveryScanInputs: unknown[] = [];
-		for (const entry of branch) {
-			discoveryScanInputs.push(entry);
-			if (entry.type === "message") discoveryScanInputs.push(entry.message);
-		}
+		const promptVisibleMessages = branch.filter((entry) => entry.type === "message").map((entry) => entry.message);
 		snapshot = estimateContextUsageSnapshot({
 			branch,
 			systemPrompt,
@@ -52,7 +48,7 @@ export function hookContextUsage(pi: ExtensionAPI): void {
 			activeToolNames: pi.tools.active(),
 			contextWindow,
 			nativeDeferredTools: getDeferredToolCapabilities(ctx.model).nativeDeferredTools,
-			loadedDeferredToolNames: scanDiscoveredDeferredToolNames(discoveryScanInputs),
+			loadedDeferredToolNames: scanPromptVisibleDeferredToolNames(promptVisibleMessages),
 		});
 	};
 

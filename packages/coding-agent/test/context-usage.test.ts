@@ -7,6 +7,7 @@ import {
 	estimateContextUsageSnapshot,
 	estimateToolSchemaTokens,
 } from "../src/core/context-usage.ts";
+import { createDeferredToolStateEntryData, DEFERRED_TOOL_STATE_CUSTOM_TYPE } from "../src/core/deferred-tools.ts";
 import { hookContextUsage } from "../src/core/extensions/context-usage.ts";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
@@ -306,6 +307,64 @@ describe("AgentSession context usage", () => {
 
 		handlers.get("session_start")?.[0]?.({}, ctx);
 		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+
+	it("counts only prompt-visible deferred tool references as loaded schemas", () => {
+		let service: ContextUsageSnapshotService | undefined;
+		const stateOnlyTool = {
+			...toolDefinition("state_only", "s".repeat(64)),
+			deferLoading: true,
+		};
+		const promptVisibleTool = {
+			...toolDefinition("prompt_visible", "p".repeat(64)),
+			deferLoading: true,
+		};
+		const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void>>();
+		const pi = {
+			harness: {
+				provide: (_id: string, providedService: ContextUsageSnapshotService) => {
+					service = providedService;
+				},
+			},
+			tools: {
+				definitions: () => [stateOnlyTool, promptVisibleTool],
+				active: () => [stateOnlyTool.name, promptVisibleTool.name],
+			},
+			on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => void) => {
+				handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+			},
+		} as unknown as ExtensionAPI;
+		hookContextUsage(pi);
+
+		const branch = [
+			{
+				customType: DEFERRED_TOOL_STATE_CUSTOM_TYPE,
+				data: createDeferredToolStateEntryData([stateOnlyTool.name]),
+			} as unknown as SessionEntry,
+			messageEntry(
+				{
+					role: "tool",
+					content: [{ type: "tool_reference", name: promptVisibleTool.name }],
+					timestamp: Date.now(),
+				} as unknown as AgentMessage,
+				"tool-reference",
+			),
+		];
+		const ctx = {
+			model: { id: "claude-sonnet-4-5", provider: "anthropic", contextWindow: 1000, api: "anthropic-messages" },
+			sessionManager: {
+				getBranch: () => branch,
+			},
+		} as unknown as ExtensionContext;
+
+		handlers.get("before_agent_start")?.[0]?.({ systemPrompt: "system" }, ctx);
+
+		expect(service?.get()?.details).toMatchObject({
+			loadedToolSchemaTokens: estimateToolSchemaTokens([promptVisibleTool]),
+			deferredToolSchemaTokens: estimateToolSchemaTokens([stateOnlyTool]),
+			loadedDeferredToolCount: 1,
+			deferredToolCount: 1,
+		});
 	});
 
 	it("updates the cached snapshot from the prepared prompt before agent start", () => {
