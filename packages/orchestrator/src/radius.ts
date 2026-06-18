@@ -183,7 +183,13 @@ export class RadiusPresence {
 		if (!this.machine || !isRadiusEnabled()) {
 			return;
 		}
-		await maybePost(`machines/${this.machine.id}/disconnect`, {});
+		try {
+			await maybePost(`machines/${this.machine.id}/disconnect`, {});
+		} catch (error) {
+			if (!isNotFoundError(error)) {
+				throw error;
+			}
+		}
 	}
 
 	async registerPi(instance: InstanceRecord): Promise<InstanceRecord> {
@@ -220,7 +226,13 @@ export class RadiusPresence {
 		if (!isRadiusEnabled() || !instance.radiusPiId) {
 			return;
 		}
-		await maybePost(`pis/${instance.radiusPiId}/disconnect`, {});
+		try {
+			await maybePost(`pis/${instance.radiusPiId}/disconnect`, {});
+		} catch (error) {
+			if (!isNotFoundError(error)) {
+				throw error;
+			}
+		}
 	}
 
 	private async registerMachine(label?: string): Promise<RegisterMachineResponse> {
