@@ -392,6 +392,8 @@ export interface ContextUsage {
 		transcriptTokens?: number;
 		loadedToolSchemaTokens?: number;
 		deferredToolSchemaTokens?: number;
+		/** True when deferred schema split reflects native provider-side tool loading. */
+		nativeDeferredTools?: boolean;
 		loadedToolCount?: number;
 		deferredToolCount?: number;
 		loadedDeferredToolCount?: number;

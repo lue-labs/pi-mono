@@ -235,16 +235,27 @@ export class FooterComponent implements Component {
 
 		const contextUsage = this.session.getContextUsage();
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
-		const deferredToolTokens = contextUsage?.details?.deferredToolSchemaTokens ?? 0;
-		const loadedDeferredToolCount = contextUsage?.details?.loadedDeferredToolCount ?? 0;
-		const loadedContextTokens = contextUsage?.details?.loadedContextTokens ?? null;
+		const contextUsageDetails = contextUsage?.details;
+		const deferredToolTokens = contextUsageDetails?.deferredToolSchemaTokens ?? 0;
+		const loadedDeferredToolCount = contextUsageDetails?.loadedDeferredToolCount ?? 0;
+		const loadedContextTokens = contextUsageDetails?.loadedContextTokens ?? null;
 		const providerContextTokens = contextUsage?.tokens ?? null;
-		const displayContextTokens =
-			deferredToolTokens > 0 && loadedContextTokens !== null
-				? loadedContextTokens
-				: loadedDeferredToolCount > 0 && loadedContextTokens !== null
-					? Math.max(providerContextTokens ?? 0, loadedContextTokens)
-					: providerContextTokens;
+		const useLoadedEstimate =
+			providerContextTokens !== null &&
+			contextUsageDetails?.source === "loaded_estimate" &&
+			loadedContextTokens !== null;
+		const useLoadedDeferredFloor =
+			contextUsageDetails?.source === "provider_usage" &&
+			contextUsageDetails.nativeDeferredTools === true &&
+			providerContextTokens !== null &&
+			loadedContextTokens !== null &&
+			deferredToolTokens === 0 &&
+			loadedDeferredToolCount > 0;
+		const displayContextTokens = useLoadedEstimate
+			? loadedContextTokens
+			: useLoadedDeferredFloor
+				? Math.max(providerContextTokens, loadedContextTokens)
+				: providerContextTokens;
 		const contextPercentValue =
 			displayContextTokens === null || contextWindow <= 0 ? 0 : (displayContextTokens / contextWindow) * 100;
 		const contextPercent = displayContextTokens === null ? "?" : contextPercentValue.toFixed(1);

@@ -177,6 +177,7 @@ export function estimateContextUsageSnapshot(options: ContextUsageSnapshotOption
 		transcriptTokens,
 		loadedToolSchemaTokens,
 		deferredToolSchemaTokens,
+		nativeDeferredTools,
 		loadedToolCount: activeToolDefinitions.length,
 		deferredToolCount: unloadedDeferredToolDefinitions.length,
 		loadedDeferredToolCount: activeDeferredToolDefinitions.length - unloadedDeferredToolDefinitions.length,
