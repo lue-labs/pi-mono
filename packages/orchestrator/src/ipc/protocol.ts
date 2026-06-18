@@ -46,6 +46,7 @@ export interface InstanceSummary {
 	label?: string;
 	sessionId?: string;
 	sessionFile?: string;
+	radiusPiId?: string;
 }
 
 export interface ResponseBase {

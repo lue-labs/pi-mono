@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { getInstancesPath, getMachinePath, getOrchestratorDir } from "./config.ts";
 import type { InstanceRecord, MachineRecord } from "./types.ts";
 
@@ -22,6 +22,14 @@ export function loadMachine(): MachineRecord | undefined {
 export function saveMachine(machine: MachineRecord): void {
 	ensureOrchestratorDir();
 	writeFileSync(getMachinePath(), JSON.stringify(machine, null, 2));
+}
+
+export function deleteMachine(): void {
+	const machinePath = getMachinePath();
+	if (!existsSync(machinePath)) {
+		return;
+	}
+	rmSync(machinePath);
 }
 
 export function loadInstances(): InstanceRecord[] {

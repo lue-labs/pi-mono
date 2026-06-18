@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { radiusPresence } from "./radius.ts";
 import { handleRpcCommand } from "./rpc-bridge.ts";
-import { getInstance, loadInstances, removeInstance, upsertInstance } from "./storage.ts";
+import { getInstance, loadInstances, removeInstance, saveInstances, upsertInstance } from "./storage.ts";
 import type { InstanceRecord } from "./types.ts";
 
 interface LiveInstance {
@@ -55,6 +55,19 @@ async function createRuntime(cwd: string): Promise<AgentSessionRuntime> {
 
 export class OrchestratorSupervisor {
 	private readonly liveInstances = new Map<string, LiveInstance>();
+
+	async recoverAfterRestart(): Promise<void> {
+		const recoveredAt = new Date().toISOString();
+		const instances = loadInstances().map((instance) => ({
+			...instance,
+			status: instance.status === "online" || instance.status === "starting" ? "stopped" : instance.status,
+			lastSeenAt: recoveredAt,
+		}));
+		for (const instance of instances) {
+			await radiusPresence.disconnectPi(instance);
+		}
+		saveInstances(instances);
+	}
 
 	listInstances(): InstanceRecord[] {
 		return loadInstances().map(cloneInstance);
@@ -109,6 +122,12 @@ export class OrchestratorSupervisor {
 		}
 
 		return handleRpcCommand(live.runtime, command);
+	}
+
+	async shutdown(): Promise<void> {
+		for (const instanceId of [...this.liveInstances.keys()]) {
+			await this.stopInstance(instanceId);
+		}
 	}
 }
 

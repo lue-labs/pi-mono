@@ -4,47 +4,57 @@ import { getSocketPath } from "./config.ts";
 import { handleIpcRequest } from "./handler.ts";
 import { startIpcServer } from "./ipc/server.ts";
 import { getRadiusOrchestratorBaseUrl, isRadiusEnabled, radiusPresence } from "./radius.ts";
+import { supervisor } from "./supervisor.ts";
 
 export async function serve(): Promise<void> {
 	const socketPath = getSocketPath();
 	mkdirSync(dirname(socketPath), { recursive: true });
+	await supervisor.recoverAfterRestart();
 	if (isRadiusEnabled()) {
-		await radiusPresence.start();
+		const machine = await radiusPresence.start();
 		console.log(`radius integration enabled: ${socketPath} -> ${getRadiusOrchestratorBaseUrl()}`);
+		if (machine) {
+			console.log(`radius machine id: ${machine.id}`);
+		}
 	} else {
 		console.log("radius integration disabled: set PI_RADIUS_API_KEY to enable");
 	}
 	const server = await startIpcServer(handleIpcRequest);
 	console.log(`orchestrator listening on ${socketPath}`);
 
-	let cleanedUp = false;
-	const cleanup = () => {
-		if (cleanedUp) {
-			return;
+	let shutdownPromise: Promise<void> | undefined;
+	const shutdown = async (exitCode: number) => {
+		if (shutdownPromise) {
+			await shutdownPromise;
+			process.exit(exitCode);
 		}
-		cleanedUp = true;
-		server.close();
-		void radiusPresence.stop();
-		if (existsSync(socketPath)) {
-			unlinkSync(socketPath);
-		}
-	};
 
-	const shutdown = (exitCode: number) => {
-		cleanup();
+		shutdownPromise = (async () => {
+			server.close();
+			await supervisor.shutdown();
+			await radiusPresence.stop();
+			if (existsSync(socketPath)) {
+				unlinkSync(socketPath);
+			}
+		})();
+
+		await shutdownPromise;
 		process.exit(exitCode);
 	};
 
-	process.on("SIGINT", () => shutdown(0));
-	process.on("SIGTERM", () => shutdown(0));
-	process.on("exit", cleanup);
+	process.on("SIGINT", () => {
+		void shutdown(0);
+	});
+	process.on("SIGTERM", () => {
+		void shutdown(0);
+	});
 	process.on("uncaughtException", (error) => {
 		console.error(error);
-		shutdown(1);
+		void shutdown(1);
 	});
 	process.on("unhandledRejection", (reason) => {
 		console.error(reason);
-		shutdown(1);
+		void shutdown(1);
 	});
 
 	await new Promise<void>(() => {
