@@ -20,7 +20,14 @@ export interface StatusRequest {
 	instanceId: string;
 }
 
-export type OrchestratorRequest = SpawnRequest | ListRequest | StopRequest | StatusRequest;
+export interface RequestMap {
+	spawn: SpawnRequest;
+	list: ListRequest;
+	stop: StopRequest;
+	status: StatusRequest;
+}
+
+export type OrchestratorRequest = RequestMap[keyof RequestMap];
 
 export interface InstanceSummary {
 	id: string;
@@ -31,7 +38,6 @@ export interface InstanceSummary {
 }
 
 export interface ResponseBase {
-	type: string;
 	ok: boolean;
 	error?: string;
 }
@@ -56,7 +62,26 @@ export interface StatusResponse extends ResponseBase {
 	instance?: InstanceSummary;
 }
 
-export type OrchestratorResponse = SpawnResponse | ListResponse | StopResponse | StatusResponse;
+export interface ErrorResponse extends ResponseBase {
+	type: "error";
+	ok: false;
+	error: string;
+}
+
+export interface ResponseMap {
+	spawn: SpawnResponse;
+	list: ListResponse;
+	stop: StopResponse;
+	status: StatusResponse;
+}
+
+export type OrchestratorResponse = ResponseMap[keyof ResponseMap] | ErrorResponse;
+
+export type ResponseFor<T extends OrchestratorRequest> = T extends { type: infer K }
+	? K extends keyof ResponseMap
+		? ResponseMap[K] | ErrorResponse
+		: ErrorResponse
+	: ErrorResponse;
 
 export function encodeMessage(message: OrchestratorRequest | OrchestratorResponse): string {
 	return `${JSON.stringify(message)}\n`;
