@@ -155,6 +155,24 @@ describe("FooterComponent width handling", () => {
 		expect(rendered).toContain("25k+d11k/200k");
 	});
 
+	it("uses provider-backed context usage when there is no deferred schema budget to split", () => {
+		const session = createSession({
+			sessionName: "",
+			contextUsage: {
+				tokens: 50_000,
+				contextWindow: 200_000,
+				percent: 25,
+				details: { loadedContextTokens: 24_600, deferredToolSchemaTokens: 0 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const rendered = stripAnsi(footer.render(120).join("\n"));
+
+		expect(rendered).toContain("50k/200k");
+		expect(rendered).not.toContain("25k/200k");
+	});
+
 	it("keeps stats line within width for wide model and provider names", () => {
 		const width = 60;
 		const session = createSession({

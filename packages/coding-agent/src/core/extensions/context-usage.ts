@@ -5,6 +5,7 @@ import {
 } from "../context-usage.ts";
 import { getDeferredToolCapabilities } from "../deferred-tool-capabilities.ts";
 import { scanPromptVisibleDeferredToolNames } from "../deferred-tools.ts";
+import { buildSessionContext, type SessionEntry } from "../session-manager.ts";
 import { addAction, load } from "./extension-hooks.ts";
 import type { ContextUsage, ExtensionAPI, ExtensionContext } from "./types.ts";
 
@@ -39,16 +40,28 @@ export function hookContextUsage(pi: ExtensionAPI): void {
 			return;
 		}
 
-		const branch = ctx.sessionManager.getBranch();
-		const promptVisibleMessages = branch.filter((entry) => entry.type === "message").map((entry) => entry.message);
+		const sessionContext = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
+		const contextEntries = sessionContext.messages.map((message, index): SessionEntry => {
+			const timestamp =
+				typeof message.timestamp === "number"
+					? new Date(message.timestamp).toISOString()
+					: new Date().toISOString();
+			return {
+				type: "message",
+				id: `context-${index}`,
+				parentId: index === 0 ? null : `context-${index - 1}`,
+				timestamp,
+				message,
+			};
+		});
 		snapshot = estimateContextUsageSnapshot({
-			branch,
+			branch: contextEntries,
 			systemPrompt,
 			toolDefinitions: pi.tools.definitions(),
 			activeToolNames: pi.tools.active(),
 			contextWindow,
 			nativeDeferredTools: getDeferredToolCapabilities(ctx.model).nativeDeferredTools,
-			loadedDeferredToolNames: scanPromptVisibleDeferredToolNames(promptVisibleMessages),
+			loadedDeferredToolNames: scanPromptVisibleDeferredToolNames(sessionContext.messages),
 		});
 	};
 

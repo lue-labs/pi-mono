@@ -235,7 +235,11 @@ export class FooterComponent implements Component {
 
 		const contextUsage = this.session.getContextUsage();
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
-		const displayContextTokens = contextUsage?.details?.loadedContextTokens ?? contextUsage?.tokens ?? null;
+		const deferredToolTokens = contextUsage?.details?.deferredToolSchemaTokens ?? 0;
+		const displayContextTokens =
+			deferredToolTokens > 0
+				? (contextUsage?.details?.loadedContextTokens ?? contextUsage?.tokens ?? null)
+				: (contextUsage?.tokens ?? null);
 		const contextPercentValue =
 			displayContextTokens === null || contextWindow <= 0 ? 0 : (displayContextTokens / contextWindow) * 100;
 		const contextPercent = displayContextTokens === null ? "?" : contextPercentValue.toFixed(1);
@@ -336,7 +340,6 @@ export class FooterComponent implements Component {
 		const autoIndicator = this.autoCompactEnabled ? " (auto)" : "";
 		const contextTokensDisplay = displayContextTokens === null ? "?" : formatTokens(displayContextTokens);
 		const percentLabel = contextPercent === "?" ? "?%" : `${contextPercent}%`;
-		const deferredToolTokens = contextUsage?.details?.deferredToolSchemaTokens ?? 0;
 		const deferredLabel = deferredToolTokens > 0 ? `+d${formatTokens(deferredToolTokens)}` : "";
 		const tokensLabel = `${contextTokensDisplay}${deferredLabel}/${formatTokens(contextWindow)}${autoIndicator}`;
 
