@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type {
 	ErrorResponse,
 	InstanceSummary,
@@ -13,7 +12,7 @@ import type {
 	StopRequest,
 	StopResponse,
 } from "./ipc/protocol.ts";
-import { getInstance, loadInstances, removeInstance, upsertInstance } from "./storage.ts";
+import { supervisor } from "./supervisor.ts";
 import type { InstanceRecord } from "./types.ts";
 
 function toInstanceSummary(instance: InstanceRecord): InstanceSummary {
@@ -43,15 +42,10 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse> {
 	switch (request.type) {
 		case "spawn": {
-			const instance: InstanceRecord = {
-				id: randomUUID(),
-				status: "starting",
+			const instance = await supervisor.spawnInstance({
 				cwd: request.cwd,
-				createdAt: new Date().toISOString(),
-				lastSeenAt: new Date().toISOString(),
 				label: request.label,
-			};
-			upsertInstance(instance);
+			});
 			return {
 				type: "spawn_result",
 				ok: true,
@@ -63,12 +57,12 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 			return {
 				type: "list_result",
 				ok: true,
-				instances: loadInstances().map(toInstanceSummary),
+				instances: supervisor.listInstances().map(toInstanceSummary),
 			};
 		}
 
 		case "status": {
-			const instance = getInstance(request.instanceId);
+			const instance = supervisor.getInstance(request.instanceId);
 			if (!instance) {
 				return unknownInstanceError(request.instanceId);
 			}
@@ -81,12 +75,11 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 		}
 
 		case "stop": {
-			const instance = getInstance(request.instanceId);
+			const instance = await supervisor.stopInstance(request.instanceId);
 			if (!instance) {
 				return unknownInstanceError(request.instanceId);
 			}
 
-			removeInstance(request.instanceId);
 			return {
 				type: "stop_result",
 				ok: true,
