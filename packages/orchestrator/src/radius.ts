@@ -88,6 +88,22 @@ function computeBackoffDelayMs(failureCount: number): number {
 	return Math.min(HEARTBEAT_BACKOFF_MAX_MS, exponentialDelay + jitterMs);
 }
 
+function formatRadiusError(error: unknown): string {
+	if (error instanceof RadiusHttpError) {
+		return `HTTP ${error.status}: ${error.message}`;
+	}
+	if (error instanceof Error) {
+		return error.message;
+	}
+	return String(error);
+}
+
+function logRadiusRetry(scope: string, action: string, delayMs: number, failureCount: number, error: unknown): void {
+	console.error(
+		`${scope} ${action} failed (attempt ${failureCount}); retrying in ${delayMs}ms: ${formatRadiusError(error)}`,
+	);
+}
+
 export function getRadiusUrl(): string {
 	return process.env.PI_RADIUS_URL || DEFAULT_RADIUS_URL;
 }
@@ -295,7 +311,7 @@ export class RadiusPresence {
 			if (!isNotFoundError(error)) {
 				this.machineTransientFailureCount += 1;
 				const delayMs = computeBackoffDelayMs(this.machineTransientFailureCount);
-				console.error(`Radius machine heartbeat failed; retrying in ${delayMs}ms`, error);
+				logRadiusRetry("Radius machine", "heartbeat", delayMs, this.machineTransientFailureCount, error);
 				this.scheduleMachineHeartbeat(delayMs);
 				return;
 			}
@@ -312,7 +328,13 @@ export class RadiusPresence {
 			} catch (recoveryError) {
 				this.machineTransientFailureCount += 1;
 				const delayMs = computeBackoffDelayMs(this.machineTransientFailureCount);
-				console.error(`Radius machine re-registration failed; retrying in ${delayMs}ms`, recoveryError);
+				logRadiusRetry(
+					"Radius machine",
+					"re-registration",
+					delayMs,
+					this.machineTransientFailureCount,
+					recoveryError,
+				);
 				this.scheduleMachineHeartbeat(delayMs);
 			}
 		}
@@ -337,7 +359,7 @@ export class RadiusPresence {
 			if (!isNotFoundError(error)) {
 				state.transientFailureCount += 1;
 				const delayMs = computeBackoffDelayMs(state.transientFailureCount);
-				console.error(`Radius Pi heartbeat failed for instance ${instanceId}; retrying in ${delayMs}ms`, error);
+				logRadiusRetry(`Radius Pi ${instanceId}`, "heartbeat", delayMs, state.transientFailureCount, error);
 				this.schedulePiHeartbeat(instanceId, delayMs);
 				return;
 			}
@@ -352,14 +374,18 @@ export class RadiusPresence {
 			try {
 				const recovered = await this.reRegisterPi(instanceId);
 				if (!recovered) {
-					console.error(`Radius Pi re-registration skipped for instance ${instanceId}`);
-					this.schedulePiHeartbeat(instanceId, computeBackoffDelayMs(1));
+					const delayMs = computeBackoffDelayMs(1);
+					console.error(`Radius Pi ${instanceId} re-registration skipped; retrying in ${delayMs}ms`);
+					this.schedulePiHeartbeat(instanceId, delayMs);
 				}
 			} catch (recoveryError) {
 				state.transientFailureCount += 1;
 				const delayMs = computeBackoffDelayMs(state.transientFailureCount);
-				console.error(
-					`Radius Pi re-registration failed for instance ${instanceId}; retrying in ${delayMs}ms`,
+				logRadiusRetry(
+					`Radius Pi ${instanceId}`,
+					"re-registration",
+					delayMs,
+					state.transientFailureCount,
 					recoveryError,
 				);
 				this.schedulePiHeartbeat(instanceId, delayMs);
@@ -376,7 +402,7 @@ export class RadiusPresence {
 			try {
 				await this.reRegisterPi(instance.id);
 			} catch (error) {
-				console.error(`Radius Pi re-registration failed for instance ${instance.id}`, error);
+				console.error(`Radius Pi ${instance.id} re-registration failed: ${formatRadiusError(error)}`);
 			}
 		}
 	}

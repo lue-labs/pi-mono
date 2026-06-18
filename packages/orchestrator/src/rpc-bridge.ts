@@ -11,6 +11,10 @@ function error(id: string | undefined, command: string, message: string): RpcRes
 	return { id, type: "response", command, success: false, error: message };
 }
 
+function assertNeverRpcCommand(command: never): never {
+	throw new Error(`Unknown command: ${(command as { type: string }).type}`);
+}
+
 export async function handleRpcCommand(runtime: AgentSessionRuntime, command: RpcCommand): Promise<RpcResponse> {
 	const session = runtime.session;
 	const id = command.id;
@@ -68,7 +72,7 @@ export async function handleRpcCommand(runtime: AgentSessionRuntime, command: Rp
 
 		case "fork": {
 			const result = await runtime.fork(command.entryId);
-			return success(id, "fork", { text: result.selectedText ?? "", cancelled: result.cancelled });
+			return success(id, "fork", { text: result.selectedText, cancelled: result.cancelled });
 		}
 
 		case "clone": {
@@ -186,7 +190,7 @@ export async function handleRpcCommand(runtime: AgentSessionRuntime, command: Rp
 		}
 
 		case "get_last_assistant_text": {
-			const text = session.getLastAssistantText() ?? null;
+			const text = session.getLastAssistantText();
 			return success(id, "get_last_assistant_text", { text });
 		}
 
@@ -236,9 +240,7 @@ export async function handleRpcCommand(runtime: AgentSessionRuntime, command: Rp
 			return success(id, "get_commands", { commands });
 		}
 
-		default: {
-			const unknownCommand = command as { type: string };
-			return error(id, unknownCommand.type, `Unknown command: ${unknownCommand.type}`);
-		}
+		default:
+			return assertNeverRpcCommand(command);
 	}
 }
