@@ -17,7 +17,7 @@ export async function serve(): Promise<void> {
 			console.log(`radius machine id: ${machine.id}`);
 		}
 	} else {
-		console.log("radius integration disabled: set PI_RADIUS_API_KEY to enable");
+		console.log("radius integration disabled: login radius in ~/.pi/agent/auth.json or set PI_RADIUS_API_KEY");
 	}
 	const server = await startIpcServer(
 		Object.assign(handleIpcRequest, {

@@ -1,4 +1,5 @@
 import { hostname, platform } from "node:os";
+import { AuthStorage, type OAuthCredential } from "@earendil-works/pi-coding-agent";
 import { getOrchestratorDir, getSocketPath } from "./config.ts";
 import { loadMachine, saveMachine } from "./storage.ts";
 import type { InstanceRecord, MachineRecord, RadiusRegistration } from "./types.ts";
@@ -7,6 +8,7 @@ const DEFAULT_RADIUS_URL = "https://radius.pi.dev/";
 const DEFAULT_ORCHESTRATOR_BASE_PATH = "/v1/";
 const ORCHESTRATOR_VERSION = "0.79.6";
 const NOT_FOUND_RETRY_THRESHOLD = 3;
+const RADIUS_PROVIDER = "radius";
 
 interface RegisterMachineResponse extends RadiusRegistration {
 	id: string;
@@ -42,7 +44,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 	const response = await fetch(new URL(path, getRadiusOrchestratorBaseUrl()), {
 		method: "POST",
 		headers: {
-			Authorization: `Bearer ${getRadiusApiKey()}`,
+			Authorization: `Bearer ${getRadiusAccessToken()}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify(body),
@@ -59,7 +61,7 @@ async function maybePost(path: string, body: unknown): Promise<void> {
 	const response = await fetch(new URL(path, getRadiusOrchestratorBaseUrl()), {
 		method: "POST",
 		headers: {
-			Authorization: `Bearer ${getRadiusApiKey()}`,
+			Authorization: `Bearer ${getRadiusAccessToken()}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify(body),
@@ -86,16 +88,33 @@ export function getRadiusOrchestratorBaseUrl(): string {
 	return new URL(DEFAULT_ORCHESTRATOR_BASE_PATH, getRadiusUrl()).toString();
 }
 
-export function getRadiusApiKey(): string {
-	const apiKey = process.env.PI_RADIUS_API_KEY;
-	if (!apiKey) {
-		throw new Error("PI_RADIUS_API_KEY is required for Radius integration");
+const radiusAuthStorage = AuthStorage.create();
+
+function getStoredRadiusCredential(): OAuthCredential | undefined {
+	radiusAuthStorage.reload();
+	const credential = radiusAuthStorage.get(RADIUS_PROVIDER);
+	if (!credential || credential.type !== "oauth") {
+		return undefined;
 	}
-	return apiKey;
+	return credential;
+}
+
+export function getRadiusAccessToken(): string {
+	const storedCredential = getStoredRadiusCredential();
+	if (typeof storedCredential?.access === "string" && storedCredential.access) {
+		return storedCredential.access;
+	}
+
+	const apiKey = process.env.PI_RADIUS_API_KEY;
+	if (apiKey) {
+		return apiKey;
+	}
+
+	throw new Error("Radius credentials are required in ~/.pi/agent/auth.json or PI_RADIUS_API_KEY");
 }
 
 export function isRadiusEnabled(): boolean {
-	return !!process.env.PI_RADIUS_API_KEY;
+	return !!getStoredRadiusCredential()?.access || !!process.env.PI_RADIUS_API_KEY;
 }
 
 export class RadiusPresence {

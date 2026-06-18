@@ -123,6 +123,7 @@ export interface ResponseMap {
 export type OrchestratorResponse = ResponseMap[keyof ResponseMap] | ErrorResponse;
 export type AttachClientRequest = AttachRpcRequest;
 export type AttachServerResponse = AttachReadyResponse | AttachEventResponse | AttachRpcResponse | ErrorResponse;
+export type ProtocolMessage = OrchestratorRequest | OrchestratorResponse | AttachClientRequest | AttachServerResponse;
 
 export type ResponseFor<T extends OrchestratorRequest> = T extends { type: infer K }
 	? K extends keyof ResponseMap
@@ -130,7 +131,7 @@ export type ResponseFor<T extends OrchestratorRequest> = T extends { type: infer
 		: ErrorResponse
 	: ErrorResponse;
 
-export function encodeMessage(message: unknown): string {
+export function encodeMessage(message: ProtocolMessage): string {
 	return `${JSON.stringify(message)}\n`;
 }
 
