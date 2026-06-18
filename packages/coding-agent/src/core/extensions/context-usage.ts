@@ -13,6 +13,10 @@ function isStaleContextError(error: unknown): boolean {
 	return error instanceof Error && error.message.includes("extension ctx is stale");
 }
 
+function serializesToolReferenceBlocks(model: ExtensionContext["model"]): boolean {
+	return model?.api === "anthropic-messages";
+}
+
 async function getEffectiveSystemPrompt(ctx: ExtensionContext): Promise<string> {
 	try {
 		return await ctx.getEffectiveSystemPrompt();
@@ -54,14 +58,17 @@ export function hookContextUsage(pi: ExtensionAPI): void {
 				message,
 			};
 		});
+		const capabilities = getDeferredToolCapabilities(ctx.model);
 		snapshot = estimateContextUsageSnapshot({
 			branch: contextEntries,
 			systemPrompt,
 			toolDefinitions: pi.tools.definitions(),
 			activeToolNames: pi.tools.active(),
 			contextWindow,
-			nativeDeferredTools: getDeferredToolCapabilities(ctx.model).nativeDeferredTools,
-			loadedDeferredToolNames: scanPromptVisibleDeferredToolNames(sessionContext.messages),
+			nativeDeferredTools: capabilities.nativeDeferredTools,
+			loadedDeferredToolNames: serializesToolReferenceBlocks(ctx.model)
+				? scanPromptVisibleDeferredToolNames(sessionContext.messages)
+				: [],
 		});
 	};
 

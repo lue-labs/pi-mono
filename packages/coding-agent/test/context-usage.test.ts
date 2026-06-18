@@ -458,6 +458,62 @@ describe("AgentSession context usage", () => {
 		});
 	});
 
+	it("does not treat Codex transcript tool references as provider-loaded schemas", () => {
+		let service: ContextUsageSnapshotService | undefined;
+		const deferredTool = {
+			...toolDefinition("codex_deferred", "d".repeat(64)),
+			deferLoading: true,
+		};
+		const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void>>();
+		const pi = {
+			harness: {
+				provide: (_id: string, providedService: ContextUsageSnapshotService) => {
+					service = providedService;
+				},
+			},
+			tools: {
+				definitions: () => [deferredTool],
+				active: () => [deferredTool.name],
+			},
+			on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => void) => {
+				handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+			},
+		} as unknown as ExtensionAPI;
+		hookContextUsage(pi);
+
+		const entries = [
+			messageEntry(
+				{
+					role: "tool",
+					content: [{ type: "tool_reference", name: deferredTool.name }],
+					timestamp: Date.now(),
+				} as unknown as AgentMessage,
+				"tool-reference",
+			),
+		];
+		const ctx = {
+			model: {
+				id: "gpt-5.1-codex-max",
+				provider: "openai-codex",
+				contextWindow: 1000,
+				api: "openai-codex-responses",
+			},
+			sessionManager: {
+				getEntries: () => entries,
+				getLeafId: () => "tool-reference",
+			},
+		} as unknown as ExtensionContext;
+
+		handlers.get("before_agent_start")?.[0]?.({ systemPrompt: "system" }, ctx);
+
+		expect(service?.get()?.details).toMatchObject({
+			loadedToolSchemaTokens: 0,
+			deferredToolSchemaTokens: estimateToolSchemaTokens([deferredTool]),
+			loadedDeferredToolCount: 0,
+			deferredToolCount: 1,
+		});
+	});
+
 	it("does not count compacted-away tool references as loaded schemas", () => {
 		let service: ContextUsageSnapshotService | undefined;
 		const compactedTool = {
