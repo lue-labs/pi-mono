@@ -409,13 +409,27 @@ export function findCutPoint(
 
 		// Check if we've exceeded the budget
 		if (accumulatedTokens >= keepRecentTokens) {
-			// Find the closest valid cut point at or after this entry
+			// Find the closest valid cut point at or after this entry. If the
+			// budget is exceeded by a trailing non-cuttable entry (for example a
+			// tool result), cut at the nearest preceding valid message so the
+			// owning assistant/tool-result pair stays together instead of keeping
+			// the whole branch and skipping compaction.
+			let selectedCutPoint: number | undefined;
 			for (let c = 0; c < cutPoints.length; c++) {
 				if (cutPoints[c] >= i) {
-					cutIndex = cutPoints[c];
+					selectedCutPoint = cutPoints[c];
 					break;
 				}
 			}
+			if (selectedCutPoint === undefined) {
+				for (let c = cutPoints.length - 1; c >= 0; c--) {
+					if (cutPoints[c] < i) {
+						selectedCutPoint = cutPoints[c];
+						break;
+					}
+				}
+			}
+			cutIndex = selectedCutPoint ?? cutIndex;
 			break;
 		}
 	}
@@ -754,6 +768,10 @@ export function prepareCompaction(
 		}
 	}
 
+	if (messagesToSummarize.length === 0 && turnPrefixMessages.length === 0) {
+		return undefined;
+	}
+
 	// Extract file operations from messages and previous compaction
 	const fileOps = extractFileOperations(messagesToSummarize, pathEntries, prevCompactionIndex);
 
@@ -844,6 +862,7 @@ export async function compact(
 						thinkingLevel,
 						streamFn,
 						env,
+						cacheSafeContext,
 					)
 				: Promise.resolve("No prior history."),
 			generateTurnPrefixSummary(
@@ -856,6 +875,7 @@ export async function compact(
 				signal,
 				thinkingLevel,
 				streamFn,
+				cacheSafeContext,
 			),
 		]);
 		// Merge into single summary
@@ -907,6 +927,7 @@ async function generateTurnPrefixSummary(
 	signal?: AbortSignal,
 	thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
+	cacheSafeContext?: CacheSafeCompactionContext,
 ): Promise<string> {
 	const maxTokens = Math.min(
 		Math.floor(0.5 * reserveTokens),
@@ -915,17 +936,18 @@ async function generateTurnPrefixSummary(
 	const llmMessages = convertToLlm(messages);
 	const conversationText = serializeConversation(llmMessages);
 	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
-	const summarizationMessages = [
-		{
-			role: "user" as const,
-			content: [{ type: "text" as const, text: promptText }],
-			timestamp: Date.now(),
-		},
-	];
+	const cacheSafePromptText = `${CACHE_SAFE_SUMMARIZATION_PROMPT}\n\nAdditional focus: summarize the split-turn prefix below while preserving the active session context.\n\n${promptText}`;
+	const context: Context = cacheSafeContext
+		? {
+				systemPrompt: cacheSafeContext.systemPrompt,
+				messages: [...cacheSafeContext.messages, createSummaryUserMessage(cacheSafePromptText)],
+				tools: cacheSafeContext.tools,
+			}
+		: { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: [createSummaryUserMessage(promptText)] };
 
 	const response = await completeSummarization(
 		model,
-		{ systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
+		context,
 		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel),
 		streamFn,
 	);
