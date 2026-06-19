@@ -45,7 +45,8 @@ export function createTaskStopToolDefinition(): ToolDefinition<typeof taskStopSc
 				return { content: [{ type: "text", text: "TaskStop requires task_id." }], details: undefined };
 			}
 			const adapter = findTaskAdapter(id);
-			if (!adapter?.kill) {
+			const snapshot = adapter?.snapshot(id);
+			if (!adapter?.kill || !isBackgroundRuntimeTask(snapshot)) {
 				return {
 					content: [{ type: "text", text: `No stoppable background task with task_id=${id}.` }],
 					details: undefined,
@@ -72,8 +73,8 @@ async function taskOutputPath(task: TaskSnapshot): Promise<string | undefined> {
 	}
 }
 
-function isBackgroundRuntimeTask(task: TaskSnapshot): boolean {
-	return task.type !== "local_agent" || task.execution === "background";
+function isBackgroundRuntimeTask(task: TaskSnapshot | undefined): task is TaskSnapshot {
+	return Boolean(task && (task.type !== "local_agent" || task.execution === "background"));
 }
 
 async function renderTaskRow(task: TaskSnapshot): Promise<string> {

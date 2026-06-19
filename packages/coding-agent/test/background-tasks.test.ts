@@ -167,6 +167,12 @@ describe("background-tasks tools — push notification + explicit output paths",
 		expect(text).toContain("No stoppable background task");
 	});
 
+	test("TaskStop rejects foreground agent run ids", async () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Foreground map" }]);
+		const text = await call(TaskStop, { task_id: run.id });
+		expect(text).toContain("No stoppable background task");
+	});
+
 	test("TaskBackgroundList enumerates bash jobs and background agent runs together", async () => {
 		const job = spawnBashBackground("sleep 5", bashTempDir);
 		const foregroundRun = startAgentRecentRun("single", [{ agent: "scout", task: "Foreground map" }]);
