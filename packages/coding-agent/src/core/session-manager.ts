@@ -1,5 +1,12 @@
 import { type AgentMessage, uuidv7 } from "@valkyriweb/pi-agent-core";
-import type { ImageContent, Message, TextContent } from "@valkyriweb/pi-ai";
+import type {
+	AssistantMessage,
+	ImageContent,
+	Message,
+	TextContent,
+	ToolCall,
+	ToolResultMessage,
+} from "@valkyriweb/pi-ai";
 import { randomUUID } from "crypto";
 import {
 	appendFileSync,
@@ -165,6 +172,37 @@ export interface SessionContext {
 	messages: AgentMessage[];
 	thinkingLevel: string;
 	model: { provider: string; modelId: string } | null;
+}
+
+export interface ResidentPruneOptions {
+	/** Stub summarized pre-compaction session entries in resident memory. Durable JSONL is not rewritten. */
+	stubSummarizedEntries?: boolean;
+	/** Stub old tool-result payloads only when their tool-call pair is also summarized. */
+	stubToolResults?: boolean;
+}
+
+export interface ResidentPruneResult {
+	compactionId: string | undefined;
+	firstKeptEntryId: string | undefined;
+	entriesVisited: number;
+	entriesStubbed: number;
+	protectedEntries: number;
+	payloadBytesBefore: number;
+	payloadBytesAfter: number;
+	payloadBytesFreed: number;
+	jsonlUnchanged: true;
+}
+
+export interface SessionHydrationOptions {
+	/** Stub summarized pre-compaction payloads while hydrating existing sessions. Durable JSONL is not rewritten. */
+	residentPrune?: boolean;
+	residentPruneOptions?: ResidentPruneOptions;
+}
+
+export interface LoadEntriesFromFileOptions {
+	/** Stub summarized pre-compaction payloads before retaining parsed entries. Durable JSONL is not rewritten. */
+	residentPrune?: boolean;
+	residentPruneOptions?: ResidentPruneOptions;
 }
 
 export interface SessionInfo {
@@ -431,6 +469,196 @@ export function buildSessionContext(
 	return { messages, thinkingLevel, model };
 }
 
+const RESIDENT_PRUNED_TEXT =
+	"[Resident session payload pruned after compaction; full content remains in the durable session transcript.]";
+
+function jsonByteLength(value: unknown): number {
+	if (value === undefined) return 0;
+	try {
+		return Buffer.byteLength(JSON.stringify(value), "utf8");
+	} catch {
+		return Buffer.byteLength(String(value), "utf8");
+	}
+}
+
+function estimateEntryPayloadBytes(entry: SessionEntry): number {
+	switch (entry.type) {
+		case "message":
+			return jsonByteLength(entry.message);
+		case "custom_message":
+			return jsonByteLength(entry.content) + jsonByteLength(entry.details);
+		case "custom":
+			return jsonByteLength(entry.data);
+		case "compaction":
+			return jsonByteLength(entry.summary) + jsonByteLength(entry.details);
+		case "branch_summary":
+			return jsonByteLength(entry.summary) + jsonByteLength(entry.details);
+		case "label":
+			return jsonByteLength(entry.label);
+		case "model_change":
+			return jsonByteLength(entry.provider) + jsonByteLength(entry.modelId);
+		case "thinking_level_change":
+			return jsonByteLength(entry.thinkingLevel);
+		case "session_info":
+			return jsonByteLength(entry.name);
+	}
+}
+
+export function estimateResidentPayloadBytes(entries: SessionEntry[]): number {
+	return entries.reduce((total, entry) => total + estimateEntryPayloadBytes(entry), 0);
+}
+
+function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
+	return message.role === "assistant";
+}
+
+function isToolResultMessage(message: AgentMessage): message is ToolResultMessage {
+	return message.role === "toolResult";
+}
+
+function toolCallsForEntry(entry: SessionEntry): ToolCall[] {
+	if (entry.type !== "message" || !isAssistantMessage(entry.message) || !Array.isArray(entry.message.content))
+		return [];
+	return entry.message.content.filter((block): block is ToolCall => block.type === "toolCall");
+}
+
+function collectToolPairEntryIds(path: SessionEntry[]): {
+	toolCallEntryIds: Map<string, string>;
+	toolResultEntryIds: Map<string, string>;
+} {
+	const toolCallEntryIds = new Map<string, string>();
+	const toolResultEntryIds = new Map<string, string>();
+	for (const entry of path) {
+		if (entry.type !== "message") continue;
+		for (const toolCall of toolCallsForEntry(entry)) {
+			toolCallEntryIds.set(toolCall.id, entry.id);
+		}
+		if (isToolResultMessage(entry.message)) {
+			toolResultEntryIds.set(entry.message.toolCallId, entry.id);
+		}
+	}
+	return { toolCallEntryIds, toolResultEntryIds };
+}
+
+function entryHasProtectedToolPair(
+	entry: SessionEntry,
+	candidateIds: ReadonlySet<string>,
+	toolPairs: ReturnType<typeof collectToolPairEntryIds>,
+): boolean {
+	if (entry.type !== "message") return false;
+	if (isAssistantMessage(entry.message)) {
+		for (const toolCall of toolCallsForEntry(entry)) {
+			const toolResultEntryId = toolPairs.toolResultEntryIds.get(toolCall.id);
+			if (!toolResultEntryId || !candidateIds.has(toolResultEntryId)) {
+				return true;
+			}
+		}
+	}
+	if (isToolResultMessage(entry.message)) {
+		const toolCallEntryId = toolPairs.toolCallEntryIds.get(entry.message.toolCallId);
+		if (!toolCallEntryId || !candidateIds.has(toolCallEntryId)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function keepRecoverableDetails(details: unknown): Record<string, unknown> | undefined {
+	if (!isRecord(details)) return undefined;
+	const retained: Record<string, unknown> = {};
+	for (const key of ["recoverableOutput", "fullOutputPath", "outputPath", "outputFile", "rawOutputPath"]) {
+		if (key in details) {
+			retained[key] = details[key];
+		}
+	}
+	return Object.keys(retained).length > 0 ? retained : undefined;
+}
+
+function stubUserContent(content: string | (TextContent | ImageContent)[]): string | TextContent[] {
+	if (typeof content === "string") return RESIDENT_PRUNED_TEXT;
+	return [{ type: "text", text: RESIDENT_PRUNED_TEXT }];
+}
+
+function stubAssistantMessage(message: AssistantMessage): AssistantMessage {
+	if (!Array.isArray(message.content)) {
+		return { ...message, content: [{ type: "text", text: RESIDENT_PRUNED_TEXT }] };
+	}
+	return {
+		...message,
+		content: message.content.map((block) => {
+			if (block.type === "toolCall") {
+				return { type: "toolCall", id: block.id, name: block.name, arguments: { residentPruned: true } };
+			}
+			if (block.type === "thinking") {
+				return { type: "thinking", thinking: RESIDENT_PRUNED_TEXT };
+			}
+			if (block.type === "tool_reference") {
+				return block;
+			}
+			return { type: "text", text: RESIDENT_PRUNED_TEXT };
+		}),
+	};
+}
+
+function stubToolResultMessage(message: ToolResultMessage): ToolResultMessage {
+	return {
+		...message,
+		content: [{ type: "text", text: RESIDENT_PRUNED_TEXT }],
+		details: keepRecoverableDetails(message.details),
+	};
+}
+
+function stubSessionMessage(message: AgentMessage): AgentMessage {
+	if (message.role === "user") {
+		return { ...message, content: stubUserContent(message.content) };
+	}
+	if (isAssistantMessage(message)) {
+		return stubAssistantMessage(message);
+	}
+	if (isToolResultMessage(message)) {
+		return stubToolResultMessage(message);
+	}
+	if (message.role === "bashExecution") {
+		return { ...message, output: RESIDENT_PRUNED_TEXT };
+	}
+	if (message.role === "custom") {
+		return {
+			...message,
+			content: stubUserContent(message.content),
+			details: keepRecoverableDetails(message.details),
+		};
+	}
+	return message;
+}
+
+function stubResidentEntryPayload(entry: SessionEntry, options: Required<ResidentPruneOptions>): boolean {
+	if (entry.type === "message") {
+		if (!options.stubToolResults && isToolResultMessage(entry.message)) return false;
+		entry.message = stubSessionMessage(entry.message);
+		return true;
+	}
+	if (entry.type === "custom_message" && options.stubSummarizedEntries) {
+		entry.content = stubUserContent(entry.content);
+		entry.details = keepRecoverableDetails(entry.details);
+		return true;
+	}
+	if (entry.type === "branch_summary" && options.stubSummarizedEntries) {
+		entry.summary = RESIDENT_PRUNED_TEXT;
+		entry.details = keepRecoverableDetails(entry.details);
+		return true;
+	}
+	if (entry.type === "compaction" && options.stubSummarizedEntries) {
+		entry.summary = RESIDENT_PRUNED_TEXT;
+		entry.details = keepRecoverableDetails(entry.details);
+		return true;
+	}
+	return false;
+}
+
 /**
  * Compute the default session directory for a cwd.
  * Encodes cwd into a safe directory name under ~/.pi/agent/sessions/.
@@ -462,13 +690,8 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 	}
 }
 
-/** Exported for testing */
-export function loadEntriesFromFile(filePath: string): FileEntry[] {
-	const resolvedFilePath = normalizePath(filePath);
-	if (!existsSync(resolvedFilePath)) return [];
-
-	const entries: FileEntry[] = [];
-	const fd = openSync(resolvedFilePath, "r");
+function readSessionFileLines(filePath: string, onLine: (line: string) => void): void {
+	const fd = openSync(filePath, "r");
 	try {
 		const decoder = new StringDecoder("utf8");
 		const buffer = Buffer.allocUnsafe(SESSION_READ_BUFFER_SIZE);
@@ -482,8 +705,7 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 			let lineStart = 0;
 			let newlineIndex = pending.indexOf("\n", lineStart);
 			while (newlineIndex !== -1) {
-				const entry = parseSessionEntryLine(pending.slice(lineStart, newlineIndex));
-				if (entry) entries.push(entry);
+				onLine(pending.slice(lineStart, newlineIndex));
 				lineStart = newlineIndex + 1;
 				newlineIndex = pending.indexOf("\n", lineStart);
 			}
@@ -491,29 +713,424 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 		}
 
 		pending += decoder.end();
-		const finalEntry = parseSessionEntryLine(pending);
-		if (finalEntry) entries.push(finalEntry);
+		if (pending.trim()) onLine(pending);
 	} finally {
 		closeSync(fd);
 	}
-
-	// Validate session header
-	if (entries.length === 0) return entries;
-	const header = entries[0];
-	if (header.type !== "session" || typeof (header as { id?: unknown }).id !== "string") {
-		return [];
-	}
-
-	return entries;
 }
 
-function readSessionHeader(filePath: string): SessionHeader | null {
+type SessionEntryMetadata = {
+	id: string;
+	parentId: string | null;
+	type: SessionEntry["type"];
+	timestamp: string;
+	firstKeptEntryId?: string;
+	tokensBefore?: number;
+	messageRole?: string;
+	provider?: string;
+	model?: string;
+	customType?: string;
+	display?: boolean;
+	fromId?: string;
+	command?: string;
+	toolCallIds: string[];
+	toolResultCallId?: string;
+	toolName?: string;
+};
+
+type ResidentLoadPrunePlan = {
+	candidateIds: Set<string>;
+	protectedIds: Set<string>;
+	rawStubs: Map<string, SessionEntry>;
+};
+
+const JSON_STRING_VALUE = String.raw`"((?:[^"\\]|\\.)*)"`;
+
+function decodeJsonStringLiteral(raw: string | undefined): string | undefined {
+	if (raw === undefined) return undefined;
 	try {
-		const fd = openSync(filePath, "r");
-		const buffer = Buffer.alloc(512);
-		const bytesRead = readSync(fd, buffer, 0, 512, 0);
-		closeSync(fd);
-		const firstLine = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
+		return JSON.parse(`"${raw}"`) as string;
+	} catch {
+		return undefined;
+	}
+}
+
+function extractJsonStringField(line: string, field: string): string | undefined {
+	const match = new RegExp(String.raw`"${field}"\s*:\s*${JSON_STRING_VALUE}`).exec(line);
+	return decodeJsonStringLiteral(match?.[1]);
+}
+
+function extractLastJsonStringField(line: string, field: string): string | undefined {
+	const matches = [...line.matchAll(new RegExp(String.raw`"${field}"\s*:\s*${JSON_STRING_VALUE}`, "g"))];
+	return decodeJsonStringLiteral(matches.at(-1)?.[1]);
+}
+
+function extractJsonNullableStringField(line: string, field: string): string | null | undefined {
+	const match = new RegExp(String.raw`"${field}"\s*:\s*(null|${JSON_STRING_VALUE})`).exec(line);
+	if (!match) return undefined;
+	if (match[1] === "null") return null;
+	return decodeJsonStringLiteral(match[2]);
+}
+
+function extractJsonNumberField(line: string, field: string): number | undefined {
+	const match = new RegExp(String.raw`"${field}"\s*:\s*(-?\d+(?:\.\d+)?)`).exec(line);
+	if (!match) return undefined;
+	const value = Number(match[1]);
+	return Number.isFinite(value) ? value : undefined;
+}
+
+function extractJsonBooleanField(line: string, field: string): boolean | undefined {
+	const match = new RegExp(String.raw`"${field}"\s*:\s*(true|false)`).exec(line);
+	if (!match) return undefined;
+	return match[1] === "true";
+}
+
+function isSessionEntryType(type: string | undefined): type is SessionEntry["type"] {
+	return (
+		type === "message" ||
+		type === "thinking_level_change" ||
+		type === "model_change" ||
+		type === "compaction" ||
+		type === "branch_summary" ||
+		type === "custom" ||
+		type === "custom_message" ||
+		type === "label" ||
+		type === "session_info"
+	);
+}
+
+function extractMessageRole(line: string): string | undefined {
+	const match = new RegExp(String.raw`"message"\s*:\s*\{\s*"role"\s*:\s*${JSON_STRING_VALUE}`).exec(line);
+	return decodeJsonStringLiteral(match?.[1]);
+}
+
+function extractToolCallIds(line: string): string[] {
+	const ids: string[] = [];
+	const matches = line.matchAll(/"type"\s*:\s*"toolCall"/g);
+	for (const match of matches) {
+		const start = match.index ?? 0;
+		const nearbyObject = line.slice(start, Math.min(line.length, start + 2048));
+		const id = extractJsonStringField(nearbyObject, "id");
+		if (id) ids.push(id);
+	}
+	return ids;
+}
+
+function metadataForSessionLine(line: string): SessionEntryMetadata | "session" | undefined {
+	const trimmed = line.trim();
+	if (!trimmed) return undefined;
+	const type = extractJsonStringField(trimmed, "type");
+	if (type === "session") return "session";
+	if (!isSessionEntryType(type)) return undefined;
+
+	const id = extractJsonStringField(trimmed, "id");
+	const parentId = extractJsonNullableStringField(trimmed, "parentId");
+	const timestamp = extractJsonStringField(trimmed, "timestamp");
+	if (!id || parentId === undefined || !timestamp) return undefined;
+
+	return {
+		id,
+		parentId,
+		type,
+		timestamp,
+		firstKeptEntryId: type === "compaction" ? extractJsonStringField(trimmed, "firstKeptEntryId") : undefined,
+		tokensBefore: type === "compaction" ? extractJsonNumberField(trimmed, "tokensBefore") : undefined,
+		messageRole: type === "message" ? extractMessageRole(trimmed) : undefined,
+		provider: type === "message" ? extractLastJsonStringField(trimmed, "provider") : undefined,
+		model: type === "message" ? extractLastJsonStringField(trimmed, "model") : undefined,
+		customType:
+			type === "message" || type === "custom" || type === "custom_message"
+				? extractJsonStringField(trimmed, "customType")
+				: undefined,
+		display:
+			type === "message" || type === "custom_message" ? extractJsonBooleanField(trimmed, "display") : undefined,
+		fromId: type === "branch_summary" ? extractJsonStringField(trimmed, "fromId") : undefined,
+		command: type === "message" ? extractJsonStringField(trimmed, "command") : undefined,
+		toolCallIds: type === "message" ? extractToolCallIds(trimmed) : [],
+		toolResultCallId: type === "message" ? extractJsonStringField(trimmed, "toolCallId") : undefined,
+		toolName: type === "message" ? extractJsonStringField(trimmed, "toolName") : undefined,
+	};
+}
+
+function metadataTimestampMs(metadata: SessionEntryMetadata): number {
+	const value = Date.parse(metadata.timestamp);
+	return Number.isFinite(value) ? value : Date.now();
+}
+
+function rawStubContent(): TextContent[] {
+	return [{ type: "text", text: RESIDENT_PRUNED_TEXT }];
+}
+
+function stubEntryFromRawMetadata(
+	metadata: SessionEntryMetadata,
+	options: Required<ResidentPruneOptions>,
+): SessionEntry | undefined {
+	const base = { id: metadata.id, parentId: metadata.parentId, timestamp: metadata.timestamp };
+	const timestamp = metadataTimestampMs(metadata);
+
+	if (metadata.type === "message") {
+		if (metadata.messageRole === "user") {
+			return {
+				...base,
+				type: "message",
+				message: { role: "user", content: rawStubContent(), timestamp } as AgentMessage,
+			};
+		}
+		if (metadata.messageRole === "assistant") {
+			if (!metadata.provider || !metadata.model) return undefined;
+			const toolCalls = metadata.toolCallIds.map((id) => ({
+				type: "toolCall" as const,
+				id,
+				name: "resident_pruned",
+				arguments: { residentPruned: true },
+			}));
+			return {
+				...base,
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [...rawStubContent(), ...toolCalls],
+					provider: metadata.provider,
+					model: metadata.model,
+					timestamp,
+				} as AgentMessage,
+			};
+		}
+		if (metadata.messageRole === "toolResult") {
+			if (!options.stubToolResults || !metadata.toolResultCallId) return undefined;
+			return {
+				...base,
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: metadata.toolResultCallId,
+					toolName: metadata.toolName ?? "resident_pruned",
+					content: rawStubContent(),
+					timestamp,
+				} as AgentMessage,
+			};
+		}
+		if (metadata.messageRole === "bashExecution") {
+			return {
+				...base,
+				type: "message",
+				message: {
+					role: "bashExecution",
+					command: metadata.command ?? "resident-pruned",
+					output: RESIDENT_PRUNED_TEXT,
+					exitCode: undefined,
+					cancelled: false,
+					truncated: true,
+					timestamp,
+				} as BashExecutionMessage,
+			};
+		}
+		if (metadata.messageRole === "custom") {
+			return {
+				...base,
+				type: "message",
+				message: {
+					role: "custom",
+					customType: metadata.customType ?? "resident_pruned",
+					content: rawStubContent(),
+					display: metadata.display ?? false,
+					timestamp,
+				} as CustomMessage,
+			};
+		}
+		return undefined;
+	}
+
+	if (metadata.type === "custom_message" && options.stubSummarizedEntries) {
+		return {
+			...base,
+			type: "custom_message",
+			customType: metadata.customType ?? "resident_pruned",
+			content: rawStubContent(),
+			display: metadata.display ?? false,
+		};
+	}
+	if (metadata.type === "branch_summary" && options.stubSummarizedEntries && metadata.fromId) {
+		return { ...base, type: "branch_summary", fromId: metadata.fromId, summary: RESIDENT_PRUNED_TEXT };
+	}
+	if (metadata.type === "compaction" && options.stubSummarizedEntries && metadata.firstKeptEntryId) {
+		return {
+			...base,
+			type: "compaction",
+			summary: RESIDENT_PRUNED_TEXT,
+			firstKeptEntryId: metadata.firstKeptEntryId,
+			tokensBefore: metadata.tokensBefore ?? 0,
+		};
+	}
+
+	return undefined;
+}
+
+function buildResidentLoadPrunePlan(
+	filePath: string,
+	options: Required<ResidentPruneOptions>,
+): ResidentLoadPrunePlan | undefined {
+	const metadata: SessionEntryMetadata[] = [];
+	const byId = new Map<string, SessionEntryMetadata>();
+	const toolCallEntryIds = new Map<string, string>();
+	const toolResultEntryIds = new Map<string, string>();
+	let sawInvalidMetadata = false;
+
+	readSessionFileLines(filePath, (line) => {
+		const item = metadataForSessionLine(line);
+		if (item === "session") return;
+		if (!item) {
+			if (line.trim()) sawInvalidMetadata = true;
+			return;
+		}
+		metadata.push(item);
+		byId.set(item.id, item);
+		for (const toolCallId of item.toolCallIds) {
+			toolCallEntryIds.set(toolCallId, item.id);
+		}
+		if (item.toolResultCallId) {
+			toolResultEntryIds.set(item.toolResultCallId, item.id);
+		}
+	});
+	if (sawInvalidMetadata) return undefined;
+
+	const leaf = metadata.at(-1);
+	if (!leaf) return undefined;
+
+	const path: SessionEntryMetadata[] = [];
+	let current: SessionEntryMetadata | undefined = leaf;
+	while (current) {
+		path.unshift(current);
+		current = current.parentId ? byId.get(current.parentId) : undefined;
+	}
+
+	let compactionIndex = -1;
+	for (let i = path.length - 1; i >= 0; i--) {
+		if (path[i].type === "compaction") {
+			compactionIndex = i;
+			break;
+		}
+	}
+	const compaction = path[compactionIndex];
+	if (!compaction?.firstKeptEntryId) return undefined;
+
+	const firstKeptIndex = path.findIndex((entry) => entry.id === compaction.firstKeptEntryId);
+	if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) return undefined;
+
+	const candidates = path.slice(0, firstKeptIndex);
+	const candidateIds = new Set(candidates.map((entry) => entry.id));
+	const protectedIds = new Set<string>();
+
+	for (const entry of candidates) {
+		for (const toolCallId of entry.toolCallIds) {
+			const toolResultEntryId = toolResultEntryIds.get(toolCallId);
+			if (!toolResultEntryId || !candidateIds.has(toolResultEntryId)) {
+				protectedIds.add(entry.id);
+			}
+		}
+		if (entry.toolResultCallId) {
+			const toolCallEntryId = toolCallEntryIds.get(entry.toolResultCallId);
+			if (!toolCallEntryId || !candidateIds.has(toolCallEntryId)) {
+				protectedIds.add(entry.id);
+			}
+		}
+	}
+
+	const rawStubs = new Map<string, SessionEntry>();
+	for (const entry of candidates) {
+		if (protectedIds.has(entry.id)) continue;
+		const stub = stubEntryFromRawMetadata(entry, options);
+		if (stub) rawStubs.set(entry.id, stub);
+	}
+
+	return { candidateIds, protectedIds, rawStubs };
+}
+
+function hasValidSessionHeader(entries: FileEntry[]): boolean {
+	if (entries.length === 0) return true;
+	const header = entries[0];
+	return header.type === "session" && typeof (header as { id?: unknown }).id === "string";
+}
+
+function buildBranchFromEntries(entries: FileEntry[], leafId: string): SessionEntry[] | undefined {
+	const byId = new Map<string, SessionEntry>();
+	for (const entry of entries) {
+		if (entry.type !== "session") byId.set(entry.id, entry);
+	}
+	const path: SessionEntry[] = [];
+	let current = byId.get(leafId);
+	if (!current) return undefined;
+	while (current) {
+		path.unshift(current);
+		current = current.parentId ? byId.get(current.parentId) : undefined;
+	}
+	return path;
+}
+
+/** Exported for testing */
+export function loadEntriesFromFile(filePath: string, options: LoadEntriesFromFileOptions = {}): FileEntry[] {
+	const resolvedFilePath = normalizePath(filePath);
+	if (!existsSync(resolvedFilePath)) return [];
+
+	const pruneOptions: Required<ResidentPruneOptions> = {
+		stubSummarizedEntries: options.residentPruneOptions?.stubSummarizedEntries ?? true,
+		stubToolResults: options.residentPruneOptions?.stubToolResults ?? true,
+	};
+	const prunePlan = options.residentPrune ? buildResidentLoadPrunePlan(resolvedFilePath, pruneOptions) : undefined;
+	const entries: FileEntry[] = [];
+
+	readSessionFileLines(resolvedFilePath, (line) => {
+		const metadata = prunePlan ? metadataForSessionLine(line) : undefined;
+		if (metadata && metadata !== "session") {
+			const stub = prunePlan?.rawStubs.get(metadata.id);
+			if (stub) {
+				entries.push(stub);
+				return;
+			}
+		}
+
+		const entry = parseSessionEntryLine(line);
+		if (!entry) return;
+		if (
+			prunePlan &&
+			entry.type !== "session" &&
+			prunePlan.candidateIds.has(entry.id) &&
+			!prunePlan.protectedIds.has(entry.id)
+		) {
+			stubResidentEntryPayload(entry, pruneOptions);
+		}
+		entries.push(entry);
+	});
+
+	return hasValidSessionHeader(entries) ? entries : [];
+}
+
+const MAX_SESSION_HEADER_BYTES = 64 * 1024;
+
+function readSessionHeader(filePath: string): SessionHeader | null {
+	let fd: number | undefined;
+	try {
+		fd = openSync(filePath, "r");
+		const decoder = new StringDecoder("utf8");
+		const buffer = Buffer.allocUnsafe(Math.min(8192, MAX_SESSION_HEADER_BYTES));
+		let position = 0;
+		let pending = "";
+
+		while (position < MAX_SESSION_HEADER_BYTES) {
+			const bytesToRead = Math.min(buffer.length, MAX_SESSION_HEADER_BYTES - position);
+			const bytesRead = readSync(fd, buffer, 0, bytesToRead, position);
+			if (bytesRead === 0) break;
+			position += bytesRead;
+			pending += decoder.write(buffer.subarray(0, bytesRead));
+			const newlineIndex = pending.indexOf("\n");
+			if (newlineIndex !== -1) {
+				pending = pending.slice(0, newlineIndex);
+				break;
+			}
+		}
+
+		pending += decoder.end();
+		const firstLine = pending.split("\n", 1)[0];
 		if (!firstLine) return null;
 		const header = JSON.parse(firstLine) as Record<string, unknown>;
 		if (header.type !== "session" || typeof header.id !== "string") {
@@ -522,6 +1139,8 @@ function readSessionHeader(filePath: string): SessionHeader | null {
 		return header as unknown as SessionHeader;
 	} catch {
 		return null;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
 	}
 }
 
@@ -532,6 +1151,10 @@ function getSessionHeaderCwd(header: SessionHeader): string | undefined {
 
 function sessionCwdMatches(cwd: string | undefined, resolvedCwd: string): boolean {
 	return cwd !== undefined && cwd !== "" && resolvePath(cwd) === resolvedCwd;
+}
+
+function shouldPruneResidentOnHydration(options: SessionHydrationOptions | undefined): boolean {
+	return options?.residentPrune === true || process.env.PI_RESIDENT_SESSION_PRUNE === "1";
 }
 
 /** Exported for testing */
@@ -773,6 +1396,7 @@ export class SessionManager {
 		sessionFile: string | undefined,
 		persist: boolean,
 		newSessionOptions?: NewSessionOptions,
+		hydrationOptions?: SessionHydrationOptions,
 	) {
 		this.cwd = resolvePath(cwd);
 		this.sessionDir = normalizePath(sessionDir);
@@ -782,17 +1406,25 @@ export class SessionManager {
 		}
 
 		if (sessionFile) {
-			this.setSessionFile(sessionFile);
+			this.setSessionFile(sessionFile, hydrationOptions);
 		} else {
 			this.newSession(newSessionOptions);
 		}
 	}
 
 	/** Switch to a different session file (used for resume and branching) */
-	setSessionFile(sessionFile: string): void {
+	setSessionFile(sessionFile: string, hydrationOptions: SessionHydrationOptions = {}): void {
 		this.sessionFile = resolvePath(sessionFile);
 		if (existsSync(this.sessionFile)) {
-			this.fileEntries = loadEntriesFromFile(this.sessionFile);
+			const pruneOnHydration = shouldPruneResidentOnHydration(hydrationOptions);
+			const headerBeforeLoad = readSessionHeader(this.sessionFile);
+			const canPruneDuringLoad = pruneOnHydration && headerBeforeLoad?.version === CURRENT_SESSION_VERSION;
+			const pruneLoadOptions: LoadEntriesFromFileOptions = {
+				residentPrune: true,
+				residentPruneOptions: hydrationOptions.residentPruneOptions,
+			};
+
+			this.fileEntries = loadEntriesFromFile(this.sessionFile, canPruneDuringLoad ? pruneLoadOptions : undefined);
 
 			// If file was empty or corrupted (no valid header), truncate and start fresh
 			// to avoid appending messages without a session header (which breaks the session)
@@ -810,6 +1442,9 @@ export class SessionManager {
 
 			if (migrateToCurrentVersion(this.fileEntries)) {
 				this._rewriteFile();
+				if (pruneOnHydration) {
+					this.fileEntries = loadEntriesFromFile(this.sessionFile, pruneLoadOptions);
+				}
 			}
 
 			this._buildIndex();
@@ -1171,6 +1806,90 @@ export class SessionManager {
 		return buildSessionContext(this.getEntries(), this.leafId, this.byId);
 	}
 
+	estimateResidentPayloadBytes(): number {
+		return estimateResidentPayloadBytes(this.getEntries());
+	}
+
+	/**
+	 * Stub resident-only payloads from the summarized span before a compaction boundary.
+	 * Durable JSONL remains append-only: this method never rewrites or deletes the session file.
+	 */
+	pruneResidentHistoryAfterCompaction(compactionId?: string, options: ResidentPruneOptions = {}): ResidentPruneResult {
+		const pruneOptions: Required<ResidentPruneOptions> = {
+			stubSummarizedEntries: options.stubSummarizedEntries ?? true,
+			stubToolResults: options.stubToolResults ?? true,
+		};
+		const payloadBytesBefore = this.estimateResidentPayloadBytes();
+		const path = this.getBranch();
+		const compactionIndex = compactionId
+			? path.findIndex((entry) => entry.type === "compaction" && entry.id === compactionId)
+			: (() => {
+					for (let i = path.length - 1; i >= 0; i--) {
+						if (path[i].type === "compaction") return i;
+					}
+					return -1;
+				})();
+		const compactionEntry = path[compactionIndex] as CompactionEntry | undefined;
+		if (!compactionEntry || compactionEntry.type !== "compaction") {
+			return {
+				compactionId,
+				firstKeptEntryId: undefined,
+				entriesVisited: 0,
+				entriesStubbed: 0,
+				protectedEntries: 0,
+				payloadBytesBefore,
+				payloadBytesAfter: payloadBytesBefore,
+				payloadBytesFreed: 0,
+				jsonlUnchanged: true,
+			};
+		}
+
+		const firstKeptIndex = path.findIndex((entry) => entry.id === compactionEntry.firstKeptEntryId);
+		if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) {
+			return {
+				compactionId: compactionEntry.id,
+				firstKeptEntryId: compactionEntry.firstKeptEntryId,
+				entriesVisited: 0,
+				entriesStubbed: 0,
+				protectedEntries: 0,
+				payloadBytesBefore,
+				payloadBytesAfter: payloadBytesBefore,
+				payloadBytesFreed: 0,
+				jsonlUnchanged: true,
+			};
+		}
+
+		const candidates = path.slice(0, firstKeptIndex);
+		const candidateIds = new Set(candidates.map((entry) => entry.id));
+		const toolPairs = collectToolPairEntryIds(path);
+		let entriesStubbed = 0;
+		let protectedEntries = 0;
+
+		for (const entry of candidates) {
+			if (entryHasProtectedToolPair(entry, candidateIds, toolPairs)) {
+				protectedEntries++;
+				continue;
+			}
+			const entryBytesBefore = estimateEntryPayloadBytes(entry);
+			if (stubResidentEntryPayload(entry, pruneOptions) && estimateEntryPayloadBytes(entry) < entryBytesBefore) {
+				entriesStubbed++;
+			}
+		}
+
+		const payloadBytesAfter = this.estimateResidentPayloadBytes();
+		return {
+			compactionId: compactionEntry.id,
+			firstKeptEntryId: compactionEntry.firstKeptEntryId,
+			entriesVisited: candidates.length,
+			entriesStubbed,
+			protectedEntries,
+			payloadBytesBefore,
+			payloadBytesAfter,
+			payloadBytesFreed: Math.max(0, payloadBytesBefore - payloadBytesAfter),
+			jsonlUnchanged: true,
+		};
+	}
+
 	/**
 	 * Get session header.
 	 */
@@ -1290,10 +2009,14 @@ export class SessionManager {
 	 */
 	createBranchedSession(leafId: string): string | undefined {
 		const previousSessionFile = this.sessionFile;
-		const path = this.getBranch(leafId);
-		if (path.length === 0) {
+		const residentPath = this.getBranch(leafId);
+		if (residentPath.length === 0) {
 			throw new Error(`Entry ${leafId} not found`);
 		}
+		const durablePath = previousSessionFile
+			? buildBranchFromEntries(loadEntriesFromFile(previousSessionFile), leafId)
+			: undefined;
+		const path = durablePath ?? residentPath;
 
 		// Filter out LabelEntry from path - we'll recreate them from the resolved map.
 		// Because labels are real tree entries, later entries can be children of labels;
@@ -1406,15 +2129,20 @@ export class SessionManager {
 	 * @param sessionDir Optional session directory for /new or /branch. If omitted, derives from file's parent.
 	 * @param cwdOverride Optional cwd override instead of the session header cwd.
 	 */
-	static open(path: string, sessionDir?: string, cwdOverride?: string): SessionManager {
+	static open(
+		path: string,
+		sessionDir?: string,
+		cwdOverride?: string,
+		hydrationOptions?: SessionHydrationOptions,
+	): SessionManager {
 		const resolvedPath = resolvePath(path);
-		// Extract cwd from session header if possible, otherwise use process.cwd()
-		const entries = loadEntriesFromFile(resolvedPath);
-		const header = entries.find((e) => e.type === "session") as SessionHeader | undefined;
+		// Extract cwd from session header if possible, otherwise use process.cwd().
+		// Do not fully hydrate here; setSessionFile() owns the single full JSONL load.
+		const header = readSessionHeader(resolvedPath);
 		const cwd = cwdOverride ?? header?.cwd ?? process.cwd();
 		// If no sessionDir provided, derive from file's parent directory
 		const dir = sessionDir ? normalizePath(sessionDir) : resolve(resolvedPath, "..");
-		return new SessionManager(cwd, dir, resolvedPath, true);
+		return new SessionManager(cwd, dir, resolvedPath, true, undefined, hydrationOptions);
 	}
 
 	/**
@@ -1422,12 +2150,12 @@ export class SessionManager {
 	 * @param cwd Working directory
 	 * @param sessionDir Optional session directory. If omitted, uses default (~/.pi/agent/sessions/<encoded-cwd>/).
 	 */
-	static continueRecent(cwd: string, sessionDir?: string): SessionManager {
+	static continueRecent(cwd: string, sessionDir?: string, hydrationOptions?: SessionHydrationOptions): SessionManager {
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
 		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
 		const mostRecent = findMostRecentSession(dir, filterCwd ? cwd : undefined);
 		if (mostRecent) {
-			return new SessionManager(cwd, dir, mostRecent, true);
+			return new SessionManager(cwd, dir, mostRecent, true, undefined, hydrationOptions);
 		}
 		return new SessionManager(cwd, dir, undefined, true);
 	}
@@ -1449,6 +2177,7 @@ export class SessionManager {
 		targetCwd: string,
 		sessionDir?: string,
 		options?: NewSessionOptions,
+		hydrationOptions?: SessionHydrationOptions,
 	): SessionManager {
 		const resolvedSourcePath = resolvePath(sourcePath);
 		const resolvedTargetCwd = resolvePath(targetCwd);
@@ -1494,7 +2223,7 @@ export class SessionManager {
 			}
 		}
 
-		return new SessionManager(resolvedTargetCwd, dir, newSessionFile, true);
+		return new SessionManager(resolvedTargetCwd, dir, newSessionFile, true, undefined, hydrationOptions);
 	}
 
 	/**

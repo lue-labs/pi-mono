@@ -102,7 +102,13 @@ import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./m
 import type { ModelRegistry } from "./model-registry.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
-import type { BranchSummaryEntry, CompactionEntry, CustomEntry, SessionManager } from "./session-manager.ts";
+import type {
+	BranchSummaryEntry,
+	CompactionEntry,
+	CustomEntry,
+	ResidentPruneResult,
+	SessionManager,
+} from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
@@ -192,6 +198,11 @@ export type AgentSessionEvent =
 			followUp: readonly string[];
 	  }
 	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
+	| {
+			type: "resident_prune";
+			reason: "manual" | "threshold" | "overflow";
+			result: ResidentPruneResult;
+	  }
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
@@ -2527,6 +2538,16 @@ export class AgentSession {
 	// Compaction
 	// =========================================================================
 
+	private _pruneResidentHistoryAfterCompaction(
+		reason: "manual" | "threshold" | "overflow",
+		compactionEntryId: string,
+	): void {
+		const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
+		if (!settings.residentPrune) return;
+		const result = this.sessionManager.pruneResidentHistoryAfterCompaction(compactionEntryId);
+		this._emit({ type: "resident_prune", reason, result });
+	}
+
 	/**
 	 * Manually compact the session context.
 	 * Aborts current agent operation first.
@@ -2619,7 +2640,14 @@ export class AgentSession {
 				throw new Error("Compaction cancelled");
 			}
 
-			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension);
+			const compactionEntryId = this.sessionManager.appendCompaction(
+				summary,
+				firstKeptEntryId,
+				tokensBefore,
+				details,
+				fromExtension,
+			);
+			this._pruneResidentHistoryAfterCompaction("manual", compactionEntryId);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
@@ -2903,7 +2931,14 @@ export class AgentSession {
 				return false;
 			}
 
-			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension);
+			const compactionEntryId = this.sessionManager.appendCompaction(
+				summary,
+				firstKeptEntryId,
+				tokensBefore,
+				details,
+				fromExtension,
+			);
+			this._pruneResidentHistoryAfterCompaction(reason, compactionEntryId);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;

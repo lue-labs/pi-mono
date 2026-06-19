@@ -160,6 +160,7 @@ Optional paid background requests can keep prompt-cache prefixes warm during loc
 | `compaction.reserveTokens` | number | `16384` | Tokens reserved for LLM response |
 | `compaction.triggerTokens` | number | unset | Absolute context-token count where auto-compaction should trigger. When set and the active model's context window is known, Pi derives `reserveTokens` as `contextWindow - triggerTokens`. Falls back to `reserveTokens` if the window is unknown or smaller than `triggerTokens`. |
 | `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
+| `compaction.residentPrune` | boolean | `false` | After successful compaction and when opening/resuming compacted sessions, stub summarized pre-boundary payloads in resident memory without rewriting durable JSONL. Current-version session files plan from raw-line metadata and apply stubs before parsing summarized candidate payload JSON. Can also be enabled with `PI_RESIDENT_SESSION_PRUNE=1`. |
 
 ```json
 {
@@ -167,7 +168,8 @@ Optional paid background requests can keep prompt-cache prefixes warm during loc
     "enabled": true,
     "triggerTokens": 180000,
     "reserveTokens": 16384,
-    "keepRecentTokens": 20000
+    "keepRecentTokens": 20000,
+    "residentPrune": false
   }
 }
 ```
