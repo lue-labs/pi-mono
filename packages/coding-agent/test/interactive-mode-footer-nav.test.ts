@@ -149,18 +149,28 @@ describe("interactive-mode footer navigation", () => {
 		expect(fakeMode.footer.setSelectedExtensionFooterId).not.toHaveBeenCalled();
 	});
 
-	it("disposes an active main pane during extension UI reset", () => {
-		const dispose = vi.fn();
+	it("disposes active main pane and overlay during extension UI reset", () => {
+		const paneDispose = vi.fn();
+		const overlayDispose = vi.fn();
+		const overlayHide = vi.fn();
 		const restoredChild = { id: "restored" };
 		const fakeMode = {
 			activeMainPane: {
 				id: "runtime-tasks",
-				component: { dispose },
+				component: { dispose: paneDispose },
 				preChildren: [restoredChild],
 			},
 			hideExtensionMainPane: (
 				InteractiveMode.prototype as unknown as { hideExtensionMainPane: (id: string) => void }
 			).hideExtensionMainPane,
+			activeOverlay: {
+				id: "runtime-overlay",
+				component: { dispose: overlayDispose },
+				handle: { hide: overlayHide },
+			},
+			hideExtensionOverlay: (
+				InteractiveMode.prototype as unknown as { hideExtensionOverlay: (id: string) => void }
+			).hideExtensionOverlay,
 			chatContainer: { clear: vi.fn(), addChild: vi.fn() },
 			extensionSelector: undefined,
 			extensionInput: undefined,
@@ -187,8 +197,11 @@ describe("interactive-mode footer navigation", () => {
 
 		(InteractiveMode.prototype as unknown as { resetExtensionUI: () => void }).resetExtensionUI.call(fakeMode);
 
-		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(paneDispose).toHaveBeenCalledTimes(1);
 		expect(fakeMode.activeMainPane).toBeUndefined();
+		expect(overlayDispose).toHaveBeenCalledTimes(1);
+		expect(overlayHide).toHaveBeenCalledTimes(1);
+		expect(fakeMode.activeOverlay).toBeUndefined();
 		expect(fakeMode.chatContainer.clear).toHaveBeenCalled();
 		expect(fakeMode.chatContainer.addChild).toHaveBeenCalledWith(restoredChild);
 	});

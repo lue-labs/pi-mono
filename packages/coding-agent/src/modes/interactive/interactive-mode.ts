@@ -1958,7 +1958,11 @@ export class InteractiveMode {
 		if (this.extensionEditor) {
 			this.hideExtensionEditor();
 		}
-		this.ui.hideOverlay();
+		if (this.activeOverlay) {
+			this.hideExtensionOverlay(this.activeOverlay.id);
+		} else {
+			this.ui.hideOverlay();
+		}
 		this.clearExtensionTerminalInputListeners();
 		this.setExtensionFooter(undefined);
 		this.setExtensionHeader(undefined);
