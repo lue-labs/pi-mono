@@ -148,4 +148,48 @@ describe("interactive-mode footer navigation", () => {
 		expect(paneEscape).toHaveBeenCalledTimes(1);
 		expect(fakeMode.footer.setSelectedExtensionFooterId).not.toHaveBeenCalled();
 	});
+
+	it("disposes an active main pane during extension UI reset", () => {
+		const dispose = vi.fn();
+		const restoredChild = { id: "restored" };
+		const fakeMode = {
+			activeMainPane: {
+				id: "runtime-tasks",
+				component: { dispose },
+				preChildren: [restoredChild],
+			},
+			hideExtensionMainPane: (
+				InteractiveMode.prototype as unknown as { hideExtensionMainPane: (id: string) => void }
+			).hideExtensionMainPane,
+			chatContainer: { clear: vi.fn(), addChild: vi.fn() },
+			extensionSelector: undefined,
+			extensionInput: undefined,
+			extensionEditor: undefined,
+			ui: { hideOverlay: vi.fn(), requestRender: vi.fn() },
+			clearExtensionTerminalInputListeners: vi.fn(),
+			setExtensionFooter: vi.fn(),
+			setExtensionHeader: vi.fn(),
+			clearExtensionWidgets: vi.fn(),
+			footerDataProvider: { clearExtensionStatuses: vi.fn() },
+			footer: { invalidate: vi.fn() },
+			autocompleteProviderWrappers: [{ id: "old" }],
+			setCustomEditorComponent: vi.fn(),
+			setupAutocompleteProvider: vi.fn(),
+			defaultEditor: { onExtensionShortcut: vi.fn() as unknown },
+			updateTerminalTitle: vi.fn(),
+			workingMessage: "old",
+			workingVisible: false,
+			setWorkingIndicator: vi.fn(),
+			loadingAnimation: undefined,
+			defaultWorkingMessage: "Working",
+			setHiddenThinkingLabel: vi.fn(),
+		};
+
+		(InteractiveMode.prototype as unknown as { resetExtensionUI: () => void }).resetExtensionUI.call(fakeMode);
+
+		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(fakeMode.activeMainPane).toBeUndefined();
+		expect(fakeMode.chatContainer.clear).toHaveBeenCalled();
+		expect(fakeMode.chatContainer.addChild).toHaveBeenCalledWith(restoredChild);
+	});
 });

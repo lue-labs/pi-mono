@@ -167,14 +167,16 @@ describe("background-tasks tools — push notification + explicit output paths",
 		expect(text).toContain("No stoppable background task");
 	});
 
-	test("TaskBackgroundList enumerates bash jobs AND agent runs together", async () => {
+	test("TaskBackgroundList enumerates bash jobs and background agent runs together", async () => {
 		const job = spawnBashBackground("sleep 5", bashTempDir);
+		const foregroundRun = startAgentRecentRun("single", [{ agent: "scout", task: "Foreground map" }]);
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		const text = await call(TaskBackgroundList, {});
 		expect(text).toContain(job.id);
 		expect(text).toContain("[bash]");
 		expect(text).toContain(run.id);
 		expect(text).toContain("[agent]");
+		expect(text).not.toContain(foregroundRun.id);
 	});
 
 	test("TaskBackgroundList with no tasks says so", async () => {

@@ -73,12 +73,15 @@ describe("background tasks UI", () => {
 		const fake = createFakePi();
 		hookBackgroundTasksUi(fake.pi as never);
 
-		expect(fake.tools).toEqual(["TaskBackgroundList"]);
+		expect(fake.tools).toEqual(["TaskStop", "TaskBackgroundList"]);
 		expect(fake.panes.has("background-tasks")).toBe(true);
 		expect(fake.commands.has("tasks")).toBe(true);
 
 		const footer = fake.footers.get("background-tasks");
 		expect(footer).toBeDefined();
+		expect(footer?.visible?.()).toBe(false);
+
+		startAgentRecentRun("single", [{ agent: "explore", task: "Foreground task" }]);
 		expect(footer?.visible?.()).toBe(false);
 
 		spawnBashBackground("sleep 30", bashTempDir);
@@ -92,6 +95,29 @@ describe("background tasks UI", () => {
 
 		footer?.onActivate?.({ close: vi.fn() });
 		expect(fake.showMainPane).toHaveBeenCalledWith("background-tasks");
+	});
+
+	test("main pane ignores foreground agent runs", () => {
+		vi.useFakeTimers();
+		const fake = createFakePi();
+		hookBackgroundTasksUi(fake.pi as never);
+		startAgentRecentRun("single", [{ agent: "explore", task: "Foreground task" }]);
+
+		const footer = fake.footers.get("background-tasks");
+		expect(footer?.visible?.()).toBe(false);
+		const factory = fake.paneFactories.get("background-tasks");
+		expect(factory).toBeDefined();
+		const requestRender = vi.fn();
+		const component = factory!(
+			{ requestRender } as never,
+			fake.theme as never,
+			{ payload: undefined, requestHide: vi.fn() },
+		);
+
+		expect(component.render(120).join("\n")).toContain("No background tasks.");
+		vi.advanceTimersByTime(3000);
+		expect(requestRender).not.toHaveBeenCalled();
+		component.dispose?.();
 	});
 
 	test("main pane repaints and displays updated elapsed time once per second while an agent task is active", () => {

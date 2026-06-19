@@ -55,6 +55,7 @@ function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 		description: describeRun(run),
 		startedAt: Date.parse(run.startedAt),
 		endedAt: run.endedAt ? Date.parse(run.endedAt) : undefined,
+		execution: run.execution,
 		resumable: run.resumable,
 		error: run.error,
 	};

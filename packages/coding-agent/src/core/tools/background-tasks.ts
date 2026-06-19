@@ -72,6 +72,10 @@ async function taskOutputPath(task: TaskSnapshot): Promise<string | undefined> {
 	}
 }
 
+function isBackgroundRuntimeTask(task: TaskSnapshot): boolean {
+	return task.type !== "local_agent" || task.execution === "background";
+}
+
 async function renderTaskRow(task: TaskSnapshot): Promise<string> {
 	const elapsed = ((task.endedAt ?? Date.now()) - task.startedAt) / 1000;
 	const flavor = task.type === "local_bash" ? "bash" : task.type === "local_agent" ? "agent" : task.type;
@@ -92,7 +96,9 @@ export function createTaskBackgroundListToolDefinition(): ToolDefinition<
 		promptSnippet: "List all background runtime tasks",
 		parameters: taskBackgroundListSchema,
 		async execute() {
-			const tasks = listTasks().sort((a, b) => a.startedAt - b.startedAt);
+			const tasks = listTasks()
+				.filter(isBackgroundRuntimeTask)
+				.sort((a, b) => a.startedAt - b.startedAt);
 			if (tasks.length === 0) {
 				return { content: [{ type: "text", text: "No background tasks." }], details: [] };
 			}

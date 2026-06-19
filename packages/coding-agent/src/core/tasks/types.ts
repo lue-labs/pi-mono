@@ -29,6 +29,8 @@ export interface TaskSnapshot {
 	description: string;
 	startedAt: number;
 	endedAt?: number;
+	/** Agent execution mode, when this snapshot represents a native Agent run. */
+	execution?: "foreground" | "background";
 	/** True when the underlying runtime supports resuming after interrupt. */
 	resumable: boolean;
 	/** Optional human-readable error message when status is failed/cancelled. */

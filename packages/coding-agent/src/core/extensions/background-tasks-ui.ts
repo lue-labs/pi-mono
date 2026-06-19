@@ -1,14 +1,22 @@
 import { truncateToWidth } from "@valkyriweb/pi-tui";
 import { findTaskAdapter, listTasks, subscribeTasks } from "../tasks/index.ts";
 import { isTerminalTaskStatus, type TaskSnapshot } from "../tasks/types.ts";
-import { createTaskBackgroundListTool } from "../tools/background-tasks.ts";
+import { createTaskBackgroundListTool, createTaskStopTool } from "../tools/background-tasks.ts";
 import { addAction, load } from "./extension-hooks.ts";
 import type { ExtensionAPI, ExtensionMainPaneComponent, ExtensionMainPaneFactory } from "./types.ts";
 
 const PANE_ID = "background-tasks";
 
+function isBackgroundRuntimeTask(task: TaskSnapshot): boolean {
+	return task.type !== "local_agent" || task.execution === "background";
+}
+
+function backgroundTasks(): TaskSnapshot[] {
+	return listTasks().filter(isBackgroundRuntimeTask);
+}
+
 function activeTasks(): TaskSnapshot[] {
-	return listTasks().filter((task) => !isTerminalTaskStatus(task.status));
+	return backgroundTasks().filter((task) => !isTerminalTaskStatus(task.status));
 }
 
 function liveRepaintTasks(): TaskSnapshot[] {
@@ -154,7 +162,7 @@ class BackgroundTasksPane implements ExtensionMainPaneComponent {
 	}
 
 	private rows(): TaskSnapshot[] {
-		return listTasks().sort((a, b) => {
+		return backgroundTasks().sort((a, b) => {
 			const activeDelta = Number(isTerminalTaskStatus(a.status)) - Number(isTerminalTaskStatus(b.status));
 			return activeDelta || b.startedAt - a.startedAt;
 		});
@@ -208,6 +216,7 @@ class BackgroundTasksPane implements ExtensionMainPaneComponent {
 const paneFactory: ExtensionMainPaneFactory = (tui, theme, api) => new BackgroundTasksPane(tui, theme, api.requestHide);
 
 export function hookBackgroundTasksUi(pi: ExtensionAPI): void {
+	pi.registerTool(createTaskStopTool());
 	pi.registerTool(createTaskBackgroundListTool());
 
 	pi.registerMainPane(PANE_ID, paneFactory);

@@ -1946,6 +1946,9 @@ export class InteractiveMode {
 	}
 
 	private resetExtensionUI(): void {
+		if (this.activeMainPane) {
+			this.hideExtensionMainPane(this.activeMainPane.id);
+		}
 		if (this.extensionSelector) {
 			this.hideExtensionSelector();
 		}
