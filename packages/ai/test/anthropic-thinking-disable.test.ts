@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { streamSimple } from "../src/index.ts";
 import { getModel } from "../src/models.ts";
 import { allOf, isReasoning, pickModel, supportsThinkingLevel } from "./helpers/models.ts";
 
@@ -15,7 +16,6 @@ const xhighEffortReasoningModel = allOf(
 	supportsThinkingLevel("off"),
 );
 
-import { streamSimple } from "../src/stream.ts";
 import type { Context, Model, SimpleStreamOptions } from "../src/types.ts";
 
 interface AnthropicThinkingPayload {

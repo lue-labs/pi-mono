@@ -1,5 +1,11 @@
-import type { AssistantMessage, ImageContent, Model, TextContent, Usage } from "@valkyriweb/pi-ai";
-import { completeSimple } from "@valkyriweb/pi-ai";
+import {
+	type AssistantMessage,
+	completeSimple,
+	type ImageContent,
+	type Model,
+	type TextContent,
+	type Usage,
+} from "@valkyriweb/pi-ai/base";
 import type { AgentMessage, ThinkingLevel } from "../../types.ts";
 import {
 	convertToLlm,

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { streamSimple } from "../src/stream.ts";
+import { streamSimple } from "../src/index.ts";
 import { pickModel } from "./helpers/models.ts";
 
 // Empty tools arrays must NOT be serialized as `tools: []` — some OpenAI-compatible

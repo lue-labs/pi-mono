@@ -12,7 +12,7 @@
 
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { completeSimple, getEnvApiKey } from "../src/stream.ts";
+import { completeSimple, getEnvApiKey } from "../src/index.ts";
 import type { AssistantMessage, Message, Tool, ToolResultMessage } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 import { resolveApiKey } from "./oauth.ts";

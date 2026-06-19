@@ -10,7 +10,7 @@ import type {
 	Tool,
 	ToolReferenceContent,
 	ToolResultMessage,
-} from "@valkyriweb/pi-ai";
+} from "@valkyriweb/pi-ai/base";
 import type { Static, TSchema } from "typebox";
 
 /**

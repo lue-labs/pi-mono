@@ -5,8 +5,8 @@ import type {
 	TextContent,
 	ToolReferenceContent,
 	Transport,
-} from "@valkyriweb/pi-ai";
-import type { AgentEvent, AgentMessage, AgentTool, QueueMode, ThinkingLevel } from "../index.ts";
+} from "@valkyriweb/pi-ai/base";
+import type { AgentEvent, AgentMessage, AgentTool, QueueMode, ThinkingLevel } from "../types.ts";
 import type { Session } from "./session/session.ts";
 
 /** Result of a fallible operation. Expected failures are returned as `ok: false` instead of thrown. */

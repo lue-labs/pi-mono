@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { getEnvApiKey } from "../src/env-api-keys.ts";
-import { completeSimple } from "../src/stream.ts";
+import { completeSimple } from "../src/index.ts";
 import type { Api, Context, Model, StopReason, Tool, ToolCall, ToolResultMessage } from "../src/types.ts";
 import { StringEnum } from "../src/utils/typebox-helpers.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";

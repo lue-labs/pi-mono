@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { streamSimple } from "../src/stream.ts";
+import { streamSimple } from "../src/index.ts";
 import type { Tool } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 

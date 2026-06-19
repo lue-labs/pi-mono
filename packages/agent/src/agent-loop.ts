@@ -10,7 +10,7 @@ import {
 	streamSimple,
 	type ToolResultMessage,
 	validateToolArguments,
-} from "@valkyriweb/pi-ai";
+} from "@valkyriweb/pi-ai/base";
 import type {
 	AgentContext,
 	AgentEvent,

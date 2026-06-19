@@ -1,5 +1,4 @@
-import type { Model } from "@valkyriweb/pi-ai";
-import { completeSimple } from "@valkyriweb/pi-ai";
+import { completeSimple, type Model } from "@valkyriweb/pi-ai/base";
 import type { AgentMessage } from "../../types.ts";
 import {
 	convertToLlm,
