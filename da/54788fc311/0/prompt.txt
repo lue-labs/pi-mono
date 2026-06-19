@@ -1,0 +1,84 @@
+/goal I am trying to fix whatever has caused this infinite loop in my-pi / pi-fork
+
+see doc: @runaway-process.txt
+
+can you close all processes still running / looping in pi, and then diagnose and resolve the issue
+
+---
+
+can we continue, Rusty restarted now
+
+---
+
+ok lets continue, give me the handoff prompt / goal prompt to do the upstream update / sync into fork
+
+---
+
+which project should I run this from ? pi-mono-fork?
+
+---
+
+ok thats running in another session, lets continue
+
+---
+
+cleanup, and autoreview on PR and land it
+
+---
+
+<task-notification>
+<task-id>b4197merx</task-id>
+<tool-use-id>toolu_012j4SQjd9qvSMqoLxo4hEL4</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/91c6779a-c0a3-4c5b-990a-6d0912484182/tasks/b4197merx.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for #330 CI gate and review to settle" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bokqm4spg</task-id>
+<tool-use-id>toolu_01QRyLHSaV3cjjZRG2zWtfQt</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/91c6779a-c0a3-4c5b-990a-6d0912484182/tasks/bokqm4spg.output</output-file>
+<status>completed</status>
+<summary>Background command "Fresh CI watch on cd715471 until settled" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b13xdtny0</task-id>
+<tool-use-id>toolu_01BeuY1pbL7DnyLotWxYdCPn</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/91c6779a-c0a3-4c5b-990a-6d0912484182/tasks/b13xdtny0.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait up to 20min for #330 CI to settle" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+ok whats the best way to land this:
+
+  runtime/stable (the daily-driver runtime) is 1 commit behind main — the keyword nudges aren't live in your running pi until I
+  fast-forward it. Low-risk, reversible (jiti reloads the changed .ts next turn). Want me to FF runtime/stable → main to deploy it?
+
+can we triage these?
+ Flags (not touched)
+
+  - 2 modified files in the main checkout (context-usage, session-title) — not mine (last real commit 10 days ago), almost certainly
+  another active session's WIP. Left alone.
+  - 51 live worktrees still around (dirs exist, various feature branches — possible WIP each). A blind sweep is unsafe; if you want them
+  triaged, that's a work-closeout job.
+  - 4 preserved stashes in the repo stash stack (2 from this session's cleanup, 2 prior) — git stash list to review/drop when ready.
+
+---
+
+what else can we do?
+
+---
+
+can we document this in an issue to address on the repo:
+  - 39-clean-worktree sweep — do it when sessions are idle; branches are all safe meanwhile.
+
+---
+
+ok can we close out this sesion?

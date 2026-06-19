@@ -1,0 +1,210 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "da54788fc311",
+  "session_id": "ae51a778-ee67-4ddd-bab9-6d2cf1bb6d3f",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-19T14:36:56.078173Z",
+  "branch": "main",
+  "checkpoints_count": 11,
+  "save_step_count": 9,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "44acc36e7dcc",
+  "token_usage": {
+    "input_tokens": 34282,
+    "cache_creation_tokens": 1061960,
+    "cache_read_tokens": 47553130,
+    "output_tokens": 374813,
+    "api_call_count": 260
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_017EbSUdN73nhN6bzg11Ret1",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "44acc36e7dcc",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 401,
+        "end": 402,
+        "entry_ids": [
+          "791bbb25-3b29-414b-8157-f0944d5e97dd"
+        ],
+        "tool_use_id": "toolu_017EbSUdN73nhN6bzg11Ret1"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_017EbSUdN73nhN6bzg11Ret1"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_011r7nbhXVPdBuBttoKtmNz4",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi-cache-stability"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "44acc36e7dcc",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 408,
+        "end": 409,
+        "entry_ids": [
+          "fdc787c6-5882-457c-b54c-c63bb06a8710"
+        ],
+        "tool_use_id": "toolu_011r7nbhXVPdBuBttoKtmNz4"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_011r7nbhXVPdBuBttoKtmNz4"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi-cache-stability",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01WXUZtgcDqLwwu1hxAzLoFV",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "work-closeout"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "44acc36e7dcc",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1697,
+        "end": 1698,
+        "entry_ids": [
+          "3433e7a6-c5bb-45bd-b3b6-e79c1b271f89"
+        ],
+        "tool_use_id": "toolu_01WXUZtgcDqLwwu1hxAzLoFV"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01WXUZtgcDqLwwu1hxAzLoFV"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: work-closeout",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-19T14:36:56.015719Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 1,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 1,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 124,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "runaway-process.txt": 124
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 158,
+      "agent_lines_removed": 4
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 34,
+      "agent_lines_removed": 4
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 34,
+      "agent_lines_removed": 4
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 34,
+      "agent_lines_removed": 4
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 17,
+      "user_lines_removed": 4,
+      "agent_lines_added": 34,
+      "agent_lines_removed": 4,
+      "user_added_per_file": {
+        "docs/pi-fork-patch-inventory.md": 1,
+        "extensions/tool-search/src/config.ts": 10,
+        "extensions/tool-search/src/index.ts": 6
+      },
+      "user_removed_per_file": {
+        "extensions/tool-search/src/index.ts": 4
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 51,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 51,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 51,
+      "agent_lines_removed": 8
+    }
+  ]
+}
