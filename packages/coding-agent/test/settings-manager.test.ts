@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS } from "../src/core/http-dispatcher.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 
@@ -20,6 +20,7 @@ describe("SettingsManager", () => {
 	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		if (existsSync(testDir)) {
 			rmSync(testDir, { recursive: true });
 		}
@@ -328,6 +329,29 @@ describe("SettingsManager", () => {
 
 			// And settings file should be created
 			expect(existsSync(join(projectDir, ".pi", "settings.json"))).toBe(true);
+		});
+	});
+
+	describe("compaction residentPrune", () => {
+		it("defaults to disabled", () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings().residentPrune).toBe(false);
+		});
+
+		it("can be enabled from settings", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { residentPrune: true } }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings().residentPrune).toBe(true);
+		});
+
+		it("can be force-enabled with PI_RESIDENT_SESSION_PRUNE", () => {
+			vi.stubEnv("PI_RESIDENT_SESSION_PRUNE", "1");
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { residentPrune: false } }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings().residentPrune).toBe(true);
 		});
 	});
 

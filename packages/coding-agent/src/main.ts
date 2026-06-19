@@ -39,7 +39,7 @@ import {
 	MissingSessionCwdError,
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
-import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
+import { assertValidSessionId, type SessionHydrationOptions, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
@@ -241,9 +241,19 @@ function validateSessionIdFlags(parsed: Args): void {
 	}
 }
 
-function forkSessionOrExit(sourcePath: string, cwd: string, sessionDir?: string, sessionId?: string): SessionManager {
+function getSessionHydrationOptions(settingsManager: SettingsManager): SessionHydrationOptions {
+	return { residentPrune: settingsManager.getCompactionResidentPruneEnabled() };
+}
+
+function forkSessionOrExit(
+	sourcePath: string,
+	cwd: string,
+	sessionDir?: string,
+	sessionId?: string,
+	hydrationOptions?: SessionHydrationOptions,
+): SessionManager {
 	try {
-		return SessionManager.forkFrom(sourcePath, cwd, sessionDir, { id: sessionId });
+		return SessionManager.forkFrom(sourcePath, cwd, sessionDir, { id: sessionId }, hydrationOptions);
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
 		console.error(chalk.red(`Error: ${message}`));
@@ -261,6 +271,8 @@ async function createSessionManager(
 		return SessionManager.inMemory(cwd);
 	}
 
+	const hydrationOptions = getSessionHydrationOptions(settingsManager);
+
 	if (parsed.fork) {
 		if (parsed.sessionId) {
 			const existingTarget = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir);
@@ -276,7 +288,7 @@ async function createSessionManager(
 			case "path":
 			case "local":
 			case "global":
-				return forkSessionOrExit(resolved.path, cwd, sessionDir, parsed.sessionId);
+				return forkSessionOrExit(resolved.path, cwd, sessionDir, parsed.sessionId, hydrationOptions);
 
 			case "not_found":
 				console.error(chalk.red(`No session found matching '${resolved.arg}'`));
@@ -290,7 +302,7 @@ async function createSessionManager(
 		switch (resolved.type) {
 			case "path":
 			case "local":
-				return SessionManager.open(resolved.path, sessionDir);
+				return SessionManager.open(resolved.path, sessionDir, undefined, hydrationOptions);
 
 			case "global": {
 				console.log(chalk.yellow(`Session found in different project: ${resolved.cwd}`));
@@ -299,7 +311,7 @@ async function createSessionManager(
 					console.log(chalk.dim("Aborted."));
 					process.exit(0);
 				}
-				return forkSessionOrExit(resolved.path, cwd, sessionDir);
+				return forkSessionOrExit(resolved.path, cwd, sessionDir, undefined, hydrationOptions);
 			}
 
 			case "not_found":
@@ -319,20 +331,20 @@ async function createSessionManager(
 				console.log(chalk.dim("No session selected"));
 				process.exit(0);
 			}
-			return SessionManager.open(selectedPath, sessionDir);
+			return SessionManager.open(selectedPath, sessionDir, undefined, hydrationOptions);
 		} finally {
 			stopThemeWatcher();
 		}
 	}
 
 	if (parsed.continue) {
-		return SessionManager.continueRecent(cwd, sessionDir);
+		return SessionManager.continueRecent(cwd, sessionDir, hydrationOptions);
 	}
 
 	if (parsed.sessionId) {
 		const existingSession = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir);
 		if (existingSession) {
-			return SessionManager.open(existingSession.path, sessionDir);
+			return SessionManager.open(existingSession.path, sessionDir, undefined, hydrationOptions);
 		}
 	}
 
@@ -573,7 +585,12 @@ export async function main(args: string[], options?: MainOptions) {
 			if (!selectedCwd) {
 				process.exit(0);
 			}
-			sessionManager = SessionManager.open(missingSessionCwdIssue.sessionFile!, sessionDir, selectedCwd);
+			sessionManager = SessionManager.open(
+				missingSessionCwdIssue.sessionFile!,
+				sessionDir,
+				selectedCwd,
+				getSessionHydrationOptions(startupSettingsManager),
+			);
 		} else {
 			console.error(chalk.red(new MissingSessionCwdError(missingSessionCwdIssue).message));
 			process.exit(1);

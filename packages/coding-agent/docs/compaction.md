@@ -43,6 +43,7 @@ You can also trigger manually with `/compact [instructions]`, where optional ins
 3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
 5. **Reload**: Session reloads, using summary + messages from `firstKeptEntryId` onwards
+6. **Optional resident prune**: If `compaction.residentPrune` or `PI_RESIDENT_SESSION_PRUNE=1` is enabled, Pi stubs summarized pre-boundary payloads in process memory after compaction and while loading compacted sessions on open/resume/fork. For current-version session files, Pi plans the compacted path from raw-line metadata and creates resident stubs before parsing summarized candidate payload JSON. The durable JSONL transcript is not rewritten, and tool-use/tool-result pairs are protected from split stubbing.
 
 ```
 Before compaction:
@@ -77,6 +78,10 @@ What the LLM sees:
 ```
 
 On repeated compactions, the summarized span starts at the previous compaction's kept boundary (`firstKeptEntryId`), not at the compaction entry itself, falling back to the entry after the previous compaction if that kept entry cannot be found in the path. This preserves messages that survived the earlier compaction by including them in the next summarization pass as well. Pi also recalculates `tokensBefore` from the rebuilt session context before writing the new `CompactionEntry`, so the token count reflects the actual pre-compaction context being replaced.
+
+Resident pruning is separate from transcript compaction. It is default-off and runs only after a successful compaction entry has been appended, or while hydrating an already-compacted session when the same opt-in is enabled. It mutates or loads entries before `firstKeptEntryId` as small placeholders, then rebuilds provider context from the compaction summary plus kept suffix. Pi still keeps the original JSONL complete on disk; opening without the opt-in restores the full resident transcript, while opening with the opt-in keeps summarized pre-boundary payloads stubbed from the first hydrated view. Current-version pruned hydration uses raw-line metadata plus fallback full parsing for protected or ambiguous entries; old-version session migrations rewrite full content first, then reload with resident pruning so migration never persists stubs.
+
+Use `npm run memory:audit -- --pi ./dist/pi` to capture a structural Pi/Claude RSS report plus an isolated Pi core resident-prune probe. The probe uses synthetic JSONL only, records resident payload/heap/RSS before and after prune+GC, and checks JSONL hash/context/continuation invariants.
 
 ### Split Turns
 
