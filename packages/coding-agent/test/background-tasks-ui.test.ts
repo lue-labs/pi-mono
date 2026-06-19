@@ -2,9 +2,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { clearAgentRecentRunsForTests, startAgentRecentRun } from "../src/core/agents/status.ts";
+import {
+	clearAgentRecentRunsForTests,
+	finishAgentRecentRun,
+	startAgentRecentRun,
+} from "../src/core/agents/status.ts";
 import { hookBackgroundTasksUi } from "../src/core/extensions/background-tasks-ui.ts";
-import type { ExtensionFooterSpec } from "../src/core/extensions/types.ts";
+import type { ExtensionFooterSpec, ExtensionMainPaneFactory } from "../src/core/extensions/types.ts";
 import { killAllBashBgJobs, spawnBashBackground } from "../src/core/tools/bash.ts";
 
 function stripAnsi(text: string): string {
@@ -15,6 +19,7 @@ function createFakePi() {
 	const tools: string[] = [];
 	const footers = new Map<string, ExtensionFooterSpec>();
 	const panes = new Set<string>();
+	const paneFactories = new Map<string, ExtensionMainPaneFactory>();
 	const showMainPane = vi.fn();
 	const commands = new Map<string, unknown>();
 	const theme = {
@@ -26,8 +31,9 @@ function createFakePi() {
 			registerTool(tool: { name: string }) {
 				tools.push(tool.name);
 			},
-			registerMainPane(id: string) {
+			registerMainPane(id: string, factory: ExtensionMainPaneFactory) {
 				panes.add(id);
+				paneFactories.set(id, factory);
 			},
 			showMainPane,
 			registerFooter(id: string, spec: ExtensionFooterSpec) {
@@ -40,6 +46,7 @@ function createFakePi() {
 		tools,
 		footers,
 		panes,
+		paneFactories,
 		commands,
 		showMainPane,
 		theme,
@@ -58,6 +65,7 @@ describe("background tasks UI", () => {
 	afterEach(() => {
 		killAllBashBgJobs();
 		clearAgentRecentRunsForTests();
+		vi.useRealTimers();
 		if (bashTempDir) rmSync(bashTempDir, { recursive: true, force: true });
 	});
 
@@ -84,5 +92,106 @@ describe("background tasks UI", () => {
 
 		footer?.onActivate?.({ close: vi.fn() });
 		expect(fake.showMainPane).toHaveBeenCalledWith("background-tasks");
+	});
+
+	test("main pane repaints and displays updated elapsed time once per second while an agent task is active", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+		const fake = createFakePi();
+		hookBackgroundTasksUi(fake.pi as never);
+		startAgentRecentRun("single", [{ agent: "explore", task: "Map task state" }], { background: true });
+
+		const factory = fake.paneFactories.get("background-tasks");
+		expect(factory).toBeDefined();
+		const requestRender = vi.fn();
+		const component = factory!(
+			{ requestRender } as never,
+			fake.theme as never,
+			{ payload: undefined, requestHide: vi.fn() },
+		);
+
+		expect(component.render(120).join("\n")).toContain("running 0s explore: Map task state");
+		expect(requestRender).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(999);
+		expect(requestRender).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(1);
+		expect(requestRender).toHaveBeenCalledTimes(1);
+		vi.advanceTimersByTime(3000);
+		expect(requestRender).toHaveBeenCalledTimes(4);
+		expect(component.render(120).join("\n")).toContain("running 4s explore: Map task state");
+
+		component.dispose?.();
+		vi.advanceTimersByTime(1000);
+		expect(requestRender).toHaveBeenCalledTimes(4);
+	});
+
+	test("main pane starts the repaint ticker for bash-only tasks", () => {
+		vi.useFakeTimers();
+		const fake = createFakePi();
+		hookBackgroundTasksUi(fake.pi as never);
+		spawnBashBackground("sleep 30", bashTempDir);
+
+		const factory = fake.paneFactories.get("background-tasks");
+		expect(factory).toBeDefined();
+		const requestRender = vi.fn();
+		const component = factory!(
+			{ requestRender } as never,
+			fake.theme as never,
+			{ payload: undefined, requestHide: vi.fn() },
+		);
+
+		expect(component.render(120).join("\n")).toContain("[sh] running");
+		vi.advanceTimersByTime(1000);
+		expect(requestRender).toHaveBeenCalledTimes(1);
+		component.dispose?.();
+	});
+
+	test("main pane stops repainting when the last active task naturally completes", () => {
+		vi.useFakeTimers();
+		const fake = createFakePi();
+		hookBackgroundTasksUi(fake.pi as never);
+		const run = startAgentRecentRun("single", [{ agent: "explore", task: "Map task state" }], { background: true });
+
+		const factory = fake.paneFactories.get("background-tasks");
+		expect(factory).toBeDefined();
+		const requestRender = vi.fn();
+		const component = factory!(
+			{ requestRender } as never,
+			fake.theme as never,
+			{ payload: undefined, requestHide: vi.fn() },
+		);
+
+		vi.advanceTimersByTime(1000);
+		expect(requestRender).toHaveBeenCalledTimes(1);
+		finishAgentRecentRun(run, { mode: "single", status: "completed", runs: [] });
+		expect(requestRender).toHaveBeenCalledTimes(2);
+		vi.advanceTimersByTime(3000);
+		expect(requestRender).toHaveBeenCalledTimes(2);
+
+		component.dispose?.();
+	});
+
+	test("main pane keeps interrupted agents visible without running the live repaint ticker", () => {
+		vi.useFakeTimers();
+		const fake = createFakePi();
+		hookBackgroundTasksUi(fake.pi as never);
+		const run = startAgentRecentRun("single", [{ agent: "explore", task: "Map task state" }], { background: true });
+
+		const factory = fake.paneFactories.get("background-tasks");
+		expect(factory).toBeDefined();
+		const requestRender = vi.fn();
+		const component = factory!(
+			{ requestRender } as never,
+			fake.theme as never,
+			{ payload: undefined, requestHide: vi.fn() },
+		);
+
+		finishAgentRecentRun(run, { mode: "single", status: "interrupted", runs: [] });
+		expect(component.render(120).join("\n")).toContain("interrupted 0s explore: Map task state");
+		expect(requestRender).toHaveBeenCalledTimes(1);
+		vi.advanceTimersByTime(3000);
+		expect(requestRender).toHaveBeenCalledTimes(1);
+
+		component.dispose?.();
 	});
 });

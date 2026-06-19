@@ -11,6 +11,10 @@ function activeTasks(): TaskSnapshot[] {
 	return listTasks().filter((task) => !isTerminalTaskStatus(task.status));
 }
 
+function liveRepaintTasks(): TaskSnapshot[] {
+	return activeTasks().filter((task) => task.status === "running" || task.status === "idle");
+}
+
 function countByType(tasks: TaskSnapshot[]): { agents: number; shells: number; monitors: number; total: number } {
 	let agents = 0;
 	let shells = 0;
@@ -45,6 +49,7 @@ class BackgroundTasksPane implements ExtensionMainPaneComponent {
 	private detail: string | undefined;
 	private loading = false;
 	private unsubscribe: (() => void) | undefined;
+	private tickTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly tui: { requestRender(): void };
 	private readonly theme: any;
 	private readonly requestHide: () => void;
@@ -55,13 +60,16 @@ class BackgroundTasksPane implements ExtensionMainPaneComponent {
 		this.requestHide = requestHide;
 		this.unsubscribe = subscribeTasks(() => {
 			this.clampSelection();
+			this.refreshTickTimer();
 			this.tui.requestRender();
 		});
+		this.refreshTickTimer();
 	}
 
 	dispose(): void {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
+		this.clearTickTimer();
 	}
 
 	onEscape(): boolean {
@@ -127,6 +135,22 @@ class BackgroundTasksPane implements ExtensionMainPaneComponent {
 					.map((line) => this.theme.fg("muted", line)),
 			);
 		return lines.map((line) => truncateToWidth(line, width, this.theme.fg("dim", "…")));
+	}
+
+	private refreshTickTimer(): void {
+		if (liveRepaintTasks().length > 0) {
+			if (this.tickTimer) return;
+			this.tickTimer = setInterval(() => this.tui.requestRender(), 1000);
+			this.tickTimer.unref?.();
+			return;
+		}
+		this.clearTickTimer();
+	}
+
+	private clearTickTimer(): void {
+		if (!this.tickTimer) return;
+		clearInterval(this.tickTimer);
+		this.tickTimer = undefined;
 	}
 
 	private rows(): TaskSnapshot[] {
