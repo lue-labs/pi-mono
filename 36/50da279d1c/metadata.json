@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "3650da279d1c",
+  "strategy": "manual-commit",
+  "branch": "wip/context-mode-tooling-followups-20260619",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "extensions/context-usage/src/index.ts",
+    "extensions/session-title/src/index.ts",
+    "extensions/tool-search/src/config.ts",
+    "extensions/tool-search/src/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/36/50da279d1c/0/metadata.json",
+      "transcript": "/36/50da279d1c/0/full.jsonl",
+      "content_hash": "/36/50da279d1c/0/content_hash.txt",
+      "prompt": "/36/50da279d1c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 34282,
+    "cache_creation_tokens": 1061960,
+    "cache_read_tokens": 47553130,
+    "output_tokens": 374813,
+    "api_call_count": 260
+  }
+}
