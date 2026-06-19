@@ -1,6 +1,6 @@
 {
 	"name": "@valkyriweb/pi-ai",
-	"version": "0.79.7",
+	"version": "0.79.8",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
 	"main": "./dist/index.js",
