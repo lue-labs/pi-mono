@@ -1,4 +1,4 @@
-import type { Message } from "@valkyriweb/pi-ai";
+import type { Message } from "@valkyriweb/pi-ai/base";
 import type { AgentMessage } from "../../types.ts";
 
 /** File paths touched by a session branch or compaction range. */

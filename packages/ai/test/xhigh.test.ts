@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stream } from "../src/stream.ts";
+import { stream } from "../src/index.ts";
 import type { Context, Model } from "../src/types.ts";
 import { allOf, isReasoning, pickModel, supportsThinkingLevel } from "./helpers/models.ts";
 

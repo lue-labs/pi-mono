@@ -10,6 +10,10 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
 		},
+		"./base": {
+			"types": "./dist/base.d.ts",
+			"import": "./dist/base.js"
+		},
 		"./node": {
 			"types": "./dist/node.d.ts",
 			"import": "./dist/node.js"
@@ -53,9 +57,9 @@
 	},
 	"devDependencies": {
 		"@types/node": "24.12.4",
-		"@vitest/coverage-v8": "3.2.4",
+		"@vitest/coverage-v8": "4.1.9",
 		"typescript": "5.9.3",
-		"vitest": "3.2.4"
+		"vitest": "4.1.9"
 	},
 	"publishConfig": {
 		"registry": "https://npm.pkg.github.com",

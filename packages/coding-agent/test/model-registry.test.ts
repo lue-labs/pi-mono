@@ -1669,6 +1669,25 @@ describe("ModelRegistry", () => {
 				expect(count).toBe(0);
 			});
 
+			test("getAvailable filters GitHub Copilot OAuth models to account picker availability", () => {
+				authStorage.set("github-copilot", {
+					type: "oauth",
+					refresh: "github-access-token",
+					access: "tid=test;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;",
+					expires: Date.now() + 60_000,
+					availableModelIds: ["gpt-4.1"],
+				});
+
+				const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+
+				expect(
+					registry
+						.getAvailable()
+						.filter((m) => m.provider === "github-copilot")
+						.map((m) => m.id),
+				).toEqual(["gpt-4.1"]);
+			});
+
 			test("getApiKeyAndHeaders resolves authHeader on every request", async () => {
 				const tokenFile = join(tempDir, "token");
 				writeFileSync(tokenFile, "token-1");

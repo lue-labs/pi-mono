@@ -6,6 +6,7 @@
 			"*": ["./*"],
 			"@valkyriweb/pi-ai": ["./packages/ai/src/index.ts"],
 			"@valkyriweb/pi-ai/oauth": ["./packages/ai/src/oauth.ts"],
+			"@valkyriweb/pi-ai/openrouter-images": ["./packages/ai/src/providers/images/openrouter.ts"],
 			"@valkyriweb/pi-ai/*": ["./packages/ai/src/*.ts", "./packages/ai/src/providers/*.ts"],
 			"@valkyriweb/pi-ai/dist/*": ["./packages/ai/src/*"],
 			"@valkyriweb/pi-agent-core": ["./packages/agent/src/index.ts"],

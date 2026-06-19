@@ -4,7 +4,7 @@ import {
 	type Model,
 	streamSimple,
 	type UserMessage,
-} from "@valkyriweb/pi-ai";
+} from "@valkyriweb/pi-ai/base";
 import { runAgentLoop } from "../agent-loop.ts";
 import type {
 	AgentContext,

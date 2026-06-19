@@ -1,5 +1,14 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,7 +24,11 @@ afterEach(() => {
 });
 
 function createTempDir(): string {
-	const dir = mkdtempSync(join(tmpdir(), "pi-session-id-readonly-"));
+	// realpathSync resolves the macOS /var -> /private/var symlink so the session
+	// cwd we persist matches the spawned CLI's process.cwd() (which is realpath'd).
+	// Without this the cwd filter in SessionManager.list drops the fixture sessions
+	// on macOS. No-op on Linux where the temp dir is not a symlink.
+	const dir = realpathSync(mkdtempSync(join(tmpdir(), "pi-session-id-readonly-")));
 	tempDirs.push(dir);
 	return dir;
 }

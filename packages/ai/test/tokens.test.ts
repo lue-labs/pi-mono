@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { stream } from "../src/index.ts";
 import { getModels } from "../src/models.ts";
-import { stream } from "../src/stream.ts";
 import type { Api, Context, Model, StreamOptions } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 
