@@ -3,9 +3,11 @@ import type {
 	AssistantMessage,
 	ImageContent,
 	Message,
+	StopReason,
 	TextContent,
 	ToolCall,
 	ToolResultMessage,
+	Usage,
 } from "@valkyriweb/pi-ai";
 import { randomUUID } from "crypto";
 import {
@@ -727,8 +729,11 @@ type SessionEntryMetadata = {
 	firstKeptEntryId?: string;
 	tokensBefore?: number;
 	messageRole?: string;
+	api?: string;
 	provider?: string;
 	model?: string;
+	stopReason?: string;
+	isError?: boolean;
 	customType?: string;
 	display?: boolean;
 	fromId?: string;
@@ -836,8 +841,11 @@ function metadataForSessionLine(line: string): SessionEntryMetadata | "session" 
 		firstKeptEntryId: type === "compaction" ? extractJsonStringField(trimmed, "firstKeptEntryId") : undefined,
 		tokensBefore: type === "compaction" ? extractJsonNumberField(trimmed, "tokensBefore") : undefined,
 		messageRole: type === "message" ? extractMessageRole(trimmed) : undefined,
+		api: type === "message" ? extractJsonStringField(trimmed, "api") : undefined,
 		provider: type === "message" ? extractLastJsonStringField(trimmed, "provider") : undefined,
 		model: type === "message" ? extractLastJsonStringField(trimmed, "model") : undefined,
+		stopReason: type === "message" ? extractJsonStringField(trimmed, "stopReason") : undefined,
+		isError: type === "message" ? extractJsonBooleanField(trimmed, "isError") : undefined,
 		customType:
 			type === "message" || type === "custom" || type === "custom_message"
 				? extractJsonStringField(trimmed, "customType")
@@ -861,6 +869,26 @@ function rawStubContent(): TextContent[] {
 	return [{ type: "text", text: RESIDENT_PRUNED_TEXT }];
 }
 
+function zeroUsage(): Usage {
+	return {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 0,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
+function isStopReason(value: string | undefined): value is StopReason {
+	return value === "stop" || value === "length" || value === "toolUse" || value === "error" || value === "aborted";
+}
+
+function rawAssistantStopReason(metadata: SessionEntryMetadata): StopReason {
+	if (isStopReason(metadata.stopReason)) return metadata.stopReason;
+	return metadata.toolCallIds.length > 0 ? "toolUse" : "stop";
+}
+
 function stubEntryFromRawMetadata(
 	metadata: SessionEntryMetadata,
 	options: Required<ResidentPruneOptions>,
@@ -877,7 +905,7 @@ function stubEntryFromRawMetadata(
 			};
 		}
 		if (metadata.messageRole === "assistant") {
-			if (!metadata.provider || !metadata.model) return undefined;
+			if (!metadata.api || !metadata.provider || !metadata.model) return undefined;
 			const toolCalls = metadata.toolCallIds.map((id) => ({
 				type: "toolCall" as const,
 				id,
@@ -890,8 +918,11 @@ function stubEntryFromRawMetadata(
 				message: {
 					role: "assistant",
 					content: [...rawStubContent(), ...toolCalls],
+					api: metadata.api,
 					provider: metadata.provider,
 					model: metadata.model,
+					usage: zeroUsage(),
+					stopReason: rawAssistantStopReason(metadata),
 					timestamp,
 				} as AgentMessage,
 			};
@@ -906,6 +937,7 @@ function stubEntryFromRawMetadata(
 					toolCallId: metadata.toolResultCallId,
 					toolName: metadata.toolName ?? "resident_pruned",
 					content: rawStubContent(),
+					isError: metadata.isError ?? false,
 					timestamp,
 				} as AgentMessage,
 			};

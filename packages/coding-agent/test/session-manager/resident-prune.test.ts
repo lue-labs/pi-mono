@@ -172,6 +172,8 @@ describe("SessionManager resident compaction pruning", () => {
 		const tempDir = makeTempDir("resident-prune-raw-line");
 		const sessionFile = join(tempDir, "raw-line.jsonl");
 		const oldPayload = "DO_NOT_PARSE_OLD_PAYLOAD";
+		const oldAssistantPayload = "DO_NOT_PARSE_OLD_ASSISTANT_PAYLOAD";
+		const oldToolPayload = "DO_NOT_PARSE_OLD_TOOL_PAYLOAD";
 		const header = {
 			type: "session",
 			version: 3,
@@ -186,10 +188,38 @@ describe("SessionManager resident compaction pruning", () => {
 			timestamp: new Date().toISOString(),
 			message: { role: "user", content: [{ type: "text", text: largeText(oldPayload) }], timestamp: Date.now() },
 		};
+		const oldAssistant = {
+			type: "message",
+			id: "old-assistant",
+			parentId: "old-user",
+			timestamp: new Date().toISOString(),
+			message: {
+				...assistantMsg(oldAssistantPayload),
+				content: [
+					{ type: "text", text: largeText(oldAssistantPayload) },
+					{ type: "toolCall", id: "tool-old", name: "old_tool", arguments: { payload: oldAssistantPayload } },
+				],
+				stopReason: "toolUse",
+			},
+		};
+		const oldToolResult = {
+			type: "message",
+			id: "old-tool-result",
+			parentId: "old-assistant",
+			timestamp: new Date().toISOString(),
+			message: {
+				role: "toolResult",
+				toolCallId: "tool-old",
+				toolName: "old_tool",
+				content: [{ type: "text", text: largeText(oldToolPayload) }],
+				isError: true,
+				timestamp: Date.now(),
+			},
+		};
 		const firstKept = {
 			type: "message",
 			id: "first-kept",
-			parentId: "old-user",
+			parentId: "old-tool-result",
 			timestamp: new Date().toISOString(),
 			message: userMsg("kept raw-line session"),
 		};
@@ -204,19 +234,35 @@ describe("SessionManager resident compaction pruning", () => {
 		};
 		writeFileSync(
 			sessionFile,
-			`${[header, oldUser, firstKept, compaction].map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+			`${[header, oldUser, oldAssistant, oldToolResult, firstKept, compaction]
+				.map((entry) => JSON.stringify(entry))
+				.join("\n")}\n`,
 		);
 
 		const originalParse = JSON.parse;
 		const parseSpy = vi.spyOn(JSON, "parse").mockImplementation((text: string) => {
-			if (text.includes(oldPayload)) throw new Error("old summarized payload was parsed");
+			if (text.includes("DO_NOT_PARSE_OLD_")) throw new Error("old summarized payload was parsed");
 			return originalParse(text);
 		});
 		try {
 			const entries = loadEntriesFromFile(sessionFile, { residentPrune: true });
 			const oldEntry = entries.find((entry) => entry.type === "message" && entry.id === "old-user");
+			const oldAssistantEntry = entries.find((entry) => entry.type === "message" && entry.id === "old-assistant");
+			const oldToolEntry = entries.find((entry) => entry.type === "message" && entry.id === "old-tool-result");
 			expect(JSON.stringify(oldEntry)).toContain("Resident session payload pruned");
-			expect(parseSpy).not.toHaveBeenCalledWith(expect.stringContaining(oldPayload));
+			expect(oldAssistantEntry?.type).toBe("message");
+			if (oldAssistantEntry?.type !== "message" || oldAssistantEntry.message.role !== "assistant") {
+				throw new Error("expected assistant stub");
+			}
+			expect(oldAssistantEntry.message.api).toBe("anthropic-messages");
+			expect(oldAssistantEntry.message.usage.totalTokens).toBe(0);
+			expect(oldAssistantEntry.message.stopReason).toBe("toolUse");
+			expect(oldToolEntry?.type).toBe("message");
+			if (oldToolEntry?.type !== "message" || oldToolEntry.message.role !== "toolResult") {
+				throw new Error("expected tool result stub");
+			}
+			expect(oldToolEntry.message.isError).toBe(true);
+			expect(parseSpy).not.toHaveBeenCalledWith(expect.stringContaining("DO_NOT_PARSE_OLD_"));
 		} finally {
 			parseSpy.mockRestore();
 		}
