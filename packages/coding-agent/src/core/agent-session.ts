@@ -3680,12 +3680,25 @@ export class AgentSession {
 		this._bindExtensionCore(this._extensionRunner);
 		this._applyExtensionBindings(this._extensionRunner);
 
-		// Keep extension-owned `BashOutput`/`KillShell` active by default so sessions
-		// without pi-tool-search still get the full bash job-control trio. Without
-		// them, run_in_background:true returns a bgId the model can never read or stop.
+		// Keep extension-owned runtime task controls active by default so sessions
+		// without pi-tool-search can read/stop background bash jobs and agent runs.
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
-			: ["Read", "Bash", "BashOutput", "KillShell", "Edit", "Write", "Agent", "Task", "Grep", "Find", "Ls"];
+			: [
+					"Read",
+					"Bash",
+					"BashOutput",
+					"KillShell",
+					"TaskStop",
+					"TaskBackgroundList",
+					"Edit",
+					"Write",
+					"Agent",
+					"Task",
+					"Grep",
+					"Find",
+					"Ls",
+				];
 		const baseActiveToolNames = syncClaudeBridgeNativeTools(
 			options.activeToolNames ?? defaultActiveToolNames,
 			this.model,
