@@ -57,6 +57,7 @@ import {
 	getAuthPath,
 	getDebugLogPath,
 	getDocsPath,
+	getSessionsDir,
 	getShareViewerUrl,
 	VERSION,
 } from "../../config.ts";
@@ -95,7 +96,7 @@ import { DefaultPackageManager } from "../../core/package-manager.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
-import { SessionLiveness } from "../../core/session-liveness.ts";
+import { SessionLiveness, sweepStaleMarkers } from "../../core/session-liveness.ts";
 import { type SessionContext, SessionManager } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
@@ -658,6 +659,17 @@ export class InteractiveMode {
 		// resume pickers can show it as active. Path is read lazily each heartbeat,
 		// covering lazily-created and switched sessions.
 		this.sessionLiveness.start(() => this.sessionManager.getSessionFile());
+
+		// Reap liveness markers left by crashed/killed sessions, off the hot boot
+		// path so a dead-marker backlog cannot grow without bound.
+		const markerSweep = setTimeout(() => {
+			try {
+				sweepStaleMarkers(getSessionsDir());
+			} catch {
+				// Best effort; readers still reap markers lazily.
+			}
+		}, 2_000);
+		markerSweep.unref?.();
 
 		// Load changelog (only show new entries, skip for resumed sessions)
 		this.changelogMarkdown = this.getChangelogForDisplay();

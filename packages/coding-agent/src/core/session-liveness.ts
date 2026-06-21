@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { canonicalizePath } from "../utils/paths.ts";
 
 /**
@@ -85,6 +86,41 @@ export function listActiveSessionPaths(sessionPaths: Iterable<string>): Set<stri
 		}
 	}
 	return active;
+}
+
+/**
+ * Reap liveness markers left behind by crashed or force-killed sessions.
+ *
+ * Graceful shutdown removes a session's own marker, and the resume picker reaps
+ * stale markers for the sessions it lists — but a SIGKILL'd session whose path
+ * is never reopened leaves its marker forever. This walks the whole sessions
+ * tree and deletes every marker whose owning process is gone or whose heartbeat
+ * has gone stale, so dead markers cannot accumulate. Returns the count removed.
+ *
+ * Only dead markers are touched; live sessions are never disturbed. Safe to call
+ * off the hot path at startup.
+ */
+export function sweepStaleMarkers(sessionsDir: string): number {
+	let removed = 0;
+	let entries: string[];
+	try {
+		entries = readdirSync(sessionsDir, { recursive: true }) as string[];
+	} catch {
+		return 0; // sessions dir absent or unreadable
+	}
+	for (const entry of entries) {
+		if (!entry.endsWith(MARKER_SUFFIX)) continue;
+		const markerPath = join(sessionsDir, entry);
+		const marker = readMarker(markerPath);
+		if (marker && isMarkerLive(marker)) continue;
+		try {
+			unlinkSync(markerPath);
+			removed++;
+		} catch {
+			// Already gone or being reaped by another process; ignore.
+		}
+	}
+	return removed;
 }
 
 /**
