@@ -256,12 +256,33 @@ export function killAllBashBgJobs(): void {
 	notifyBashBgJobsChanged();
 }
 
+/**
+ * Cap on concurrently-running background bash jobs. Without a ceiling a looping
+ * or runaway agent can spawn detached children without bound, exhausting PIDs /
+ * RAM and leaving orphans behind. Override with PI_BASH_BG_MAX.
+ */
+export const BASH_BG_MAX_CONCURRENT = Number.parseInt(process.env.PI_BASH_BG_MAX ?? "", 10) || 32;
+
+/**
+ * Throw if starting another background job would exceed the ceiling. Pure guard
+ * (running count injected) so the policy is unit-testable without spawning.
+ */
+export function assertBashBgCapacity(running: number, ceiling: number = BASH_BG_MAX_CONCURRENT): void {
+	if (running >= ceiling) {
+		throw new Error(
+			`Refusing to start background bash job: ${running}/${ceiling} already running (PI_BASH_BG_MAX). ` +
+				`Stop finished/unneeded jobs with bash_kill / TaskStop first.`,
+		);
+	}
+}
+
 export function spawnBashBackground(
 	command: string,
 	cwd: string,
 	shellPath?: string,
 	commandPrefix?: string,
 ): BashBgJob {
+	assertBashBgCapacity(getRunningBashBgJobsSorted().length);
 	const id = nextBashBgId();
 	const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
 	const logPath = join(bashBgLogDir(), `${id}.log`);
