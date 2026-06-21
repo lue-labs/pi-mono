@@ -1,10 +1,10 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setKeybindings } from "@valkyriweb/pi-tui";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
-import { listActiveSessionPaths, SessionLiveness } from "../src/core/session-liveness.ts";
+import { listActiveSessionPaths, SessionLiveness, sweepStaleMarkers } from "../src/core/session-liveness.ts";
 import type { SessionInfo } from "../src/core/session-manager.ts";
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -82,6 +82,32 @@ describe("session liveness", () => {
 		const active = listActiveSessionPaths([sessionPath]);
 		expect(active.has(sessionPath)).toBe(false);
 		expect(existsSync(`${sessionPath}.live`)).toBe(false);
+	});
+
+	it("sweeps dead and stale markers across nested session dirs, keeping live ones", () => {
+		const dir = makeDir();
+		const projectA = join(dir, "project-a");
+		const projectB = join(dir, "project-b");
+		mkdirSync(projectA);
+		mkdirSync(projectB);
+
+		const live = join(projectA, "live.jsonl");
+		const dead = join(projectA, "dead.jsonl");
+		const stale = join(projectB, "stale.jsonl");
+		writeMarker(live, { pid: process.pid, heartbeat: Date.now() });
+		writeMarker(dead, { pid: DEAD_PID, heartbeat: Date.now() });
+		writeMarker(stale, { pid: process.pid, heartbeat: Date.now() - 60_000 });
+
+		const removed = sweepStaleMarkers(dir);
+
+		expect(removed).toBe(2);
+		expect(existsSync(`${live}.live`)).toBe(true);
+		expect(existsSync(`${dead}.live`)).toBe(false);
+		expect(existsSync(`${stale}.live`)).toBe(false);
+	});
+
+	it("sweep returns 0 for a missing sessions dir", () => {
+		expect(sweepStaleMarkers(join(tmpdir(), "pi-liveness-does-not-exist-xyz"))).toBe(0);
 	});
 
 	it("ignores sessions with no marker", () => {
