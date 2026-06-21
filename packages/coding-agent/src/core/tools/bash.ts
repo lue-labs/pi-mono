@@ -1,5 +1,16 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, statSync, writeSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeSync,
+} from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -126,6 +137,49 @@ function bashBgLogDir(): string {
 	const dir = join(homedir(), ".pi", "agent", "bash-bg");
 	mkdirSync(dir, { recursive: true });
 	return dir;
+}
+
+/** Background-bash logs older than this are pruned on startup. */
+export const BASH_BG_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Reap background-bash log files left behind by past sessions.
+ *
+ * Each detached job writes a `~/.pi/agent/bash-bg/<id>.log` that is *designed* to
+ * survive process exit so its output can be tailed post-mortem (see the exit
+ * handler note above). Nothing ever pruned them, so the directory grew unbounded
+ * (thousands of files / hundreds of MB on long-lived machines). This deletes
+ * every `.log` whose mtime is older than maxAgeMs and returns the count removed.
+ *
+ * Mirrors the session-liveness stale-marker sweep: best-effort, never throws, safe
+ * to call off the hot path at startup. Running jobs keep their logs fresh via
+ * writes, and the sweep runs at load before any job exists, so live output is
+ * never touched.
+ */
+export function sweepStaleBashBgLogs(
+	maxAgeMs: number = BASH_BG_LOG_MAX_AGE_MS,
+	now: number = Date.now(),
+	dir: string = join(homedir(), ".pi", "agent", "bash-bg"),
+): number {
+	let removed = 0;
+	let names: string[];
+	try {
+		names = readdirSync(dir);
+	} catch {
+		return 0; // dir absent or unreadable
+	}
+	for (const name of names) {
+		if (!name.endsWith(".log")) continue;
+		const logPath = join(dir, name);
+		try {
+			if (now - statSync(logPath).mtimeMs <= maxAgeMs) continue;
+			rmSync(logPath);
+			removed++;
+		} catch {
+			// Vanished or unreadable; another process may be reaping it. Ignore.
+		}
+	}
+	return removed;
 }
 
 function nextBashBgId(): string {
