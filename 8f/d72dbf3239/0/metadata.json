@@ -1,0 +1,79 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "8fd72dbf3239",
+  "session_id": "3169f290-dfd4-49ce-aa35-42b45ee2d4a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-21T21:01:10.299982Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "docs/memory-architecture.md",
+    "plans/README.md"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "5f9d77c43194",
+  "token_usage": {
+    "input_tokens": 15363,
+    "cache_creation_tokens": 222169,
+    "cache_read_tokens": 8252022,
+    "output_tokens": 52088,
+    "api_call_count": 70
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-21T21:01:10.282993Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 482,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 482,
+    "total_lines_changed": 552,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3953,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/global-memory-architecture.md": 148,
+        "docs/global-memory-eval-corpus.md": 103,
+        "docs/goals/goal-2026-06-19T20-46-31Z-12b9017f.md": 387,
+        "docs/goals/goal-2026-06-19T22-19-41Z-7fb370a3.md": 134,
+        "docs/memory-architecture.md": 3,
+        "docs/memory-query-prototype.md": 98,
+        "plans/013-generated-skill-hygiene.md": 134,
+        "plans/014-plan-review-lanes.md": 131,
+        "plans/015-autoplan-autogrill-workflows.md": 154,
+        "plans/016-browser-cookie-import.md": 136,
+        "plans/017-canary-landing-report.md": 123,
+        "plans/018-security-review-router.md": 130,
+        "plans/019-question-tuning.md": 143,
+        "plans/020-artifact-lane.md": 121,
+        "plans/021-safe-setup-onboard.md": 139,
+        "plans/README.md": 32,
+        "plans/gbrain-global-memory-architecture-audit.md": 585,
+        "plans/gstack-gbrain-next-actions.md": 291,
+        "plans/gstack-gbrain-porting-audit-prompt.md": 382,
+        "plans/gstack-skill-porting-scorecard.md": 141,
+        "plans/gstack-vs-pi-deep-dive.md": 316,
+        "plans/pi-tiered-preamble-comparison.md": 122
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 3953,
+      "agent_lines_removed": 0
+    }
+  ]
+}

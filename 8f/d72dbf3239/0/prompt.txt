@@ -1,0 +1,28 @@
+In the my-pi repo (`~/Projects/personal/my-pi`), the dream-memory Pi extension has a failing test on `main` (confirmed failing on a fresh `origin/main` worktree, so it is NOT caused by any feature branch):
+
+Test: `extensions/dream-memory/tests/cross-harness-smoke.spec.ts` — the single test "cross-harness smoke — Pi → dream → Claude/Codex SessionStart > Pi captures decisions, dream merges them, Claude + Codex SessionStart both surface them".
+
+Failure (at ~line 219):
+```
+AssertionError: expected '### project/demo/MEMORY.md\n\n# demo …' to contain 'Prefers **concise commit messages**'
+```
+
+What the test does: a mock merger (lines ~171-206) writes two files — `profile/MEMORY.md` (markdown contains "Prefers **concise commit messages**" and "ASCII dashes only") and `project/demo/MEMORY.md` (contains "README.md is the canonical entry point"). Then a Claude Code SessionStart is dispatched in the same repo and its stdout is asserted (lines 219-221) to contain content from BOTH files. Observed: the stdout surfaces `project/demo/MEMORY.md` content but NOT the `profile/MEMORY.md` content ("Prefers concise commit messages").
+
+So the regression is: **profile/MEMORY.md is not being auto-injected into the Claude SessionStart**, while project/<slug>/MEMORY.md is. The test comment (lines ~165-170) documents the intended contract: "only profile/MEMORY.md and project/<slug>/MEMORY.md are auto-loaded into SessionStart" (cites store.ts commit a0f290f).
+
+Reproduce:
+```
+cd ~/Projects/personal/my-pi/extensions/dream-memory
+npx vitest run tests/cross-harness-smoke.spec.ts
+```
+
+Task: find why profile/MEMORY.md auto-injection broke (start at the SessionStart injection path — likely `extensions/dream-memory/src/store.ts` and the SessionStart handler in `src/extension.ts`), fix it (or, if the contract intentionally changed, update the test to match — but verify which is correct against the auto-inject contract). Prove it: the test must fail before your change and pass after. Run the full `npx vitest run` to confirm no regressions. Open a PR against `main` (Luke owns `valkyriweb/my-pi`). Use a worktree off fresh `origin/main`, not the current `lue/fuse-failure-reporting` branch.
+
+---
+
+continue
+
+---
+
+just check that this is up to date with the latest changes Ive made
