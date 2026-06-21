@@ -1,0 +1,9 @@
+hey
+
+---
+
+Is my codex app still running
+
+---
+
+Ok are you also able to list and input messages to my pi sessions for me? And show me responses / current state?

@@ -1,0 +1,112 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "8fd72dbf3239",
+  "session_id": "f6531388-c881-483b-9939-a587813686ea",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-21T21:01:10.428381Z",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "save_step_count": 3,
+  "files_touched": [
+    "docs/memory-architecture.md",
+    "extensions/third-party/pi-codex-conversion/src/providers/openai-codex/errors.ts",
+    "extensions/third-party/pi-codex-conversion/tests/openai-codex-custom-provider.test.ts",
+    "extensions/tool-search/README.md",
+    "extensions/tool-search/src/config.ts",
+    "extensions/tool-search/src/index.ts",
+    "extensions/tool-search/test-load.mjs",
+    "plans/README.md",
+    "services/oracle/README.md",
+    "services/oracle/src/daemon.ts",
+    "services/oracle/src/project.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "bf25cec0886d",
+  "token_usage": {
+    "input_tokens": 9537,
+    "cache_creation_tokens": 54983,
+    "cache_read_tokens": 1091506,
+    "output_tokens": 12642,
+    "api_call_count": 23
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-21T21:01:10.423217Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 155,
+    "human_modified": 70,
+    "human_removed": 0,
+    "total_committed": 155,
+    "total_lines_changed": 225,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 4210,
+      "user_lines_removed": 70,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/global-memory-architecture.md": 148,
+        "docs/global-memory-eval-corpus.md": 103,
+        "docs/goals/goal-2026-06-19T20-46-31Z-12b9017f.md": 387,
+        "docs/goals/goal-2026-06-19T22-19-41Z-7fb370a3.md": 134,
+        "docs/memory-architecture.md": 3,
+        "docs/memory-query-prototype.md": 98,
+        "extensions/third-party/pi-codex-conversion/src/providers/openai-codex/errors.ts": 18,
+        "extensions/third-party/pi-codex-conversion/tests/openai-codex-custom-provider.test.ts": 13,
+        "extensions/tool-search/README.md": 2,
+        "extensions/tool-search/src/config.ts": 15,
+        "extensions/tool-search/src/index.ts": 1,
+        "extensions/tool-search/test-load.mjs": 61,
+        "plans/013-generated-skill-hygiene.md": 134,
+        "plans/014-plan-review-lanes.md": 131,
+        "plans/015-autoplan-autogrill-workflows.md": 154,
+        "plans/016-browser-cookie-import.md": 136,
+        "plans/017-canary-landing-report.md": 123,
+        "plans/018-security-review-router.md": 130,
+        "plans/019-question-tuning.md": 143,
+        "plans/020-artifact-lane.md": 121,
+        "plans/021-safe-setup-onboard.md": 139,
+        "plans/README.md": 32,
+        "plans/gbrain-global-memory-architecture-audit.md": 585,
+        "plans/gstack-gbrain-next-actions.md": 291,
+        "plans/gstack-gbrain-porting-audit-prompt.md": 382,
+        "plans/gstack-skill-porting-scorecard.md": 141,
+        "plans/gstack-vs-pi-deep-dive.md": 316,
+        "plans/pi-tiered-preamble-comparison.md": 122,
+        "services/oracle/README.md": 21,
+        "services/oracle/src/daemon.ts": 4,
+        "services/oracle/src/project.ts": 122
+      },
+      "user_removed_per_file": {
+        "extensions/third-party/pi-codex-conversion/src/providers/openai-codex/errors.ts": 1,
+        "extensions/tool-search/src/index.ts": 1,
+        "extensions/tool-search/test-load.mjs": 46,
+        "services/oracle/README.md": 5,
+        "services/oracle/src/daemon.ts": 2,
+        "services/oracle/src/project.ts": 15
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4210,
+      "agent_lines_removed": 70
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4210,
+      "agent_lines_removed": 70
+    }
+  ]
+}
