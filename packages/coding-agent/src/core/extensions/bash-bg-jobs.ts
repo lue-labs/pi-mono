@@ -3,6 +3,7 @@ import {
 	createBashBgJobStore,
 	createBashOutputNativeToolDefinition,
 	createKillShellToolDefinition,
+	sweepStaleBashBgLogs,
 } from "../tools/bash.ts";
 import { addAction, load } from "./extension-hooks.ts";
 import type { ExtensionAPI } from "./types.ts";
@@ -10,6 +11,13 @@ import type { ExtensionAPI } from "./types.ts";
 export const BASH_BG_JOBS_SERVICE_ID = "bash.bgJobs";
 
 export function hookBashBackgroundJobs(pi: ExtensionAPI): void {
+	// Reap background-bash logs left by crashed/force-killed past sessions so the
+	// ~/.pi/agent/bash-bg directory cannot grow unbounded. Runs once at load (no
+	// jobs exist yet) and off the hot path; best-effort, never throws.
+	queueMicrotask(() => {
+		sweepStaleBashBgLogs();
+	});
+
 	const jobs = createBashBgJobStore();
 	pi.harness.provide<BashBgJobStore>(BASH_BG_JOBS_SERVICE_ID, jobs, { scope: "process" });
 
