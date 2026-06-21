@@ -1,3 +1,0 @@
-# S02 native parallel review
-Evidence mode: source-backed; live child not run to avoid paid tokens.
-Native `agent` supports `tasks[]` parallel mode with concurrency bounds in packages/coding-agent/src/core/tools/agent.ts; executor details are source-backed in packages/coding-agent/src/core/agents/executor.ts. No `subagent` tool used.

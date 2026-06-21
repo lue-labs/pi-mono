@@ -42,3 +42,12 @@ packages/*/CHANGELOG.md merge=ours
 # registered by scripts/setup-merge-drivers.sh (run once per clone).
 packages/ai/src/models.generated.ts merge=ours
 packages/ai/src/image-models.generated.ts merge=ours
+
+# Root lockfile: npm regenerates package-lock.json from package.json on install,
+# so the fork's and upstream's never match byte-for-byte → every sync hard-conflicts
+# on 2k+ lines of generated lock data with zero code value. merge=ours keeps the
+# fork's committed lockfile on merge; reconcile deliberately with `npm install` after
+# a dependency change (scripts/check-lockfile-commit.mjs guards drift). Same rationale
+# as the generated model registries above (ADR docs/adr/0002). Scoped to the root
+# lockfile only — example-extension lockfiles stay upstream-owned.
+/package-lock.json merge=ours

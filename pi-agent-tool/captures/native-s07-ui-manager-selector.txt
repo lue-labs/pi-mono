@@ -1,3 +1,0 @@
-# S07 native UI manager/selector
-Evidence mode: tmux `/agents` capture.
-Native `/agents` opens a selector/scaffold UI, not a manager. This remains the native UI affordance for choosing an agent and inserting a prompt scaffold.

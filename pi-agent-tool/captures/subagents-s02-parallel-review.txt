@@ -1,3 +1,0 @@
-# S02 pi-subagents parallel review
-Evidence mode: source-backed; live child not run to avoid paid tokens.
-`/parallel` is registered by pi-subagents and forwards task arrays, `--bg`, and `--fork` into the extension executor. Native `agent` was disabled by launch flags and not invoked.

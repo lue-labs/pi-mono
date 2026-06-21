@@ -1,3 +1,0 @@
-# S09 native updated task-agent lifecycle
-Evidence mode: source-backed negative probe.
-Current native `agent` schema supports single/parallel/chain plus generic background-run control. Generic `action`/`runId` status/interrupt/cancel/resume control is not the requested task-record lifecycle: `taskId`, `activeForm`, dependencies/metadata/status updates, and create/list/get/update/delete task lifecycle actions are not present.

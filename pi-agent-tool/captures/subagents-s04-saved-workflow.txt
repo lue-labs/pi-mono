@@ -1,3 +1,0 @@
-# S04 pi-subagents saved/reusable workflow
-Evidence mode: source-backed.
-`/run-chain` remains registered, but pi-subagents 0.24.0 removed persistent save actions from clarify UI; saved chains still exist as files and management actions, while old manager save UX is gone.

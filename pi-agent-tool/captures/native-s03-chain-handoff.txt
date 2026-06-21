@@ -1,3 +1,0 @@
-# S03 native chain handoff
-Evidence mode: source-backed; live child not run to avoid paid tokens.
-Native `agent` supports `chain[]` with `{previous}` handoff patterns and saved chain scaffolds via `/agents run-chain`; current docs and interactive-mode source back this.

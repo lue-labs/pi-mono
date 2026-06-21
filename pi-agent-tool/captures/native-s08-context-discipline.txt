@@ -1,3 +1,0 @@
-# S08 native context discipline/forking
-Evidence mode: source-backed.
-Native context modes are explicit: default, fork, slim, none. Fork filtering strips prior `agent` and `subagent` tool artifacts before passing transcript context.
