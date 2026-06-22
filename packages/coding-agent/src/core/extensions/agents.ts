@@ -1,6 +1,11 @@
 import { truncateToWidth } from "@valkyriweb/pi-tui";
 import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine } from "../agents/engine.ts";
-import { formatAgentFooterStatus, formatAgentStatus, subscribeAgentRecentRuns } from "../agents/status.ts";
+import {
+	formatAgentFooterStatus,
+	formatAgentStatus,
+	listAgentRecentRuns,
+	subscribeAgentRecentRuns,
+} from "../agents/status.ts";
 import {
 	createAgentToolDefinition,
 	createTaskToolDefinition,
@@ -41,16 +46,40 @@ class AgentsPane implements ExtensionMainPaneComponent {
 	private readonly theme: any;
 	private readonly requestHide: () => void;
 	private readonly unsubscribe: () => void;
+	private tickTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(tui: { requestRender(): void }, theme: any, requestHide: () => void) {
 		this.tui = tui;
 		this.theme = theme;
 		this.requestHide = requestHide;
-		this.unsubscribe = subscribeAgentRecentRuns(() => this.tui.requestRender());
+		this.unsubscribe = subscribeAgentRecentRuns(() => {
+			this.refreshTickTimer();
+			this.tui.requestRender();
+		});
+		this.refreshTickTimer();
 	}
 
 	dispose(): void {
 		this.unsubscribe();
+		this.clearTickTimer();
+	}
+
+	// Repaint once a second while any run is in progress so the elapsed seconds
+	// counter advances; idle otherwise so we are not holding a live interval.
+	private refreshTickTimer(): void {
+		if (listAgentRecentRuns().some((run) => run.status === "running")) {
+			if (this.tickTimer) return;
+			this.tickTimer = setInterval(() => this.tui.requestRender(), 1000);
+			this.tickTimer.unref?.();
+			return;
+		}
+		this.clearTickTimer();
+	}
+
+	private clearTickTimer(): void {
+		if (!this.tickTimer) return;
+		clearInterval(this.tickTimer);
+		this.tickTimer = undefined;
 	}
 
 	onEscape(): boolean {

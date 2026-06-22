@@ -474,7 +474,11 @@ function formatRunDetail(run: AgentRunDetails, index: number): string[] {
 }
 
 function formatDuration(run: AgentRecentRun): string {
-	return run.durationMs !== undefined ? formatAgentDurationMs(run.durationMs) : "running";
+	if (run.durationMs !== undefined) return formatAgentDurationMs(run.durationMs);
+	// Running runs have no final durationMs yet; show live elapsed so the pane
+	// ticks a seconds counter (the status column already prints "running").
+	if (run.status === "running") return formatAgentDurationMs(Math.max(0, Date.now() - Date.parse(run.startedAt)));
+	return "running";
 }
 
 function formatChildDuration(run: AgentRunDetails): string {

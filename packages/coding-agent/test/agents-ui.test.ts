@@ -57,4 +57,34 @@ describe("agents UI", () => {
 		footer?.onActivate({ close: vi.fn() });
 		expect(fake.showMainPane).toHaveBeenCalledWith("agents-status");
 	});
+
+	test("pane ticks a live elapsed counter while a run is in progress and stops on dispose", () => {
+		vi.useFakeTimers();
+		try {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+			const factory = fake.panes.get("agents-status");
+			expect(factory).toBeDefined();
+
+			startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
+
+			const requestRender = vi.fn();
+			const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
+			const pane = factory!({ requestRender } as never, theme as never, { requestHide: vi.fn() } as never);
+
+			// Running run -> a 1s repaint ticker advances the elapsed counter.
+			vi.advanceTimersByTime(3000);
+			expect(requestRender).toHaveBeenCalled();
+			expect(pane.render(120).join("\n")).toContain("3s");
+
+			// Disposing releases the interval so no further repaints fire.
+			expect(pane.dispose).toBeDefined();
+			pane.dispose?.();
+			requestRender.mockClear();
+			vi.advanceTimersByTime(5000);
+			expect(requestRender).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
