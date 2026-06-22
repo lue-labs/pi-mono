@@ -1,0 +1,134 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "29ce3667292a",
+  "session_id": "2af496dc-fa07-4164-a184-de979524291f",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-22T19:43:57.857396Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "AGENTS.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "50dc6aec560e",
+  "token_usage": {
+    "input_tokens": 41394,
+    "cache_creation_tokens": 981024,
+    "cache_read_tokens": 24463711,
+    "output_tokens": 309974,
+    "api_call_count": 239
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01ETzf5rBhPSb9tuMuZ7AM33",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "50dc6aec560e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 15,
+        "end": 16,
+        "entry_ids": [
+          "a7bb8d4d-117c-4960-bdbb-088070e13cf8"
+        ],
+        "tool_use_id": "toolu_01ETzf5rBhPSb9tuMuZ7AM33"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01ETzf5rBhPSb9tuMuZ7AM33"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_0192xGerruvi3xrGrAJQCtWV",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "matt-pocock"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "50dc6aec560e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1111,
+        "end": 1112,
+        "entry_ids": [
+          "59ab9174-c4bc-43f9-99ea-ebc49523bf19"
+        ],
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: matt-pocock",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01XsRLzTUrk14A8j9BcwKW4h",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "adr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "50dc6aec560e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1310,
+        "end": 1311,
+        "entry_ids": [
+          "becfd826-8bbb-44cd-a2f9-9278e0e47b6a"
+        ],
+        "tool_use_id": "toolu_01XsRLzTUrk14A8j9BcwKW4h"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01XsRLzTUrk14A8j9BcwKW4h"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: adr",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-22T19:43:57.773703Z",
+    "agent_lines": 4,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4,
+    "total_lines_changed": 4,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
