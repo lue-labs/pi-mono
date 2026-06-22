@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "2ee0d6a76ea8",
+  "strategy": "manual-commit",
+  "branch": "fix/better-sqlite3-align-v12",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/pi-memory/package.json",
+    "package-lock.json",
+    "services/qmd-vector-sidecar/package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2e/e0d6a76ea8/0/metadata.json",
+      "transcript": "/2e/e0d6a76ea8/0/full.jsonl",
+      "content_hash": "/2e/e0d6a76ea8/0/content_hash.txt",
+      "prompt": "/2e/e0d6a76ea8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 38870,
+    "cache_creation_tokens": 800927,
+    "cache_read_tokens": 17187507,
+    "output_tokens": 231525,
+    "api_call_count": 185
+  }
+}
