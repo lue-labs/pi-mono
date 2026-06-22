@@ -116,6 +116,37 @@
         "label": "Skill: adr",
         "default_collapsed": true
       }
+    },
+    {
+      "id": "claude-skill-toolu_01Gm2GQQEqKz2e9774Pb3ad8",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "paperclip"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "f97e13a5e869",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 2067,
+        "end": 2068,
+        "entry_ids": [
+          "49dcf56b-838f-4788-8ff4-771892cb60da"
+        ],
+        "tool_use_id": "toolu_01Gm2GQQEqKz2e9774Pb3ad8"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Gm2GQQEqKz2e9774Pb3ad8"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: paperclip",
+        "default_collapsed": true
+      }
     }
   ],
   "session_metrics": {

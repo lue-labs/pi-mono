@@ -79,3 +79,21 @@ don't use my api key for gpt-5.5 pro, use the browser method with chatgpt with m
 ---
 
 proposed, what needs review / direciton still?
+
+---
+
+1. do it and mirror in paperclip I think
+2. yep
+3. what options do I have for this?
+4. ok
+5. yep
+
+Ok commit and land sqlite updates/housekeeping
+
+nah gpt-5.5 pro is fine
+
+whats next?
+
+I think 1: go head
+2. Not sure
+3. Repoint I think
