@@ -1,0 +1,17 @@
+You are Claude Code, continuing work a Pi agent started and left UNFINISHED. Fresh session — you have none of that context except what's below. Original transcript (deep context): /Users/luke/.pi/agent/sessions/--Users-luke-Projects-personal-my-pi--/2026-06-19T07-01-00-943Z_019edeae-d78f-7bc6-8c20-dfba553c236f.jsonl
+
+GROUND RULES
+- State below is ~3 days stale; FIRST verify reality (`git status`, `git log`, `gh pr view 341`) before acting.
+- This is a SHARED, currently-DIRTY checkout. Do NOT discard, reset, or clobber anything. Preserve foreign WIP. No destructive git ops without asking Luke.
+- Telegraph style. Lead with what you find.
+
+PROJECT: my-pi runtime-drift closeout. Repo: /Users/luke/Projects/personal/my-pi.
+
+DONE SO FAR (prior session)
+- Merged PRs #330, #332, #333, #338; closed #331 (absorbed into #338) and #329 (preservation, superseded). Advanced runtime/stable to origin/main. Removed clean scratch worktrees.
+
+REMAINING (two open closeout items the session ended on)
+1. Decide the fate of draft PR **#341** ("WIP: preserve process-lifetime noise filter experiment", still OPEN draft): close as superseded, or review/rework the noise-filter experiment.
+2. Classify the **dirty canonical checkout**. As of 2026-06-22 it is on branch `feat/pi-doctor-orphan-mcp` with ~17 modified files — this looks like NEWER WIP from a *different* session, not the original drift work. Identify what it is, preserve it (branch + stash/PR as appropriate), and get the canonical tree to a clean, intended state (usually latest main) WITHOUT losing anyone's work.
+
+START BY: `git -C /Users/luke/Projects/personal/my-pi status` and `git log --oneline -10`, and `gh pr view 341`. Report what the dirty tree actually is before proposing how to preserve/clean it. Ask Luke before closing #341 or moving the dirty branch.
