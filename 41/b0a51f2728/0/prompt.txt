@@ -49,3 +49,19 @@ I like the split of 3 and 2 for codex, but also 2 for claude code if there are u
 2. yep
 
 How can we eval letta or memo0 shadows if we never used them?
+
+---
+
+do it and use adversial review when done
+
+---
+
+oracle is working,w hy did it not work for you? You can use browser tools / toolkit where necessary, and oracle cli tools hould word?
+
+---
+
+check my global cli I used it the other day and it worked fine, not via mcp
+
+---
+
+don't use my api key for gpt-5.5 pro, use the browser method with chatgpt with my logged in chatgpt account...
