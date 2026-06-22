@@ -52,6 +52,37 @@
         "label": "Skill: pi",
         "default_collapsed": true
       }
+    },
+    {
+      "id": "claude-skill-toolu_0192xGerruvi3xrGrAJQCtWV",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "matt-pocock"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "11aa387164a2",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1111,
+        "end": 1112,
+        "entry_ids": [
+          "59ab9174-c4bc-43f9-99ea-ebc49523bf19"
+        ],
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: matt-pocock",
+        "default_collapsed": true
+      }
     }
   ],
   "session_metrics": {
