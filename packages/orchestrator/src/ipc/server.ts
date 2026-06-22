@@ -11,7 +11,6 @@ import {
 	type OrchestratorResponse,
 	parseRequestLine,
 	type RpcBridgeResponse,
-	type RpcClientMessage,
 	type RpcReadyResponse,
 	type RpcRequest,
 	type RpcStreamRequest,
@@ -38,7 +37,7 @@ export interface IpcRequestHandler {
 		onUiRequest: (request: RpcExtensionUIRequest) => void,
 	):
 		| {
-				handleRequest(request: RpcClientMessage): Promise<void>;
+				handleRequest(request: RpcRequest["command"] | { type: "extension_ui_response" }): Promise<void>;
 				close(): void;
 		  }
 		| undefined;
@@ -94,6 +93,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 					}
 
 					socket.write(encodeMessage(response));
+					let rpcRequestQueue = Promise.resolve();
 					socket.on("data", (rpcChunk: Buffer | string) => {
 						buffer += rpcChunk.toString();
 						for (;;) {
@@ -106,20 +106,29 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 							if (!rpcLine) {
 								continue;
 							}
-							void (async () => {
-								try {
-									const rpcRequest = JSON.parse(rpcLine) as RpcClientMessage;
-									await rpcStream.handleRequest(rpcRequest);
-								} catch (rpcError) {
+							rpcRequestQueue = rpcRequestQueue
+								.then(async () => {
+									try {
+										await rpcStream.handleRequest(JSON.parse(rpcLine));
+									} catch (rpcError: unknown) {
+										socket.write(
+											encodeMessage({
+												type: "error",
+												ok: false,
+												error: rpcError instanceof Error ? rpcError.message : String(rpcError),
+											}),
+										);
+									}
+								})
+								.catch((rpcError: Error) => {
 									socket.write(
 										encodeMessage({
 											type: "error",
 											ok: false,
-											error: rpcError instanceof Error ? rpcError.message : String(rpcError),
+											error: rpcError.message,
 										}),
 									);
-								}
-							})();
+								});
 						}
 					});
 					socket.once("close", () => rpcStream.close());
@@ -128,7 +137,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 				const response = await handler(request);
 				socket.end(encodeMessage(response));
-			} catch (error) {
+			} catch (error: unknown) {
 				const response: ErrorResponse = {
 					type: "error",
 					ok: false,
