@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "c1d17146b876",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/adr/0007-unified-cross-harness-memory-store.md",
+    "docs/adr/0008-memory-cache-stability-contract.md",
+    "docs/specs/cross-harness-memory-unification-spec.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c1/d17146b876/0/metadata.json",
+      "transcript": "/c1/d17146b876/0/full.jsonl",
+      "content_hash": "/c1/d17146b876/0/content_hash.txt",
+      "prompt": "/c1/d17146b876/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 49775,
+    "cache_creation_tokens": 1065563,
+    "cache_read_tokens": 26502608,
+    "output_tokens": 348653,
+    "api_call_count": 265
+  }
+}
