@@ -2,10 +2,6 @@ import { existsSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server } from "node:net";
 import { getSocketPath } from "../config.ts";
 import {
-	type AttachClientRequest,
-	type AttachReadyResponse,
-	type AttachRequest,
-	type AttachRpcResponse,
 	type ErrorResponse,
 	encodeMessage,
 	type ListRequest,
@@ -14,6 +10,8 @@ import {
 	type OrchestratorResponse,
 	parseRequestLine,
 	type RpcBridgeResponse,
+	type RpcClientMessage,
+	type RpcReadyResponse,
 	type RpcRequest,
 	type SpawnRequest,
 	type SpawnResponse,
@@ -28,17 +26,22 @@ export interface IpcRequestHandler {
 	(request: ListRequest): Promise<ListResponse | ErrorResponse> | ListResponse | ErrorResponse;
 	(request: StopRequest): Promise<StopResponse | ErrorResponse> | StopResponse | ErrorResponse;
 	(request: StatusRequest): Promise<StatusResponse | ErrorResponse> | StatusResponse | ErrorResponse;
-	(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse> | RpcBridgeResponse | ErrorResponse;
-	(request: AttachRequest): Promise<AttachReadyResponse | ErrorResponse> | AttachReadyResponse | ErrorResponse;
+	(
+		request: RpcRequest,
+	):
+		| Promise<RpcBridgeResponse | RpcReadyResponse | ErrorResponse>
+		| RpcBridgeResponse
+		| RpcReadyResponse
+		| ErrorResponse;
 	(request: OrchestratorRequest): Promise<OrchestratorResponse> | OrchestratorResponse;
 	attach(
 		instanceId: string,
-		onEvent: (response: AttachRpcResponse) => void,
+		onResponse: (response: import("@earendil-works/pi-coding-agent").RpcResponse) => void,
 		onSessionEvent: (event: import("@earendil-works/pi-coding-agent").AgentSessionEvent) => void,
 		onUiRequest: (request: import("@earendil-works/pi-coding-agent").RpcExtensionUIRequest) => void,
 	):
 		| {
-				handleRequest(request: AttachClientRequest): Promise<void>;
+				handleRequest(request: RpcClientMessage): Promise<void>;
 				close(): void;
 		  }
 		| undefined;
@@ -66,9 +69,9 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 			try {
 				const request = parseRequestLine(line);
-				if (request.type === "attach") {
+				if (request.type === "rpc" && request.command === undefined) {
 					const response = await handler(request);
-					if (!response.ok || !response.instance) {
+					if (!response.ok || response.type !== "rpc_ready" || !response.instance) {
 						socket.end(encodeMessage(response));
 						return;
 					}
@@ -79,7 +82,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 							socket.write(encodeMessage(response));
 						},
 						(event) => {
-							socket.write(encodeMessage({ type: "attach_event", event }));
+							socket.write(encodeMessage(event));
 						},
 						(request) => {
 							socket.write(encodeMessage(request));
@@ -94,28 +97,28 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 					socket.write(encodeMessage(response));
 					socket.removeAllListeners("data");
-					socket.on("data", (attachChunk: Buffer | string) => {
-						buffer += attachChunk.toString();
+					socket.on("data", (rpcChunk: Buffer | string) => {
+						buffer += rpcChunk.toString();
 						for (;;) {
-							const attachNewlineIndex = buffer.indexOf("\n");
-							if (attachNewlineIndex === -1) {
+							const rpcNewlineIndex = buffer.indexOf("\n");
+							if (rpcNewlineIndex === -1) {
 								break;
 							}
-							const attachLine = buffer.slice(0, attachNewlineIndex).trim();
-							buffer = buffer.slice(attachNewlineIndex + 1);
-							if (!attachLine) {
+							const rpcLine = buffer.slice(0, rpcNewlineIndex).trim();
+							buffer = buffer.slice(rpcNewlineIndex + 1);
+							if (!rpcLine) {
 								continue;
 							}
 							void (async () => {
 								try {
-									const attachRequest = JSON.parse(attachLine) as AttachClientRequest;
-									await attachment.handleRequest(attachRequest);
-								} catch (attachError) {
+									const rpcRequest = JSON.parse(rpcLine) as RpcClientMessage;
+									await attachment.handleRequest(rpcRequest);
+								} catch (rpcError) {
 									socket.write(
 										encodeMessage({
 											type: "error",
 											ok: false,
-											error: attachError instanceof Error ? attachError.message : String(attachError),
+											error: rpcError instanceof Error ? rpcError.message : String(rpcError),
 										}),
 									);
 								}

@@ -1,90 +1,80 @@
 import { randomUUID } from "node:crypto";
-import {
-	type AgentSessionEvent,
-	type AgentSessionEventListener,
-	type AgentSessionRuntime,
-	type CreateAgentSessionRuntimeFactory,
-	createAgentSessionFromServices,
-	createAgentSessionRuntime,
-	createAgentSessionServices,
-	getAgentDir,
-	type RpcCommand,
-	type RpcExtensionUIRequest,
-	type RpcExtensionUIResponse,
-	type RpcResponse,
-	SessionManager,
+import type {
+	AgentSessionEvent,
+	AgentSessionEventListener,
+	RpcCommand,
+	RpcExtensionUIRequest,
+	RpcExtensionUIResponse,
+	RpcResponse,
 } from "@earendil-works/pi-coding-agent";
-import { AttachUiBridge, bindAttachExtensions } from "./attach-ui.ts";
 import { radiusPresence } from "./radius.ts";
-import { handleRpcCommand } from "./rpc-bridge.ts";
+import { createRpcProcessInstance, type RpcProcessInstance } from "./rpc-process.ts";
 import { getInstance, loadInstances, removeInstance, saveInstances, upsertInstance } from "./storage.ts";
 import type { InstanceRecord } from "./types.ts";
 
 interface LiveInstance {
-	runtime: AgentSessionRuntime;
+	rpc: RpcProcessInstance;
 	record: InstanceRecord;
 	subscribers: Set<AgentSessionEventListener>;
-	uiBridge: AttachUiBridge;
-	unsubscribeSession?: () => void;
+	onUiRequest?: (request: RpcExtensionUIRequest) => void;
+	unsubscribeEvents?: () => void;
+	unsubscribeExit?: () => void;
 }
 
 function cloneInstance(record: InstanceRecord): InstanceRecord {
 	return { ...record };
 }
 
-async function createRuntime(cwd: string): Promise<AgentSessionRuntime> {
-	const agentDir = getAgentDir();
-	const sessionManager = SessionManager.create(cwd);
-	const runtimeFactory: CreateAgentSessionRuntimeFactory = async ({
-		cwd,
-		agentDir,
-		sessionManager,
-		sessionStartEvent,
-	}) => {
-		const services = await createAgentSessionServices({ cwd, agentDir });
-		const created = await createAgentSessionFromServices({
-			services,
-			sessionManager,
-			sessionStartEvent,
-		});
-		return {
-			...created,
-			services,
-			diagnostics: services.diagnostics,
-		};
-	};
-
-	return createAgentSessionRuntime(runtimeFactory, {
-		cwd,
-		agentDir,
-		sessionManager,
-	});
+function isGetStateSuccess(
+	response: RpcResponse,
+): response is Extract<
+	RpcResponse,
+	{ success: true; command: "get_state"; data: { sessionId: string; sessionFile?: string } }
+> {
+	return response.success === true && response.command === "get_state" && "data" in response;
 }
 
 export class OrchestratorSupervisor {
 	private readonly liveInstances = new Map<string, LiveInstance>();
 
-	private syncInstanceRecord(live: LiveInstance): void {
+	private async syncInstanceRecord(live: LiveInstance): Promise<void> {
+		const response = await live.rpc.send({ type: "get_state" });
+		if (!isGetStateSuccess(response)) {
+			live.record = {
+				...live.record,
+				lastSeenAt: new Date().toISOString(),
+			};
+			upsertInstance(live.record);
+			return;
+		}
 		live.record = {
 			...live.record,
-			sessionId: live.runtime.session.sessionId,
-			sessionFile: live.runtime.session.sessionFile,
+			sessionId: response.data.sessionId,
+			sessionFile: response.data.sessionFile,
 			lastSeenAt: new Date().toISOString(),
 		};
 		upsertInstance(live.record);
 	}
 
-	private async bindLiveInstance(live: LiveInstance): Promise<void> {
-		await bindAttachExtensions(live.runtime, live.uiBridge);
-		live.unsubscribeSession?.();
-		live.unsubscribeSession = live.runtime.session.subscribe((event) => {
+	private bindLiveInstance(live: LiveInstance): void {
+		live.unsubscribeEvents?.();
+		live.unsubscribeExit?.();
+		live.unsubscribeEvents = live.rpc.onEvent((event) => {
 			for (const subscriber of live.subscribers) {
 				subscriber(event);
 			}
 		});
-		live.runtime.setRebindSession(async () => {
-			this.syncInstanceRecord(live);
-			await this.bindLiveInstance(live);
+		live.unsubscribeExit = live.rpc.onExit(() => {
+			live.record = {
+				...live.record,
+				status: "stopped",
+				lastSeenAt: new Date().toISOString(),
+			};
+			upsertInstance(live.record);
+			this.liveInstances.delete(live.record.id);
+		});
+		live.rpc.setUiRequestHandler((request) => {
+			live.onUiRequest?.(request);
 		});
 	}
 
@@ -113,23 +103,22 @@ export class OrchestratorSupervisor {
 			return undefined;
 		}
 		live.subscribers.add(onEvent);
-		const detachUi = live.uiBridge.attach(onUiRequest);
+		live.onUiRequest = onUiRequest;
 		return {
 			handleRpc: async (command) => {
-				const response = await handleRpcCommand(live.runtime, command);
-				this.syncInstanceRecord(live);
+				const response = await live.rpc.send(command);
+				await this.syncInstanceRecord(live);
 				return response;
 			},
 			handleUiResponse: (response) => {
-				live.uiBridge.handleResponse(response);
+				live.rpc.handleUiResponse(response);
 			},
-			setHostTheme: (theme) => {
-				live.uiBridge.setThemeOverride(theme);
-			},
+			setHostTheme: (_theme) => {},
 			close: () => {
-				detachUi();
+				if (live.onUiRequest === onUiRequest) {
+					live.onUiRequest = undefined;
+				}
 				live.subscribers.delete(onEvent);
-				live.uiBridge.cancelPendingRequests();
 			},
 		};
 	}
@@ -170,7 +159,7 @@ export class OrchestratorSupervisor {
 	}
 
 	async spawnInstance(options: { cwd: string; label?: string }): Promise<InstanceRecord> {
-		const runtime = await createRuntime(options.cwd);
+		const rpc = createRpcProcessInstance({ cwd: options.cwd });
 		const now = new Date().toISOString();
 		const record: InstanceRecord = {
 			id: randomUUID(),
@@ -179,21 +168,19 @@ export class OrchestratorSupervisor {
 			createdAt: now,
 			lastSeenAt: now,
 			label: options.label,
-			sessionId: runtime.session.sessionId,
-			sessionFile: runtime.session.sessionFile,
 		};
 
 		const registeredRecord = await radiusPresence.registerPi(record);
 		const live: LiveInstance = {
-			runtime,
+			rpc,
 			record: registeredRecord,
 			subscribers: new Set(),
-			uiBridge: new AttachUiBridge(),
 		};
-		await this.bindLiveInstance(live);
+		this.bindLiveInstance(live);
 		this.liveInstances.set(registeredRecord.id, live);
-		upsertInstance(registeredRecord);
-		return cloneInstance(registeredRecord);
+		await this.syncInstanceRecord(live);
+		upsertInstance(live.record);
+		return cloneInstance(live.record);
 	}
 
 	async stopInstance(instanceId: string): Promise<InstanceRecord | undefined> {
@@ -203,10 +190,10 @@ export class OrchestratorSupervisor {
 		}
 
 		await radiusPresence.disconnectPi(live.record);
-		live.unsubscribeSession?.();
-		live.uiBridge.cancelPendingRequests();
-		live.runtime.setRebindSession(undefined);
-		await live.runtime.dispose();
+		live.unsubscribeEvents?.();
+		live.unsubscribeExit?.();
+		live.onUiRequest = undefined;
+		await live.rpc.dispose();
 		this.liveInstances.delete(instanceId);
 		removeInstance(instanceId);
 		return cloneInstance(live.record);
@@ -218,8 +205,8 @@ export class OrchestratorSupervisor {
 			return undefined;
 		}
 
-		const response = await handleRpcCommand(live.runtime, command);
-		this.syncInstanceRecord(live);
+		const response = await live.rpc.send(command);
+		await this.syncInstanceRecord(live);
 		return response;
 	}
 

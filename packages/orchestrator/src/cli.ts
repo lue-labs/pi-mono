@@ -18,7 +18,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, "../package.json"), 
 
 function printHelp(): void {
 	console.log(
-		`orchestrator v${packageJson.version}\n\nUsage:\n  orchestrator serve\n  orchestrator list\n  orchestrator spawn [--cwd <path>] [--label <label>]\n  orchestrator status <instance-id>\n  orchestrator stop <instance-id>\n  orchestrator rpc <instance-id> <json-command>\n  orchestrator attach <instance-id>\n  orchestrator --help\n  orchestrator --version\n\nAttach stdin expects JSONL RpcCommand or extension_ui_response messages.`,
+		`orchestrator v${packageJson.version}\n\nUsage:\n  orchestrator serve\n  orchestrator list\n  orchestrator spawn [--cwd <path>] [--label <label>]\n  orchestrator status <instance-id>\n  orchestrator stop <instance-id>\n  orchestrator rpc <instance-id> <json-command>\n  orchestrator rpc-stream <instance-id>\n  orchestrator --help\n  orchestrator --version\n\nRPC stream stdin expects JSONL RpcCommand or extension_ui_response messages.`,
 	);
 }
 
@@ -34,14 +34,14 @@ function getFlagValue(args: string[], flag: string): string | undefined {
 	return args[index + 1];
 }
 
-async function attach(instanceId: string): Promise<void> {
+async function rpcStream(instanceId: string): Promise<void> {
 	const socket = createConnection(getSocketPath());
 	let stdinBuffer = "";
 	process.stdin.setEncoding("utf8");
 
 	await new Promise<void>((resolve, reject) => {
 		socket.once("connect", () => {
-			socket.write(encodeMessage({ type: "attach", instanceId }));
+			socket.write(encodeMessage({ type: "rpc", instanceId }));
 			resolve();
 		});
 		socket.once("error", reject);
@@ -50,7 +50,7 @@ async function attach(instanceId: string): Promise<void> {
 	socket.on("data", (chunk: Buffer | string) => {
 		process.stdout.write(chunk.toString());
 	});
-	console.error(`attached to ${instanceId}; send JSONL RpcCommand or extension_ui_response on stdin`);
+	console.error(`connected to rpc stream ${instanceId}; send JSONL RpcCommand or extension_ui_response on stdin`);
 	socket.on("error", (error) => {
 		console.error(error instanceof Error ? error.message : String(error));
 		process.exit(1);
@@ -71,11 +71,7 @@ async function attach(instanceId: string): Promise<void> {
 				continue;
 			}
 			const parsed = JSON.parse(line) as RpcCommand | RpcExtensionUIResponse;
-			if (parsed.type === "extension_ui_response") {
-				socket.write(encodeMessage(parsed));
-				continue;
-			}
-			socket.write(encodeMessage({ type: "attach_rpc", command: parsed }));
+			socket.write(encodeMessage(parsed));
 		}
 	});
 }
@@ -147,13 +143,13 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	if (args[0] === "attach") {
+	if (args[0] === "rpc-stream") {
 		const instanceId = args[1];
 		if (!instanceId) {
-			console.error("Usage: orchestrator attach <instance-id>");
+			console.error("Usage: orchestrator rpc-stream <instance-id>");
 			process.exit(1);
 		}
-		await attach(instanceId);
+		await rpcStream(instanceId);
 		return;
 	}
 

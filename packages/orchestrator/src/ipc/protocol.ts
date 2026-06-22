@@ -32,22 +32,7 @@ export interface StatusRequest {
 export interface RpcRequest {
 	type: "rpc";
 	instanceId: string;
-	command: RpcCommand;
-}
-
-export interface AttachRequest {
-	type: "attach";
-	instanceId: string;
-}
-
-export interface AttachRpcRequest {
-	type: "attach_rpc";
-	command: RpcCommand;
-}
-
-export interface AttachHostContextRequest {
-	type: "attach_host_context";
-	theme?: unknown;
+	command?: RpcCommand;
 }
 
 export interface RequestMap {
@@ -56,7 +41,6 @@ export interface RequestMap {
 	stop: StopRequest;
 	status: StatusRequest;
 	rpc: RpcRequest;
-	attach: AttachRequest;
 }
 
 export type OrchestratorRequest = RequestMap[keyof RequestMap];
@@ -101,19 +85,9 @@ export interface RpcBridgeResponse extends ResponseBase {
 	response: RpcResponse;
 }
 
-export interface AttachReadyResponse extends ResponseBase {
-	type: "attach_ready";
+export interface RpcReadyResponse extends ResponseBase {
+	type: "rpc_ready";
 	instance?: InstanceSummary;
-}
-
-export interface AttachEventResponse {
-	type: "attach_event";
-	event: AgentSessionEvent;
-}
-
-export interface AttachRpcResponse {
-	type: "attach_rpc_result";
-	response: RpcResponse;
 }
 
 export interface ErrorResponse extends ResponseBase {
@@ -127,19 +101,18 @@ export interface ResponseMap {
 	list: ListResponse;
 	stop: StopResponse;
 	status: StatusResponse;
-	rpc: RpcBridgeResponse;
-	attach: AttachReadyResponse;
+	rpc: RpcBridgeResponse | RpcReadyResponse;
 }
 
 export type OrchestratorResponse = ResponseMap[keyof ResponseMap] | ErrorResponse;
-export type AttachClientRequest = AttachRpcRequest | AttachHostContextRequest | RpcExtensionUIResponse;
-export type AttachServerResponse =
-	| AttachReadyResponse
-	| AttachEventResponse
-	| AttachRpcResponse
+export type RpcClientMessage = RpcCommand | RpcExtensionUIResponse;
+export type RpcServerMessage =
+	| RpcReadyResponse
+	| RpcResponse
+	| AgentSessionEvent
 	| RpcExtensionUIRequest
 	| ErrorResponse;
-export type ProtocolMessage = OrchestratorRequest | OrchestratorResponse | AttachClientRequest | AttachServerResponse;
+export type ProtocolMessage = OrchestratorRequest | OrchestratorResponse | RpcClientMessage | RpcServerMessage;
 
 export type ResponseFor<T extends OrchestratorRequest> = T extends { type: infer K }
 	? K extends keyof ResponseMap

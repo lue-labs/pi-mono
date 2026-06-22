@@ -3,12 +3,9 @@ import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,
+	RpcResponse,
 } from "@earendil-works/pi-coding-agent";
 import type {
-	AttachHostContextRequest,
-	AttachReadyResponse,
-	AttachRequest,
-	AttachRpcResponse,
 	ErrorResponse,
 	InstanceSummary,
 	ListRequest,
@@ -16,6 +13,7 @@ import type {
 	OrchestratorRequest,
 	OrchestratorResponse,
 	RpcBridgeResponse,
+	RpcReadyResponse,
 	RpcRequest,
 	SpawnRequest,
 	SpawnResponse,
@@ -52,8 +50,9 @@ export async function handleIpcRequest(request: SpawnRequest): Promise<SpawnResp
 export async function handleIpcRequest(request: ListRequest): Promise<ListResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StopRequest): Promise<StopResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StatusRequest): Promise<StatusResponse | ErrorResponse>;
-export async function handleIpcRequest(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse>;
-export async function handleIpcRequest(request: AttachRequest): Promise<AttachReadyResponse | ErrorResponse>;
+export async function handleIpcRequest(
+	request: RpcRequest,
+): Promise<RpcBridgeResponse | RpcReadyResponse | ErrorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse> {
 	switch (request.type) {
@@ -104,6 +103,17 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 		}
 
 		case "rpc": {
+			if (!request.command) {
+				const instance = supervisor.getInstance(request.instanceId);
+				if (!instance) {
+					return unknownInstanceError(request.instanceId);
+				}
+				return {
+					type: "rpc_ready",
+					ok: true,
+					instance: toInstanceSummary(instance),
+				};
+			}
 			const response = await supervisor.handleRpc(request.instanceId, request.command);
 			if (!response) {
 				return unknownInstanceError(request.instanceId);
@@ -115,31 +125,17 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 				response,
 			};
 		}
-
-		case "attach": {
-			const instance = supervisor.getInstance(request.instanceId);
-			if (!instance) {
-				return unknownInstanceError(request.instanceId);
-			}
-			return {
-				type: "attach_ready",
-				ok: true,
-				instance: toInstanceSummary(instance),
-			};
-		}
 	}
 }
 
 export function attachIpcInstance(
 	instanceId: string,
-	onResponse: (response: AttachRpcResponse) => void,
+	onResponse: (response: RpcResponse) => void,
 	onSessionEvent: (event: AgentSessionEvent) => void,
 	onUiRequest: (request: RpcExtensionUIRequest) => void,
 ):
 	| {
-			handleRequest(
-				request: { type: "attach_rpc"; command: RpcCommand } | AttachHostContextRequest | RpcExtensionUIResponse,
-			): Promise<void>;
+			handleRequest(request: RpcCommand | RpcExtensionUIResponse): Promise<void>;
 			close(): void;
 	  }
 	| undefined {
@@ -150,16 +146,12 @@ export function attachIpcInstance(
 
 	return {
 		async handleRequest(request): Promise<void> {
-			if (request.type === "attach_rpc") {
-				const response = await handle.handleRpc(request.command);
-				onResponse({ type: "attach_rpc_result", response });
+			if (request.type === "extension_ui_response") {
+				handle.handleUiResponse(request);
 				return;
 			}
-			if (request.type === "attach_host_context") {
-				handle.setHostTheme(request.theme);
-				return;
-			}
-			handle.handleUiResponse(request);
+			const response = await handle.handleRpc(request);
+			onResponse(response);
 		},
 		close(): void {
 			handle.close();
