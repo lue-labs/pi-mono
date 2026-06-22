@@ -83,26 +83,35 @@ jobs:
 
   review:
     needs: gate
-    if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.authorized == 'true'
+    # Always RUN (no job-level `if`) so the required `review` check always
+    # resolves. A required job skipped via job-level `if` stays Pending forever
+    # and BLOCKs docs/changeset-only or unauthorized PRs (the admin-merge trap).
+    # Heavy work is guarded per-step by RUN_REVIEW; on a no-code/unauthorized PR
+    # every step skips and the job still concludes success.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       # GitHub Packages read auth for @valkyriweb/*. GITHUB_TOKEN cannot read
       # user-owned restricted packages (E403), so use a classic read:packages PAT.
       NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+      RUN_REVIEW: ${{ needs.gate.outputs.should_run == 'true' && needs.gate.outputs.authorized == 'true' }}
     steps:
       - name: Checkout PR head
+        if: env.RUN_REVIEW == 'true'
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
+        if: env.RUN_REVIEW == 'true'
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci --ignore-scripts
+      - if: env.RUN_REVIEW == 'true'
+        run: npm ci --ignore-scripts
       - name: Build pi packages
+        if: env.RUN_REVIEW == 'true'
         run: |
           npm --prefix packages/tui run build
           npm --prefix packages/ai run build
@@ -112,6 +121,7 @@ jobs:
       # node entrypoint. Expose a `pi` shim on PATH so the Correctness stage runs
       # the real engine instead of degrading to a manual diff review.
       - name: Put pi on PATH (rusty-review --engine pi shim)
+        if: env.RUN_REVIEW == 'true'
         run: |
           mkdir -p "$HOME/.local/bin"
           cat > "$HOME/.local/bin/pi" <<EOF
@@ -122,6 +132,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Configure GitHub Packages auth
+        if: env.RUN_REVIEW == 'true'
         run: |
           # ${NODE_AUTH_TOKEN} is written LITERALLY into .npmrc on purpose — npm
           # expands it from the environment at read time, so single quotes are
@@ -130,16 +141,19 @@ jobs:
           printf '@valkyriweb:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n' > "$HOME/.npmrc"
 
       - name: Install agentic-review pipeline (GitHub Packages)
+        if: env.RUN_REVIEW == 'true'
         run: npm install --prefix "$RUNNER_TEMP/ar" @valkyriweb/agentic-review@0.1.0
 
       # Skills (private) + bridge (private) — need a PAT with repo read.
       - name: Checkout skills (agent-scripts)
+        if: env.RUN_REVIEW == 'true'
         uses: actions/checkout@v6
         with:
           repository: valkyriweb/agent-scripts
           path: agent-scripts
           token: ${{ secrets.GH_CLONE_TOKEN }}
       - name: Checkout claude-bridge
+        if: env.RUN_REVIEW == 'true'
         uses: actions/checkout@v6
         with:
           repository: valkyriweb/pi-claude-bridge
@@ -154,6 +168,7 @@ jobs:
       # ToolDefinition). Source can't predate itself and resolves against this fork,
       # so both skew classes vanish and there is no pin to keep current.
       - name: Checkout my-pi (actions profile source)
+        if: env.RUN_REVIEW == 'true'
         uses: actions/checkout@v6
         with:
           repository: valkyriweb/my-pi
@@ -161,12 +176,14 @@ jobs:
           path: my-pi
           token: ${{ secrets.GH_CLONE_TOKEN }}
       - name: Install my-pi workspace deps (extension imports must resolve)
+        if: env.RUN_REVIEW == 'true'
         # Source extensions (pi-workflow etc.) import third-party + @valkyriweb
         # deps; they must resolve from my-pi/node_modules at load time. The global
         # ~/.npmrc configured above provides GitHub Packages auth. --ignore-scripts:
         # pi loads the .ts extensions directly (jiti), so no build postinstall.
         run: npm --prefix my-pi ci --ignore-scripts
       - name: Stage pi agent config (bridge provider + actions profile source + skills)
+        if: env.RUN_REVIEW == 'true'
         run: |
           mkdir -p "$HOME/.pi/agent"
           cp "$RUNNER_TEMP/ar/node_modules/@valkyriweb/agentic-review/ci-models.json" "$HOME/.pi/agent/models.json"
@@ -185,6 +202,7 @@ jobs:
           # local path needs no `pi install`/download.
 
       - name: Start claude-bridge sidecar
+        if: env.RUN_REVIEW == 'true'
         run: |
           cd pi-claude-bridge
           # The bridge repo intentionally has no committed lockfile (gitignored),
@@ -199,6 +217,7 @@ jobs:
           echo "bridge failed to start"; cat /tmp/bridge.log; exit 1
 
       - name: Boot smoke (actions profile loads against this fork)
+        if: env.RUN_REVIEW == 'true'
         # Fail loudly and specifically if the profile can't boot against this fork,
         # instead of the cryptic "no review result produced" from a crashed pi.
         run: |
@@ -214,11 +233,13 @@ jobs:
           echo "boot smoke OK"
 
       - name: Configure git identity (autofix commits)
+        if: env.RUN_REVIEW == 'true'
         run: |
           git config user.name "rusty-review[bot]"
           git config user.email "rusty-review@users.noreply.github.com"
 
       - name: Run agentic review
+        if: env.RUN_REVIEW == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -244,7 +265,7 @@ jobs:
             2>&1 | tee /tmp/agentic-review/pi.log || true
 
       - name: Push autofix commits (same-repo only)
-        if: needs.gate.outputs.advisory_only == 'false'
+        if: env.RUN_REVIEW == 'true' && needs.gate.outputs.advisory_only == 'false'
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -254,6 +275,7 @@ jobs:
           fi
 
       - name: Enforce gate (fail on P0)
+        if: env.RUN_REVIEW == 'true'
         run: |
           RESULT=/tmp/agentic-review/result.json
           if [ ! -f "$RESULT" ]; then
