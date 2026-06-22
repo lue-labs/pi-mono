@@ -69,24 +69,31 @@ export function createRpcProcessInstance(options: { cwd: string }): RpcProcessIn
 
 	const handleLine = (line: string) => {
 		const parsed = JSON.parse(line) as { type?: string; id?: string };
-		if (parsed.type === "response") {
-			if (parsed.id) {
+
+		switch (parsed.type) {
+			case "response": {
+				if (!parsed.id) {
+					return;
+				}
 				const pending = pendingRequests.get(parsed.id);
-				if (pending) {
-					pendingRequests.delete(parsed.id);
-					pending.resolve(parsed as RpcResponse);
+				if (!pending) {
+					return;
+				}
+				pendingRequests.delete(parsed.id);
+				pending.resolve(parsed as RpcResponse);
+				return;
+			}
+
+			case "extension_ui_request": {
+				uiRequestHandler?.(parsed as RpcExtensionUIRequest);
+				return;
+			}
+
+			default: {
+				for (const listener of eventListeners) {
+					listener(parsed as AgentSessionEvent);
 				}
 			}
-			return;
-		}
-
-		if (parsed.type === "extension_ui_request") {
-			uiRequestHandler?.(parsed as RpcExtensionUIRequest);
-			return;
-		}
-
-		for (const listener of eventListeners) {
-			listener(parsed as AgentSessionEvent);
 		}
 	};
 

@@ -129,7 +129,7 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 	}
 }
 
-export function attachIpcInstance(
+export function openRpcStream(
 	instanceId: string,
 	onResponse: (response: RpcResponse) => void,
 	onSessionEvent: (event: AgentSessionEvent) => void,
@@ -140,7 +140,7 @@ export function attachIpcInstance(
 			close(): void;
 	  }
 	| undefined {
-	const handle = supervisor.attachInstance(instanceId, onSessionEvent, onUiRequest);
+	const handle = supervisor.openRpcStream(instanceId, onSessionEvent, onUiRequest);
 	if (!handle) {
 		return undefined;
 	}

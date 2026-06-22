@@ -30,7 +30,7 @@ export interface IpcRequestHandler {
 	(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse> | RpcBridgeResponse | ErrorResponse;
 	(request: RpcStreamRequest): Promise<RpcReadyResponse | ErrorResponse> | RpcReadyResponse | ErrorResponse;
 	(request: OrchestratorRequest): Promise<OrchestratorResponse> | OrchestratorResponse;
-	attach(
+	openRpcStream(
 		instanceId: string,
 		onResponse: (response: import("@earendil-works/pi-coding-agent").RpcResponse) => void,
 		onSessionEvent: (event: import("@earendil-works/pi-coding-agent").AgentSessionEvent) => void,
@@ -72,7 +72,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 						return;
 					}
 
-					const attachment = handler.attach(
+					const rpcStream = handler.openRpcStream(
 						request.instanceId,
 						(response) => {
 							socket.write(encodeMessage(response));
@@ -84,7 +84,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 							socket.write(encodeMessage(request));
 						},
 					);
-					if (!attachment) {
+					if (!rpcStream) {
 						socket.end(
 							encodeMessage({ type: "error", ok: false, error: `Unknown instance: ${request.instanceId}` }),
 						);
@@ -108,7 +108,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 							void (async () => {
 								try {
 									const rpcRequest = JSON.parse(rpcLine) as RpcClientMessage;
-									await attachment.handleRequest(rpcRequest);
+									await rpcStream.handleRequest(rpcRequest);
 								} catch (rpcError) {
 									socket.write(
 										encodeMessage({
@@ -121,7 +121,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 							})();
 						}
 					});
-					socket.once("close", () => attachment.close());
+					socket.once("close", () => rpcStream.close());
 					return;
 				}
 

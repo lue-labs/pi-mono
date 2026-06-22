@@ -25,6 +25,26 @@ function cloneInstance(record: InstanceRecord): InstanceRecord {
 	return { ...record };
 }
 
+// Only refresh persisted session metadata after commands that can plausibly change
+// the instance identity/details we store in instances.json. Most RPCs mutate transient
+// runtime state only, so forcing a follow-up get_state after every command is wasted IO.
+//
+// - new_session / switch_session / fork / clone can change sessionId/sessionFile
+// - set_session_name changes a persisted session detail we may want reflected externally
+// - prompt can materialize or advance persisted session state after the child processes it
+const SESSION_METADATA_COMMANDS: ReadonlySet<RpcCommand["type"]> = new Set([
+	"new_session",
+	"switch_session",
+	"fork",
+	"clone",
+	"set_session_name",
+	"prompt",
+]);
+
+function shouldRefreshSessionMetadata(command: RpcCommand): boolean {
+	return SESSION_METADATA_COMMANDS.has(command.type);
+}
+
 function isGetStateSuccess(
 	response: RpcResponse,
 ): response is Extract<
@@ -86,7 +106,7 @@ export class OrchestratorSupervisor {
 		upsertInstance(instance);
 	}
 
-	attachInstance(
+	openRpcStream(
 		instanceId: string,
 		onEvent: (event: AgentSessionEvent) => void,
 		onUiRequest: (request: RpcExtensionUIRequest) => void,
@@ -106,7 +126,9 @@ export class OrchestratorSupervisor {
 		return {
 			handleRpc: async (command) => {
 				const response = await live.rpc.send(command);
-				await this.syncInstanceRecord(live);
+				if (shouldRefreshSessionMetadata(command)) {
+					await this.syncInstanceRecord(live);
+				}
 				return response;
 			},
 			handleUiResponse: (response) => {
@@ -204,7 +226,9 @@ export class OrchestratorSupervisor {
 		}
 
 		const response = await live.rpc.send(command);
-		await this.syncInstanceRecord(live);
+		if (shouldRefreshSessionMetadata(command)) {
+			await this.syncInstanceRecord(live);
+		}
 		return response;
 	}
 

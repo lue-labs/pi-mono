@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { getSocketPath } from "./config.ts";
-import { attachIpcInstance, handleIpcRequest } from "./handler.ts";
+import { handleIpcRequest, openRpcStream } from "./handler.ts";
 import { startIpcServer } from "./ipc/server.ts";
 import { getRadiusOrchestratorBaseUrl, isRadiusEnabled, radiusPresence } from "./radius.ts";
 import { supervisor } from "./supervisor.ts";
@@ -21,7 +21,7 @@ export async function serve(): Promise<void> {
 	}
 	const server = await startIpcServer(
 		Object.assign(handleIpcRequest, {
-			attach: attachIpcInstance,
+			openRpcStream,
 		}),
 	);
 	console.log(`orchestrator listening on ${socketPath}`);
