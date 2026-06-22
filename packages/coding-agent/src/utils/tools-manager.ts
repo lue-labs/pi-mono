@@ -96,6 +96,15 @@ export function getToolPath(tool: "fd" | "rg"): string | null {
 	const localPath = getLocalToolPath(config.binaryName);
 	if (localPath) return localPath;
 
+	// On macOS, skip the system-PATH lookup. Homebrew/system binaries are
+	// adhoc-signed without a kernel trust-cache entry, so every spawn triggers a
+	// Gatekeeper assessment (amfid -> syspolicyd -> trustd) — under Pi's hot
+	// Grep/Find loops this pins the CPU. Returning null here makes ensureTool()
+	// download a clean copy into our managed bin dir (no quarantine xattr, so no
+	// repeated assessment). Offline mode still falls back to system PATH so a
+	// machine with no managed binary can search.
+	if (platform() === "darwin" && !isOfflineModeEnabled()) return null;
+
 	// Check system PATH - if found, just return the command name (it's in PATH)
 	const systemBinaryNames = config.systemBinaryNames ?? [config.binaryName];
 	for (const systemBinaryName of systemBinaryNames) {
@@ -115,6 +124,15 @@ export type OptionalSearchTool = "ugrep" | "bfs";
 export function getOptionalSearchToolPath(tool: OptionalSearchTool): string | null {
 	const localPath = getLocalToolPath(tool);
 	if (localPath) return localPath;
+
+	// On macOS, never spawn a system-PATH binary: Homebrew's adhoc-signed
+	// ugrep/bfs trigger a Gatekeeper assessment on every exec, which under Pi's
+	// hot Grep/Find loops pins amfid/syspolicyd. These optional backends are not
+	// downloaded, so returning null makes Grep/Find fall through to the managed
+	// rg/fd (which are Gatekeeper-inert). Offline mode keeps the PATH fallback
+	// (mirroring getToolPath): an offline mac with only ugrep/bfs and no managed
+	// rg/fd would otherwise lose search entirely.
+	if (platform() === "darwin" && !isOfflineModeEnabled()) return null;
 
 	if (commandExists(tool)) return tool;
 	return null;
@@ -326,6 +344,14 @@ async function downloadTool(tool: "fd" | "rg"): Promise<string> {
 		// Make executable (Unix only)
 		if (plat !== "win32") {
 			chmodSync(binaryPath, 0o755);
+		}
+
+		// macOS belt-and-suspenders: strip any quarantine xattr so the binary is
+		// never subject to a Gatekeeper assessment on exec. Bun's fetch() does not
+		// currently set it, but this future-proofs against OS changes. xattr is a
+		// platform binary with a permanent trust-cache entry, so it is safe to spawn.
+		if (plat === "darwin") {
+			spawnSync("xattr", ["-d", "com.apple.quarantine", binaryPath], { stdio: "pipe" });
 		}
 	} finally {
 		// Cleanup
