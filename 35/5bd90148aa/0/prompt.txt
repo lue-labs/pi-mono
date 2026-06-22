@@ -65,3 +65,13 @@ check my global cli I used it the other day and it worked fine, not via mcp
 ---
 
 don't use my api key for gpt-5.5 pro, use the browser method with chatgpt with my logged in chatgpt account...
+
+---
+
+<task-notification>
+<task-id>b9gcp6owt</task-id>
+<tool-use-id>toolu_013cwPZoxCuwHqxrmMBPMwbT</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/442f951d-ec5a-48c8-82c6-c94c381e6b6b/tasks/b9gcp6owt.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run adversarial review via ChatGPT browser with --force" completed (exit code 0)</summary>
+</task-notification>
