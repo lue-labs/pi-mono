@@ -72,6 +72,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 						return;
 					}
 
+					socket.removeAllListeners("data");
 					const rpcStream = handler.openRpcStream(
 						request.instanceId,
 						(response) => {
@@ -92,7 +93,6 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 					}
 
 					socket.write(encodeMessage(response));
-					socket.removeAllListeners("data");
 					socket.on("data", (rpcChunk: Buffer | string) => {
 						buffer += rpcChunk.toString();
 						for (;;) {

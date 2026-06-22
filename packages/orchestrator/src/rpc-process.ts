@@ -1,6 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
 	AgentSessionEvent,
 	RpcCommand,
@@ -25,8 +27,12 @@ export interface RpcProcessInstance {
 }
 
 function resolveCodingAgentCli(): string {
-	const require = createRequire(import.meta.url);
-	return require.resolve("@earendil-works/pi-coding-agent/dist/cli.js");
+	const packageDir = dirname(fileURLToPath(import.meta.url));
+	const workspaceCli = join(packageDir, "../../coding-agent/dist/cli.js");
+	if (existsSync(workspaceCli)) {
+		return workspaceCli;
+	}
+	throw new Error(`Unable to find coding-agent RPC CLI: ${workspaceCli}`);
 }
 
 function toError(error: unknown): Error {
