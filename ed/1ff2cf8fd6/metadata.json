@@ -3,19 +3,23 @@
   "checkpoint_id": "ed1ff2cf8fd6",
   "strategy": "manual-commit",
   "branch": "feat/pi-doctor-orphan-mcp",
-  "checkpoints_count": 5,
+  "checkpoints_count": 6,
   "files_touched": [
     "docs/memory-architecture.md",
+    "extensions/pi-ask-user-question/src/index.ts",
+    "extensions/pi-mode/src/index.ts",
     "extensions/third-party/pi-codex-conversion/src/providers/openai-codex/errors.ts",
     "extensions/third-party/pi-codex-conversion/tests/openai-codex-custom-provider.test.ts",
     "extensions/tool-search/README.md",
     "extensions/tool-search/src/config.ts",
     "extensions/tool-search/src/index.ts",
+    "extensions/tool-search/test-eager-direct-tools-stability.mjs",
     "extensions/tool-search/test-load.mjs",
     "package.json",
     "plans/README.md",
     "scripts/chp-mcp-server.mjs",
     "scripts/deploy-chp-mcp.mjs",
+    "scripts/extension-gate.manifest.mjs",
     "services/oracle/README.md",
     "services/oracle/src/daemon.ts",
     "services/oracle/src/project.ts"
@@ -38,13 +42,19 @@
       "transcript": "/ed/1ff2cf8fd6/2/full.jsonl",
       "content_hash": "/ed/1ff2cf8fd6/2/content_hash.txt",
       "prompt": "/ed/1ff2cf8fd6/2/prompt.txt"
+    },
+    {
+      "metadata": "/ed/1ff2cf8fd6/3/metadata.json",
+      "transcript": "/ed/1ff2cf8fd6/3/full.jsonl",
+      "content_hash": "/ed/1ff2cf8fd6/3/content_hash.txt",
+      "prompt": "/ed/1ff2cf8fd6/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 28526,
-    "cache_creation_tokens": 479454,
-    "cache_read_tokens": 11126315,
-    "output_tokens": 78801,
-    "api_call_count": 103
+    "input_tokens": 34828,
+    "cache_creation_tokens": 557690,
+    "cache_read_tokens": 12191646,
+    "output_tokens": 108930,
+    "api_call_count": 124
   }
 }
