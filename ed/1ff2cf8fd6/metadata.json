@@ -3,7 +3,7 @@
   "checkpoint_id": "ed1ff2cf8fd6",
   "strategy": "manual-commit",
   "branch": "feat/pi-doctor-orphan-mcp",
-  "checkpoints_count": 3,
+  "checkpoints_count": 5,
   "files_touched": [
     "docs/memory-architecture.md",
     "extensions/third-party/pi-codex-conversion/src/providers/openai-codex/errors.ts",
@@ -14,6 +14,8 @@
     "extensions/tool-search/test-load.mjs",
     "package.json",
     "plans/README.md",
+    "scripts/chp-mcp-server.mjs",
+    "scripts/deploy-chp-mcp.mjs",
     "services/oracle/README.md",
     "services/oracle/src/daemon.ts",
     "services/oracle/src/project.ts"
@@ -30,13 +32,19 @@
       "transcript": "/ed/1ff2cf8fd6/1/full.jsonl",
       "content_hash": "/ed/1ff2cf8fd6/1/content_hash.txt",
       "prompt": "/ed/1ff2cf8fd6/1/prompt.txt"
+    },
+    {
+      "metadata": "/ed/1ff2cf8fd6/2/metadata.json",
+      "transcript": "/ed/1ff2cf8fd6/2/full.jsonl",
+      "content_hash": "/ed/1ff2cf8fd6/2/content_hash.txt",
+      "prompt": "/ed/1ff2cf8fd6/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 22992,
-    "cache_creation_tokens": 430674,
-    "cache_read_tokens": 10806131,
-    "output_tokens": 71201,
-    "api_call_count": 94
+    "input_tokens": 28526,
+    "cache_creation_tokens": 479454,
+    "cache_read_tokens": 11126315,
+    "output_tokens": 78801,
+    "api_call_count": 103
   }
 }
