@@ -1,5 +1,6 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server } from "node:net";
+import type { AgentSessionEvent, RpcExtensionUIRequest, RpcResponse } from "@earendil-works/pi-coding-agent";
 import { getSocketPath } from "../config.ts";
 import {
 	type ErrorResponse,
@@ -32,9 +33,9 @@ export interface IpcRequestHandler {
 	(request: OrchestratorRequest): Promise<OrchestratorResponse> | OrchestratorResponse;
 	openRpcStream(
 		instanceId: string,
-		onResponse: (response: import("@earendil-works/pi-coding-agent").RpcResponse) => void,
-		onSessionEvent: (event: import("@earendil-works/pi-coding-agent").AgentSessionEvent) => void,
-		onUiRequest: (request: import("@earendil-works/pi-coding-agent").RpcExtensionUIRequest) => void,
+		onResponse: (response: RpcResponse) => void,
+		onSessionEvent: (event: AgentSessionEvent) => void,
+		onUiRequest: (request: RpcExtensionUIRequest) => void,
 	):
 		| {
 				handleRequest(request: RpcClientMessage): Promise<void>;
