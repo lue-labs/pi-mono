@@ -129,8 +129,10 @@ export function getOptionalSearchToolPath(tool: OptionalSearchTool): string | nu
 	// ugrep/bfs trigger a Gatekeeper assessment on every exec, which under Pi's
 	// hot Grep/Find loops pins amfid/syspolicyd. These optional backends are not
 	// downloaded, so returning null makes Grep/Find fall through to the managed
-	// rg/fd (which are Gatekeeper-inert).
-	if (platform() === "darwin") return null;
+	// rg/fd (which are Gatekeeper-inert). Offline mode keeps the PATH fallback
+	// (mirroring getToolPath): an offline mac with only ugrep/bfs and no managed
+	// rg/fd would otherwise lose search entirely.
+	if (platform() === "darwin" && !isOfflineModeEnabled()) return null;
 
 	if (commandExists(tool)) return tool;
 	return null;

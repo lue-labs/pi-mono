@@ -45,6 +45,15 @@ describe("macOS search-backend Gatekeeper bypass", () => {
 		expect(spawnSyncMock).not.toHaveBeenCalled();
 	});
 
+	test("getOptionalSearchToolPath keeps the PATH fallback on darwin in offline mode", () => {
+		currentPlatform = "darwin";
+		process.env.PI_OFFLINE = "1";
+		// Offline mac with no managed copy: must not lose search — fall back to PATH
+		// (e.g. a box that only has ugrep installed).
+		expect(getOptionalSearchToolPath("ugrep")).toBe("ugrep");
+		expect(spawnSyncMock).toHaveBeenCalled();
+	});
+
 	test("getOptionalSearchToolPath still uses system PATH on linux", () => {
 		currentPlatform = "linux";
 		expect(getOptionalSearchToolPath("ugrep")).toBe("ugrep");
