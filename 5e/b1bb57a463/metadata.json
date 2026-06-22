@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "5eb1bb57a463",
+  "strategy": "manual-commit",
+  "branch": "lue/decouple-pi-binary",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/runtime-loading.md",
+    "scripts/pi-launcher.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5e/b1bb57a463/0/metadata.json",
+      "transcript": "/5e/b1bb57a463/0/full.jsonl",
+      "content_hash": "/5e/b1bb57a463/0/content_hash.txt",
+      "prompt": "/5e/b1bb57a463/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5534,
+    "cache_creation_tokens": 48780,
+    "cache_read_tokens": 320184,
+    "output_tokens": 7600,
+    "api_call_count": 9
+  }
+}

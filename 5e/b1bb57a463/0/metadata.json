@@ -1,0 +1,148 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "5eb1bb57a463",
+  "session_id": "bc5976d3-3fa6-42c6-b05f-9732372d26be",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-22T11:36:21.046445Z",
+  "branch": "lue/decouple-pi-binary",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "docs/runtime-loading.md",
+    "scripts/pi-launcher.sh"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "862dba0b2463",
+  "token_usage": {
+    "input_tokens": 5534,
+    "cache_creation_tokens": 48780,
+    "cache_read_tokens": 320184,
+    "output_tokens": 7600,
+    "api_call_count": 9
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_015v5CoRTcwGk9T7m5EHrR5S",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "mac-health"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "862dba0b2463",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 16,
+        "end": 17,
+        "entry_ids": [
+          "da7160b4-9cf9-4e05-a7da-76f5db2a7fdc"
+        ],
+        "tool_use_id": "toolu_015v5CoRTcwGk9T7m5EHrR5S"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_015v5CoRTcwGk9T7m5EHrR5S"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: mac-health",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-22T11:36:21.006241Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 3,
+    "human_modified": 13,
+    "human_removed": 0,
+    "total_committed": 3,
+    "total_lines_changed": 16,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 5578,
+      "user_lines_removed": 72,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".rss-traps/baseline-pi-8970-20260622T121830.heap.txt": 30,
+        "docs/global-memory-architecture.md": 148,
+        "docs/global-memory-eval-corpus.md": 103,
+        "docs/goals/goal-2026-06-19T20-46-31Z-12b9017f.md": 387,
+        "docs/goals/goal-2026-06-19T22-19-41Z-7fb370a3.md": 134,
+        "docs/goals/goal-2026-06-21T20-26-44Z-2e874409.md": 119,
+        "docs/goals/goal-2026-06-22T09-14-13Z-06c985ab.md": 64,
+        "docs/goals/goal-2026-06-22T10-03-47Z-7b571daf.md": 57,
+        "docs/goals/goal-2026-06-22T10-15-05Z-c984a7be.md": 46,
+        "docs/goals/goal-cross-harness-parity.md": 210,
+        "docs/memory-architecture.md": 3,
+        "docs/memory-query-prototype.md": 98,
+        "docs/pi-setup/generated/harness-parity.generated.md": 18,
+        "docs/pi-setup/harness-equivalence.md": 33,
+        "docs/plans/plan-2026-06-22-conductor-gateway.md": 218,
+        "docs/runtime-loading.md": 38,
+        "extensions/third-party/pi-codex-conversion/src/providers/openai-codex/errors.ts": 18,
+        "extensions/third-party/pi-codex-conversion/tests/openai-codex-custom-provider.test.ts": 13,
+        "extensions/tool-search/README.md": 2,
+        "extensions/tool-search/src/config.ts": 15,
+        "extensions/tool-search/src/index.ts": 1,
+        "extensions/tool-search/test-load.mjs": 61,
+        "package.json": 4,
+        "plans/013-generated-skill-hygiene.md": 134,
+        "plans/014-plan-review-lanes.md": 131,
+        "plans/015-autoplan-autogrill-workflows.md": 154,
+        "plans/016-browser-cookie-import.md": 136,
+        "plans/017-canary-landing-report.md": 123,
+        "plans/018-security-review-router.md": 130,
+        "plans/019-question-tuning.md": 143,
+        "plans/020-artifact-lane.md": 121,
+        "plans/021-safe-setup-onboard.md": 139,
+        "plans/README.md": 32,
+        "plans/gbrain-global-memory-architecture-audit.md": 585,
+        "plans/gstack-gbrain-next-actions.md": 291,
+        "plans/gstack-gbrain-porting-audit-prompt.md": 382,
+        "plans/gstack-skill-porting-scorecard.md": 141,
+        "plans/gstack-vs-pi-deep-dive.md": 316,
+        "plans/pi-tiered-preamble-comparison.md": 122,
+        "plans/session-orchestration-control.md": 105,
+        "scripts/harness-parity-scan.mjs": 348,
+        "scripts/pi-launcher.sh": 6,
+        "scripts/pi-launcher.sh.bak-20260622T131608": 27,
+        "scripts/promote-pi-binary.sh": 45,
+        "services/oracle/README.md": 21,
+        "services/oracle/src/daemon.ts": 4,
+        "services/oracle/src/project.ts": 122
+      },
+      "user_removed_per_file": {
+        "extensions/third-party/pi-codex-conversion/src/providers/openai-codex/errors.ts": 1,
+        "extensions/tool-search/src/index.ts": 1,
+        "extensions/tool-search/test-load.mjs": 46,
+        "package.json": 1,
+        "scripts/pi-launcher.sh": 1,
+        "services/oracle/README.md": 5,
+        "services/oracle/src/daemon.ts": 2,
+        "services/oracle/src/project.ts": 15
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 5578,
+      "agent_lines_removed": 72
+    }
+  ]
+}
