@@ -94,7 +94,6 @@ export class OrchestratorSupervisor {
 		| {
 				handleRpc(command: RpcCommand): Promise<RpcResponse>;
 				handleUiResponse(response: RpcExtensionUIResponse): void;
-				setHostTheme(theme: unknown): void;
 				close(): void;
 		  }
 		| undefined {
@@ -113,7 +112,6 @@ export class OrchestratorSupervisor {
 			handleUiResponse: (response) => {
 				live.rpc.handleUiResponse(response);
 			},
-			setHostTheme: (_theme) => {},
 			close: () => {
 				if (live.onUiRequest === onUiRequest) {
 					live.onUiRequest = undefined;

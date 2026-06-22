@@ -13,6 +13,7 @@ import {
 	type RpcClientMessage,
 	type RpcReadyResponse,
 	type RpcRequest,
+	type RpcStreamRequest,
 	type SpawnRequest,
 	type SpawnResponse,
 	type StatusRequest,
@@ -26,13 +27,8 @@ export interface IpcRequestHandler {
 	(request: ListRequest): Promise<ListResponse | ErrorResponse> | ListResponse | ErrorResponse;
 	(request: StopRequest): Promise<StopResponse | ErrorResponse> | StopResponse | ErrorResponse;
 	(request: StatusRequest): Promise<StatusResponse | ErrorResponse> | StatusResponse | ErrorResponse;
-	(
-		request: RpcRequest,
-	):
-		| Promise<RpcBridgeResponse | RpcReadyResponse | ErrorResponse>
-		| RpcBridgeResponse
-		| RpcReadyResponse
-		| ErrorResponse;
+	(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse> | RpcBridgeResponse | ErrorResponse;
+	(request: RpcStreamRequest): Promise<RpcReadyResponse | ErrorResponse> | RpcReadyResponse | ErrorResponse;
 	(request: OrchestratorRequest): Promise<OrchestratorResponse> | OrchestratorResponse;
 	attach(
 		instanceId: string,
@@ -69,7 +65,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 			try {
 				const request = parseRequestLine(line);
-				if (request.type === "rpc" && request.command === undefined) {
+				if (request.type === "rpc_stream") {
 					const response = await handler(request);
 					if (!response.ok || response.type !== "rpc_ready" || !response.instance) {
 						socket.end(encodeMessage(response));

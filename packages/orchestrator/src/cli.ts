@@ -41,7 +41,7 @@ async function rpcStream(instanceId: string): Promise<void> {
 
 	await new Promise<void>((resolve, reject) => {
 		socket.once("connect", () => {
-			socket.write(encodeMessage({ type: "rpc", instanceId }));
+			socket.write(encodeMessage({ type: "rpc_stream", instanceId }));
 			resolve();
 		});
 		socket.once("error", reject);

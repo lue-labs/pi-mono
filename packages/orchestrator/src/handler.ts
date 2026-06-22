@@ -15,6 +15,7 @@ import type {
 	RpcBridgeResponse,
 	RpcReadyResponse,
 	RpcRequest,
+	RpcStreamRequest,
 	SpawnRequest,
 	SpawnResponse,
 	StatusRequest,
@@ -50,9 +51,8 @@ export async function handleIpcRequest(request: SpawnRequest): Promise<SpawnResp
 export async function handleIpcRequest(request: ListRequest): Promise<ListResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StopRequest): Promise<StopResponse | ErrorResponse>;
 export async function handleIpcRequest(request: StatusRequest): Promise<StatusResponse | ErrorResponse>;
-export async function handleIpcRequest(
-	request: RpcRequest,
-): Promise<RpcBridgeResponse | RpcReadyResponse | ErrorResponse>;
+export async function handleIpcRequest(request: RpcRequest): Promise<RpcBridgeResponse | ErrorResponse>;
+export async function handleIpcRequest(request: RpcStreamRequest): Promise<RpcReadyResponse | ErrorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse>;
 export async function handleIpcRequest(request: OrchestratorRequest): Promise<OrchestratorResponse> {
 	switch (request.type) {
@@ -103,17 +103,6 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 		}
 
 		case "rpc": {
-			if (!request.command) {
-				const instance = supervisor.getInstance(request.instanceId);
-				if (!instance) {
-					return unknownInstanceError(request.instanceId);
-				}
-				return {
-					type: "rpc_ready",
-					ok: true,
-					instance: toInstanceSummary(instance),
-				};
-			}
 			const response = await supervisor.handleRpc(request.instanceId, request.command);
 			if (!response) {
 				return unknownInstanceError(request.instanceId);
@@ -123,6 +112,18 @@ export async function handleIpcRequest(request: OrchestratorRequest): Promise<Or
 				type: "rpc_result",
 				ok: true,
 				response,
+			};
+		}
+
+		case "rpc_stream": {
+			const instance = supervisor.getInstance(request.instanceId);
+			if (!instance) {
+				return unknownInstanceError(request.instanceId);
+			}
+			return {
+				type: "rpc_ready",
+				ok: true,
+				instance: toInstanceSummary(instance),
 			};
 		}
 	}

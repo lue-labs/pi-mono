@@ -32,7 +32,12 @@ export interface StatusRequest {
 export interface RpcRequest {
 	type: "rpc";
 	instanceId: string;
-	command?: RpcCommand;
+	command: RpcCommand;
+}
+
+export interface RpcStreamRequest {
+	type: "rpc_stream";
+	instanceId: string;
 }
 
 export interface RequestMap {
@@ -41,6 +46,7 @@ export interface RequestMap {
 	stop: StopRequest;
 	status: StatusRequest;
 	rpc: RpcRequest;
+	rpc_stream: RpcStreamRequest;
 }
 
 export type OrchestratorRequest = RequestMap[keyof RequestMap];
@@ -101,7 +107,8 @@ export interface ResponseMap {
 	list: ListResponse;
 	stop: StopResponse;
 	status: StatusResponse;
-	rpc: RpcBridgeResponse | RpcReadyResponse;
+	rpc: RpcBridgeResponse;
+	rpc_stream: RpcReadyResponse;
 }
 
 export type OrchestratorResponse = ResponseMap[keyof ResponseMap] | ErrorResponse;
