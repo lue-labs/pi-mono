@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "0a3ca623ed77",
+  "strategy": "manual-commit",
+  "branch": "docs/vector2-oscillation-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/goals/goal-2026-06-22T13-04-42Z-68d5555e.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0a/3ca623ed77/0/metadata.json",
+      "transcript": "/0a/3ca623ed77/0/full.jsonl",
+      "content_hash": "/0a/3ca623ed77/0/content_hash.txt",
+      "prompt": "/0a/3ca623ed77/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 16981,
+    "cache_creation_tokens": 495890,
+    "cache_read_tokens": 10607309,
+    "output_tokens": 121150,
+    "api_call_count": 119
+  }
+}
