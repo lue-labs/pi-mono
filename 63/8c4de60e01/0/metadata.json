@@ -1,0 +1,108 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "638c4de60e01",
+  "session_id": "e04e0580-cfa2-450f-84b6-9c97d07ac537",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-22T11:53:27.341808Z",
+  "branch": "claude/thirsty-brattain-4111e9",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/goals/goal-agnostic-skill-eval-harness.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "70196700fcc3",
+  "token_usage": {
+    "input_tokens": 35891,
+    "cache_creation_tokens": 171612,
+    "cache_read_tokens": 2510791,
+    "output_tokens": 69159,
+    "api_call_count": 25
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01WYGcDkpxa6X7NrgDmCDPK6",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "work-closeout"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "70196700fcc3",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 91,
+        "end": 92,
+        "entry_ids": [
+          "ee23765d-01f0-4ac8-9a1d-b03d5c2cfd62"
+        ],
+        "tool_use_id": "toolu_01WYGcDkpxa6X7NrgDmCDPK6"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01WYGcDkpxa6X7NrgDmCDPK6"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: work-closeout",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01HB3JsfpERdMFhHbKYEL7bo",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "go"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "70196700fcc3",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 133,
+        "end": 134,
+        "entry_ids": [
+          "011ccc2c-0ac5-4cca-b3cb-038650b285cd"
+        ],
+        "tool_use_id": "toolu_01HB3JsfpERdMFhHbKYEL7bo"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01HB3JsfpERdMFhHbKYEL7bo"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: go",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "initial_attribution": {
+    "calculated_at": "2026-06-22T11:53:27.263591Z",
+    "agent_lines": 1,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 2,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

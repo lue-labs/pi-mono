@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "638c4de60e01",
+  "strategy": "manual-commit",
+  "branch": "claude/thirsty-brattain-4111e9",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/goals/goal-agnostic-skill-eval-harness.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/63/8c4de60e01/0/metadata.json",
+      "transcript": "/63/8c4de60e01/0/full.jsonl",
+      "content_hash": "/63/8c4de60e01/0/content_hash.txt",
+      "prompt": "/63/8c4de60e01/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 35891,
+    "cache_creation_tokens": 171612,
+    "cache_read_tokens": 2510791,
+    "output_tokens": 69159,
+    "api_call_count": 25
+  }
+}
