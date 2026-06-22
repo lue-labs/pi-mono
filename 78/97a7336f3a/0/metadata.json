@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "7897a7336f3a",
+  "session_id": "f4d12298-5eff-46dc-ae11-c16cc7403d87",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-22T13:51:28.127667Z",
+  "branch": "claude/angry-wu-e36cb6",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "docs/goals/goal-cross-harness-parity.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "14dd483cd363",
+  "token_usage": {
+    "input_tokens": 67050,
+    "cache_creation_tokens": 651931,
+    "cache_read_tokens": 15722376,
+    "output_tokens": 243341,
+    "api_call_count": 151
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-22T13:51:28.082328Z",
+    "agent_lines": 224,
+    "agent_removed": 1,
+    "human_added": 751,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 975,
+    "total_lines_changed": 976,
+    "agent_percentage": 23.05327868852459,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
