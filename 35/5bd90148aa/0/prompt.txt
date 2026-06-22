@@ -1,0 +1,67 @@
+I think this: no, CC/Codex learnings must be actively recalled like Pi's,
+
+how are the top agent memory tools handling this? can you research this with a subagent online and then give me recommendations based on that
+
+---
+
+continue
+
+---
+
+yes but these should only be written after we do a matt pocock grill with docs run first surely
+
+---
+
+I accept this, just need to understand better how it is implemented? do I run my own system or just use an existing system?
+
+---
+
+yes your recommendation, and lets have a one off migration of Obsidian contents into ~/.agents/memory after going through a pipeline to make sure we dont have duplication / stale / conflicting stuff etc
+
+---
+
+happy with B
+
+---
+
+happy with B
+
+---
+
+1. is it frozen at the sessions life or can it mutate for compaction events?
+2. Yes this is correct
+3. Yes
+4. Yep
+
+Yep I agree with this
+
+One thing I want to also clarify, how do we handle ongoing memory changes / updates on claude code as well as codex? And keeping those in sync with the global memory system?
+
+---
+
+I really like the chronice screen-memory injection
+
+I like the split of 3 and 2 for codex, but also 2 for claude code if there are useful memories there we should surface and use it
+
+---
+
+1. yes looks good
+2. yep
+
+How can we eval letta or memo0 shadows if we never used them?
+
+---
+
+do it and use adversial review when done
+
+---
+
+oracle is working,w hy did it not work for you? You can use browser tools / toolkit where necessary, and oracle cli tools hould word?
+
+---
+
+check my global cli I used it the other day and it worked fine, not via mcp
+
+---
+
+don't use my api key for gpt-5.5 pro, use the browser method with chatgpt with my logged in chatgpt account...

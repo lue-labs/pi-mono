@@ -1,0 +1,156 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "355bd90148aa",
+  "session_id": "2af496dc-fa07-4164-a184-de979524291f",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-22T19:43:52.493114Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 2,
+  "files_touched": [
+    "docs/adr/README.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "50dc6aec560e",
+  "token_usage": {
+    "input_tokens": 41394,
+    "cache_creation_tokens": 981024,
+    "cache_read_tokens": 24463711,
+    "output_tokens": 309974,
+    "api_call_count": 239
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01ETzf5rBhPSb9tuMuZ7AM33",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "50dc6aec560e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 15,
+        "end": 16,
+        "entry_ids": [
+          "a7bb8d4d-117c-4960-bdbb-088070e13cf8"
+        ],
+        "tool_use_id": "toolu_01ETzf5rBhPSb9tuMuZ7AM33"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01ETzf5rBhPSb9tuMuZ7AM33"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_0192xGerruvi3xrGrAJQCtWV",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "matt-pocock"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "50dc6aec560e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1111,
+        "end": 1112,
+        "entry_ids": [
+          "59ab9174-c4bc-43f9-99ea-ebc49523bf19"
+        ],
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: matt-pocock",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01XsRLzTUrk14A8j9BcwKW4h",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "adr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "50dc6aec560e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1310,
+        "end": 1311,
+        "entry_ids": [
+          "becfd826-8bbb-44cd-a2f9-9278e0e47b6a"
+        ],
+        "tool_use_id": "toolu_01XsRLzTUrk14A8j9BcwKW4h"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01XsRLzTUrk14A8j9BcwKW4h"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: adr",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-22T19:43:52.427822Z",
+    "agent_lines": 3,
+    "agent_removed": 0,
+    "human_added": 150,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 153,
+    "total_lines_changed": 153,
+    "agent_percentage": 1.9607843137254901,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 429,
+      "user_lines_removed": 0,
+      "agent_lines_added": 7,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/adr/0007-unified-cross-harness-memory-store.md": 44,
+        "docs/adr/0008-memory-cache-stability-contract.md": 40,
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/specs/cross-harness-memory-unification-spec.md": 66
+      }
+    }
+  ]
+}
