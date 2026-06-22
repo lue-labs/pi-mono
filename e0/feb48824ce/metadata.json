@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "e0feb48824ce",
+  "strategy": "manual-commit",
+  "branch": "feat/pi-doctor-orphan-mcp",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/pi-session-ram-diagnosis-2026-06-22.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e0/feb48824ce/0/metadata.json",
+      "transcript": "/e0/feb48824ce/0/full.jsonl",
+      "content_hash": "/e0/feb48824ce/0/content_hash.txt",
+      "prompt": "/e0/feb48824ce/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15924,
+    "cache_creation_tokens": 376677,
+    "cache_read_tokens": 10458026,
+    "output_tokens": 59776,
+    "api_call_count": 85
+  }
+}
