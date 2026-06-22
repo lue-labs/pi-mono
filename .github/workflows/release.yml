@@ -17,6 +17,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
+      version: ${{ steps.ca_version.outputs.version }}
     env:
       ANTHROPIC_API_KEY: ""
       ANTHROPIC_OAUTH_TOKEN: ""
@@ -120,3 +123,29 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node .github/scripts/create-github-releases.mjs '${{ steps.changesets.outputs.publishedPackages }}'
+
+      # Surface the just-published coding-agent (CLI) version so the binary build
+      # below only fires when the CLI itself releases (support-package-only
+      # releases don't need new binaries). Empty when coding-agent wasn't bumped.
+      - name: Extract coding-agent version
+        id: ca_version
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          v=$(node -p "(JSON.parse(process.env.PUBLISHED)||[]).find(p=>p.name==='@valkyriweb/pi-coding-agent')?.version || ''")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  # Build the 6-platform compiled binaries + a v<version> GitHub Release in the
+  # same trusted run as the publish. Replaces the dead `push: tags: v*` trigger
+  # (the fork only cuts scoped Changeset tags now). See pi-mono #111.
+  binaries:
+    needs: release
+    if: needs.release.outputs.published == 'true' && needs.release.outputs.version != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      tag: v${{ needs.release.outputs.version }}
+      source_ref: ${{ github.sha }}
+    secrets: inherit
