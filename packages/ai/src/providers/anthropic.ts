@@ -39,7 +39,7 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { resolveCloudflareBaseUrl } from "./cloudflare.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
-import { adjustMaxTokensForThinking, buildBaseOptions } from "./simple-options.ts";
+import { adjustMaxTokensForThinking, buildBaseOptions, MIN_THINKING_BUDGET } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 /**
@@ -1072,6 +1072,20 @@ export const streamSimpleAnthropic: StreamFunction<"anthropic-messages", SimpleS
 		options.reasoning,
 		options.thinkingBudgets,
 	);
+
+	// A tiny output cap (e.g. a cheap single-task fork with maxOutputTokens ~1500)
+	// drives the computed thinking budget below Anthropic's hard floor
+	// (budget_tokens must be >= 1024). Anthropic DROPS such a request as an empty
+	// completion instead of erroring loudly, silently breaking the fork for no good
+	// reason. When there is no room for a valid budget, disable thinking for this
+	// request rather than send an invalid sub-floor budget.
+	if (adjusted.thinkingBudget < MIN_THINKING_BUDGET) {
+		return streamAnthropic(model, context, {
+			...base,
+			maxTokens: adjusted.maxTokens,
+			thinkingEnabled: false,
+		} satisfies AnthropicOptions);
+	}
 
 	return streamAnthropic(model, context, {
 		...base,
