@@ -306,6 +306,13 @@ export class TUI extends Container {
 	private renderRequested = false;
 	private renderTimer: NodeJS.Timeout | undefined;
 	private lastRenderAt = 0;
+	/**
+	 * Whether the host terminal currently has focus (DEC mode 1004). When false,
+	 * renders are deferred (the last frame stays on screen) so an unfocused or
+	 * switched-away terminal does not burn CPU repainting; a single render flushes on
+	 * focus-in. Defaults true so terminals without 1004 support behave normally.
+	 */
+	private terminalFocused = true;
 	private static readonly MIN_RENDER_INTERVAL_MS = 16;
 	private cursorRow = 0; // Logical cursor row (end of rendered content)
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
@@ -727,6 +734,10 @@ export class TUI extends Container {
 				if (this.stopped || !this.renderRequested) {
 					return;
 				}
+				if (!this.terminalFocused) {
+					// Defer while unfocused; full-redraw state is retained and focus-in flushes it.
+					return;
+				}
 				this.renderRequested = false;
 				this.lastRenderAt = performance.now();
 				this.doRender();
@@ -740,6 +751,10 @@ export class TUI extends Container {
 
 	private scheduleRender(): void {
 		if (this.stopped || this.renderTimer || !this.renderRequested) {
+			return;
+		}
+		if (!this.terminalFocused) {
+			// Defer while unfocused; renderRequested stays true so focus-in catches up.
 			return;
 		}
 		const elapsed = performance.now() - this.lastRenderAt;
@@ -759,6 +774,9 @@ export class TUI extends Container {
 	}
 
 	private handleInput(data: string): void {
+		if (this.consumeFocusEvent(data)) {
+			return;
+		}
 		if (this.consumeOsc11BackgroundResponse(data)) {
 			return;
 		}
@@ -831,6 +849,33 @@ export class TUI extends Container {
 			}
 			this.focusedComponent.handleInput(data);
 			this.requestRender();
+		}
+	}
+
+	/**
+	 * Handle DEC mode 1004 focus events (ESC[I focus-in, ESC[O focus-out). On
+	 * focus-out we stop scheduling renders so spinner/idle repaints pause and the last
+	 * painted frame stays on screen; on focus-in we render once to catch up.
+	 */
+	private consumeFocusEvent(data: string): boolean {
+		if (data === "\x1b[I") {
+			this.setTerminalFocused(true);
+			return true;
+		}
+		if (data === "\x1b[O") {
+			this.setTerminalFocused(false);
+			return true;
+		}
+		return false;
+	}
+
+	private setTerminalFocused(focused: boolean): void {
+		if (this.terminalFocused === focused) {
+			return;
+		}
+		this.terminalFocused = focused;
+		if (focused && this.renderRequested) {
+			this.scheduleRender();
 		}
 	}
 

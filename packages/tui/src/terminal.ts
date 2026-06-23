@@ -146,6 +146,10 @@ export class ProcessTerminal implements Terminal {
 		// Enable bracketed paste mode - terminal will wrap pastes in \x1b[200~ ... \x1b[201~
 		process.stdout.write("\x1b[?2004h");
 
+		// Enable focus reporting (DEC mode 1004) so the TUI can pause repaints when the
+		// host terminal loses focus. Terminals without support ignore the unknown mode.
+		process.stdout.write("\x1b[?1004h");
+
 		// Set up resize handler immediately
 		process.stdout.on("resize", this.resizeHandler);
 
@@ -410,6 +414,9 @@ export class ProcessTerminal implements Terminal {
 
 		// Disable bracketed paste mode
 		process.stdout.write("\x1b[?2004l");
+
+		// Disable focus reporting
+		process.stdout.write("\x1b[?1004l");
 
 		const shouldDisableKittyProtocol = this.keyboardProtocolPushed || this._kittyProtocolActive;
 		this.clearKeyboardProtocolNegotiationBuffer();
