@@ -29,6 +29,15 @@ export function clampReasoning(
 	return effort;
 }
 
+/**
+ * Anthropic's budget-based thinking requires `budget_tokens >= 1024` (and
+ * strictly below `max_tokens`). A request that violates the floor is dropped as
+ * an EMPTY completion rather than a hard error — silently breaking small forks.
+ * Callers should disable thinking when the available room can't carry at least
+ * this many tokens. See `streamSimpleAnthropic`.
+ */
+export const MIN_THINKING_BUDGET = 1024;
+
 export function adjustMaxTokensForThinking(
 	// Undefined means no explicit caller cap. Use the model cap and fit thinking inside it.
 	baseMaxTokens: number | undefined,
