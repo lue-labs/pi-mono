@@ -181,12 +181,20 @@ function normalizeAzureBaseUrl(baseUrl: string): string {
 	}
 
 	const isAzureHost =
-		url.hostname.endsWith(".openai.azure.com") || url.hostname.endsWith(".cognitiveservices.azure.com");
+		url.hostname.endsWith(".openai.azure.com") ||
+		url.hostname.endsWith(".cognitiveservices.azure.com") ||
+		url.hostname.endsWith(".ai.azure.com");
 	const normalizedPath = url.pathname.replace(/\/+$/, "");
 
 	// Ensure Azure hosts have /openai/v1 as base path so the AzureOpenAI SDK
 	// can append /deployments/<model>/... and ?api-version=v1 correctly.
-	if (isAzureHost && (normalizedPath === "" || normalizedPath === "/" || normalizedPath === "/openai")) {
+	if (
+		isAzureHost &&
+		(normalizedPath === "" ||
+			normalizedPath === "/" ||
+			normalizedPath === "/openai" ||
+			normalizedPath === "/openai/v1/responses")
+	) {
 		url.pathname = "/openai/v1";
 		url.search = "";
 	}
