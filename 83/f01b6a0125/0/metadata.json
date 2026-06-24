@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "83f01b6a0125",
+  "session_id": "019ef579-336a-7e33-b781-5b486f82ffb0",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-24T11:43:19.310549Z",
+  "branch": "feat/remove-pi-worktree-write-guard",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/adr/0011-remove-pi-worktree-shared-checkout-write-guard.md",
+    "docs/pi-worktree.md",
+    "docs/worktree-isolation-spec.md",
+    "extensions/pi-worktree/package.json",
+    "extensions/pi-worktree/src/index.ts",
+    "extensions/pi-worktree/test/shell-guard.test.mjs",
+    "extensions/pi-worktree/test/worktree.test.mjs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "d3d1d544831d",
+  "checkpoint_transcript_start": 233,
+  "transcript_lines_at_start": 233,
+  "initial_attribution": {
+    "calculated_at": "2026-06-24T11:43:19.272896Z",
+    "agent_lines": 87,
+    "agent_removed": 611,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 87,
+    "total_lines_changed": 698,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
