@@ -80,6 +80,10 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@valkyriweb/pi-agent-core": _bundledPiAgentCore,
 	"@valkyriweb/pi-tui": _bundledPiTui,
 	"@valkyriweb/pi-ai": _bundledPiAi,
+	// Fork-scope extensions opt into the legacy global dispatch API by importing
+	// the explicit /compat subpath; register it so the resolve succeeds in the
+	// compiled binary (the bare @valkyriweb/pi-ai root stays the strict core).
+	"@valkyriweb/pi-ai/compat": _bundledPiAiCompat,
 	"@valkyriweb/pi-ai/oauth": _bundledPiAiOauth,
 	"@valkyriweb/pi-coding-agent": _bundledPiCodingAgent,
 	// Upstream package-name compatibility for third-party extensions that import
@@ -154,6 +158,7 @@ function getAliases(): Record<string, string> {
 		"@valkyriweb/pi-agent-core": piAgentCoreEntry,
 		"@valkyriweb/pi-tui": piTuiEntry,
 		"@valkyriweb/pi-ai": piAiEntry,
+		"@valkyriweb/pi-ai/compat": piAiCompatEntry,
 		"@valkyriweb/pi-ai/oauth": piAiOauthEntry,
 		// Upstream package-name compatibility: third-party extensions import the
 		// upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
