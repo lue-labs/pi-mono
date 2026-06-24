@@ -64,8 +64,19 @@ export function buildBfsArgs(input: { pattern: string; searchPath: string; limit
 	return args;
 }
 
-export function buildFdArgs(input: { pattern: string; searchPath: string; limit: number }): string[] {
-	const args = ["--glob", "--color=never", "--hidden", "--no-require-git", "--max-results", String(input.limit)];
+export function buildFdArgs(input: {
+	pattern: string;
+	searchPath: string;
+	limit: number;
+	insideGitRepo?: boolean;
+}): string[] {
+	const args = ["--glob", "--color=never", "--hidden"];
+
+	// fd normally ignores .gitignore outside git repos, so keep --no-require-git there.
+	// Inside repos, use fd's default git-aware behavior so parent .gitignore rules stop at
+	// nested repo boundaries: https://github.com/earendil-works/pi/issues/5960
+	if (!input.insideGitRepo) args.push("--no-require-git");
+	args.push("--max-results", String(input.limit));
 
 	// fd --glob matches against the basename unless --full-path is set; in --full-path
 	// mode it matches against the absolute candidate path, so a path-containing
@@ -94,9 +105,21 @@ async function resolveFindBackend(input: {
 
 	if (input.backend !== "bfs") {
 		const fdPath = await ensureTool("fd", true);
-		if (fdPath) return { backend: "fd", command: fdPath, args: buildFdArgs(input) };
+		if (fdPath) {
+			const insideGitRepo = await isInsideGitRepo(input.searchPath);
+			return { backend: "fd", command: fdPath, args: buildFdArgs({ ...input, insideGitRepo }) };
+		}
 	}
 	return undefined;
+}
+
+async function isInsideGitRepo(searchPath: string): Promise<boolean> {
+	for (let current = searchPath; ; ) {
+		if (await pathExists(path.join(current, ".git"))) return true;
+		const parent = path.dirname(current);
+		if (parent === current) return false;
+		current = parent;
+	}
 }
 
 export interface FindToolDetails {

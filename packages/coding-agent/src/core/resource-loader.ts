@@ -18,7 +18,12 @@ import {
 import { createEventBus, type EventBus } from "./event-bus.ts";
 import "./extensions/core-extension-actions.ts";
 import { actionSource, getActions, isHookPath, load } from "./extensions/extension-hooks.ts";
-import { createExtensionRuntime, loadExtensionFromFactory, loadExtensions } from "./extensions/loader.ts";
+import {
+	clearExtensionCache,
+	createExtensionRuntime,
+	loadExtensionFromFactory,
+	loadExtensionsCached,
+} from "./extensions/loader.ts";
 import type {
 	Extension,
 	ExtensionFactory,
@@ -270,6 +275,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private extensionThemeSourceInfos: Map<string, SourceInfo>;
 	private lastPromptPaths: string[];
 	private lastThemePaths: string[];
+	private loaded: boolean;
 
 	constructor(options: DefaultResourceLoaderOptions) {
 		this.cwd = resolvePath(options.cwd);
@@ -324,6 +330,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.extensionThemeSourceInfos = new Map();
 		this.lastPromptPaths = [];
 		this.lastThemePaths = [];
+		this.loaded = false;
 	}
 
 	getExtensions(): LoadExtensionsResult {
@@ -420,6 +427,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	async reload(options?: ResourceLoaderReloadOptions): Promise<void> {
+		if (this.loaded) {
+			clearExtensionCache();
+		}
+
 		let preTrustExtensions: LoadExtensionsResult | undefined;
 		if (options?.resolveProjectTrust) {
 			preTrustExtensions = await this.loadProjectTrustExtensions();
@@ -592,6 +603,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.appendSystemPrompt = this.appendSystemPromptOverride
 			? this.appendSystemPromptOverride(baseAppend)
 			: baseAppend;
+		this.loaded = true;
 	}
 
 	private async loadCurrentExtensionSet(options: { includeInlineFactories: boolean }): Promise<LoadExtensionsResult> {
@@ -608,7 +620,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const extensionRequests = this.noExtensions
 			? this.mergeExtensionRequests(cliEnabledExtensionRequests)
 			: this.mergeExtensionRequests([...cliEnabledExtensionRequests, ...enabledExtensionRequests]);
-		const extensionsResult = await loadExtensions(extensionRequests, this.cwd, this.eventBus);
+		const extensionsResult = await loadExtensionsCached(extensionRequests, this.cwd, this.eventBus);
 		// Per-extension config available to inline factories during the pre-trust bootstrap.
 		extensionsResult.runtime.extensionConfig = this.settingsManager.getExtensionConfig();
 		if (!options.includeInlineFactories) {
@@ -631,7 +643,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	): Promise<LoadExtensionsResult> {
 		const extensionPaths = extensionRequests.map((request) => request.path);
 		if (!preTrustExtensions) {
-			const extensionsResult = await loadExtensions(extensionRequests, this.cwd, this.eventBus);
+			const extensionsResult = await loadExtensionsCached(extensionRequests, this.cwd, this.eventBus);
 			// Carry per-extension tuning (settings.json extensionConfig{}, merged
 			// global ← project) on the runtime before inline/hook factories run, so
 			// `pi.getExtensionConfig(ns)` reads it at handler/init time.
@@ -661,7 +673,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 			const resolvedPath = this.resolveExtensionLoadPath(request.path);
 			return !preloadedByPath.has(resolvedPath) && !failedPreloadPaths.has(resolvedPath);
 		});
-		const remainingExtensions = await loadExtensions(
+		const remainingExtensions = await loadExtensionsCached(
 			remainingRequests,
 			this.cwd,
 			this.eventBus,

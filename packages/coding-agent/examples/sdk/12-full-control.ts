@@ -4,7 +4,7 @@
  * Replace everything - no discovery, explicit configuration.
  */
 
-import { getModel } from "@valkyriweb/pi-ai";
+import { getModel } from "@valkyriweb/pi-ai/compat";
 import {
 	AuthStorage,
 	createAgentSession,

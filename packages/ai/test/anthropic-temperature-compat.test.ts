@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { streamSimple } from "../src/index.ts";
+import { streamSimple } from "../src/compat.ts";
 import type { Context, Model, SimpleStreamOptions } from "../src/types.ts";
 import { type ModelPredicate, pickModel } from "./helpers/models.ts";
 

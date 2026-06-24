@@ -11,12 +11,12 @@
 
 import {
 	type Api,
-	getModels,
 	getSupportedThinkingLevels,
 	type KnownProvider,
 	type Model,
 	type ModelThinkingLevel,
 } from "@valkyriweb/pi-ai";
+import { getModels } from "@valkyriweb/pi-ai/compat";
 
 type ProviderModel<TProvider extends KnownProvider> = ReturnType<typeof getModels<TProvider>>[number];
 

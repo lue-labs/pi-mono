@@ -19,11 +19,11 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 	Type,
-} from "@valkyriweb/pi-ai";
+} from "@valkyriweb/pi-ai/compat";
 import {
 	getOpenAICodexWebSocketDebugStats,
-	streamSimpleOpenAICodexResponses,
-} from "../../ai/src/providers/openai-codex-responses.ts";
+	streamSimple as streamSimpleOpenAICodexResponses,
+} from "../../ai/src/api/openai-codex-responses.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createEventBus } from "../src/core/event-bus.ts";
 import { createExtensionRuntime } from "../src/core/extensions/loader.ts";

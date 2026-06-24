@@ -18,7 +18,8 @@
  * harness call is on the hot path for every BuildInterface invocation.
  */
 
-import { type Api, completeSimple, type Model } from "@valkyriweb/pi-ai";
+import type { Api, Model } from "@valkyriweb/pi-ai";
+import { completeSimple } from "@valkyriweb/pi-ai/compat";
 import type { ModelCaller } from "./ui-harness.ts";
 
 export interface PiModelCallerOptions {

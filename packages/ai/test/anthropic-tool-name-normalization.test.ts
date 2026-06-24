@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { stream } from "../src/index.ts";
+import { stream } from "../src/compat.ts";
 import type { Context, Tool } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 import { resolveApiKey } from "./oauth.ts";

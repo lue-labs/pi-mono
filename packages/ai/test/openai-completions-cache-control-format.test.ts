@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { streamOpenAICompletions } from "../src/providers/openai-completions.ts";
+import { stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
 import type { Model } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 

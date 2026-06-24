@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { streamSimple } from "../src/index.ts";
+import { streamSimple } from "../src/compat.ts";
 import { pickModel } from "./helpers/models.ts";
 
 // Empty tools arrays must NOT be serialized as `tools: []` — some OpenAI-compatible
@@ -128,6 +128,7 @@ describe("openai-completions empty tools handling", () => {
 	});
 
 	it("uses conservative OpenAI-compatible fields for Cloudflare AI Gateway /compat models", async () => {
+		process.env.CLOUDFLARE_API_KEY = "cf-token";
 		process.env.CLOUDFLARE_ACCOUNT_ID = "account-id";
 		process.env.CLOUDFLARE_GATEWAY_ID = "gateway-id";
 		const model = pickModel("cloudflare-ai-gateway", (m) => m.id.startsWith("workers-ai/"));
@@ -138,7 +139,7 @@ describe("openai-completions empty tools handling", () => {
 				systemPrompt: "You are helpful.",
 				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
 			},
-			{ apiKey: "test", maxTokens: 1234, reasoning: "high" },
+			{ maxTokens: 1234, reasoning: "high" },
 		).result();
 
 		const params = mockState.lastParams as {
@@ -160,10 +161,11 @@ describe("openai-completions empty tools handling", () => {
 		};
 		expect(clientOptions.baseURL).toBe("https://gateway.ai.cloudflare.com/v1/account-id/gateway-id/compat");
 		expect(clientOptions.defaultHeaders?.Authorization).toBeNull();
-		expect(clientOptions.defaultHeaders?.["cf-aig-authorization"]).toBe("Bearer test");
+		expect(clientOptions.defaultHeaders?.["cf-aig-authorization"]).toBe("Bearer cf-token");
 	});
 
 	it("uses provider env before process.env for Cloudflare AI Gateway base URL", async () => {
+		process.env.CLOUDFLARE_API_KEY = "cf-token";
 		process.env.CLOUDFLARE_ACCOUNT_ID = "process-account";
 		process.env.CLOUDFLARE_GATEWAY_ID = "process-gateway";
 		const model = pickModel("cloudflare-ai-gateway", (m) => m.id.startsWith("workers-ai/"));
@@ -174,7 +176,6 @@ describe("openai-completions empty tools handling", () => {
 				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
 			},
 			{
-				apiKey: "test",
 				env: {
 					CLOUDFLARE_ACCOUNT_ID: "provider-account",
 					CLOUDFLARE_GATEWAY_ID: "provider-gateway",
@@ -189,6 +190,7 @@ describe("openai-completions empty tools handling", () => {
 	});
 
 	it("preserves inline upstream Authorization for Cloudflare AI Gateway BYOK requests", async () => {
+		process.env.CLOUDFLARE_API_KEY = "cf-token";
 		process.env.CLOUDFLARE_ACCOUNT_ID = "account-id";
 		process.env.CLOUDFLARE_GATEWAY_ID = "gateway-id";
 		const model = pickModel(
@@ -201,7 +203,7 @@ describe("openai-completions empty tools handling", () => {
 			{
 				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
 			},
-			{ apiKey: "cf-token", headers: { Authorization: "Bearer upstream-token" } },
+			{ headers: { Authorization: "Bearer upstream-token" } },
 		).result();
 
 		const clientOptions = mockState.lastClientOptions as { defaultHeaders?: Record<string, unknown> };
@@ -210,6 +212,7 @@ describe("openai-completions empty tools handling", () => {
 	});
 
 	it("sends session affinity headers for Workers AI through Cloudflare AI Gateway", async () => {
+		process.env.CLOUDFLARE_API_KEY = "cf-token";
 		process.env.CLOUDFLARE_ACCOUNT_ID = "account-id";
 		process.env.CLOUDFLARE_GATEWAY_ID = "gateway-id";
 		const workersModel = pickModel("cloudflare-ai-gateway", (m) => m.id.startsWith("workers-ai/"));
@@ -219,7 +222,7 @@ describe("openai-completions empty tools handling", () => {
 			{
 				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
 			},
-			{ apiKey: "test", sessionId: "session-1" },
+			{ sessionId: "session-1" },
 		).result();
 
 		const clientOptions = mockState.lastClientOptions as { defaultHeaders?: Record<string, string> };

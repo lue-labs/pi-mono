@@ -12,7 +12,7 @@ import {
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
 	type OAuthProviderId,
-} from "@valkyriweb/pi-ai";
+} from "@valkyriweb/pi-ai/compat";
 import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@valkyriweb/pi-ai/oauth";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -46,6 +46,10 @@ function resolveAuthProviderCandidates(provider: string): string[] {
 		return ["openai", "openai-codex"];
 	}
 	return [provider];
+}
+
+export interface GetApiKeyOptions {
+	includeFallback?: boolean;
 }
 
 type LockResult<T> = {
@@ -497,9 +501,8 @@ export class AuthStorage {
 	 * 2. API key from auth.json
 	 * 3. OAuth token from auth.json (auto-refreshed with locking)
 	 * 4. Environment variable
-	 * 5. Fallback resolver (models.json custom providers)
 	 */
-	async getApiKey(providerId: string, options?: { includeFallback?: boolean }): Promise<string | undefined> {
+	async getApiKey(providerId: string, options: GetApiKeyOptions = {}): Promise<string | undefined> {
 		// Runtime override takes highest priority
 		for (const candidate of resolveAuthProviderCandidates(providerId)) {
 			const runtimeKey = this.runtimeOverrides.get(candidate);
@@ -555,6 +558,8 @@ export class AuthStorage {
 			}
 		}
 
+		if (options.includeFallback === false) return undefined;
+
 		// Fall back to environment variable
 		for (const candidate of resolveAuthProviderCandidates(providerId)) {
 			const envKey = getEnvApiKey(candidate);
@@ -562,11 +567,9 @@ export class AuthStorage {
 		}
 
 		// Fall back to custom resolver (e.g., models.json custom providers)
-		if (options?.includeFallback !== false) {
-			for (const candidate of resolveAuthProviderCandidates(providerId)) {
-				const fallbackKey = this.fallbackResolver?.(candidate);
-				if (fallbackKey) return fallbackKey;
-			}
+		for (const candidate of resolveAuthProviderCandidates(providerId)) {
+			const fallbackKey = this.fallbackResolver?.(candidate);
+			if (fallbackKey) return fallbackKey;
 		}
 
 		return undefined;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getModel, getSupportedThinkingLevels } from "../src/models.ts";
+import { getModel } from "../src/compat.ts";
+import { getSupportedThinkingLevels } from "../src/models.ts";
 import { allOf, isReasoning, pickModel, supportsThinkingLevel } from "./helpers/models.ts";
 
 // These tests validate getSupportedThinkingLevels against capability classes pulled

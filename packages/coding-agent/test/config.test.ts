@@ -191,7 +191,7 @@ describe("detectInstallMethod", () => {
 	test("self-updates source checkout installs from configured command", () => {
 		createSourceCheckout();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", undefined, [
+		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", undefined, undefined, [
 			"/Users/luke/Projects/personal/rusty/scripts/update-pi",
 		]);
 
@@ -240,6 +240,29 @@ describe("detectInstallMethod", () => {
 				"@valkyriweb/pi-coding-agent",
 			],
 			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @valkyriweb/pi-coding-agent`,
+		});
+	});
+
+	test("self-updates exact npm versions without uninstalling the current package", () => {
+		const { prefix } = createNpmPrefixInstall();
+
+		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent", undefined, {
+			packageName: "@earendil-works/pi-coding-agent",
+			installSpec: "@earendil-works/pi-coding-agent@1.2.3",
+		});
+
+		expect(command).toEqual({
+			command: "npm",
+			args: [
+				"--prefix",
+				prefix,
+				"install",
+				"-g",
+				"--ignore-scripts",
+				"--min-release-age=0",
+				"@earendil-works/pi-coding-agent@1.2.3",
+			],
+			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent@1.2.3`,
 		});
 	});
 

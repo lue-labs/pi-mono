@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { streamSimple } from "../src/index.ts";
+import { streamSimple } from "../src/compat.ts";
 import type { Context } from "../src/types.ts";
 import { pickModel, supportsThinkingLevel } from "./helpers/models.ts";
 

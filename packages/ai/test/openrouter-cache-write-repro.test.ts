@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completeSimple } from "../src/index.ts";
+import { completeSimple } from "../src/compat.ts";
 import { pickModel } from "./helpers/models.ts";
 
 function createLongSystemPrompt(): string {
