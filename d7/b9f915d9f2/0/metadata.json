@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "d7b9f915d9f2",
+  "session_id": "019ef579-336a-7e33-b781-5b486f82ffb0",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-24T11:58:55.175741Z",
+  "branch": "feat/remove-pi-worktree-write-guard",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".changeset/remove-pi-worktree-write-guard.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "d3d1d544831d",
+  "checkpoint_transcript_start": 233,
+  "transcript_lines_at_start": 233,
+  "initial_attribution": {
+    "calculated_at": "2026-06-24T11:58:55.137586Z",
+    "agent_lines": 17,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 17,
+    "total_lines_changed": 17,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
