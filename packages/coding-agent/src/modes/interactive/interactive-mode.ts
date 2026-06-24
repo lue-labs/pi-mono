@@ -385,7 +385,6 @@ export class InteractiveMode {
 		| { id: string; component: Component & { dispose?(): void }; handle: OverlayHandle }
 		| undefined = undefined;
 	private selectedExtensionFooterId: string | undefined = undefined;
-	private footerInputUnsubscribe: (() => void) | undefined = undefined;
 
 	// Extension UI state
 	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
@@ -2700,10 +2699,13 @@ export class InteractiveMode {
 	// =========================================================================
 
 	private setupKeyHandlers(): void {
-		this.footerInputUnsubscribe?.();
-		this.footerInputUnsubscribe = this.ui.addInputListener((data) =>
-			this.handleExtensionFooterNavInput(data) ? { consume: true } : undefined,
-		);
+		// Footer pill navigation runs only through the default editor's `onPreInput`
+		// seam (see handlePreInput). A global ui.addInputListener was registered here
+		// historically, but it ran before the focused component and consumed up/down
+		// even while a focused custom component (e.g. AskUserQuestion) needed those
+		// arrows — hijacking modal navigation. It also pre-empted the up-arrow
+		// queued-message recall it was meant to fall behind. onPreInput only fires
+		// when the default editor is focused, so footer nav stays scoped correctly.
 
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
@@ -6217,8 +6219,6 @@ export class InteractiveMode {
 			this.ui.terminal.setProgress(false);
 		}
 		this.stopWorkingLoader();
-		this.footerInputUnsubscribe?.();
-		this.footerInputUnsubscribe = undefined;
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
