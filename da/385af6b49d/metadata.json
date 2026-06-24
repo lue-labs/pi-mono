@@ -1,0 +1,18 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "da385af6b49d",
+  "strategy": "manual-commit",
+  "branch": "lue/pi-ai-080-compat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/agent-routing.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/da/385af6b49d/0/metadata.json",
+      "transcript": "/da/385af6b49d/0/full.jsonl",
+      "content_hash": "/da/385af6b49d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
