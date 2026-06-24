@@ -1,0 +1,311 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "3ea5d7b43b3b",
+  "session_id": "2af496dc-fa07-4164-a184-de979524291f",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-24T21:03:09.735118Z",
+  "branch": "lue/bundle-boot-smoke-gate",
+  "checkpoints_count": 14,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/runtime-loading.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "b7792d1dba66",
+  "token_usage": {
+    "input_tokens": 212933,
+    "cache_creation_tokens": 3645813,
+    "cache_read_tokens": 127666802,
+    "output_tokens": 1362688,
+    "api_call_count": 1092
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-go-2026-06-23T13:10:18.495614Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "go"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "92b46b5c7278",
+      "timestamp": "2026-06-23T13:10:18.495614Z",
+      "native": {
+        "command": "/go"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/go",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01ETzf5rBhPSb9tuMuZ7AM33",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 15,
+        "end": 16,
+        "entry_ids": [
+          "a7bb8d4d-117c-4960-bdbb-088070e13cf8"
+        ],
+        "tool_use_id": "toolu_01ETzf5rBhPSb9tuMuZ7AM33"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01ETzf5rBhPSb9tuMuZ7AM33"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_0192xGerruvi3xrGrAJQCtWV",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "matt-pocock"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1111,
+        "end": 1112,
+        "entry_ids": [
+          "59ab9174-c4bc-43f9-99ea-ebc49523bf19"
+        ],
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: matt-pocock",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01XsRLzTUrk14A8j9BcwKW4h",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "adr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1310,
+        "end": 1311,
+        "entry_ids": [
+          "becfd826-8bbb-44cd-a2f9-9278e0e47b6a"
+        ],
+        "tool_use_id": "toolu_01XsRLzTUrk14A8j9BcwKW4h"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01XsRLzTUrk14A8j9BcwKW4h"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: adr",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01Gm2GQQEqKz2e9774Pb3ad8",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "paperclip"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 2067,
+        "end": 2068,
+        "entry_ids": [
+          "49dcf56b-838f-4788-8ff4-771892cb60da"
+        ],
+        "tool_use_id": "toolu_01Gm2GQQEqKz2e9774Pb3ad8"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Gm2GQQEqKz2e9774Pb3ad8"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: paperclip",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01VcGkrZTnYQEhhLbvQV4fVm",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "land"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 5103,
+        "end": 5104,
+        "entry_ids": [
+          "82913e20-61bc-4f25-95a5-947db4d43cc0"
+        ],
+        "tool_use_id": "toolu_01VcGkrZTnYQEhhLbvQV4fVm"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01VcGkrZTnYQEhhLbvQV4fVm"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: land",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_012JoG576RUrAHMRQftqPCsR",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "deliberate"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 5986,
+        "end": 5987,
+        "entry_ids": [
+          "1807cdfb-c720-4777-b2e5-dc9dde9d132e"
+        ],
+        "tool_use_id": "toolu_012JoG576RUrAHMRQftqPCsR"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_012JoG576RUrAHMRQftqPCsR"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: deliberate",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01DUB5wdAp53eLWSwBEYdik4",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "go"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 7082,
+        "end": 7083,
+        "entry_ids": [
+          "cfd23054-da72-4ae3-86cb-7ed8f059f261"
+        ],
+        "tool_use_id": "toolu_01DUB5wdAp53eLWSwBEYdik4"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DUB5wdAp53eLWSwBEYdik4"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: go",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_011S5TktbcaX3p9DuBAnS8yC",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "land"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 7334,
+        "end": 7335,
+        "entry_ids": [
+          "7aa440c2-7098-4209-b60a-5e8ab01a2f1b"
+        ],
+        "tool_use_id": "toolu_011S5TktbcaX3p9DuBAnS8yC"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_011S5TktbcaX3p9DuBAnS8yC"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: land",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 50
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-24T21:03:09.478537Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 210,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 210,
+    "total_lines_changed": 211,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
