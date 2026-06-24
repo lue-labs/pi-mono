@@ -1,0 +1,18 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "c2125037120e",
+  "strategy": "manual-commit",
+  "branch": "chore/ci-review-opus-4-8-200k",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c2/125037120e/0/metadata.json",
+      "transcript": "/c2/125037120e/0/full.jsonl",
+      "content_hash": "/c2/125037120e/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
