@@ -44,6 +44,16 @@ export interface TruncationOptions {
 	maxBytes?: number;
 }
 
+/**
+ * Truncation options that disable every line/byte cap. Used by the `full` tool
+ * parameter so a single opt-in flag returns complete output. truncateHead and
+ * truncateTail short-circuit to "no truncation" when both bounds are Infinity.
+ */
+export const FULL_TRUNCATION: TruncationOptions = {
+	maxLines: Number.POSITIVE_INFINITY,
+	maxBytes: Number.POSITIVE_INFINITY,
+};
+
 function splitLinesForCounting(content: string): string[] {
 	if (content.length === 0) {
 		return [];

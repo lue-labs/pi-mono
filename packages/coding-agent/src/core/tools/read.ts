@@ -15,12 +15,25 @@ import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/type
 import { resolveReadPathAsync, resolveToCwd } from "./path-utils.ts";
 import { getTextOutput, renderToolPath, replaceTabs, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
+import {
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	FULL_TRUNCATION,
+	formatSize,
+	type TruncationResult,
+	truncateHead,
+} from "./truncate.ts";
 
 const readSchema = Type.Object({
 	path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
 	offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
 	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
+	full: Type.Optional(
+		Type.Boolean({
+			description:
+				"Return the entire file with no line/byte truncation. Use only when you genuinely need the whole file in one call instead of paging with offset/limit. Defaults to false.",
+		}),
+	),
 });
 
 export type ReadToolInput = Static<typeof readSchema>;
@@ -214,7 +227,7 @@ export function createReadToolDefinition(
 	return {
 		name: toolName,
 		label,
-		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
+		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Pass full:true to read the entire file in one call when you genuinely need all of it.`,
 		promptSnippet: "Read file contents",
 		promptGuidelines: [
 			"Use read to examine files instead of cat or sed.",
@@ -224,7 +237,7 @@ export function createReadToolDefinition(
 		parameters: readSchema,
 		async execute(
 			_toolCallId,
-			{ path, offset, limit }: { path: string; offset?: number; limit?: number },
+			{ path, offset, limit, full }: { path: string; offset?: number; limit?: number; full?: boolean },
 			signal?: AbortSignal,
 			_onUpdate?,
 			ctx?,
@@ -305,7 +318,7 @@ export function createReadToolDefinition(
 									selectedContent = allLines.slice(startLine).join("\n");
 								}
 								// Apply truncation, respecting both line and byte limits.
-								const truncation = truncateHead(selectedContent);
+								const truncation = truncateHead(selectedContent, full ? FULL_TRUNCATION : undefined);
 								let outputText: string;
 								if (truncation.firstLineExceedsLimit) {
 									// First line alone exceeds the byte limit. Point the model at a bash fallback.

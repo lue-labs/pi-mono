@@ -65,6 +65,12 @@ const bashSchema = Type.Object({
 				"Set to true to stream output live to the TUI but return only an exit/size summary to the model context. Use for long monitoring loops (reboot waits, log tails, progress meters) where the streaming output is for human eyes and would be wasted tokens in context. Incompatible with run_in_background.",
 		}),
 	),
+	full: Type.Optional(
+		Type.Boolean({
+			description:
+				"Return the entire command output with no line/byte truncation (and skip tokenjuice compaction). Use only when you genuinely need the complete output. Defaults to false.",
+		}),
+	),
 });
 
 // ---------- Background bash registry ----------
@@ -1335,7 +1341,7 @@ export function createBashToolDefinition(
 	return {
 		name: toolName,
 		label,
-		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first); if truncated, full output is saved to a temp file. Optionally provide a timeout in seconds. IMPORTANT: prefer native file tools for repo exploration (Find/Ls for paths, Grep for content, Read/Edit/Write for files); standalone \`grep\`/\`rg\`/\`find\`/\`ls\` in Bash is rejected, though pipeline filters on command output (e.g. \`kubectl ... | grep Ready\`) are fine. Pass run_in_background:true to run detached and return immediately with a bgId — a task_notification fires on completion (do not poll); read with bash_output(bgId), stop with bash_kill(bgId). Pass tui_only:true to stream output to the TUI but return only an exit/size summary to context (incompatible with run_in_background).`,
+		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first); if truncated, full output is saved to a temp file (or pass full:true to return the complete output inline when you truly need all of it). Optionally provide a timeout in seconds. IMPORTANT: prefer native file tools for repo exploration (Find/Ls for paths, Grep for content, Read/Edit/Write for files); standalone \`grep\`/\`rg\`/\`find\`/\`ls\` in Bash is rejected, though pipeline filters on command output (e.g. \`kubectl ... | grep Ready\`) are fine. Pass run_in_background:true to run detached and return immediately with a bgId — a task_notification fires on completion (do not poll); read with bash_output(bgId), stop with bash_kill(bgId). Pass tui_only:true to stream output to the TUI but return only an exit/size summary to context (incompatible with run_in_background).`,
 		promptSnippet:
 			"Execute bash commands; set run_in_background:true for long-running work and read later with bash_output",
 		executionMode: "sequential",
@@ -1357,12 +1363,14 @@ export function createBashToolDefinition(
 				timeout,
 				run_in_background,
 				tui_only,
+				full,
 			}: {
 				command: string;
 				workdir?: string;
 				timeout?: number | false;
 				run_in_background?: boolean;
 				tui_only?: boolean;
+				full?: boolean;
 			},
 			signal?: AbortSignal,
 			onUpdate?,
@@ -1431,7 +1439,11 @@ export function createBashToolDefinition(
 			const startedAt = Date.now();
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
 			const spawnContext = resolveSpawnContext(resolvedCommand, effectiveCwd, spawnHook);
-			const output = new OutputAccumulator({ tempFilePrefix: "pi-bash", maxBytes: BASH_MAX_OUTPUT_BYTES });
+			const output = new OutputAccumulator({
+				tempFilePrefix: "pi-bash",
+				maxBytes: full ? Number.POSITIVE_INFINITY : BASH_MAX_OUTPUT_BYTES,
+				maxLines: full ? Number.POSITIVE_INFINITY : undefined,
+			});
 			let acceptingOutput = true;
 			let updateTimer: NodeJS.Timeout | undefined;
 			let updateDirty = false;

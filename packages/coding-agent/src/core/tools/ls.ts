@@ -9,11 +9,17 @@ import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/type
 import { pathExists, resolveToCwd } from "./path-utils.ts";
 import { getTextOutput, renderToolPath, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
-import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
+import { DEFAULT_MAX_BYTES, FULL_TRUNCATION, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
 const lsSchema = Type.Object({
 	path: Type.Optional(Type.String({ description: "Directory to list (default: current directory)" })),
 	limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
+	full: Type.Optional(
+		Type.Boolean({
+			description:
+				"Return ALL entries with no entry-count/byte truncation (and skip tokenjuice compaction). Use only when you genuinely need the complete listing. Defaults to false.",
+		}),
+	),
 });
 
 export type LsToolInput = Static<typeof lsSchema>;
@@ -128,7 +134,7 @@ export function createLsToolDefinition(
 		parameters: lsSchema,
 		async execute(
 			_toolCallId,
-			{ path, limit }: { path?: string; limit?: number },
+			{ path, limit, full }: { path?: string; limit?: number; full?: boolean },
 			signal?: AbortSignal,
 			_onUpdate?,
 			_ctx?,
@@ -145,7 +151,7 @@ export function createLsToolDefinition(
 				(async () => {
 					try {
 						const dirPath = resolveToCwd(path || ".", cwd);
-						const effectiveLimit = limit ?? DEFAULT_LIMIT;
+						const effectiveLimit = full ? Number.MAX_SAFE_INTEGER : (limit ?? DEFAULT_LIMIT);
 
 						// Check if path exists.
 						if (!(await ops.exists(dirPath))) {
@@ -202,7 +208,10 @@ export function createLsToolDefinition(
 
 						const rawOutput = results.join("\n");
 						// Apply byte truncation. There is no separate line limit because entry count is already capped.
-						const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+						const truncation = truncateHead(
+							rawOutput,
+							full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
+						);
 						let output = truncation.content;
 						const details: LsToolDetails = {};
 						// Build actionable notices for truncation and entry limits.
