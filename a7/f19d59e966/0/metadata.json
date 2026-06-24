@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "a7f19d59e966",
+  "session_id": "019ef579-336a-7e33-b781-5b486f82ffb0",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-24T07:32:14.66339Z",
+  "branch": "feat/pi-mode-guidance-first-plan",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".changeset/pi-mode-guidance-first-plan.md",
+    "extensions/pi-mode/CHANGELOG.md",
+    "extensions/pi-mode/README.md",
+    "extensions/pi-mode/docs/plan-playbook.md",
+    "extensions/pi-mode/src/command-split.ts",
+    "extensions/pi-mode/src/index.ts",
+    "extensions/pi-mode/src/mode.ts",
+    "extensions/pi-mode/src/playbook.ts",
+    "extensions/pi-mode/src/read-only.ts",
+    "extensions/pi-mode/test-load.mjs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "d3d1d544831d",
+  "checkpoint_transcript_start": 233,
+  "transcript_lines_at_start": 233,
+  "initial_attribution": {
+    "calculated_at": "2026-06-24T07:32:14.624566Z",
+    "agent_lines": 361,
+    "agent_removed": 512,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 361,
+    "total_lines_changed": 873,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

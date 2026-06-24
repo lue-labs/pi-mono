@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "a7f19d59e966",
+  "strategy": "manual-commit",
+  "branch": "feat/pi-mode-guidance-first-plan",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".changeset/pi-mode-guidance-first-plan.md",
+    "extensions/pi-mode/CHANGELOG.md",
+    "extensions/pi-mode/README.md",
+    "extensions/pi-mode/docs/plan-playbook.md",
+    "extensions/pi-mode/src/command-split.ts",
+    "extensions/pi-mode/src/index.ts",
+    "extensions/pi-mode/src/mode.ts",
+    "extensions/pi-mode/src/playbook.ts",
+    "extensions/pi-mode/src/read-only.ts",
+    "extensions/pi-mode/test-load.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a7/f19d59e966/0/metadata.json",
+      "transcript": "/a7/f19d59e966/0/full.jsonl",
+      "content_hash": "/a7/f19d59e966/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
