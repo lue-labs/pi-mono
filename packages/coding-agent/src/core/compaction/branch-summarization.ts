@@ -6,8 +6,8 @@
  */
 
 import type { AgentMessage, StreamFn } from "@valkyriweb/pi-agent-core";
-import type { Model, SimpleStreamOptions } from "@valkyriweb/pi-ai";
-import { completeSimple } from "@valkyriweb/pi-ai";
+import type { Model, SimpleStreamOptions } from "@valkyriweb/pi-ai/compat";
+import { completeSimple } from "@valkyriweb/pi-ai/compat";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,

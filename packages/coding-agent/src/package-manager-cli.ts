@@ -12,6 +12,7 @@ import {
 	getSelfUpdateUnavailableInstruction,
 	PACKAGE_NAME,
 	type SelfUpdateCommand,
+	type SelfUpdatePackageTarget,
 	VERSION,
 } from "./config.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
@@ -355,11 +356,13 @@ function updateTargetIncludesExtensions(target: UpdateTarget): boolean {
 
 function printSelfUpdateUnavailable(
 	npmCommand?: string[],
-	updatePackageName = PACKAGE_NAME,
+	updatePackageTarget: SelfUpdatePackageTarget = PACKAGE_NAME,
 	sourceUpdateCommand?: string[],
 ): void {
 	console.error(`error: ${APP_NAME} cannot self-update this installation.`);
-	console.error(getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand, updatePackageName, sourceUpdateCommand));
+	console.error(
+		getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand, updatePackageTarget, sourceUpdateCommand),
+	);
 
 	const entrypoint = process.argv[1];
 	if (entrypoint) {
@@ -394,27 +397,38 @@ function printSelfUpdateNote(note: string): void {
 
 interface SelfUpdatePlan {
 	packageName: string;
+	installSpec: string;
+	version: string;
 	shouldRun: boolean;
 	note?: string;
 }
 
 async function getSelfUpdatePlan(force: boolean): Promise<SelfUpdatePlan> {
-	if (force) {
-		return { packageName: PACKAGE_NAME, shouldRun: true };
+	let latestRelease: Awaited<ReturnType<typeof getLatestPiRelease>>;
+	try {
+		latestRelease = await getLatestPiRelease(VERSION);
+	} catch (error: unknown) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`Could not determine latest ${APP_NAME} version: ${message}`);
+	}
+	if (!latestRelease) {
+		throw new Error(`Could not determine latest ${APP_NAME} version.`);
 	}
 
-	try {
-		const latestRelease = await getLatestPiRelease(VERSION);
-		const packageName = latestRelease?.packageName ?? PACKAGE_NAME;
-		if (!latestRelease || packageName !== PACKAGE_NAME || isNewerPackageVersion(latestRelease.version, VERSION)) {
-			return { packageName, shouldRun: true, ...(latestRelease?.note ? { note: latestRelease.note } : {}) };
-		}
-	} catch {
-		return { packageName: PACKAGE_NAME, shouldRun: true };
+	const packageName = latestRelease.packageName ?? PACKAGE_NAME;
+	const installSpec = `${packageName}@${latestRelease.version}`;
+	if (force || packageName !== PACKAGE_NAME || isNewerPackageVersion(latestRelease.version, VERSION)) {
+		return {
+			packageName,
+			installSpec,
+			version: latestRelease.version,
+			...(latestRelease.note ? { note: latestRelease.note } : {}),
+			shouldRun: true,
+		};
 	}
 
 	console.log(chalk.green(`${APP_NAME} is already up to date (v${VERSION})`));
-	return { packageName: PACKAGE_NAME, shouldRun: false };
+	return { packageName, installSpec, version: latestRelease.version, shouldRun: false };
 }
 
 async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
@@ -723,14 +737,18 @@ export async function handlePackageCommand(
 						process.exitCode = 1;
 						return true;
 					}
+					const selfUpdateTarget = {
+						packageName: selfUpdatePlan.packageName,
+						installSpec: selfUpdatePlan.installSpec,
+					};
 					const selfUpdateCommand = getSelfUpdateCommand(
 						PACKAGE_NAME,
 						selfUpdateNpmCommand,
-						selfUpdatePlan.packageName,
+						selfUpdateTarget,
 						selfUpdateSourceCommand,
 					);
 					if (!selfUpdateCommand) {
-						printSelfUpdateUnavailable(selfUpdateNpmCommand, selfUpdatePlan.packageName, selfUpdateSourceCommand);
+						printSelfUpdateUnavailable(selfUpdateNpmCommand, selfUpdateTarget, selfUpdateSourceCommand);
 						process.exitCode = 1;
 						return true;
 					}
@@ -749,7 +767,7 @@ export async function handlePackageCommand(
 						process.exitCode = 1;
 						return true;
 					}
-					console.log(chalk.green(`Updated ${APP_NAME}`));
+					console.log(chalk.green(`Updated ${APP_NAME} from ${VERSION} to ${selfUpdatePlan.version}`));
 				}
 				return true;
 			}

@@ -13,7 +13,7 @@
  */
 
 import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import { complete, type Message } from "@valkyriweb/pi-ai";
+import { complete, type Message } from "@valkyriweb/pi-ai/compat";
 import type { ExtensionAPI, SessionEntry } from "@valkyriweb/pi-coding-agent";
 import { BorderedLoader, convertToLlm, serializeConversation } from "@valkyriweb/pi-coding-agent";
 

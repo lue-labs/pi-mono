@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { complete, getEnvApiKey } from "../src/index.ts";
+import { complete, getEnvApiKey } from "../src/compat.ts";
 import type { AssistantMessage, Context, Message, Tool, ToolCall } from "../src/types.ts";
 import { allOf, isReasoning, pickModel } from "./helpers/models.ts";
 

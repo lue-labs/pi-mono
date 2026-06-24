@@ -13,7 +13,8 @@
  * surfaces as a clear, actionable failure rather than an `undefined` model.
  */
 
-import { getModels, getSupportedThinkingLevels } from "../../src/models.ts";
+import { getModels } from "../../src/compat.ts";
+import { getSupportedThinkingLevels } from "../../src/models.ts";
 import type { Api, KnownProvider, Model, ModelThinkingLevel } from "../../src/types.ts";
 
 type ProviderModel<TProvider extends KnownProvider> = ReturnType<typeof getModels<TProvider>>[number];

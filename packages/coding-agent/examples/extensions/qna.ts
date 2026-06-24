@@ -7,7 +7,7 @@
  * 3. Loads the result into the editor for user to fill in answers
  */
 
-import { complete, type UserMessage } from "@valkyriweb/pi-ai";
+import { complete, type UserMessage } from "@valkyriweb/pi-ai/compat";
 import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
 import { BorderedLoader } from "@valkyriweb/pi-coding-agent";
 

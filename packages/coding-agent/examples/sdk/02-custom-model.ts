@@ -4,7 +4,7 @@
  * Shows how to select a specific model and thinking level.
  */
 
-import { getModel } from "@valkyriweb/pi-ai";
+import { getModel } from "@valkyriweb/pi-ai/compat";
 import { AuthStorage, createAgentSession, ModelRegistry } from "@valkyriweb/pi-coding-agent";
 
 // Set up auth storage and model registry

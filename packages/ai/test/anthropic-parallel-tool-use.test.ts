@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { streamAnthropic } from "../src/providers/anthropic.ts";
+import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
 import type { Tool } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 

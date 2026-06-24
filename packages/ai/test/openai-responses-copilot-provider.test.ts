@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getModels } from "../src/models.ts";
-import { streamOpenAIResponses } from "../src/providers/openai-responses.ts";
+import { stream as streamOpenAIResponses } from "../src/api/openai-responses.ts";
+import { getModels } from "../src/compat.ts";
 import type { Model } from "../src/types.ts";
 import { isReasoning, pickModel, supportsThinkingLevel } from "./helpers/models.ts";
 

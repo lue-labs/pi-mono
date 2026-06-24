@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { streamAzureOpenAIResponses } from "../src/providers/azure-openai-responses.ts";
+import { stream as streamAzureOpenAIResponses } from "../src/api/azure-openai-responses.ts";
 import type { Context } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 

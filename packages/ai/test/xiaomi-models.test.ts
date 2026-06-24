@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getModels } from "../src/models.ts";
+import { getModels } from "../src/compat.ts";
 
 describe("Xiaomi MiMo models", () => {
 	it("keeps mimo-v2-flash on the API billing provider", () => {

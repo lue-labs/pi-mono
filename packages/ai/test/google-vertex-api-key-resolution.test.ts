@@ -45,7 +45,7 @@ vi.mock("@google/genai", () => {
 	};
 });
 
-import { streamGoogleVertex } from "../src/providers/google-vertex.ts";
+import { stream as streamGoogleVertex } from "../src/api/google-vertex.ts";
 import type { Context, Model } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 

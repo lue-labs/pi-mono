@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageCreateParamsStreaming } from "@anthropic-ai/sdk/resources/messages.js";
 import { describe, expect, it } from "vitest";
-import { streamAnthropic } from "../src/providers/anthropic.ts";
+import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
 import type { Context, ThinkingContent } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 

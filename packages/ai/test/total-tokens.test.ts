@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { complete } from "../src/index.ts";
+import { complete } from "../src/compat.ts";
 import type { Api, Context, Model, StreamOptions, Usage } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 

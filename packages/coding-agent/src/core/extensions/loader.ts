@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import * as _bundledPiAgentCore from "@valkyriweb/pi-agent-core";
 import * as _bundledPiAi from "@valkyriweb/pi-ai";
+import * as _bundledPiAiCompat from "@valkyriweb/pi-ai/compat";
 import * as _bundledPiAiOauth from "@valkyriweb/pi-ai/oauth";
 import type { KeyId } from "@valkyriweb/pi-tui";
 import * as _bundledPiTui from "@valkyriweb/pi-tui";
@@ -87,12 +88,17 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	// compiled binary (type-only imports already erase at runtime).
 	"@earendil-works/pi-agent-core": _bundledPiAgentCore,
 	"@earendil-works/pi-tui": _bundledPiTui,
-	"@earendil-works/pi-ai": _bundledPiAi,
+	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
+	// superset of the core entrypoint): existing extensions using the old
+	// global API keep working at runtime until compat is removed.
+	"@earendil-works/pi-ai": _bundledPiAiCompat,
+	"@earendil-works/pi-ai/compat": _bundledPiAiCompat,
 	"@earendil-works/pi-ai/oauth": _bundledPiAiOauth,
 	"@earendil-works/pi-coding-agent": _bundledPiCodingAgent,
 	"@mariozechner/pi-agent-core": _bundledPiAgentCore,
 	"@mariozechner/pi-tui": _bundledPiTui,
-	"@mariozechner/pi-ai": _bundledPiAi,
+	"@mariozechner/pi-ai": _bundledPiAiCompat,
+	"@mariozechner/pi-ai/compat": _bundledPiAiCompat,
 	"@mariozechner/pi-ai/oauth": _bundledPiAiOauth,
 	"@mariozechner/pi-coding-agent": _bundledPiCodingAgent,
 };
@@ -137,6 +143,10 @@ function getAliases(): Record<string, string> {
 	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@valkyriweb/pi-agent-core");
 	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@valkyriweb/pi-tui");
 	const piAiEntry = resolveWorkspaceOrImport("ai/dist/index.js", "@valkyriweb/pi-ai");
+	// Extensions on upstream/legacy scopes resolve the pi-ai root to the compat
+	// entrypoint (a strict superset of the core entrypoint) so existing extensions
+	// using the old global API keep working at runtime until compat is removed.
+	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@valkyriweb/pi-ai/compat");
 	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@valkyriweb/pi-ai/oauth");
 
 	_aliases = {
@@ -152,12 +162,14 @@ function getAliases(): Record<string, string> {
 		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
 		"@earendil-works/pi-agent-core": piAgentCoreEntry,
 		"@earendil-works/pi-tui": piTuiEntry,
-		"@earendil-works/pi-ai": piAiEntry,
+		"@earendil-works/pi-ai": piAiCompatEntry,
+		"@earendil-works/pi-ai/compat": piAiCompatEntry,
 		"@earendil-works/pi-ai/oauth": piAiOauthEntry,
 		"@mariozechner/pi-coding-agent": piCodingAgentEntry,
 		"@mariozechner/pi-agent-core": piAgentCoreEntry,
 		"@mariozechner/pi-tui": piTuiEntry,
-		"@mariozechner/pi-ai": piAiEntry,
+		"@mariozechner/pi-ai": piAiCompatEntry,
+		"@mariozechner/pi-ai/compat": piAiCompatEntry,
 		"@mariozechner/pi-ai/oauth": piAiOauthEntry,
 		typebox: typeboxEntry,
 		"typebox/compile": typeboxCompileEntry,
@@ -171,6 +183,30 @@ function getAliases(): Record<string, string> {
 }
 
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
+
+let extensionCacheCwd: string | undefined;
+let extensionCacheGeneration = 0;
+const extensionCache = new Map<string, ExtensionFactory>();
+
+interface ExtensionCacheToken {
+	cwd: string;
+	generation: number;
+}
+
+export function clearExtensionCache(): void {
+	extensionCache.clear();
+	extensionCacheCwd = undefined;
+	extensionCacheGeneration++;
+}
+
+function useExtensionCacheCwd(cwd: string): ExtensionCacheToken {
+	const resolvedCwd = resolvePath(cwd);
+	if (extensionCacheCwd !== undefined && extensionCacheCwd !== resolvedCwd) {
+		clearExtensionCache();
+	}
+	extensionCacheCwd = resolvedCwd;
+	return { cwd: resolvedCwd, generation: extensionCacheGeneration };
+}
 
 /**
  * Create a runtime with throwing stubs for action methods.
@@ -670,7 +706,22 @@ function createExtensionAPI(
 	return api;
 }
 
-async function loadExtensionModule(extensionPath: string) {
+function isCurrentCacheToken(cacheToken: ExtensionCacheToken | undefined): cacheToken is ExtensionCacheToken {
+	return (
+		cacheToken !== undefined &&
+		extensionCacheCwd === cacheToken.cwd &&
+		extensionCacheGeneration === cacheToken.generation
+	);
+}
+
+async function loadExtensionModule(extensionPath: string, cacheToken?: ExtensionCacheToken) {
+	if (isCurrentCacheToken(cacheToken)) {
+		const cachedFactory = extensionCache.get(extensionPath);
+		if (cachedFactory) {
+			return cachedFactory;
+		}
+	}
+
 	// Pre-compiled .js/.mjs extensions can be loaded with native import() —
 	// no jiti/babel overhead. Only use jiti for .ts files.
 	if (/\.[mc]?js$/.test(extensionPath)) {
@@ -678,6 +729,9 @@ async function loadExtensionModule(extensionPath: string) {
 			const url = pathToFileURL(extensionPath).href;
 			const module = await import(url);
 			const factory = (module.default ?? module) as ExtensionFactory;
+			if (typeof factory === "function" && isCurrentCacheToken(cacheToken)) {
+				extensionCache.set(extensionPath, factory);
+			}
 			return typeof factory === "function" ? factory : undefined;
 		} catch {
 			// Fall through to jiti (handles CommonJS / alias needs)
@@ -698,7 +752,13 @@ async function loadExtensionModule(extensionPath: string) {
 
 	const module = await jiti.import(extensionPath, { default: true });
 	const factory = module as ExtensionFactory;
-	return typeof factory !== "function" ? undefined : factory;
+	if (typeof factory !== "function") {
+		return undefined;
+	}
+	if (isCurrentCacheToken(cacheToken)) {
+		extensionCache.set(extensionPath, factory);
+	}
+	return factory;
 }
 
 /**
@@ -737,11 +797,12 @@ async function loadExtension(
 	cwd: string,
 	eventBus: EventBus,
 	runtime: ExtensionRuntime,
+	cacheToken?: ExtensionCacheToken,
 ): Promise<{ extension: Extension | null; error: string | null }> {
 	const resolvedPath = resolvePath(extensionPath, cwd, { normalizeUnicodeSpaces: true });
 
 	try {
-		const factory = await loadExtensionModule(resolvedPath);
+		const factory = await loadExtensionModule(resolvedPath, cacheToken);
 		if (!factory) {
 			return { extension: null, error: `Extension does not export a valid factory function: ${extensionPath}` };
 		}
@@ -790,16 +851,18 @@ export async function loadDeferredExtension(
 /**
  * Load eager extensions now and keep deferred entries as metadata-only stubs.
  */
-export async function loadExtensions(
+async function loadExtensionsInternal(
 	inputs: Array<string | ExtensionLoadRequest>,
 	cwd: string,
 	eventBus?: EventBus,
 	runtime?: ExtensionRuntime,
+	useCache = false,
 ): Promise<LoadExtensionsResult> {
 	const extensions: Extension[] = [];
 	const deferredExtensions: DeferredExtension[] = [];
 	const errors: Array<{ path: string; error: string }> = [];
-	const resolvedCwd = resolvePath(cwd);
+	const cacheToken = useCache ? useExtensionCacheCwd(cwd) : undefined;
+	const resolvedCwd = cacheToken?.cwd ?? resolvePath(cwd);
 	const resolvedEventBus = eventBus ?? createEventBus();
 	const resolvedRuntime = runtime ?? createExtensionRuntime();
 
@@ -810,7 +873,13 @@ export async function loadExtensions(
 			continue;
 		}
 
-		const { extension, error } = await loadExtension(extPath, resolvedCwd, resolvedEventBus, resolvedRuntime);
+		const { extension, error } = await loadExtension(
+			extPath,
+			resolvedCwd,
+			resolvedEventBus,
+			resolvedRuntime,
+			cacheToken,
+		);
 
 		if (error) {
 			errors.push({ path: extPath, error });
@@ -829,6 +898,24 @@ export async function loadExtensions(
 		eventBus: resolvedEventBus,
 		runtime: resolvedRuntime,
 	};
+}
+
+export async function loadExtensions(
+	inputs: Array<string | ExtensionLoadRequest>,
+	cwd: string,
+	eventBus?: EventBus,
+	runtime?: ExtensionRuntime,
+): Promise<LoadExtensionsResult> {
+	return loadExtensionsInternal(inputs, cwd, eventBus, runtime);
+}
+
+export async function loadExtensionsCached(
+	inputs: Array<string | ExtensionLoadRequest>,
+	cwd: string,
+	eventBus?: EventBus,
+	runtime?: ExtensionRuntime,
+): Promise<LoadExtensionsResult> {
+	return loadExtensionsInternal(inputs, cwd, eventBus, runtime, true);
 }
 
 interface PiManifest {

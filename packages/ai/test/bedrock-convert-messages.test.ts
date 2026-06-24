@@ -44,7 +44,7 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
 	};
 });
 
-import { streamBedrock } from "../src/providers/amazon-bedrock.ts";
+import { stream as streamBedrock } from "../src/api/bedrock-converse-stream.ts";
 import type { Context, Message } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 

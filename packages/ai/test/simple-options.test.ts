@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBaseOptions } from "../src/providers/simple-options.ts";
+import { buildBaseOptions } from "../src/api/simple-options.ts";
 import type { Api, Model } from "../src/types.ts";
 
 // buildBaseOptions ignores the model (param is `_model`); a minimal stub is enough.

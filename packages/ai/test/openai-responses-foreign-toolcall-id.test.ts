@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { convertResponsesMessages } from "../src/providers/openai-responses-shared.ts";
+import { convertResponsesMessages } from "../src/api/openai-responses-shared.ts";
 import type { AssistantMessage, Context, ToolResultMessage, Usage } from "../src/types.ts";
 import { shortHash } from "../src/utils/hash.ts";
 import { pickModel } from "./helpers/models.ts";

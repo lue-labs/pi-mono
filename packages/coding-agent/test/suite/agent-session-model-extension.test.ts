@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type Model, registerFauxProvider } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, type Model } from "@valkyriweb/pi-ai";
+import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { addFilter } from "../../src/core/extensions/extension-hooks.ts";
@@ -73,7 +74,6 @@ describe("AgentSession model and extension characterization", () => {
 				baseUrl: codexModel.baseUrl,
 				apiKey: "faux-key",
 				api: codex.api,
-				streamSimple: codex.streamSimple,
 				models: codex.models.map((registeredModel) => ({
 					id: registeredModel.id,
 					name: registeredModel.name,
