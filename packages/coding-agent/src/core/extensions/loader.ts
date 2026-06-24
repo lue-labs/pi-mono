@@ -187,6 +187,24 @@ function getAliases(): Record<string, string> {
 	return _aliases;
 }
 
+/**
+ * Test-only: the exact module specifiers extensions can resolve, for BOTH
+ * resolution paths — the compiled Bun binary (`VIRTUAL_MODULES`) and Node/dev
+ * (jiti `getAliases()`). The two MUST stay in lockstep; a drift between them is
+ * what dropped `@valkyriweb/pi-ai/compat` from the binary map and broke fork
+ * extension loading in the 0.80.x daily driver. Guarded by
+ * loader-module-alias-symmetry.test.ts.
+ */
+export function getExtensionModuleSpecifiersForTests(): {
+	virtualModules: string[];
+	aliases: string[];
+} {
+	return {
+		virtualModules: Object.keys(VIRTUAL_MODULES),
+		aliases: Object.keys(getAliases()),
+	};
+}
+
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
 
 let extensionCacheCwd: string | undefined;
