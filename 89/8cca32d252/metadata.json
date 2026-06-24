@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "898cca32d252",
+  "strategy": "manual-commit",
+  "branch": "lue/pi-ai-080-compat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".repowise-workspace.yaml",
+    ".repowise-workspace/contracts.json",
+    ".repowise-workspace/cross_repo_edges.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/89/8cca32d252/0/metadata.json",
+      "transcript": "/89/8cca32d252/0/full.jsonl",
+      "content_hash": "/89/8cca32d252/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}

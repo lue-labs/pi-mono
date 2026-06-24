@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "898cca32d252",
+  "session_id": "019ef579-336a-7e33-b781-5b486f82ffb0",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-24T14:07:59.358179Z",
+  "branch": "lue/pi-ai-080-compat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".repowise-workspace.yaml",
+    ".repowise-workspace/contracts.json",
+    ".repowise-workspace/cross_repo_edges.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "d3d1d544831d",
+  "checkpoint_transcript_start": 233,
+  "transcript_lines_at_start": 233,
+  "initial_attribution": {
+    "calculated_at": "2026-06-24T14:07:59.323903Z",
+    "agent_lines": 0,
+    "agent_removed": 346,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 346,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
