@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "602d10ec856c",
+  "strategy": "manual-commit",
+  "branch": "feat/tokenjuice-read-compaction",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/tokenjuice/policy.mjs",
+    "extensions/tokenjuice/policy.test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/60/2d10ec856c/0/metadata.json",
+      "transcript": "/60/2d10ec856c/0/full.jsonl",
+      "content_hash": "/60/2d10ec856c/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
