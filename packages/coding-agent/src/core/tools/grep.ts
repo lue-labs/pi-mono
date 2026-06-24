@@ -219,6 +219,7 @@ function normalizeGrepOutputOptions(input: {
 	headLimit?: number;
 	head_limit?: number;
 	offset?: number;
+	full?: boolean;
 }): { mode: GrepOutputMode; headLimit?: number; offset: number } {
 	if (input.outputMode && input.output_mode && input.outputMode !== input.output_mode) {
 		throw new Error("outputMode and output_mode differ");
@@ -227,9 +228,12 @@ function normalizeGrepOutputOptions(input: {
 		throw new Error("headLimit and head_limit differ");
 	}
 	const requestedHeadLimit = input.headLimit ?? input.head_limit;
+	// full:true returns every match — drop the default output-entry cap unless the
+	// caller explicitly paginates (an explicit headLimit/head_limit still wins).
+	const unlimited = requestedHeadLimit === 0 || (input.full === true && requestedHeadLimit === undefined);
 	return {
 		mode: input.outputMode ?? input.output_mode ?? "content",
-		headLimit: requestedHeadLimit === 0 ? undefined : Math.max(1, requestedHeadLimit ?? DEFAULT_LIMIT),
+		headLimit: unlimited ? undefined : Math.max(1, requestedHeadLimit ?? DEFAULT_LIMIT),
 		offset: Math.max(0, input.offset ?? 0),
 	};
 }
@@ -461,6 +465,7 @@ export function createGrepToolDefinition(
 								headLimit,
 								head_limit,
 								offset,
+								full,
 							});
 						} catch (error) {
 							settle(() => reject(error as Error));

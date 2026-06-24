@@ -1106,6 +1106,36 @@ describe("Coding Agent Tools", () => {
 			expect(result.details?.appliedLimit).toBe(1);
 		});
 
+		it("full:true lifts the default 100-entry output cap, returning every match", async () => {
+			const testFile = join(testDir, "many-matches.txt");
+			writeFileSync(
+				testFile,
+				Array.from({ length: 150 }, (_, i) => `needle ${i + 1}`).join("\n") + "\n",
+			);
+
+			// Default: capped (backend match limit collects only the first 100).
+			const capped = await grepTool.execute("test-call-grep-full-capped", {
+				pattern: "needle",
+				path: testFile,
+				outputMode: "content",
+			});
+			expect(getTextOutput(capped)).not.toContain("needle 150");
+
+			// full:true: backend collects all matches AND the default output-entry
+			// head cap is lifted, so every one of the 150 matches is returned.
+			// (Pre-fix this sliced to 100 via the default headLimit -> appliedLimit=100.)
+			const result = await grepTool.execute("test-call-grep-full", {
+				pattern: "needle",
+				path: testFile,
+				outputMode: "content",
+				full: true,
+			});
+			expect(result.details?.appliedLimit).toBeUndefined();
+			const output = getTextOutput(result);
+			expect(output).toContain("many-matches.txt:1: needle 1");
+			expect(output).toContain("many-matches.txt:150: needle 150");
+		});
+
 		it("should reject unsupported multiline mode clearly", async () => {
 			const testFile = join(testDir, "multiline.txt");
 			writeFileSync(testFile, "needle\nacross\n");
