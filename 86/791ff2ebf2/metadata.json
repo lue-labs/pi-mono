@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "86791ff2ebf2",
+  "strategy": "manual-commit",
+  "branch": "chore/ci-review-opus-4-8-200k",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/agentic-review.yml",
+    "scripts/agentic-review/ci-models.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/86/791ff2ebf2/0/metadata.json",
+      "transcript": "/86/791ff2ebf2/0/full.jsonl",
+      "content_hash": "/86/791ff2ebf2/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}

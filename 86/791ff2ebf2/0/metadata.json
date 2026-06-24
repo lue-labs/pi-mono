@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "86791ff2ebf2",
+  "session_id": "019ef579-336a-7e33-b781-5b486f82ffb0",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-24T08:22:47.526155Z",
+  "branch": "chore/ci-review-opus-4-8-200k",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/agentic-review.yml",
+    "scripts/agentic-review/ci-models.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "d3d1d544831d",
+  "checkpoint_transcript_start": 233,
+  "transcript_lines_at_start": 233,
+  "initial_attribution": {
+    "calculated_at": "2026-06-24T08:22:47.489623Z",
+    "agent_lines": 5,
+    "agent_removed": 5,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 5,
+    "total_lines_changed": 10,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
