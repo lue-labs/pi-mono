@@ -28,14 +28,56 @@ function isTestOnly(path) {
 	return /(^|\/)(test|tests|__tests__|fixtures)\//.test(path) || /\.(spec|test)\.[cm]?[jt]sx?$/.test(path);
 }
 
+// Generated lockfiles have no documentable surface. Match by basename, not an exact root
+// path: the fork's npm-shrinkwrap.json lives at packages/coding-agent/npm-shrinkwrap.json.
+function isLockfile(path) {
+	return /(^|\/)(package-lock\.json|npm-shrinkwrap\.json)$/.test(path);
+}
+
+function isVersionLine(content) {
+	// A package's own version bump or an internal @valkyriweb/* dependency pin bump, e.g.
+	//   "version": "0.80.3",
+	//   "@valkyriweb/pi-ai": "0.80.3",
+	const semver = String.raw`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?`;
+	return (
+		new RegExp(String.raw`^"version":\s*"${semver}",?$`).test(content) ||
+		new RegExp(String.raw`^"@valkyriweb/[^"]+":\s*"${semver}",?$`).test(content)
+	);
+}
+
+// A package.json whose diff only bumps the package's own version and/or internal
+// @valkyriweb/* dependency pins is a release-mechanical change (like a lockfile), not a
+// documentable surface change — the changesets "version packages" PR (config changelog:
+// false) lands here. Any other changed line (new dep, script, config) still requires a
+// changelog entry.
+function isVersionOnlyPackageJson(path) {
+	if (!/(^|\/)package\.json$/.test(path)) return false;
+	let diff;
+	try {
+		diff = git(["diff", "--unified=0", diffRange, "--", path]);
+	} catch {
+		return false;
+	}
+	let sawChange = false;
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+++") || line.startsWith("---")) continue;
+		if (!line.startsWith("+") && !line.startsWith("-")) continue;
+		const content = line.slice(1).trim();
+		if (content === "") continue;
+		sawChange = true;
+		if (!isVersionLine(content)) return false;
+	}
+	return sawChange;
+}
+
 function isIgnored(path) {
 	return (
 		isChangelog(path) ||
 		isDocsOnly(path) ||
 		isTestOnly(path) ||
 		path.startsWith(".github/") ||
-		path === "package-lock.json" ||
-		path === "npm-shrinkwrap.json"
+		isLockfile(path) ||
+		isVersionOnlyPackageJson(path)
 	);
 }
 
@@ -72,5 +114,7 @@ for (const path of missing) {
 	console.error(`  - ${path}`);
 }
 console.error("");
-console.error("Docs-only, tests-only, workflow-only, and lockfile-only changes are ignored.");
+console.error(
+	"Docs-only, tests-only, workflow-only, lockfile-only, and version-bump-only changes are ignored.",
+);
 process.exit(1);
