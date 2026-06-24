@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "d516495c9348",
+  "strategy": "manual-commit",
+  "branch": "lue/pi-ai-080-compat",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".changeset/pi-ai-compat-dispatch-imports.md",
+    "extensions/advisor/index.ts",
+    "extensions/dream-memory/src/lib/pi-model.ts",
+    "extensions/idle-return/index.ts",
+    "extensions/native-tool-overrides/web/web-fetch.ts",
+    "extensions/native-tool-overrides/web/web-search.ts",
+    "extensions/session-title/src/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d5/16495c9348/0/metadata.json",
+      "transcript": "/d5/16495c9348/0/full.jsonl",
+      "content_hash": "/d5/16495c9348/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
