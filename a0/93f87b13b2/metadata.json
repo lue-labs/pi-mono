@@ -1,0 +1,18 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "a093f87b13b2",
+  "strategy": "manual-commit",
+  "branch": "docs/tokenjuice-fleet-audit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-stack-inventory.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/93f87b13b2/0/metadata.json",
+      "transcript": "/a0/93f87b13b2/0/full.jsonl",
+      "content_hash": "/a0/93f87b13b2/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
