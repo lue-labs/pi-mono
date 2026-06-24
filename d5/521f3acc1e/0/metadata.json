@@ -1,0 +1,512 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "d5521f3acc1e",
+  "session_id": "2af496dc-fa07-4164-a184-de979524291f",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-24T09:23:43.974189Z",
+  "branch": "wip/context-mode-savings-ledger",
+  "checkpoints_count": 14,
+  "save_step_count": 13,
+  "files_touched": [
+    "package.json"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "b7792d1dba66",
+  "token_usage": {
+    "input_tokens": 212933,
+    "cache_creation_tokens": 3645813,
+    "cache_read_tokens": 127666802,
+    "output_tokens": 1362688,
+    "api_call_count": 1092
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-go-2026-06-23T13:10:18.495614Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "go"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "92b46b5c7278",
+      "timestamp": "2026-06-23T13:10:18.495614Z",
+      "native": {
+        "command": "/go"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/go",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01ETzf5rBhPSb9tuMuZ7AM33",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pi"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 15,
+        "end": 16,
+        "entry_ids": [
+          "a7bb8d4d-117c-4960-bdbb-088070e13cf8"
+        ],
+        "tool_use_id": "toolu_01ETzf5rBhPSb9tuMuZ7AM33"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01ETzf5rBhPSb9tuMuZ7AM33"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pi",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_0192xGerruvi3xrGrAJQCtWV",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "matt-pocock"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1111,
+        "end": 1112,
+        "entry_ids": [
+          "59ab9174-c4bc-43f9-99ea-ebc49523bf19"
+        ],
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0192xGerruvi3xrGrAJQCtWV"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: matt-pocock",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01XsRLzTUrk14A8j9BcwKW4h",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "adr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1310,
+        "end": 1311,
+        "entry_ids": [
+          "becfd826-8bbb-44cd-a2f9-9278e0e47b6a"
+        ],
+        "tool_use_id": "toolu_01XsRLzTUrk14A8j9BcwKW4h"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01XsRLzTUrk14A8j9BcwKW4h"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: adr",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01Gm2GQQEqKz2e9774Pb3ad8",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "paperclip"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 2067,
+        "end": 2068,
+        "entry_ids": [
+          "49dcf56b-838f-4788-8ff4-771892cb60da"
+        ],
+        "tool_use_id": "toolu_01Gm2GQQEqKz2e9774Pb3ad8"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Gm2GQQEqKz2e9774Pb3ad8"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: paperclip",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01VcGkrZTnYQEhhLbvQV4fVm",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "land"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 5103,
+        "end": 5104,
+        "entry_ids": [
+          "82913e20-61bc-4f25-95a5-947db4d43cc0"
+        ],
+        "tool_use_id": "toolu_01VcGkrZTnYQEhhLbvQV4fVm"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01VcGkrZTnYQEhhLbvQV4fVm"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: land",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_012JoG576RUrAHMRQftqPCsR",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "deliberate"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 5986,
+        "end": 5987,
+        "entry_ids": [
+          "1807cdfb-c720-4777-b2e5-dc9dde9d132e"
+        ],
+        "tool_use_id": "toolu_012JoG576RUrAHMRQftqPCsR"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_012JoG576RUrAHMRQftqPCsR"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: deliberate",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01DUB5wdAp53eLWSwBEYdik4",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "go"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 7082,
+        "end": 7083,
+        "entry_ids": [
+          "cfd23054-da72-4ae3-86cb-7ed8f059f261"
+        ],
+        "tool_use_id": "toolu_01DUB5wdAp53eLWSwBEYdik4"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DUB5wdAp53eLWSwBEYdik4"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: go",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_011S5TktbcaX3p9DuBAnS8yC",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "land"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b7792d1dba66",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 7334,
+        "end": 7335,
+        "entry_ids": [
+          "7aa440c2-7098-4209-b60a-5e8ab01a2f1b"
+        ],
+        "tool_use_id": "toolu_011S5TktbcaX3p9DuBAnS8yC"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_011S5TktbcaX3p9DuBAnS8yC"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: land",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 50
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-24T09:23:43.711405Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 145,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 145,
+    "total_lines_changed": 145,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 428,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33,
+        "docs/runtime-loading.md": 25
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 403,
+      "user_lines_removed": 0,
+      "agent_lines_added": 25,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 403,
+      "user_lines_removed": 0,
+      "agent_lines_added": 25,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 403,
+      "user_lines_removed": 0,
+      "agent_lines_added": 25,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 403,
+      "user_lines_removed": 0,
+      "agent_lines_added": 25,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 403,
+      "user_lines_removed": 0,
+      "agent_lines_added": 25,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 5384,
+      "user_lines_removed": 744,
+      "agent_lines_added": 350,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33,
+        "docs/pi-setup/catalog/extensions.yaml": 2,
+        "docs/pi-setup/catalog/packages.yaml": 15,
+        "docs/pi-setup/catalog/tools.yaml": 5,
+        "docs/pi-setup/generated/registry.generated.json": 4466,
+        "extensions/dream-memory/src/cli/dream.ts": 51,
+        "extensions/dream-memory/src/context-review/review.ts": 299,
+        "extensions/dream-memory/tests/context-review.spec.ts": 143
+      },
+      "user_removed_per_file": {
+        "docs/pi-setup/catalog/extensions.yaml": 2,
+        "docs/pi-setup/catalog/tools.yaml": 5,
+        "docs/pi-setup/generated/registry.generated.json": 737
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 1541,
+      "user_lines_removed": 160,
+      "agent_lines_added": 4961,
+      "agent_lines_removed": 744,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33,
+        "docs/pi-setup/catalog/capabilities.yaml": 1,
+        "docs/pi-setup/catalog/extensions.yaml": 6,
+        "docs/pi-setup/generated/registry.generated.json": 668,
+        "extensions/dream-memory/src/context-review/review.ts": 299,
+        "extensions/dream-memory/tests/context-review.spec.ts": 143,
+        "scripts/pi-setup-lib.mjs": 21
+      },
+      "user_removed_per_file": {
+        "docs/pi-setup/catalog/extensions.yaml": 21,
+        "docs/pi-setup/generated/registry.generated.json": 138,
+        "scripts/pi-setup-lib.mjs": 1
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 845,
+      "user_lines_removed": 0,
+      "agent_lines_added": 10839,
+      "agent_lines_removed": 1629,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33,
+        "extensions/dream-memory/src/context-review/review.ts": 299,
+        "extensions/dream-memory/tests/context-review.spec.ts": 143
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 845,
+      "user_lines_removed": 0,
+      "agent_lines_added": 10855,
+      "agent_lines_removed": 1629,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33,
+        "extensions/dream-memory/src/context-review/review.ts": 299,
+        "extensions/dream-memory/tests/context-review.spec.ts": 143
+      }
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 845,
+      "user_lines_removed": 0,
+      "agent_lines_added": 10855,
+      "agent_lines_removed": 1629,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33,
+        "extensions/dream-memory/src/context-review/review.ts": 299,
+        "extensions/dream-memory/tests/context-review.spec.ts": 143
+      }
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 1678,
+      "user_lines_removed": 3,
+      "agent_lines_added": 10855,
+      "agent_lines_removed": 1629,
+      "user_added_per_file": {
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33,
+        "docs/pi-setup/catalog/packages.yaml": 1,
+        "docs/pi-setup/context-mode-pi-stable-skill.md": 302,
+        "docs/pi-setup/context-mode-pi-stable.md": 123,
+        "docs/pi-setup/generated/registry.generated.json": 4,
+        "docs/pi-setup/packages.md": 4,
+        "extensions/dream-memory/src/context-review/review.ts": 299,
+        "extensions/dream-memory/tests/context-review.spec.ts": 143,
+        "package.json": 2,
+        "scripts/context-mode-pi-stable-overlay.mjs": 397
+      },
+      "user_removed_per_file": {
+        "docs/pi-setup/catalog/packages.yaml": 1,
+        "docs/pi-setup/generated/registry.generated.json": 2
+      }
+    }
+  ]
+}
