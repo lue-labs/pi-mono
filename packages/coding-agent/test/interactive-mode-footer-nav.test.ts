@@ -134,6 +134,31 @@ describe("interactive-mode footer navigation", () => {
 		expect(fakeMode.editor.setText).not.toHaveBeenCalled();
 	});
 
+	it("wires footer nav through the editor onPreInput seam, not a global input listener", () => {
+		// Regression: a global ui.addInputListener for footer nav ran before the
+		// focused component and consumed up/down even while a focused custom
+		// component (e.g. AskUserQuestion) needed those arrows, hijacking modal
+		// navigation. Footer nav must be scoped to the default editor's focus via
+		// onPreInput, so setupKeyHandlers must NOT register a global input listener.
+		const addInputListener = vi.fn(() => () => {});
+		const fakeMode = {
+			defaultEditor: {
+				onAction: vi.fn(),
+				onEscape: undefined as unknown,
+				onCtrlD: undefined as unknown,
+				onPasteImage: undefined as unknown,
+				onPreInput: undefined as ((data: string) => boolean) | undefined,
+				onChange: undefined as unknown,
+			},
+			ui: { addInputListener, onDebug: undefined as unknown },
+		};
+
+		(InteractiveMode.prototype as unknown as { setupKeyHandlers: () => void }).setupKeyHandlers.call(fakeMode);
+
+		expect(addInputListener).not.toHaveBeenCalled();
+		expect(typeof fakeMode.defaultEditor.onPreInput).toBe("function");
+	});
+
 	it("closes an active pane before clearing selected footer on escape", () => {
 		const fakeMode = createFakeMode();
 		const paneEscape = vi.fn(() => true);
