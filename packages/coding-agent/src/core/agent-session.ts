@@ -2061,19 +2061,11 @@ export class AgentSession {
 			}
 
 			// Check if we should warn or compact before sending (catches aborted responses).
+			// The user's new prompt is sent below, so do not call agent.continue() here.
 			const lastAssistant = this._findLastAssistantMessage();
 			if (lastAssistant) {
 				this._emitIdleCacheHintIfNeeded(lastAssistant);
-				if (await this._checkCompaction(lastAssistant, false)) {
-					try {
-						await this.agent.continue();
-						while (await this._handlePostAgentRun()) {
-							await this.agent.continue();
-						}
-					} finally {
-						this._flushPendingBashMessages();
-					}
-				}
+				await this._checkCompaction(lastAssistant, false);
 			}
 
 			// Build messages array (custom message if any, then user message)
