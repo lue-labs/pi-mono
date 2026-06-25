@@ -50,6 +50,24 @@ const mockSummaryResponse: AssistantMessage = {
 
 const messages: AgentMessage[] = [{ role: "user", content: "Summarize this.", timestamp: Date.now() }];
 
+function getTextFromSummaryPromptCall(callIndex: number): string {
+	const context = completeSimpleMock.mock.calls[callIndex][1] as { messages: Array<{ content: unknown }> };
+	const lastMessage = context.messages.at(-1);
+	if (!lastMessage) return "";
+	const content = lastMessage.content;
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		return content
+			.map((block) => (block && typeof block === "object" && "text" in block ? String(block.text) : ""))
+			.join("\n");
+	}
+	return "";
+}
+
+function countOccurrences(text: string, needle: string): number {
+	return text.split(needle).length - 1;
+}
+
 describe("generateSummary reasoning options", () => {
 	beforeEach(() => {
 		completeSimpleMock.mockReset();
@@ -130,5 +148,90 @@ describe("generateSummary reasoning options", () => {
 		await compact(preparation, createModel(false, 128000), "test-key");
 
 		expect(completeSimpleMock.mock.calls.map((call) => call[2]?.maxTokens)).toEqual([128000, 128000]);
+	});
+
+	it("uses split-turn format for cache-safe turn-prefix summaries", async () => {
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: messages,
+			turnPrefixMessages: [{ ...mockSummaryResponse, content: [{ type: "text", text: "early turn work" }] }],
+			isSplitTurn: true,
+			tokensBefore: 100000,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 20000, keepRecentTokens: 20000 },
+		};
+
+		await compact(
+			preparation,
+			createModel(false),
+			"test-key",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				systemPrompt: "stable parent prompt",
+				messages: [],
+				tools: [],
+			},
+		);
+
+		expect(completeSimpleMock).toHaveBeenCalledTimes(2);
+		const turnPrefixPrompt = getTextFromSummaryPromptCall(1);
+		expect(turnPrefixPrompt).toContain("<split-turn-prefix>");
+		expect(turnPrefixPrompt).toContain("## Original Request");
+		expect(turnPrefixPrompt).toContain("## Early Progress");
+		expect(turnPrefixPrompt).toContain("## Context for Suffix");
+		expect(turnPrefixPrompt).not.toContain("## Goal");
+		expect(turnPrefixPrompt).not.toContain("## Constraints & Preferences");
+		expect(turnPrefixPrompt).not.toContain("## Progress");
+		expect(turnPrefixPrompt).not.toContain("## Next Steps");
+	});
+
+	it("keeps split-turn cache-safe compaction output from duplicating checkpoint headings", async () => {
+		completeSimpleMock
+			.mockResolvedValueOnce({
+				...mockSummaryResponse,
+				content: [{ type: "text", text: "## Goal\nShip compaction fix\n\n## Progress\n### Done\n- [x] Found bug" }],
+			})
+			.mockResolvedValueOnce({
+				...mockSummaryResponse,
+				content: [
+					{
+						type: "text",
+						text: "## Original Request\nFix duplicate compaction output\n\n## Early Progress\n- Identified prompt contract\n\n## Context for Suffix\n- Suffix keeps verification work",
+					},
+				],
+			});
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: messages,
+			turnPrefixMessages: [{ ...mockSummaryResponse, content: [{ type: "text", text: "early turn work" }] }],
+			isSplitTurn: true,
+			tokensBefore: 100000,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 20000, keepRecentTokens: 20000 },
+		};
+
+		const result = await compact(
+			preparation,
+			createModel(false),
+			"test-key",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ systemPrompt: "stable parent prompt", messages: [], tools: [] },
+		);
+
+		expect(countOccurrences(result.summary, "## Goal")).toBe(1);
+		expect(result.summary).toContain("**Turn Context (split turn):**");
+		expect(countOccurrences(result.summary, "## Original Request")).toBe(1);
+		expect(result.summary).toContain("## Early Progress");
+		expect(result.summary).toContain("## Context for Suffix");
 	});
 });

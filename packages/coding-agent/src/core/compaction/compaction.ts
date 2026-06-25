@@ -539,6 +539,23 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
+const CACHE_SAFE_TURN_PREFIX_SUMMARIZATION_PROMPT = `The conversation above is the active session context. The split-turn prefix below is the early part of a single turn that was too large to keep in full. The suffix of that same turn remains in context after compaction.
+
+Summarize ONLY the split-turn prefix below so another LLM can understand the retained suffix. Do not restate the main checkpoint summary. Do not use or repeat the checkpoint sections "Goal", "Constraints & Preferences", "Progress", "Key Decisions", "Next Steps", or "Critical Context"; those belong to the main compaction summary.
+
+Use this EXACT format:
+
+## Original Request
+[What did the user ask for in this turn?]
+
+## Early Progress
+- [Key decisions and work done in the prefix]
+
+## Context for Suffix
+- [Information needed to understand the retained suffix]
+
+Be concise. Preserve exact file paths, function names, and error messages needed to connect the prefix to the retained suffix.`;
+
 const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
 
 Update the existing structured summary with new information. RULES:
@@ -942,7 +959,7 @@ async function generateTurnPrefixSummary(
 	const llmMessages = convertToLlm(messages);
 	const conversationText = serializeConversation(llmMessages);
 	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
-	const cacheSafePromptText = `${CACHE_SAFE_SUMMARIZATION_PROMPT}\n\nAdditional focus: summarize the split-turn prefix below while preserving the active session context.\n\n${promptText}`;
+	const cacheSafePromptText = `<split-turn-prefix>\n${conversationText}\n</split-turn-prefix>\n\n${CACHE_SAFE_TURN_PREFIX_SUMMARIZATION_PROMPT}`;
 	const context: Context = cacheSafeContext
 		? {
 				systemPrompt: cacheSafeContext.systemPrompt,
