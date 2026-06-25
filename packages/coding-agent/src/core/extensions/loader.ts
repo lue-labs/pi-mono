@@ -37,6 +37,7 @@ import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { createSyntheticSourceInfo } from "../source-info.ts";
+import { time } from "../timings.ts";
 import {
 	addAction,
 	addFilter,
@@ -831,6 +832,7 @@ async function loadExtension(
 
 	try {
 		const factory = await loadExtensionModule(resolvedPath, cacheToken);
+		time(`${extensionPath} module import`, "extensions");
 		if (!factory) {
 			return { extension: null, error: `Extension does not export a valid factory function: ${extensionPath}` };
 		}
@@ -838,6 +840,7 @@ async function loadExtension(
 		const extension = createExtension(extensionPath, resolvedPath);
 		const api = createExtensionAPI(extension, runtime, cwd, eventBus);
 		await factory(api);
+		time(`${extensionPath} factory`, "extensions");
 
 		return { extension, error: null };
 	} catch (err) {
@@ -860,6 +863,7 @@ export async function loadExtensionFromFactory(
 	const resolvedCwd = resolvePath(cwd);
 	const api = createExtensionAPI(extension, runtime, resolvedCwd, eventBus);
 	await factory(api);
+	time(`${extensionPath} factory`, "extensions");
 	return extension;
 }
 
