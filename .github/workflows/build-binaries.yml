@@ -93,6 +93,11 @@ jobs:
             pi-windows-arm64.zip
           )
 
+          # Checksums so promote-pi-binary.sh --from-release can verify the
+          # downloaded tarball; it refuses to install a release without them.
+          sha256sum "${release_assets[@]}" > SHA256SUMS
+          release_assets+=(SHA256SUMS)
+
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release edit "${RELEASE_TAG}" \
               --title "${RELEASE_TAG}" \
