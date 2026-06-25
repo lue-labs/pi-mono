@@ -54,7 +54,12 @@ import { parseStreamingJson } from "../utils/json-parse.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
-import { adjustMaxTokensForThinking, buildBaseOptions, clampReasoning } from "./simple-options.ts";
+import {
+	adjustMaxTokensForThinking,
+	buildBaseOptions,
+	clampMaxTokensToContext,
+	clampReasoning,
+} from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 export type BedrockThinkingDisplay = "summarized" | "omitted";
@@ -375,7 +380,7 @@ export const streamSimple: StreamFunction<"bedrock-converse-stream", SimpleStrea
 	context: Context,
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream => {
-	const base = buildBaseOptions(model, options, undefined);
+	const base = buildBaseOptions(model, context, options, undefined);
 	if (!options?.reasoning) {
 		return stream(model, context, { ...base, reasoning: undefined } satisfies BedrockOptions);
 	}
@@ -398,13 +403,15 @@ export const streamSimple: StreamFunction<"bedrock-converse-stream", SimpleStrea
 			options.thinkingBudgets,
 		);
 
+		const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
+
 		return stream(model, context, {
 			...base,
-			maxTokens: adjusted.maxTokens,
+			maxTokens,
 			reasoning: options.reasoning,
 			thinkingBudgets: {
 				...(options.thinkingBudgets || {}),
-				[clampReasoning(options.reasoning)!]: adjusted.thinkingBudget,
+				[clampReasoning(options.reasoning)!]: Math.min(adjusted.thinkingBudget, Math.max(0, maxTokens - 1024)),
 			},
 		} satisfies BedrockOptions);
 	}

@@ -38,7 +38,7 @@ import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
-import { adjustMaxTokensForThinking, buildBaseOptions, MIN_THINKING_BUDGET } from "./simple-options.ts";
+import { adjustMaxTokensForThinking, buildBaseOptions, clampMaxTokensToContext, MIN_THINKING_BUDGET } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 /**
@@ -1118,7 +1118,7 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 ): AssistantMessageEventStream => {
 	assertRequestAuth(model.provider, options?.apiKey, options?.headers);
 
-	const base = buildBaseOptions(model, options, options?.apiKey);
+	const base = buildBaseOptions(model, context, options, options?.apiKey);
 	if (!options?.reasoning) {
 		return stream(model, context, { ...base, thinkingEnabled: false } satisfies AnthropicOptions);
 	}
@@ -1151,6 +1151,8 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 		options.thinkingBudgets,
 	);
 
+	const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
+
 	// A tiny output cap (e.g. a cheap single-task fork with maxOutputTokens ~1500)
 	// drives the computed thinking budget below Anthropic's hard floor
 	// (budget_tokens must be >= 1024). Anthropic DROPS such a request as an empty
@@ -1160,16 +1162,16 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 	if (adjusted.thinkingBudget < MIN_THINKING_BUDGET) {
 		return stream(model, context, {
 			...base,
-			maxTokens: adjusted.maxTokens,
+			maxTokens,
 			thinkingEnabled: false,
 		} satisfies AnthropicOptions);
 	}
 
 	return stream(model, context, {
 		...base,
-		maxTokens: adjusted.maxTokens,
+		maxTokens,
 		thinkingEnabled: true,
-		thinkingBudgetTokens: adjusted.thinkingBudget,
+		thinkingBudgetTokens: Math.min(adjusted.thinkingBudget, Math.max(0, maxTokens - 1024)),
 	} satisfies AnthropicOptions);
 };
 
