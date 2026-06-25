@@ -1,7 +1,7 @@
 {
 	"name": "@earendil-works/pi-orchestrator",
 	"version": "0.79.6",
-	"description": "orchestrator package for pi",
+	"description": "experimental orchestrator package for pi",
 	"type": "module",
 	"bin": {
 		"orchestrator": "dist/cli.js"
