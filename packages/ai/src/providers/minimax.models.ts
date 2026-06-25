@@ -10,7 +10,6 @@ export const MINIMAX_MODELS = {
 		api: "anthropic-messages",
 		provider: "minimax",
 		baseUrl: "https://api.minimax.io/anthropic",
-		compat: {"maxTokensSharesContextWindow":true},
 		reasoning: true,
 		input: ["text"],
 		cost: {
@@ -28,7 +27,6 @@ export const MINIMAX_MODELS = {
 		api: "anthropic-messages",
 		provider: "minimax",
 		baseUrl: "https://api.minimax.io/anthropic",
-		compat: {"maxTokensSharesContextWindow":true},
 		reasoning: true,
 		input: ["text"],
 		cost: {
@@ -46,7 +44,6 @@ export const MINIMAX_MODELS = {
 		api: "anthropic-messages",
 		provider: "minimax",
 		baseUrl: "https://api.minimax.io/anthropic",
-		compat: {"maxTokensSharesContextWindow":true},
 		reasoning: true,
 		input: ["text", "image"],
 		cost: {
