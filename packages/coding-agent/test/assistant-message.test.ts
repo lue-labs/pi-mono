@@ -7,7 +7,10 @@ const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
-function createAssistantMessage(content: AssistantMessage["content"]): AssistantMessage {
+function createAssistantMessage(
+	content: AssistantMessage["content"],
+	overrides: Partial<Pick<AssistantMessage, "stopReason">> = {},
+): AssistantMessage {
 	return {
 		role: "assistant",
 		content,
@@ -22,7 +25,7 @@ function createAssistantMessage(content: AssistantMessage["content"]): Assistant
 			totalTokens: 0,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
-		stopReason: "stop",
+		stopReason: overrides.stopReason ?? "stop",
 		timestamp: Date.now(),
 	};
 }
@@ -53,5 +56,19 @@ describe("AssistantMessageComponent", () => {
 		expect(rendered.includes(OSC133_ZONE_START)).toBe(false);
 		expect(rendered.includes(OSC133_ZONE_END)).toBe(false);
 		expect(rendered.includes(OSC133_ZONE_FINAL)).toBe(false);
+	});
+
+	test("renders length stops as visible errors", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([{ type: "thinking", thinking: "private reasoning" }], { stopReason: "length" }),
+			true,
+		);
+		const rendered = component.render(80).join("\n");
+
+		expect(rendered).toContain("Thinking...");
+		expect(rendered).toContain("maximum output token limit");
+		expect(rendered).toContain("response may be incomplete");
 	});
 });
