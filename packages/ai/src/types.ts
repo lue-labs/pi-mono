@@ -452,6 +452,12 @@ export interface Tool<TParameters extends TSchema = TSchema> {
 	alwaysLoad?: boolean;
 	/** Concise searchable hint used by progressive tool discovery surfaces. */
 	searchHint?: string;
+	/**
+	 * Optional namespace/group label for this tool. Set by the policy owner
+	 * (e.g. tool-search) so provider serializers can group related tools into a
+	 * provider-native namespace. Pure serialization metadata: undefined = flat.
+	 */
+	namespace?: string;
 	/** Optional provider allow-list. Runtime surfaces should hide the tool for other providers. */
 	providers?: string[];
 	/**

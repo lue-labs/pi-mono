@@ -778,6 +778,12 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	replacesBuiltins?: readonly string[];
 	/** Concise searchable hint used by tool discovery surfaces. */
 	searchHint?: string;
+	/**
+	 * Optional namespace/group label. Set post-registration by the policy owner
+	 * (tool-search) via setToolNamespaces so provider serializers can group
+	 * related tools into a provider-native namespace. Pure serialization metadata.
+	 */
+	namespace?: string;
 	/** Optional provider allow-list. When set, hide the tool from other providers' active/deferred surfaces. */
 	providers?: string[];
 	/** Parameter schema (TypeBox) */
@@ -2124,6 +2130,15 @@ export interface ToolRegistryView {
 	 * ignored. Dropping a name restores its original `deferLoading`.
 	 */
 	setDeferredOverrides(names: string[]): void;
+	/**
+	 * Post-registration namespace seam (cache-critical). Annotates already-registered
+	 * tools with a `namespace` label (name -> namespace map) so provider serializers
+	 * can group related tools into a provider-native namespace. Pure serialization
+	 * metadata — does not change deferral, activation, or behavior. Apply once before
+	 * the first request; idempotent (an unchanged map is a no-op). An empty map
+	 * clears all namespaces.
+	 */
+	setToolNamespaces(map: Record<string, string>): void;
 }
 
 export type GetCommandsHandler = () => SlashCommandInfo[];
@@ -2131,6 +2146,8 @@ export type GetCommandsHandler = () => SlashCommandInfo[];
 export type SetActiveToolsHandler = (toolNames: string[]) => void;
 
 export type SetDeferredToolOverridesHandler = (names: string[]) => void;
+
+export type SetToolNamespacesHandler = (map: Record<string, string>) => void;
 
 export type RefreshToolsHandler = (options?: { activateNewTools?: boolean }) => void;
 
@@ -2221,6 +2238,7 @@ export interface ExtensionActions {
 	getCustomEntries: GetCustomEntriesHandler;
 	setActiveTools: SetActiveToolsHandler;
 	setDeferredOverrides: SetDeferredToolOverridesHandler;
+	setToolNamespaces: SetToolNamespacesHandler;
 	refreshTools: RefreshToolsHandler;
 	getCommands: GetCommandsHandler;
 	setModel: SetModelHandler;
