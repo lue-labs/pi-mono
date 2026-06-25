@@ -1424,6 +1424,7 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 						provider,
 						// MiniMax's Anthropic-compatible API - SDK appends /v1/messages
 						baseUrl,
+						compat: { maxTokensSharesContextWindow: true },
 						reasoning: m.reasoning === true,
 						input: m.modalities?.input?.includes("image") ? ["text", "image"] : ["text"],
 						cost: {

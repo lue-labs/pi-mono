@@ -637,6 +637,14 @@ export interface AnthropicMessagesCompat {
 	forceAdaptiveThinking?: boolean;
 	/** Whether to replay empty thinking signatures as `signature: ""` instead of converting thinking to text. Default: false. */
 	allowEmptySignature?: boolean;
+	/**
+	 * Whether the provider counts `input + max_tokens` against a single shared
+	 * budget (the model's `contextWindow`) instead of Anthropic's independent
+	 * input and output limits. When true, Anthropic Messages requests clamp
+	 * `max_tokens` to leave room for the estimated context tokens.
+	 * Default: false.
+	 */
+	maxTokensSharesContextWindow?: boolean;
 }
 
 /**

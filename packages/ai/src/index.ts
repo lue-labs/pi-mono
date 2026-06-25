@@ -27,6 +27,7 @@ export * from "./providers/faux.ts";
 export * from "./session-resources.ts";
 export * from "./types.ts";
 export * from "./utils/diagnostics.ts";
+export * from "./utils/estimate.ts";
 export * from "./utils/event-stream.ts";
 export * from "./utils/json-parse.ts";
 export type {

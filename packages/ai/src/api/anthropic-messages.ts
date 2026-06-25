@@ -31,6 +31,7 @@ import type {
 	ToolResultMessage,
 } from "../types.ts";
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "../types.ts";
+import { estimateContextTokens } from "../utils/estimate.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
@@ -266,8 +267,11 @@ function getAnthropicCompat(
 		supportsCacheControlOnTools: model.compat?.supportsCacheControlOnTools ?? true,
 		supportsTemperature: model.compat?.supportsTemperature ?? true,
 		allowEmptySignature: model.compat?.allowEmptySignature ?? false,
+		maxTokensSharesContextWindow: model.compat?.maxTokensSharesContextWindow ?? false,
 	};
 }
+
+const SHARED_BUDGET_MIN_OUTPUT_TOKENS = 1024;
 
 export interface AnthropicOptions extends StreamOptions {
 	/**
@@ -1410,6 +1414,18 @@ function buildParams(
 			type: "auto",
 			disable_parallel_tool_use: false,
 		} as MessageCreateParamsStreaming["tool_choice"];
+	}
+
+	if (compat.maxTokensSharesContextWindow && model.contextWindow > 0) {
+		const estimatedInput = estimateContextTokens(context).tokens;
+		const available = Math.max(SHARED_BUDGET_MIN_OUTPUT_TOKENS, model.contextWindow - estimatedInput);
+		const clamped = Math.min(params.max_tokens, available);
+		if (clamped < params.max_tokens) {
+			params.max_tokens = clamped;
+			if (params.thinking?.type === "enabled" && params.thinking.budget_tokens >= clamped) {
+				params.thinking.budget_tokens = Math.max(0, clamped - SHARED_BUDGET_MIN_OUTPUT_TOKENS);
+			}
+		}
 	}
 
 	return params;
