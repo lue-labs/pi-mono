@@ -263,6 +263,16 @@ function getSessionHydrationOptions(settingsManager: SettingsManager): SessionHy
 	return { residentPrune: settingsManager.getCompactionResidentPruneEnabled() };
 }
 
+function openSessionOrExit(path: string, sessionDir?: string, hydrationOptions?: SessionHydrationOptions): SessionManager {
+	try {
+		return SessionManager.open(path, sessionDir, undefined, hydrationOptions);
+	} catch (error: unknown) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(chalk.red(`Error: ${message}`));
+		process.exit(1);
+	}
+}
+
 function forkSessionOrExit(
 	sourcePath: string,
 	cwd: string,
@@ -320,7 +330,7 @@ async function createSessionManager(
 		switch (resolved.type) {
 			case "path":
 			case "local":
-				return SessionManager.open(resolved.path, sessionDir, undefined, hydrationOptions);
+				return openSessionOrExit(resolved.path, sessionDir, hydrationOptions);
 
 			case "global": {
 				console.log(chalk.yellow(`Session found in different project: ${resolved.cwd}`));
