@@ -10,11 +10,17 @@ import type {
 import { radiusPresence } from "./radius.ts";
 import { createRpcProcessInstance, type RpcProcessInstance } from "./rpc-process.ts";
 import { getInstance, loadInstances, removeInstance, saveInstances, upsertInstance } from "./storage.ts";
-import type { InstanceRecord } from "./types.ts";
+import type { InstanceRecord, InstanceStatus } from "./types.ts";
+
+interface LiveInstanceResources {
+	rpcProcess?: RpcProcessInstance;
+	radiusPiId?: string;
+	sessionId?: string;
+}
 
 interface LiveInstance {
-	rpc: RpcProcessInstance;
 	record: InstanceRecord;
+	resources: LiveInstanceResources;
 	subscribers: Set<AgentSessionEventListener>;
 	onUiRequest?: (request: RpcExtensionUIRequest) => void;
 	unsubscribeEvents?: () => void;
@@ -57,51 +63,133 @@ function isGetStateSuccess(
 export class OrchestratorSupervisor {
 	private readonly liveInstances = new Map<string, LiveInstance>();
 
-	private async syncInstanceRecord(live: LiveInstance): Promise<void> {
-		const response = await live.rpc.send({ type: "get_state" });
-		if (!isGetStateSuccess(response)) {
-			live.record = {
-				...live.record,
-				lastSeenAt: new Date().toISOString(),
-			};
-			upsertInstance(live.record);
-			return;
-		}
+	private setStatus(live: LiveInstance, status: InstanceStatus): void {
 		live.record = {
 			...live.record,
-			sessionId: response.data.sessionId,
-			sessionFile: response.data.sessionFile,
+			status,
 			lastSeenAt: new Date().toISOString(),
 		};
 		upsertInstance(live.record);
 	}
 
-	private bindLiveInstance(live: LiveInstance): void {
+	private updateRecord(live: LiveInstance, updates: Partial<InstanceRecord>): void {
+		live.record = {
+			...live.record,
+			...updates,
+			lastSeenAt: new Date().toISOString(),
+		};
+		if (updates.radiusPiId !== undefined) {
+			live.resources.radiusPiId = updates.radiusPiId;
+		}
+		if (updates.sessionId !== undefined) {
+			live.resources.sessionId = updates.sessionId;
+		}
+		upsertInstance(live.record);
+	}
+
+	private clearBindings(live: LiveInstance): void {
 		live.unsubscribeEvents?.();
 		live.unsubscribeExit?.();
-		live.unsubscribeEvents = live.rpc.onEvent((event) => {
+		live.unsubscribeEvents = undefined;
+		live.unsubscribeExit = undefined;
+		live.onUiRequest = undefined;
+		live.resources.rpcProcess?.setUiRequestHandler(undefined);
+	}
+
+	private bindRpcProcess(live: LiveInstance, rpcProcess: RpcProcessInstance): void {
+		this.clearBindings(live);
+		live.resources.rpcProcess = rpcProcess;
+		live.unsubscribeEvents = rpcProcess.onEvent((event) => {
 			for (const subscriber of live.subscribers) {
 				subscriber(event);
 			}
 		});
-		live.unsubscribeExit = live.rpc.onExit(() => {
-			live.record = {
-				...live.record,
-				status: "stopped",
-				lastSeenAt: new Date().toISOString(),
-			};
-			upsertInstance(live.record);
-			this.liveInstances.delete(live.record.id);
+		live.unsubscribeExit = rpcProcess.onExit((error) => {
+			void this.handleUnexpectedRpcExit(live, error);
 		});
-		live.rpc.setUiRequestHandler((request) => {
+		rpcProcess.setUiRequestHandler((request) => {
 			live.onUiRequest?.(request);
 		});
+	}
+
+	private async handleUnexpectedRpcExit(live: LiveInstance, _error?: Error): Promise<void> {
+		if (this.liveInstances.get(live.record.id) !== live) {
+			return;
+		}
+		if (live.record.status === "stopping" || live.record.status === "stopped") {
+			return;
+		}
+		this.setStatus(live, "error");
+		this.clearBindings(live);
+		live.resources.rpcProcess = undefined;
+		if (live.resources.radiusPiId) {
+			try {
+				await radiusPresence.disconnectPi(live.record);
+				this.updateRecord(live, { radiusPiId: undefined });
+			} catch (error) {
+				console.error(`Failed to disconnect Radius Pi ${live.record.id}: ${String(error)}`);
+			}
+		}
+		this.liveInstances.delete(live.record.id);
+	}
+
+	private getRpcProcess(live: LiveInstance): RpcProcessInstance | undefined {
+		return live.resources.rpcProcess;
+	}
+
+	private async syncInstanceRecord(live: LiveInstance): Promise<void> {
+		const rpcProcess = this.getRpcProcess(live);
+		if (!rpcProcess) {
+			this.updateRecord(live, {});
+			return;
+		}
+		const response = await rpcProcess.send({ type: "get_state" });
+		if (!isGetStateSuccess(response)) {
+			this.updateRecord(live, {});
+			return;
+		}
+		this.updateRecord(live, {
+			sessionId: response.data.sessionId,
+			sessionFile: response.data.sessionFile,
+		});
+	}
+
+	private async cleanupAcquiredResources(live: LiveInstance): Promise<void> {
+		const rpcProcess = live.resources.rpcProcess;
+		this.clearBindings(live);
+		if (live.resources.radiusPiId) {
+			await radiusPresence.disconnectPi(live.record);
+			live.resources.radiusPiId = undefined;
+			live.record = {
+				...live.record,
+				radiusPiId: undefined,
+				lastSeenAt: new Date().toISOString(),
+			};
+		}
+		live.resources.sessionId = undefined;
+		if (rpcProcess) {
+			live.resources.rpcProcess = undefined;
+			await rpcProcess.dispose();
+		}
+	}
+
+	private async failSpawn(live: LiveInstance, error: unknown): Promise<never> {
+		this.setStatus(live, "error");
+		try {
+			await this.cleanupAcquiredResources(live);
+		} finally {
+			this.setStatus(live, "stopped");
+			this.liveInstances.delete(live.record.id);
+		}
+		throw error;
 	}
 
 	updateInstance(instance: InstanceRecord): void {
 		const live = this.liveInstances.get(instance.id);
 		if (live) {
 			live.record = instance;
+			live.resources.radiusPiId = instance.radiusPiId;
+			live.resources.sessionId = instance.sessionId;
 		}
 		upsertInstance(instance);
 	}
@@ -118,21 +206,22 @@ export class OrchestratorSupervisor {
 		  }
 		| undefined {
 		const live = this.liveInstances.get(instanceId);
-		if (!live) {
+		const rpcProcess = live ? this.getRpcProcess(live) : undefined;
+		if (!live || !rpcProcess) {
 			return undefined;
 		}
 		live.subscribers.add(onEvent);
 		live.onUiRequest = onUiRequest;
 		return {
 			handleRpc: async (command) => {
-				const response = await live.rpc.send(command);
+				const response = await rpcProcess.send(command);
 				if (shouldRefreshSessionMetadata(command)) {
 					await this.syncInstanceRecord(live);
 				}
 				return response;
 			},
 			handleUiResponse: (response) => {
-				live.rpc.handleUiResponse(response);
+				rpcProcess.handleUiResponse(response);
 			},
 			close: () => {
 				if (live.onUiRequest === onUiRequest) {
@@ -179,28 +268,33 @@ export class OrchestratorSupervisor {
 	}
 
 	async spawnInstance(options: { cwd: string; label?: string }): Promise<InstanceRecord> {
-		const rpc = createRpcProcessInstance({ cwd: options.cwd });
 		const now = new Date().toISOString();
-		const record: InstanceRecord = {
-			id: randomUUID(),
-			status: "online",
-			cwd: options.cwd,
-			createdAt: now,
-			lastSeenAt: now,
-			label: options.label,
-		};
-
-		const registeredRecord = await radiusPresence.registerPi(record);
 		const live: LiveInstance = {
-			rpc,
-			record: registeredRecord,
+			record: {
+				id: randomUUID(),
+				status: "starting",
+				cwd: options.cwd,
+				createdAt: now,
+				lastSeenAt: now,
+				label: options.label,
+			},
+			resources: {},
 			subscribers: new Set(),
 		};
-		this.bindLiveInstance(live);
-		this.liveInstances.set(registeredRecord.id, live);
-		await this.syncInstanceRecord(live);
+		this.liveInstances.set(live.record.id, live);
 		upsertInstance(live.record);
-		return cloneInstance(live.record);
+
+		try {
+			const rpcProcess = createRpcProcessInstance({ cwd: options.cwd });
+			this.bindRpcProcess(live, rpcProcess);
+			await this.syncInstanceRecord(live);
+			const registeredRecord = await radiusPresence.registerPi(live.record);
+			this.updateRecord(live, { radiusPiId: registeredRecord.radiusPiId });
+			this.setStatus(live, "online");
+			return cloneInstance(live.record);
+		} catch (error) {
+			return await this.failSpawn(live, error);
+		}
 	}
 
 	async stopInstance(instanceId: string): Promise<InstanceRecord | undefined> {
@@ -209,23 +303,29 @@ export class OrchestratorSupervisor {
 			return undefined;
 		}
 
-		await radiusPresence.disconnectPi(live.record);
-		live.unsubscribeEvents?.();
-		live.unsubscribeExit?.();
-		live.onUiRequest = undefined;
-		await live.rpc.dispose();
-		this.liveInstances.delete(instanceId);
-		removeInstance(instanceId);
+		this.setStatus(live, "stopping");
+		try {
+			await this.cleanupAcquiredResources(live);
+		} finally {
+			live.record = {
+				...live.record,
+				status: "stopped",
+				lastSeenAt: new Date().toISOString(),
+			};
+			this.liveInstances.delete(instanceId);
+			removeInstance(instanceId);
+		}
 		return cloneInstance(live.record);
 	}
 
 	async handleRpc(instanceId: string, command: RpcCommand): Promise<RpcResponse | undefined> {
 		const live = this.liveInstances.get(instanceId);
-		if (!live) {
+		const rpcProcess = live ? this.getRpcProcess(live) : undefined;
+		if (!live || !rpcProcess) {
 			return undefined;
 		}
 
-		const response = await live.rpc.send(command);
+		const response = await rpcProcess.send(command);
 		if (shouldRefreshSessionMetadata(command)) {
 			await this.syncInstanceRecord(live);
 		}
