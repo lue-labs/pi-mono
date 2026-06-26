@@ -1,12 +1,11 @@
 import { hostname, platform } from "node:os";
 import { AuthStorage, type OAuthCredential } from "@earendil-works/pi-coding-agent";
-import { getOrchestratorDir, getSocketPath } from "./config.ts";
+import { getOrchestratorDir, getSocketPath, VERSION } from "./config.ts";
 import { loadMachine, saveMachine } from "./storage.ts";
 import type { InstanceRecord, MachineRecord, RadiusRegistration } from "./types.ts";
 
 const DEFAULT_RADIUS_URL = "https://radius.pi.dev/";
 const DEFAULT_ORCHESTRATOR_BASE_PATH = "/v1/";
-const ORCHESTRATOR_VERSION = "0.79.6";
 const NOT_FOUND_RETRY_THRESHOLD = 3;
 const HEARTBEAT_BACKOFF_BASE_MS = 1_000;
 const HEARTBEAT_BACKOFF_MAX_MS = 30_000;
@@ -243,7 +242,7 @@ export class RadiusPresence {
 			hostname: hostname(),
 			platform: platform(),
 			arch: process.arch,
-			version: ORCHESTRATOR_VERSION,
+			version: VERSION,
 			capabilities: { spawn: true, relay: false, iroh: false },
 		});
 
