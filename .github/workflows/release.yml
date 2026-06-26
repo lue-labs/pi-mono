@@ -14,6 +14,10 @@ permissions:
   pull-requests: write
   packages: write
 
+env:
+  HAS_CLAWSWEEPER_APP_PRIVATE_KEY: ${{ secrets.CLAWSWEEPER_APP_PRIVATE_KEY != '' }}
+  CLAWSWEEPER_APP_CLIENT_ID: Iv23lirdjmVqYd1gwY26
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -57,11 +61,32 @@ jobs:
       AZURE_OPENAI_RESOURCE_NAME: ""
       PI_NO_LOCAL_LLM: "1"
     steps:
+      - name: Require release PR GitHub App secret
+        if: env.HAS_CLAWSWEEPER_APP_PRIVATE_KEY != 'true'
+        run: |
+          echo "::error::CLAWSWEEPER_APP_PRIVATE_KEY is required so Changesets Version Packages PRs trigger required checks instead of needing --admin. Copy the repo-installed valkyriweb-clawsweeper App private key secret from my-pi."
+          exit 1
+
+      - name: Create release PR token (GitHub App)
+        id: release_pr_token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          client-id: ${{ env.CLAWSWEEPER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CLAWSWEEPER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Checkout pi-mono fork
         uses: actions/checkout@v6
         with:
           path: pi-mono-fork
           fetch-depth: 0
+          # actions/checkout persists this token for later git pushes. Use the
+          # App token here too, or changesets/action may still push the release
+          # branch with the suppressed workflow GITHUB_TOKEN.
+          token: ${{ steps.release_pr_token.outputs.token }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -111,7 +136,9 @@ jobs:
           # 422s past GitHub's 125000-char cap. See create-github-releases.mjs.
           createGithubReleases: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Must be the App token, not secrets.GITHUB_TOKEN, so the Version
+          # Packages PR triggers required PR checks instead of needing --admin.
+          GITHUB_TOKEN: ${{ steps.release_pr_token.outputs.token }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Cut a GitHub Release per just-published package, with a small body that
