@@ -234,7 +234,9 @@ describe("openai-codex streaming", () => {
 		expect(headers.get("thread-id")).toBe("cache-stability-test-session");
 		expect(headers.get("x-client-request-id")).toBe("cache-stability-test-session");
 		expect(body.prompt_cache_retention).toBeUndefined();
-		expect(body.max_output_tokens).toBe(1);
+		// Codex backend rejects max_output_tokens; the adapter must never forward it,
+		// even when the caller (e.g. compaction) sets maxTokens.
+		expect(body.max_output_tokens).toBeUndefined();
 	});
 
 	it("shares the Codex affinity session across different messages with the same prefix", async () => {
