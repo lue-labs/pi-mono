@@ -244,7 +244,19 @@ describe("AgentSession model and extension characterization", () => {
 				details: {},
 			}),
 		};
-		const harness = await createHarness({ tools: [imageTool] });
+		let hookSawRawUnsupportedImage = false;
+		const harness = await createHarness({
+			tools: [imageTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_result", async (event) => {
+						hookSawRawUnsupportedImage = event.content.some(
+							(part) => part.type === "image" && part.mimeType === "image/bmp",
+						);
+					});
+				},
+			],
+		});
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("mcp_image", {}, { id: "tool-1" })], { stopReason: "toolUse" }),
@@ -266,12 +278,77 @@ describe("AgentSession model and extension characterization", () => {
 		await harness.session.prompt("get image");
 
 		const assistantText = getAssistantTexts(harness).join("\n");
+		expect(hookSawRawUnsupportedImage).toBe(true);
 		expect(assistantText).toContain("no-image");
 		expect(assistantText).toContain("Unsupported image MIME image/bmp");
 		expect(assistantText).toContain(".pi/tool-artifacts/");
 		const artifactPath = join(harness.tempDir, ".pi", "tool-artifacts", "tool-1-0.bmp");
 		expect(existsSync(artifactPath)).toBe(true);
 		expect(readFileSync(artifactPath).toString()).toBe("fake-bmp-data");
+	});
+
+	it("caps oversized tool result text after extension handlers and saves the full text as an artifact", async () => {
+		const firstLargeText = "x".repeat(60_000);
+		const secondLargeText = "y".repeat(60_000);
+		const pngData = Buffer.from("fake-png-data").toString("base64");
+		const echoTool: AgentTool = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo text back",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "small" }], details: {} }),
+		};
+		const harness = await createHarness({
+			tools: [echoTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("tool_result", async () => ({
+						content: [
+							{ type: "text", text: firstLargeText },
+							{ type: "tool_reference", name: "native-result" },
+							{ type: "image", data: pngData, mimeType: "image/png" },
+							{ type: "text", text: secondLargeText },
+						],
+						details: { patched: true },
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		let providerToolResultText = "";
+		let providerToolResultTextChars = 0;
+		let providerSawImage = false;
+		let providerSawToolReference = false;
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("echo", {}, { id: "tool-huge" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				const textBlocks =
+					toolResult?.role === "toolResult"
+						? toolResult.content.filter((part): part is { type: "text"; text: string } => part.type === "text")
+						: [];
+				providerToolResultText = textBlocks.map((part) => part.text).join("\n");
+				providerToolResultTextChars = textBlocks.reduce((sum, part) => sum + part.text.length, 0);
+				providerSawImage =
+					toolResult?.role === "toolResult" &&
+					toolResult.content.some((part) => part.type === "image" && part.mimeType === "image/png");
+				providerSawToolReference =
+					toolResult?.role === "toolResult" &&
+					toolResult.content.some((part) => part.type === "tool_reference" && part.name === "native-result");
+				return fauxAssistantMessage("done");
+			},
+		]);
+
+		await harness.session.prompt("hi");
+
+		expect(providerToolResultTextChars).toBeLessThanOrEqual(100_000);
+		expect(providerSawImage).toBe(true);
+		expect(providerSawToolReference).toBe(true);
+		expect(providerToolResultText).toContain("Tool result truncated");
+		expect(providerToolResultText).toContain(".pi/tool-results/tool-huge-echo.txt");
+		const artifactPath = join(harness.tempDir, ".pi", "tool-results", "tool-huge-echo.txt");
+		expect(existsSync(artifactPath)).toBe(true);
+		expect(readFileSync(artifactPath, "utf8")).toBe(`${firstLargeText}\n\n${secondLargeText}`);
 	});
 
 	it("allows extension context handlers to modify messages before the LLM call", async () => {

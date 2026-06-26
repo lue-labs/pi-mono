@@ -69,8 +69,8 @@ export interface EditToolDetails {
 	firstChangedLine?: number;
 	/** Structured hunks for rich syntax-highlighted diff rendering */
 	hunks?: DiffHunk[];
-	/** Original file content for syntax context */
-	originalContent?: string;
+	/** Small original-file prefix for syntax context; never the full file. */
+	originalContentPreview?: string;
 }
 
 /**
@@ -430,7 +430,7 @@ export function createEditToolDefinition(
 						patch,
 						firstChangedLine: diffResult.firstChangedLine,
 						hunks: diffResult.hunks,
-						originalContent: diffResult.originalContent,
+						originalContentPreview: diffResult.originalContent.slice(0, 4_000),
 					},
 				};
 			});
@@ -480,7 +480,7 @@ export function createEditToolDefinition(
 								diff: resultDiff,
 								firstChangedLine: typedResult.details?.firstChangedLine,
 								hunks: typedResult.details?.hunks ?? [],
-								originalContent: typedResult.details?.originalContent ?? "",
+								originalContent: typedResult.details?.originalContentPreview ?? "",
 							},
 							argsKey,
 						) || changed;
@@ -517,7 +517,7 @@ export function createEditToolDefinition(
 					new ColorDiffComponent(
 						typedResult.details.hunks,
 						rawPath ?? "",
-						typedResult.details.originalContent ?? null,
+						typedResult.details.originalContentPreview ?? null,
 						false,
 					),
 				);
