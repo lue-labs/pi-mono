@@ -377,8 +377,80 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 const SUPPORTED_INLINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const TOOL_ARTIFACTS_DIR = ".pi/tool-artifacts";
+const TOOL_RESULT_TEXT_ARTIFACTS_DIR = ".pi/tool-results";
+const MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS = 100_000;
 
 type ToolResultContentBlock = TextContent | ImageContent | ToolReferenceContent;
+
+function capModelFacingToolResultText(
+	content: ToolResultContentBlock[],
+	cwd: string,
+	toolCallId: string,
+	toolName: string,
+): ToolResultContentBlock[] | undefined {
+	const totalTextChars = content.reduce((sum, block) => sum + (block.type === "text" ? block.text.length : 0), 0);
+	if (totalTextChars <= MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS) {
+		return undefined;
+	}
+
+	const relativePath = `${TOOL_RESULT_TEXT_ARTIFACTS_DIR}/${sanitizeArtifactName(toolCallId)}-${sanitizeArtifactName(toolName)}.txt`;
+	let saveError: string | undefined;
+	try {
+		const absolutePath = resolve(cwd, relativePath);
+		mkdirSync(dirname(absolutePath), { recursive: true });
+		writeFileSync(
+			absolutePath,
+			content
+				.filter((block): block is TextContent => block.type === "text")
+				.map((block) => block.text)
+				.join("\n\n"),
+			"utf8",
+		);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		saveError = message.slice(0, 500);
+	}
+
+	const makeHint = (omittedChars: number) =>
+		saveError
+			? `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full-text artifact save failed: ${saveError}.]`
+			: `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full text saved to ${relativePath}.]`;
+
+	let omittedChars = 0;
+	let previewBudget = MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS;
+	for (let i = 0; i < 3; i++) {
+		const hint = makeHint(omittedChars);
+		previewBudget = Math.max(0, MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS - hint.length);
+		const nextOmittedChars = Math.max(0, totalTextChars - previewBudget);
+		if (nextOmittedChars === omittedChars) break;
+		omittedChars = nextOmittedChars;
+	}
+
+	let remainingTextChars = previewBudget;
+	const nextContent: ToolResultContentBlock[] = [];
+	for (const block of content) {
+		if (block.type !== "text") {
+			nextContent.push(block);
+			continue;
+		}
+
+		if (remainingTextChars <= 0) {
+			continue;
+		}
+
+		if (block.text.length <= remainingTextChars) {
+			nextContent.push(block);
+			remainingTextChars -= block.text.length;
+			continue;
+		}
+
+		nextContent.push({ type: "text", text: block.text.slice(0, remainingTextChars) });
+		remainingTextChars = 0;
+	}
+
+	nextContent.push({ type: "text", text: makeHint(omittedChars) });
+	return nextContent;
+}
 
 function replaceUnsupportedToolResultImages(
 	content: ToolResultContentBlock[],
@@ -663,32 +735,35 @@ export class AgentSession {
 		};
 
 		this.agent.afterToolCall = async ({ toolCall, args, result, isError }) => {
-			const normalizedContent = replaceUnsupportedToolResultImages(result.content, this._cwd, toolCall.id);
-			const currentResult = normalizedContent ? { ...result, content: normalizedContent } : result;
 			const runner = this._extensionRunner;
-			if (!runner.hasHandlers("tool_result")) {
-				return normalizedContent ? { content: normalizedContent, details: result.details, isError } : undefined;
-			}
+			const hookResult = runner.hasHandlers("tool_result")
+				? await runner.emitToolResult({
+						type: "tool_result",
+						toolName: toolCall.name,
+						toolCallId: toolCall.id,
+						input: args as Record<string, unknown>,
+						content: result.content,
+						details: result.details,
+						isError,
+						...this._agentRunEventIdentity(),
+					})
+				: undefined;
 
-			const hookResult = await runner.emitToolResult({
-				type: "tool_result",
-				toolName: toolCall.name,
-				toolCallId: toolCall.id,
-				input: args as Record<string, unknown>,
-				content: currentResult.content,
-				details: currentResult.details,
-				isError,
-				...this._agentRunEventIdentity(),
-			});
-
-			if (!hookResult) {
-				return normalizedContent ? { content: normalizedContent, details: result.details, isError } : undefined;
+			const hookContent = hookResult?.content;
+			const postHookContent = hookContent ?? result.content;
+			const normalizedContent = replaceUnsupportedToolResultImages(postHookContent, this._cwd, toolCall.id);
+			const finalContent = normalizedContent ?? postHookContent;
+			const cappedContent = capModelFacingToolResultText(finalContent, this._cwd, toolCall.id, toolCall.name);
+			const shouldReturnContent =
+				hookContent !== undefined || normalizedContent !== undefined || cappedContent !== undefined;
+			if (!hookResult && !shouldReturnContent) {
+				return undefined;
 			}
 
 			return {
-				content: hookResult.content,
-				details: hookResult.details,
-				isError: hookResult.isError ?? isError,
+				...(shouldReturnContent ? { content: cappedContent ?? finalContent } : {}),
+				details: hookResult ? hookResult.details : result.details,
+				isError: hookResult?.isError ?? isError,
 			};
 		};
 
@@ -3231,9 +3306,9 @@ export class AgentSession {
 		for (const path of notification.sessionPaths) lines.push(`<session_path>${path}</session_path>`);
 		if (notification.error) lines.push(`<error>${notification.error}</error>`);
 		if (notification.result) {
-			lines.push(`<result>`);
+			lines.push(`<result_preview>`);
 			lines.push(notification.result);
-			lines.push(`</result>`);
+			lines.push(`</result_preview>`);
 		}
 		lines.push(`</agent_completion>`);
 		lines.push(
@@ -3289,7 +3364,13 @@ export class AgentSession {
 				customType: "bash_completion",
 				content: lines.join("\n"),
 				display: false,
-				details: { id: job.id, status: job.status, exitCode: job.exitCode, logPath: job.logPath },
+				details: {
+					id: job.id,
+					status: job.status,
+					exitCode: job.exitCode,
+					logPath: job.logPath,
+					fullOutputPath: job.logPath,
+				},
 			},
 			{ deliverAs: "followUp", wakeOnIdle: true },
 		).catch(() => {

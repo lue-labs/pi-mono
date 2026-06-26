@@ -312,6 +312,24 @@ describe("Coding Agent Tools", () => {
 			expect(result.details.patch).toContain("-Hello, world!");
 			expect(result.details.patch).toContain("+Hello, testing!");
 			expect(applyPatch(originalContent, result.details.patch)).toBe("Hello, testing!");
+			expect("originalContent" in result.details).toBe(false);
+			expect(result.details.originalContentPreview).toBe(originalContent);
+		});
+
+		it("should cap original content stored in edit details", async () => {
+			const testFile = join(testDir, "edit-large-original.txt");
+			const originalContent = `${"x".repeat(5000)}\nneedle\n`;
+			writeFileSync(testFile, originalContent);
+
+			const result = await editTool.execute("test-call-5b", {
+				path: testFile,
+				edits: [{ oldText: "needle", newText: "thread" }],
+			});
+
+			expect(result.details).toBeDefined();
+			expect("originalContent" in result.details).toBe(false);
+			expect(result.details.originalContentPreview).toBe(originalContent.slice(0, 4000));
+			expect(result.details.originalContentPreview.length).toBeLessThanOrEqual(4000);
 		});
 
 		it("should fail if text not found", async () => {
@@ -1108,7 +1126,7 @@ describe("Coding Agent Tools", () => {
 
 		it("full:true lifts the default 100-entry output cap, returning every match", async () => {
 			const testFile = join(testDir, "many-matches.txt");
-			writeFileSync(testFile, Array.from({ length: 150 }, (_, i) => `needle ${i + 1}`).join("\n") + "\n");
+			writeFileSync(testFile, `${Array.from({ length: 150 }, (_, i) => `needle ${i + 1}`).join("\n")}\n`);
 
 			// Default: capped (backend match limit collects only the first 100).
 			const capped = await grepTool.execute("test-call-grep-full-capped", {
