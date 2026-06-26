@@ -238,18 +238,30 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
 			}
-			body.prompt_cache_key =
-				(options?.cacheRetention ?? "short") === "none"
-					? undefined
-					: codexPromptCacheKey(options?.cacheAffinityKey, options?.sessionId, body);
-			const codexThreadId = body.prompt_cache_key;
-			const websocketRequestId = options?.sessionId || createCodexRequestId();
+			const cacheRetention = options?.cacheRetention ?? "short";
+			const cacheAffinitySessionId =
+				cacheRetention === "none"
+					? options?.sessionId
+					: codexPromptCacheKey(options?.cacheAffinityKey, options?.sessionId, body) || options?.sessionId;
+			body.prompt_cache_key = cacheRetention === "none" ? undefined : cacheAffinitySessionId;
+
+			// ChatGPT Codex keys server-side prefix caching on the session-id header.
+			// Keep thread-id / x-client-request-id tied to the real Pi session while
+			// routing same-shape requests through the shared affinity session-id.
+			const codexThreadId = options?.sessionId;
+			const codexSessionHeader = cacheAffinitySessionId;
+			// Provider-visible Codex session-id may be shared across same-shape sessions
+			// for prefix-cache reuse. Local WebSocket continuation state is different:
+			// previous_response_id is connection/conversation scoped, so keep local
+			// socket reuse, fallback tracking, and debug stats keyed to the real Pi
+			// session id carried in options.
+			const transportOptions = options;
 			const sseHeaders = buildSSEHeaders(
 				model.headers,
 				options?.headers,
 				accountId,
 				apiKey,
-				options?.sessionId,
+				codexSessionHeader,
 				codexThreadId,
 			);
 			await writeCodexCacheDebugSnapshot(model, body, options, sseHeaders);
@@ -258,7 +270,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				options?.headers,
 				accountId,
 				apiKey,
-				websocketRequestId,
+				codexSessionHeader || createCodexRequestId(),
 				codexThreadId,
 			);
 			const bodyJson = JSON.stringify(body);
@@ -288,7 +300,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							},
 							idleTimeoutMs,
 							websocketConnectTimeoutMs,
-							options,
+							transportOptions,
 						);
 
 						if (options?.signal?.aborted) {
