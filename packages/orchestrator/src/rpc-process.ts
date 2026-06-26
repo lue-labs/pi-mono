@@ -1,8 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
 	AgentSessionEvent,
 	RpcCommand,
@@ -10,6 +9,7 @@ import type {
 	RpcExtensionUIResponse,
 	RpcResponse,
 } from "@earendil-works/pi-coding-agent";
+import { isBunBinary } from "./config.ts";
 
 interface PendingRequest {
 	resolve(response: RpcResponse): void;
@@ -26,13 +26,19 @@ export interface RpcProcessInstance {
 	dispose(): Promise<void>;
 }
 
-function resolveCodingAgentCli(): string {
-	const packageDir = dirname(fileURLToPath(import.meta.url));
-	const workspaceCli = join(packageDir, "../../coding-agent/dist/cli.js");
-	if (existsSync(workspaceCli)) {
-		return workspaceCli;
+const require = createRequire(import.meta.url);
+
+function getRpcSpawnCommand(): { command: string; args: string[] } {
+	if (isBunBinary) {
+		return {
+			command: join(dirname(process.execPath), process.platform === "win32" ? "pi.exe" : "pi"),
+			args: ["--mode", "rpc"],
+		};
 	}
-	throw new Error(`Unable to find coding-agent RPC CLI: ${workspaceCli}`);
+	return {
+		command: process.execPath,
+		args: [require.resolve("@earendil-works/pi-coding-agent/rpc-entry")],
+	};
 }
 
 function toError(error: unknown): Error {
@@ -40,8 +46,8 @@ function toError(error: unknown): Error {
 }
 
 export function createRpcProcessInstance(options: { cwd: string }): RpcProcessInstance {
-	const cliPath = resolveCodingAgentCli();
-	const child = spawn(process.execPath, [cliPath, "--mode", "rpc"], {
+	const rpcCommand = getRpcSpawnCommand();
+	const child = spawn(rpcCommand.command, rpcCommand.args, {
 		cwd: options.cwd,
 		env: process.env,
 		stdio: ["pipe", "pipe", "pipe"],

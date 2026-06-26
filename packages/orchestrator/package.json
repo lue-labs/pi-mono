@@ -3,9 +3,6 @@
 	"version": "0.80.2",
 	"description": "experimental orchestrator package for pi",
 	"type": "module",
-	"bin": {
-		"orchestrator": "dist/cli.js"
-	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"exports": {
