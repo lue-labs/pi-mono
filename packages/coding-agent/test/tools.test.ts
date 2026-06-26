@@ -1126,7 +1126,7 @@ describe("Coding Agent Tools", () => {
 
 		it("full:true lifts the default 100-entry output cap, returning every match", async () => {
 			const testFile = join(testDir, "many-matches.txt");
-			writeFileSync(testFile, Array.from({ length: 150 }, (_, i) => `needle ${i + 1}`).join("\n") + "\n");
+			writeFileSync(testFile, `${Array.from({ length: 150 }, (_, i) => `needle ${i + 1}`).join("\n")}\n`);
 
 			// Default: capped (backend match limit collects only the first 100).
 			const capped = await grepTool.execute("test-call-grep-full-capped", {
