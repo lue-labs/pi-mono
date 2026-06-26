@@ -94,20 +94,22 @@ function buildSSEPayload({
 	return `${events.join("\n\n")}\n\n`;
 }
 
-async function captureCodexRequestBody(
+async function captureCodexRequest(
 	context: Context,
 	options: Partial<Parameters<typeof streamOpenAICodexResponses>[2]> = {},
-): Promise<Record<string, unknown>> {
+): Promise<{ body: Record<string, unknown>; headers: Headers }> {
 	const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 	process.env.PI_CODING_AGENT_DIR = tempDir;
 	const token = mockToken();
 	const sse = buildSSEPayload({ status: "completed" });
 	const encoder = new TextEncoder();
 	let capturedBody: Record<string, unknown> | undefined;
+	let capturedHeaders: Headers | undefined;
 	const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input.toString();
 		if (url === "https://chatgpt.com/backend-api/codex/responses") {
 			capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			capturedHeaders = new Headers(init?.headers);
 			return new Response(
 				new ReadableStream<Uint8Array>({
 					start(controller) {
@@ -129,8 +131,15 @@ async function captureCodexRequestBody(
 		...options,
 	}).result();
 
-	if (!capturedBody) throw new Error("Codex request body was not captured");
-	return capturedBody;
+	if (!capturedBody || !capturedHeaders) throw new Error("Codex request was not captured");
+	return { body: capturedBody, headers: capturedHeaders };
+}
+
+async function captureCodexRequestBody(
+	context: Context,
+	options: Partial<Parameters<typeof streamOpenAICodexResponses>[2]> = {},
+): Promise<Record<string, unknown>> {
+	return (await captureCodexRequest(context, options)).body;
 }
 
 describe("openai-codex streaming", () => {
@@ -207,7 +216,7 @@ describe("openai-codex streaming", () => {
 	});
 
 	it("uses cache affinity and long-retention options for Codex requests", async () => {
-		const body = await captureCodexRequestBody(
+		const { body, headers } = await captureCodexRequest(
 			{
 				systemPrompt: "Stable system prompt",
 				messages: [{ role: "user", content: "ping", timestamp: 1 }],
@@ -218,10 +227,67 @@ describe("openai-codex streaming", () => {
 				maxTokens: 1,
 			},
 		);
+		const promptCacheKey = String(body.prompt_cache_key);
 
-		expect(body.prompt_cache_key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+		expect(promptCacheKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+		expect(headers.get("session-id")).toBe(promptCacheKey);
+		expect(headers.get("thread-id")).toBe("cache-stability-test-session");
+		expect(headers.get("x-client-request-id")).toBe("cache-stability-test-session");
 		expect(body.prompt_cache_retention).toBeUndefined();
 		expect(body.max_output_tokens).toBe(1);
+	});
+
+	it("shares the Codex affinity session across different messages with the same prefix", async () => {
+		const context = {
+			systemPrompt: "Stable system prompt",
+			tools: [{ name: "read", description: "Read", parameters: { type: "object", properties: {} } } as Tool],
+		};
+		const options = { cacheAffinityKey: "shared-cache-affinity-key", cacheRetention: "long" as const };
+		const first = await captureCodexRequestBody(
+			{ ...context, messages: [{ role: "user", content: "first task", timestamp: 1 }] },
+			options,
+		);
+		const second = await captureCodexRequestBody(
+			{ ...context, messages: [{ role: "user", content: "second task", timestamp: 2 }] },
+			options,
+		);
+
+		expect(second.prompt_cache_key).toBe(first.prompt_cache_key);
+	});
+
+	it("splits the Codex affinity session when the cache affinity changes", async () => {
+		const context = {
+			systemPrompt: "Stable system prompt",
+			messages: [{ role: "user" as const, content: "ping", timestamp: 1 }],
+		};
+		const first = await captureCodexRequestBody(context, {
+			cacheAffinityKey: "affinity-for-cwd-a",
+			cacheRetention: "long",
+		});
+		const second = await captureCodexRequestBody(context, {
+			cacheAffinityKey: "affinity-for-cwd-b",
+			cacheRetention: "long",
+		});
+
+		expect(second.prompt_cache_key).not.toBe(first.prompt_cache_key);
+	});
+
+	it("does not use the shared Codex affinity session when cache retention is disabled", async () => {
+		const { body, headers } = await captureCodexRequest(
+			{
+				systemPrompt: "Stable system prompt",
+				messages: [{ role: "user", content: "ping", timestamp: 1 }],
+			},
+			{
+				cacheAffinityKey: "shared-cache-affinity-key",
+				cacheRetention: "none",
+			},
+		);
+
+		expect(body.prompt_cache_key).toBeUndefined();
+		expect(headers.get("session-id")).toBe("cache-stability-test-session");
+		expect(headers.get("thread-id")).toBe("cache-stability-test-session");
+		expect(headers.get("x-client-request-id")).toBe("cache-stability-test-session");
 	});
 
 	it("streams SSE responses into AssistantMessageEventStream", async () => {
@@ -1250,6 +1316,109 @@ describe("openai-codex streaming", () => {
 			cachedContextRequests: 1,
 			fullContextRequests: 1,
 		});
+	});
+
+	it("keeps WebSocket continuation state keyed to the real Pi session when Codex uses shared affinity", async () => {
+		const token = mockToken();
+		let capturedWebSocketHeaders: Record<string, string> | undefined;
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
+		);
+
+		class MockWebSocket {
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+
+			constructor(_url: string, protocols?: string | string[] | { headers?: Record<string, string> }) {
+				if (protocols && typeof protocols === "object" && !Array.isArray(protocols)) {
+					capturedWebSocketHeaders = protocols.headers;
+				}
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(_data: string): void {
+				const events = [
+					{
+						type: "response.output_item.added",
+						item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+					},
+					{ type: "response.content_part.added", part: { type: "output_text", text: "" } },
+					{ type: "response.output_text.delta", delta: "Hello" },
+					{
+						type: "response.output_item.done",
+						item: {
+							type: "message",
+							id: "msg_1",
+							role: "assistant",
+							status: "completed",
+							content: [{ type: "output_text", text: "Hello" }],
+						},
+					},
+					{
+						type: "response.completed",
+						response: {
+							status: "completed",
+							usage: {
+								input_tokens: 5,
+								output_tokens: 3,
+								total_tokens: 8,
+								input_tokens_details: { cached_tokens: 0 },
+							},
+						},
+					},
+				];
+				queueMicrotask(() => {
+					for (const event of events) this.dispatch("message", { data: JSON.stringify(event) });
+				});
+			}
+
+			close(): void {}
+
+			private dispatch(type: string, event: unknown): void {
+				for (const listener of this.listeners.get(type) ?? []) listener(event);
+			}
+		}
+
+		vi.stubGlobal("WebSocket", MockWebSocket);
+
+		await streamOpenAICodexResponses(
+			createCodexModel(),
+			{
+				systemPrompt: "Stable system prompt",
+				messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
+			},
+			{
+				apiKey: token,
+				sessionId: "real-pi-session",
+				cacheAffinityKey: "shared-cache-affinity-key",
+				transport: "auto",
+			},
+		).result();
+
+		const codexSessionId = capturedWebSocketHeaders?.["session-id"];
+		expect(codexSessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+		expect(codexSessionId).not.toBe("real-pi-session");
+		expect(capturedWebSocketHeaders?.["thread-id"]).toBe("real-pi-session");
+		expect(capturedWebSocketHeaders?.["x-client-request-id"]).toBe("real-pi-session");
+		expect(getOpenAICodexWebSocketDebugStats("real-pi-session")).toMatchObject({
+			cachedContextRequests: 1,
+			fullContextRequests: 1,
+		});
+		expect(codexSessionId ? getOpenAICodexWebSocketDebugStats(codexSessionId) : undefined).toBeUndefined();
 	});
 
 	it("falls back to SSE when websocket connect does not open before the connect timeout", async () => {
