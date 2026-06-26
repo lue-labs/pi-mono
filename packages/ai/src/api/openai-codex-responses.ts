@@ -506,9 +506,11 @@ function buildRequestBody(
 		parallel_tool_calls: true,
 	};
 
-	if (options?.maxTokens !== undefined) {
-		body.max_output_tokens = options.maxTokens;
-	}
+	// ChatGPT Codex Responses rejects `max_output_tokens` ("Unsupported parameter:
+	// max_output_tokens") — same backend constraint as `store: true`. Never forward
+	// an output-token cap: summarization/compaction is the only caller that sets
+	// `options.maxTokens`, so forwarding it 400'd every compaction on Codex sessions.
+	// The model's server-side default bounds output (matches codex-rs, which omits it).
 
 	if (options?.temperature !== undefined) {
 		body.temperature = options.temperature;
