@@ -66,6 +66,32 @@ describe("agent tool", () => {
 		});
 	});
 
+	test("Claude-style aliases normalize inside tasks and chains", () => {
+		expect(
+			normalizeAgentToolMode({
+				tasks: [{ subagent_type: "explore", prompt: "map routing", description: "routing" }],
+			}),
+		).toMatchObject({
+			mode: "parallel",
+			tasks: [expect.objectContaining({ agent: "explore", task: "map routing", description: "routing" })],
+		});
+		expect(
+			normalizeAgentToolMode({
+				chain: [{ subagent_type: "plan", prompt: "Use {previous}" }],
+			}),
+		).toMatchObject({
+			mode: "chain",
+			tasks: [expect.objectContaining({ agent: "plan", task: "Use {previous}" })],
+		});
+	});
+
+	test("task-array entries require a prompt and subagent type after alias normalization", () => {
+		expect(() => normalizeAgentToolMode({ tasks: [{ subagent_type: "explore" }] })).toThrow(
+			"require subagent_type and prompt",
+		);
+		expect(() => normalizeAgentToolMode({ chain: [{ prompt: "map" }] })).toThrow("require subagent_type and prompt");
+	});
+
 	test("Claude-style aliases reject conflicts clearly", () => {
 		expect(() =>
 			normalizeAgentToolAliases({ agent: "explore", subagent_type: "plan", task: "find" } as Parameters<
@@ -100,11 +126,18 @@ describe("agent tool", () => {
 		expect(Object.keys(tools)).toEqual(expect.arrayContaining(["agent", "Agent", "Task"]));
 		expect(tools.Agent.name).toBe("Agent");
 		expect(tools.Task.name).toBe("Task");
-		for (const tool of [tools.Agent, tools.Task]) {
+		for (const tool of [tools.agent, tools.Agent, tools.Task]) {
 			const properties = tool.parameters.properties;
 			expect(properties).toHaveProperty("prompt");
 			expect(properties).toHaveProperty("subagent_type");
 			expect(properties).toHaveProperty("run_in_background");
+			const taskItem = (
+				properties.tasks as { items: { properties: Record<string, { description?: string }>; required?: string[] } }
+			).items;
+			expect(taskItem.properties.subagent_type.description).toMatch(/preferred/);
+			expect(taskItem.properties.prompt.description).toMatch(/preferred/);
+			expect(taskItem.required ?? []).not.toContain("agent");
+			expect(taskItem.required ?? []).not.toContain("task");
 		}
 	});
 
@@ -126,6 +159,17 @@ describe("agent tool", () => {
 	test("tool guidelines nudge parent toward concurrent tool-use blocks", () => {
 		const tool = createAgentToolDefinition(process.cwd());
 		expect(tool.promptGuidelines?.join("\n")).toMatch(/multiple `?agent`? tool-use blocks/);
+	});
+
+	test("tool descriptions and guidelines prefer Claude-style Agent shape", () => {
+		const tools = createAllToolDefinitions(process.cwd());
+		for (const tool of [tools.agent, tools.Agent, tools.Task]) {
+			expect(tool.description).toContain("{subagent_type, prompt}");
+			expect(tool.description).not.toContain("Supports single {agent, task}");
+		}
+		const guidelines = createAgentToolDefinition(process.cwd()).promptGuidelines?.join("\n") ?? "";
+		expect(guidelines).toContain('{"tasks": [{"subagent_type": "explore", "prompt": "..."}]}');
+		expect(guidelines).toContain("legacy `agent`/`task`");
 	});
 
 	test("collapsed render shows per-agent work activity", () => {

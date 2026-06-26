@@ -368,11 +368,11 @@ Place in `~/.pi/agent/skills/`, `~/.agents/skills/`, `.pi/skills/`, or `.agents/
 
 Pi includes a built-in `agent` tool for child-agent delegation. It supports:
 
-- single: `{ agent, task }`
-- parallel: `{ tasks: [{ agent, task }, ...], concurrency }`
-- chain: `{ chain: [{ agent, task: "Use {previous}" }, ...] }`
-- background: `{ agent, task, background: true }`
-- control: `{ action: "status" | "detail" | "interrupt" | "cancel" | "resume", runId, message? }`
+- single: `{ subagent_type, prompt }` (legacy `{ agent, task }` is still accepted)
+- parallel: `{ tasks: [{ subagent_type, prompt }, ...], concurrency }`
+- chain: `{ chain: [{ subagent_type, prompt: "Use {previous}" }, ...] }`
+- background: `{ subagent_type, prompt, run_in_background: true }`
+- control: `{ action: "status" | "detail" | "interrupt" | "cancel" | "resume" | "inject", runId, message? }` (`message` is required for `inject`)
 
 Built-in agents: `general`, `worker`, `explore`, `decompose`, `plan`, and `reviewer`. User agents can be added as Markdown files in `~/.pi/agent/agents/*.md`; project agents in `.pi/agents/*.md` require explicit `agentScope: "project"` or `"both"` and confirmation.
 
@@ -389,7 +389,7 @@ Use `/agents` to list agents and insert a prompt scaffold. Native slash ergonomi
 - `/agents runs` - open a selectable recent-runs panel with detail, interrupt, cancel, and resume controls
 - `/agents interrupt <run-id>`, `/agents cancel <run-id>`, `/agents resume <run-id> [-- prompt]` - control native background runs
 
-Saved chains are JSON files with `name`, optional `description`, and a native `chain` array of `{ "agent": "...", "task": "..." }` steps. Project chains override user chains with the same name.
+Saved chains are JSON files with `name`, optional `description`, and a native `chain` array of `{ "subagent_type": "...", "prompt": "..." }` steps (legacy `{ "agent": "...", "task": "..." }` still works). Project chains override user chains with the same name.
 
 Migration note: native Pi now covers the core `pi-subagents` affordances used for single/parallel/chain delegation, diagnostics, recent-run status, saved reusable chains, footer visibility, selectable recent-run controls, stalled-run monitoring, and basic background lifecycle control. You can disable or remove `pi-subagents` if you do not need its manager-specific editing screens.
 

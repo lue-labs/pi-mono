@@ -16,6 +16,7 @@ import type {
 	AgentBackgroundCompletion,
 	AgentExecutionProgress,
 	AgentRunDetails,
+	AgentTaskConfig,
 	AgentToolDetails,
 	AgentToolMode,
 } from "../agents/types.ts";
@@ -50,12 +51,12 @@ const controlActionSchema = Type.Union([
 ]);
 
 const taskSchema = Type.Object({
-	agent: Type.String({ description: "Agent id/name to run" }),
 	subagent_type: Type.Optional(
-		Type.String({ description: "Alias for agent, matching Claude Code's Agent/Task tool" }),
+		Type.String({ description: "Agent id/name to run (preferred; Claude Code-compatible)" }),
 	),
-	task: Type.String({ description: "Task for the child agent" }),
-	prompt: Type.Optional(Type.String({ description: "Alias for task, matching Claude Code's Agent/Task tool" })),
+	agent: Type.Optional(Type.String({ description: "Legacy alias for subagent_type" })),
+	prompt: Type.Optional(Type.String({ description: "Task for the child agent (preferred)" })),
+	task: Type.Optional(Type.String({ description: "Legacy alias for prompt" })),
 	description: Type.Optional(Type.String({ description: "Short UI label" })),
 	context: Type.Optional(contextModeSchema),
 	extraContext: Type.Optional(
@@ -86,13 +87,15 @@ const taskSchema = Type.Object({
 export const agentToolSchema = Type.Object({
 	action: Type.Optional(controlActionSchema),
 	runId: Type.Optional(Type.String({ description: "Background run id for control actions" })),
-	message: Type.Optional(Type.String({ description: "Optional resume/continue prompt for control actions" })),
-	agent: Type.Optional(Type.String({ description: "Agent id/name to run" })),
-	subagent_type: Type.Optional(
-		Type.String({ description: "Alias for agent, matching Claude Code's Agent/Task tool" }),
+	message: Type.Optional(
+		Type.String({ description: "Optional resume/continue prompt for control actions; required for inject" }),
 	),
-	task: Type.Optional(Type.String({ description: "Task for the child agent" })),
-	prompt: Type.Optional(Type.String({ description: "Alias for task, matching Claude Code's Agent/Task tool" })),
+	subagent_type: Type.Optional(
+		Type.String({ description: "Agent id/name to run (preferred; Claude Code-compatible)" }),
+	),
+	agent: Type.Optional(Type.String({ description: "Legacy alias for subagent_type" })),
+	prompt: Type.Optional(Type.String({ description: "Task for the child agent (preferred)" })),
+	task: Type.Optional(Type.String({ description: "Legacy alias for prompt" })),
 	description: Type.Optional(Type.String()),
 	tasks: Type.Optional(Type.Array(taskSchema, { maxItems: 8 })),
 	chain: Type.Optional(Type.Array(taskSchema, { minItems: 1 })),
@@ -125,9 +128,7 @@ export const agentToolSchema = Type.Object({
 	background: Type.Optional(
 		Type.Boolean({ description: "Run in the background and return immediately with a run id" }),
 	),
-	run_in_background: Type.Optional(
-		Type.Boolean({ description: "Alias for background, matching Claude Code's Agent/Task tool" }),
-	),
+	run_in_background: Type.Optional(Type.Boolean({ description: "Claude Code-compatible alias for background" })),
 	agentScope: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")])),
 });
 
@@ -169,6 +170,7 @@ function countExecutionModes(params: AgentToolInput): number {
 
 type AgentToolParams = AgentToolInput & Record<string, unknown>;
 type AgentTaskParams = NonNullable<AgentToolInput["tasks"]>[number] & Record<string, unknown>;
+type NormalizedAgentTaskParams = AgentTaskParams & AgentTaskConfig;
 
 const unsupportedFutureFields = ["worktree", "remote", "team_name", "name", "mode"] as const;
 
@@ -206,12 +208,19 @@ function resolveBooleanAlias(
 	return typeof primary === "boolean" ? primary : typeof alias === "boolean" ? alias : undefined;
 }
 
-function normalizeAgentTaskAliases(task: AgentTaskParams): NonNullable<AgentToolInput["tasks"]>[number] {
+function normalizeAgentTaskAliases(task: AgentTaskParams, field: "tasks" | "chain"): NormalizedAgentTaskParams {
 	rejectUnsupportedFutureFields(task);
+	const agent = resolveStringAlias(task, "agent", "subagent_type") ?? task.agent;
+	const childTask = resolveStringAlias(task, "task", "prompt") ?? task.task;
+	if (!agent || !childTask) {
+		throw new Error(
+			`agent tool ${field} entries require subagent_type and prompt (legacy agent and task are still accepted)`,
+		);
+	}
 	return {
 		...task,
-		agent: resolveStringAlias(task, "agent", "subagent_type") ?? task.agent,
-		task: resolveStringAlias(task, "task", "prompt") ?? task.task,
+		agent,
+		task: childTask,
 	};
 }
 
@@ -250,21 +259,25 @@ export function normalizeAgentToolAliases(params: AgentToolInput): AgentToolInpu
 		agent: resolveStringAlias(input, "agent", "subagent_type") ?? params.agent,
 		task: resolveStringAlias(input, "task", "prompt") ?? params.task,
 		background: resolveBooleanAlias(input, "background", "run_in_background") ?? params.background,
-		tasks: tasks?.map((task) => normalizeAgentTaskAliases(task as AgentTaskParams)),
-		chain: chain?.map((task) => normalizeAgentTaskAliases(task as AgentTaskParams)),
+		tasks: tasks?.map((task) => normalizeAgentTaskAliases(task as AgentTaskParams, "tasks")),
+		chain: chain?.map((task) => normalizeAgentTaskAliases(task as AgentTaskParams, "chain")),
 	};
 }
 
 export function normalizeAgentToolMode(params: AgentToolInput): {
 	mode: AgentToolMode;
-	tasks: NonNullable<AgentToolInput["tasks"]>;
+	tasks: AgentTaskConfig[];
 } {
 	const normalized = normalizeAgentToolAliases(params);
 	const hasSingle = Boolean(normalized.agent && normalized.task);
-	const hasParallel = Boolean(normalized.tasks && normalized.tasks.length > 0);
+	const tasks = normalized.tasks as AgentTaskConfig[] | undefined;
+	const chain = normalized.chain as AgentTaskConfig[] | undefined;
+	const hasParallel = Boolean(tasks && tasks.length > 0);
 	const count = countExecutionModes(normalized);
 	if (count !== 1) {
-		throw new Error("agent tool requires exactly one mode: {agent, task}, {tasks}, or {chain}");
+		throw new Error(
+			"agent tool requires exactly one mode: {subagent_type, prompt} (or legacy {agent, task}), {tasks}, or {chain}",
+		);
 	}
 	if (hasSingle) {
 		return {
@@ -287,8 +300,8 @@ export function normalizeAgentToolMode(params: AgentToolInput): {
 			],
 		};
 	}
-	if (hasParallel) return { mode: "parallel", tasks: normalized.tasks ?? [] };
-	return { mode: "chain", tasks: normalized.chain ?? [] };
+	if (hasParallel) return { mode: "parallel", tasks: tasks ?? [] };
+	return { mode: "chain", tasks: chain ?? [] };
 }
 
 function formatUsage(run: AgentRunDetails): string | undefined {
@@ -493,7 +506,9 @@ async function executeAgentControlAction(
 	engine?: AgentEngine,
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	if (countExecutionModes(params) > 0) {
-		throw new Error("agent tool control actions cannot be combined with {agent, task}, {tasks}, or {chain}");
+		throw new Error(
+			"agent tool control actions cannot be combined with {subagent_type, prompt} (or legacy {agent, task}), {tasks}, or {chain}",
+		);
 	}
 	const action = params.action;
 	if (!action) throw new Error("Missing agent control action");
@@ -540,19 +555,19 @@ export function createAgentToolDefinition(
 		label,
 		description:
 			options?.description ??
-			"Launch a built-in or configured Pi child agent. Supports single {agent, task}, parallel {tasks: [{agent, task, ...}]}, sequential {chain: [{agent, task, ...}]}, background execution, and background run control actions. Pass `tasks` and `chain` as native JSON arrays of task objects; a stringified JSON array is also accepted and parsed.",
+			"Launch a built-in or configured Pi child agent. Supports single {subagent_type, prompt}, legacy {agent, task}, parallel {tasks: [{subagent_type, prompt, ...}]}, sequential {chain: [{subagent_type, prompt, ...}]}, background execution, and background run control actions. Pass `tasks` and `chain` as native JSON arrays of task objects; a stringified JSON array is also accepted and parsed.",
 
 		promptSnippet: "Delegate a task to a child agent with bounded tools",
 		promptGuidelines: [
-			"Launch a child agent to handle complex, multi-step tasks. Each agent has specific tools and a tailored system prompt — specify it via `agent` (or `subagent_type`).",
+			"Launch a child agent to handle complex, multi-step tasks. Each agent has specific tools and a tailored system prompt — specify it with `subagent_type` and `prompt`; legacy `agent`/`task` are accepted only for compatibility.",
 			"Reach for this when the task matches one of the available agent types, when you have independent work to run in parallel, or when answering would mean reading across several files — delegate it and you keep the conclusion, not the file dumps. For a single-fact lookup where you already know the file, symbol, or value, search directly with `read`/`grep`/`find`. Once you've delegated a search, don't also run it yourself — wait for the result.",
 			'Routing rule: **default to `explore`** for any read-only investigation (search, find, where/how/which, investigate, audit, map, trace). Choose `general` ONLY when the child itself must write files, run bash, or mix search+edit+verify in one run — "open-ended research" alone is not enough. If every step is read/grep/find/ls, it\'s `explore`.',
 			"Available agents: `explore` — fast read-only search for files, symbols, and code paths (cheap model, no transcript/project context/skills; specify breadth in `extraContext`: quick | medium | very thorough). `decompose` — read-only splitter for broad/token-heavy work into bounded sub-tasks with evidence requirements. `plan` — read-only architect for implementation strategy and risks on a known requirement. `reviewer` — read-only correctness/regression review with VERDICT line. `worker` — implementation worker for scoped coding tasks with known file paths. `general` — delegated execution for children that must write files, run bash, or mix search+edit+verify in one run; not for pure read-only investigation (use `explore`).",
 			"Read-only agents (`explore`, `decompose`, `plan`, `reviewer`) cannot edit, write, or run bash — assign them research, search, planning, or review work only. Never assign them implementation.",
 			"Brief the agent like a smart colleague who just walked in: explain what you're trying to accomplish and why, describe what you've already ruled out, give enough context that the agent can make judgment calls rather than follow a narrow instruction. Terse command-style prompts produce shallow, generic work. Never delegate understanding — don't write 'based on your findings, fix the bug'; write prompts that prove you understood (file paths, line numbers, what specifically to change).",
 			"When parallel exploration or review is needed, send multiple `agent` tool-use blocks in one assistant message; Pi runs those calls concurrently. Use `tasks[]` only for explicit batched fan-out inside one agent call.",
-			'Pass `tasks` and `chain` as native JSON arrays of task objects, e.g. `{"tasks": [{"agent": "explore", "task": "..."}]}`. A stringified JSON array (e.g. `"tasks": "[{...}]"`) is tolerated and auto-parsed, but native arrays are preferred. Each task object requires `agent` and `task`; other fields (`context`, `description`, `extraContext`, `model`, `thinking`, ...) are optional.',
-			"Use `background:true` for long-running delegated work that should continue while you report back; control it with `action`/`status`/`interrupt`/`cancel`/`resume` and `runId`.",
+			'Pass `tasks` and `chain` as native JSON arrays of task objects, e.g. `{"tasks": [{"subagent_type": "explore", "prompt": "..."}]}`. A stringified JSON array (e.g. `"tasks": "[{...}]"`) is tolerated and auto-parsed, but native arrays are preferred. Each task object requires `subagent_type` and `prompt`; legacy `agent` and `task` are accepted for compatibility. Other fields (`context`, `description`, `extraContext`, `model`, `thinking`, ...) are optional.',
+			"Use `run_in_background:true` (or legacy `background:true`) for long-running delegated work that should continue while you report back; control it with `action`/`status`/`interrupt`/`cancel`/`resume` and `runId`.",
 			"When a background agent finishes you receive an automatic `agent_completion` message with runId, status, summary, result preview, outputPaths, and sessionPaths. Do NOT poll with `agent action=status/detail` while waiting — work on other things, sleep with goal_wait, or hand back to the user. Read sessionPaths or outputPaths on demand if you need the full transcript.",
 			"The agent's final message is returned as the tool result; it is not shown to the user — relay what matters in your own words.",
 			"Do not use agent recursively; child agents cannot call agent.",
@@ -668,7 +683,7 @@ export function createUppercaseAgentToolDefinition(
 		toolName: "Agent",
 		label: "Agent",
 		description:
-			"Launch a Pi child agent, matching Claude Code's native Agent tool. Supports single {subagent_type, prompt}, legacy {agent, task}, parallel {tasks}, sequential chain {chain}, background execution, and background run control actions.",
+			"Launch a Pi child agent, matching Claude Code's native Agent tool. Supports single {subagent_type, prompt}, legacy {agent, task}, parallel {tasks: [{subagent_type, prompt, ...}]}, sequential chain {chain: [{subagent_type, prompt, ...}]}, background execution, and background run control actions.",
 	});
 }
 
@@ -685,7 +700,7 @@ export function createTaskToolDefinition(
 		toolName: "Task",
 		label: "Task",
 		description:
-			"Launch a Pi child agent, matching Claude Code's legacy Task tool alias. Supports single {agent, task}, parallel {tasks}, sequential chain {chain}, background execution, and background run control actions.",
+			"Launch a Pi child agent through the legacy Task alias. Prefer Claude-style {subagent_type, prompt}; legacy {agent, task} remains supported. Also supports parallel {tasks: [{subagent_type, prompt, ...}]}, sequential chain {chain: [{subagent_type, prompt, ...}]}, background execution, and background run control actions.",
 	});
 }
 

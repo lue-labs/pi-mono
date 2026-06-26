@@ -98,12 +98,32 @@ function parseChainFile(
 			continue;
 		}
 		const item = step as Record<string, unknown>;
-		const agent = typeof item.agent === "string" ? item.agent.trim() : "";
-		const task = typeof item.task === "string" ? item.task : "";
+		const preferredAgent = typeof item.subagent_type === "string" ? item.subagent_type : undefined;
+		const legacyAgent = typeof item.agent === "string" ? item.agent : undefined;
+		const preferredTask = typeof item.prompt === "string" ? item.prompt : undefined;
+		const legacyTask = typeof item.task === "string" ? item.task : undefined;
+		if (preferredAgent && legacyAgent && preferredAgent !== legacyAgent) {
+			diagnostics.push({
+				level: "warning",
+				message: `Skipping invalid step ${index + 1}; subagent_type and agent differ`,
+				path,
+			});
+			continue;
+		}
+		if (preferredTask && legacyTask && preferredTask !== legacyTask) {
+			diagnostics.push({
+				level: "warning",
+				message: `Skipping invalid step ${index + 1}; prompt and task differ`,
+				path,
+			});
+			continue;
+		}
+		const agent = (preferredAgent ?? legacyAgent ?? "").trim();
+		const task = preferredTask ?? legacyTask ?? "";
 		if (!agent || !task) {
 			diagnostics.push({
 				level: "warning",
-				message: `Skipping invalid step ${index + 1}; agent and task are required`,
+				message: `Skipping invalid step ${index + 1}; subagent_type and prompt are required (legacy agent and task are accepted)`,
 				path,
 			});
 			continue;
