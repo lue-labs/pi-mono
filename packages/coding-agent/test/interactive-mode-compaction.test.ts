@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 describe("InteractiveMode compaction events", () => {
-	test("rebuilds chat and appends a synthetic compaction summary at the bottom", async () => {
+	test("rebuilds chat once and does not append a duplicate compaction summary", async () => {
 		const fakeThis = {
 			isInitialized: true,
 			footer: { invalidate: vi.fn() },
@@ -45,14 +45,12 @@ describe("InteractiveMode compaction events", () => {
 
 		expect(fakeThis.chatContainer.clear).toHaveBeenCalledTimes(1);
 		expect(fakeThis.rebuildChatFromMessages).toHaveBeenCalledTimes(1);
-		expect(fakeThis.addMessageToChat).toHaveBeenCalledTimes(1);
-		expect(fakeThis.addMessageToChat).toHaveBeenCalledWith(
-			expect.objectContaining({
-				role: "compactionSummary",
-				tokensBefore: 123,
-				summary: "summary",
-			}),
-		);
+		// The compaction entry is already persisted before compaction_end fires, so
+		// rebuildChatFromMessages() -> buildSessionContext() renders the [compaction] summary at
+		// the head of the kept tail. The handler must NOT append a second synthetic summary, or
+		// the marker renders twice (sandwiching the kept tail) — the reported regression of two
+		// [compaction] markers with identical tokensBefore in one session.
+		expect(fakeThis.addMessageToChat).not.toHaveBeenCalled();
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
 	});
 });
