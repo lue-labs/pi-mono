@@ -40,6 +40,24 @@ describe("native saved agent chains", () => {
 		expect(chain?.chain[1]).toMatchObject({ agent: "reviewer", context: "slim", outputMode: "file" });
 	});
 
+	test("loads Claude-style aliases in saved chain json", async () => {
+		const cwd = await makeTempDir();
+		const chainsDir = join(cwd, ".pi", "chains");
+		await mkdir(chainsDir, { recursive: true });
+		await writeFile(
+			join(chainsDir, "review.json"),
+			JSON.stringify({
+				name: "review",
+				chain: [{ subagent_type: "reviewer", prompt: "Review {previous}", context: "slim" }],
+			}),
+		);
+
+		const registry = await loadAgentChainRegistry(cwd);
+		const chain = findAgentChain(registry, "review");
+		expect(chain?.chain[0]).toMatchObject({ agent: "reviewer", task: "Review {previous}", context: "slim" });
+		expect(registry.diagnostics).toEqual([]);
+	});
+
 	test("reports invalid chain definitions", async () => {
 		const cwd = await makeTempDir();
 		const chainsDir = join(cwd, ".pi", "chains");
