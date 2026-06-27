@@ -32,7 +32,7 @@ describe("agent tool permissions", () => {
 
 	test("bash-denying read-only agents do not receive bash even if parent has it", () => {
 		const result = resolveEffectiveTools({
-			parentActiveTools: ["agent", "read", "bash", "grep", "find", "ls"],
+			parentActiveTools: ["agent", "read", "bash", "grep", "Glob", "ls"],
 			agent: plan ?? getBuiltinAgentDefinitions()[0],
 		});
 		expect(result.effectiveTools).not.toContain("bash");
@@ -41,11 +41,11 @@ describe("agent tool permissions", () => {
 
 	test("explore retains guarded read-only bash even though it is a read-only agent", () => {
 		const result = resolveEffectiveTools({
-			parentActiveTools: ["agent", "read", "bash", "grep", "find", "ls"],
+			parentActiveTools: ["agent", "read", "bash", "grep", "Glob", "ls"],
 			agent: explore ?? getBuiltinAgentDefinitions()[0],
 		});
 		expect(result.effectiveTools).toContain("bash");
-		expect(result.effectiveTools).toEqual(["read", "bash", "grep", "find", "ls"]);
+		expect(result.effectiveTools).toEqual(["read", "bash", "grep", "Glob", "ls"]);
 	});
 
 	test("bash brings bash_output and bash_kill along when parent has them", () => {

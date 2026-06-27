@@ -105,6 +105,7 @@ export function buildRgArgs(input: {
 	type?: string;
 }): string[] {
 	const args = ["--json", "--line-number", "--color=never", "--hidden"];
+	for (const vcsDir of VCS_DIRS) args.push("--glob", `!${vcsDir}`);
 	if (input.ignoreCase) args.push("--ignore-case");
 	if (input.literal) args.push("--fixed-strings");
 	if (input.type) args.push("--type", input.type);
@@ -113,7 +114,7 @@ export function buildRgArgs(input: {
 	return args;
 }
 
-async function resolveGrepBackend(input: {
+export async function resolveGrepBackend(input: {
 	pattern: string;
 	searchPath: string;
 	glob?: string;
@@ -121,13 +122,13 @@ async function resolveGrepBackend(input: {
 	literal?: boolean;
 	type?: string;
 }): Promise<GrepBackendCommand | undefined> {
+	const rgPath = await ensureTool("rg", true);
+	if (rgPath) return { backend: "rg", command: rgPath, args: buildRgArgs(input) };
+
 	if (!input.type) {
 		const ugrepPath = getOptionalSearchToolPath("ugrep");
 		if (ugrepPath) return { backend: "ugrep", command: ugrepPath, args: buildUgrepArgs(input) };
 	}
-
-	const rgPath = await ensureTool("rg", true);
-	if (rgPath) return { backend: "rg", command: rgPath, args: buildRgArgs(input) };
 	return undefined;
 }
 

@@ -302,7 +302,7 @@ export function resolveAgentModel(options: {
 
 	// `"fast"` / `"medium"` aliases: resolve to the parent provider's mapped tier.
 	// `fast` is used by the read-only `explore` agent to avoid burning the parent's
-	// expensive model on grep/find/read workloads; `medium` is the mid-tier for
+	// expensive model on grep/Glob/read workloads; `medium` is the mid-tier for
 	// extractors and structured workloads that need more than Haiku/Mini. Both
 	// fall back to the parent model when the provider has no mapping or the mapped
 	// id is not available — never throws.

@@ -3861,7 +3861,7 @@ export class AgentSession {
 		// them, run_in_background:true returns a bgId the model can never read or stop.
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
-			: ["Read", "Bash", "BashOutput", "KillShell", "Edit", "Write", "Agent", "Task", "Grep", "Find", "Ls"];
+			: ["Read", "Bash", "BashOutput", "KillShell", "Edit", "Write", "Agent", "Task", "Grep", "Glob", "Ls"];
 		const baseActiveToolNames = syncClaudeBridgeNativeTools(
 			options.activeToolNames ?? defaultActiveToolNames,
 			this.model,

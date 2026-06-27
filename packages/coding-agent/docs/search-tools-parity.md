@@ -1,6 +1,6 @@
 # Search Tools Parity Notes
 
-These notes capture the Claude Code native search-tool investigation and the proposed direction for Pi's built-in `grep`/`find` tools.
+These notes capture the Claude Code native search-tool investigation and the proposed direction for Pi's built-in `Grep`/`Glob` tools.
 
 ## Current Claude Code native behavior
 
@@ -103,7 +103,7 @@ Observed behavior:
 
 Copy the architecture, not every Claude quirk:
 
-1. Keep first-class Pi tools (`grep`, `find`) instead of exposing raw shell commands as the main interface.
+1. Keep first-class Pi tools (`Grep`, `Glob`) instead of exposing raw shell commands as the main interface.
 2. Prefer native/controlled backends in this order:
    - bundled `ugrep`/`bfs` when available,
    - system `ugrep`/`bfs`,
@@ -111,7 +111,7 @@ Copy the architecture, not every Claude quirk:
    - JS fallback only if needed.
 3. Preserve Pi's current safety defaults unless explicitly changed:
    - `grep` respects ignore files, includes hidden files, excludes VCS dirs, truncates long lines, caps results, and times out by default.
-   - `find` respects `.gitignore` today via `fd`; if moved to `bfs`, add equivalent ignore-file support or keep `fd` fallback for that mode.
+   - `Glob` respects `.gitignore` when the `rg`/`fd` backend is active; if moved to `bfs`, add equivalent ignore-file support or keep `fd` fallback for that mode.
 4. Keep wrapper-level timeout semantics from the bounded-timeout change:
    - default `30s`, max `300s`, `timeout > 0`, structured timeout details,
    - partial output only when actually collected,
@@ -124,7 +124,7 @@ Copy the architecture, not every Claude quirk:
   2. managed/system `rg` fallback via the existing downloader.
 - `ugrep` runs with `--no-config -r -n --with-filename --ignore-files -. --color=never`, explicit VCS directory exclusions, optional `-g` glob filters, and wrapper-side match limits/truncation/timeouts.
 - `rg` keeps the previous JSON-output argv and remains the portable fallback.
-- `find` has shared backend argv builders and now prefers controlled/system `bfs` when available, falling back to `fd`.
+- `Glob` has shared backend argv builders and now prefers `rg --files --sort=modified`, then controlled/system `bfs`, then `fd`.
 - `bfs` execution intentionally does not add `.gitignore` wrapper filtering, matching observed Claude Code `Glob` behavior. The `fd` fallback remains available and keeps Pi's previous ignore-aware behavior.
 
 ## Implementation prompt
@@ -134,29 +134,29 @@ Use this prompt for the implementation pass:
 ```text
 You are in ~/Projects/personal/pi-mono-fork.
 
-Goal: evolve Pi's built-in grep/find tools toward Claude Code native-search parity while preserving the bounded-timeout behavior already implemented.
+Goal: evolve Pi's built-in Grep/Glob tools toward Claude Code native-search parity while preserving the bounded-timeout behavior already implemented.
 
 Read first:
 - AGENTS.md
 - packages/coding-agent/docs/search-tools-parity.md
 - packages/coding-agent/src/core/tools/grep.ts
-- packages/coding-agent/src/core/tools/find.ts
+- packages/coding-agent/src/core/tools/glob.ts
 - packages/coding-agent/test/tools.test.ts
 
 Constraints:
 - Do not overwrite unrelated work. Inspect git status first.
 - No dynamic/inline imports.
-- Keep the public grep/find tool names stable.
+- Expose the Claude-style public tool names `Grep`/`Glob` for model-facing search.
 - Preserve existing happy paths, truncation behavior, limit behavior, AbortSignal behavior, and timeout result shape.
 - After code changes run `cd packages/coding-agent && npm run check`.
 - If tests are added/modified, run the specific test file until it passes.
 - Do not run `npm run dev`, `npm run build`, or full `npm test` unless explicitly asked.
 
 Implementation plan:
-1. Introduce a backend abstraction for search commands so grep/find are not hardwired to one executable.
+1. Introduce a backend abstraction for search commands so Grep/Glob are not hardwired to one executable.
 2. Add backend detection helpers:
    - prefer bundled/controlled `ugrep` for grep if available,
-   - prefer bundled/controlled `bfs` for find if available,
+   - prefer `rg --files`, then bundled/controlled `bfs`, then `fd` for Glob,
    - fall back to current `rg`/`fd` behavior.
 3. For grep with `ugrep`:
    - support content output with line numbers,
@@ -166,7 +166,7 @@ Implementation plan:
    - exclude VCS directories (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`),
    - apply glob filters safely,
    - keep wrapper-side match limits, byte truncation, long-line truncation, and timeout details.
-4. For find with `bfs`:
+4. For Glob with `bfs`:
    - map Pi glob patterns safely to `bfs` path/name predicates,
    - include hidden files unless current behavior says otherwise,
    - preserve `.gitignore` semantics. If `bfs` cannot do this cleanly, keep `fd` as the default backend for ignore-aware mode and document why.

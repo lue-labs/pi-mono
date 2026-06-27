@@ -114,10 +114,10 @@ function formatToolCall(
 			const rawPath = (args.path || ".") as string;
 			return themeFg("muted", "ls ") + themeFg("accent", shortenPath(rawPath));
 		}
-		case "find": {
+		case "Glob": {
 			const pattern = (args.pattern || "*") as string;
 			const rawPath = (args.path || ".") as string;
-			return themeFg("muted", "find ") + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`);
+			return themeFg("muted", "Glob ") + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`);
 		}
 		case "grep": {
 			const pattern = (args.pattern || "") as string;

@@ -63,13 +63,13 @@ export {
 } from "./edit.ts";
 export { withFileMutationQueue } from "./file-mutation-queue.ts";
 export {
-	createFindTool,
-	createFindToolDefinition,
-	type FindOperations,
-	type FindToolDetails,
-	type FindToolInput,
-	type FindToolOptions,
-} from "./find.ts";
+	createGlobTool,
+	createGlobToolDefinition,
+	type GlobOperations,
+	type GlobToolDetails,
+	type GlobToolInput,
+	type GlobToolOptions,
+} from "./glob.ts";
 export {
 	createGrepTool,
 	createGrepToolDefinition,
@@ -160,7 +160,7 @@ import {
 	createUppercaseBashToolDefinition,
 } from "./bash.ts";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
-import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
+import { createGlobTool, createGlobToolDefinition, type GlobToolOptions } from "./glob.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.ts";
@@ -181,7 +181,7 @@ export type ToolName =
 	| "edit"
 	| "write"
 	| "grep"
-	| "find"
+	| "Glob"
 	| "ls"
 	| "agent"
 	| "Agent"
@@ -197,7 +197,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"edit",
 	"write",
 	"grep",
-	"find",
+	"Glob",
 	"ls",
 	"agent",
 	"Agent",
@@ -210,7 +210,7 @@ export interface ToolsOptions {
 	write?: WriteToolOptions;
 	edit?: EditToolOptions;
 	grep?: GrepToolOptions;
-	find?: FindToolOptions;
+	glob?: GlobToolOptions;
 	ls?: LsToolOptions;
 	agent?: AgentToolOptions;
 }
@@ -237,8 +237,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createWriteToolDefinition(cwd, options?.write);
 		case "grep":
 			return createGrepToolDefinition(cwd, options?.grep);
-		case "find":
-			return createFindToolDefinition(cwd, options?.find);
+		case "Glob":
+			return createGlobToolDefinition(cwd, options?.glob);
 		case "ls":
 			return createLsToolDefinition(cwd, options?.ls);
 		case "agent":
@@ -274,8 +274,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createWriteTool(cwd, options?.write);
 		case "grep":
 			return createGrepTool(cwd, options?.grep);
-		case "find":
-			return createFindTool(cwd, options?.find);
+		case "Glob":
+			return createGlobTool(cwd, options?.glob);
 		case "ls":
 			return createLsTool(cwd, options?.ls);
 		case "agent":
@@ -304,7 +304,7 @@ export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOption
 	return [
 		createReadToolDefinition(cwd, options?.read),
 		createGrepToolDefinition(cwd, options?.grep),
-		createFindToolDefinition(cwd, options?.find),
+		createGlobToolDefinition(cwd, options?.glob),
 		createLsToolDefinition(cwd, options?.ls),
 	];
 }
@@ -321,7 +321,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		edit: createEditToolDefinition(cwd, options?.edit),
 		write: createWriteToolDefinition(cwd, options?.write),
 		grep: createGrepToolDefinition(cwd, options?.grep),
-		find: createFindToolDefinition(cwd, options?.find),
+		Glob: createGlobToolDefinition(cwd, options?.glob),
 		ls: createLsToolDefinition(cwd, options?.ls),
 		agent: createAgentToolDefinition(cwd, options?.agent),
 		Agent: createUppercaseAgentToolDefinition(cwd, options?.agent),
@@ -344,7 +344,7 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 	return [
 		createReadTool(cwd, options?.read),
 		createGrepTool(cwd, options?.grep),
-		createFindTool(cwd, options?.find),
+		createGlobTool(cwd, options?.glob),
 		createLsTool(cwd, options?.ls),
 	];
 }
@@ -361,7 +361,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		edit: createEditTool(cwd, options?.edit),
 		write: createWriteTool(cwd, options?.write),
 		grep: createGrepTool(cwd, options?.grep),
-		find: createFindTool(cwd, options?.find),
+		Glob: createGlobTool(cwd, options?.glob),
 		ls: createLsTool(cwd, options?.ls),
 		agent: createAgentTool(cwd, options?.agent),
 		Agent: createUppercaseAgentTool(cwd, options?.agent),

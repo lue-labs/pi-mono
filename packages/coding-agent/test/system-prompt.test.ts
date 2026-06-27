@@ -36,7 +36,7 @@ describe("buildSystemPrompt", () => {
 					Edit: "Make surgical edits",
 					Write: "Create or overwrite files",
 					Grep: "Search file contents",
-					Find: "Find files by glob pattern",
+					Glob: "Match files by glob pattern",
 					Ls: "List directory contents",
 				},
 				contextFiles: [],
@@ -49,7 +49,7 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("- Edit:");
 			expect(prompt).toContain("- Write:");
 			expect(prompt).toContain("- Grep:");
-			expect(prompt).toContain("- Find:");
+			expect(prompt).toContain("- Glob:");
 			expect(prompt).toContain("- Ls:");
 		});
 
@@ -137,11 +137,11 @@ describe("buildSystemPrompt", () => {
 	describe("prompt guidelines", () => {
 		test("routes repo exploration to native tools and shell output to Bash", () => {
 			const prompt = buildSystemPrompt({
-				selectedTools: ["bash", "grep", "find", "ls"],
+				selectedTools: ["bash", "grep", "Glob", "ls"],
 				toolSnippets: {
 					bash: "Execute bash commands",
 					grep: "Search file contents",
-					find: "Find files by glob pattern",
+					Glob: "Match files by glob pattern",
 					ls: "List directory contents",
 				},
 				contextFiles: [],
@@ -150,7 +150,7 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt).toContain(
-				"File/dir exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Ls = directory listing; Grep = content search (known strings/regex); Find = file discovery by glob; SemanticGrep = conceptual search. Bash calls containing `ls`/`grep`/`rg`/`find` are rejected in full — split into separate native-tool calls, do not combine with other shell work in one bash invocation.",
+				"File/dir exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Ls = directory listing; Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Bash calls containing `ls`/`grep`/`rg`/`find` are rejected in full — split into separate native-tool calls, do not combine with other shell work in one bash invocation.",
 			);
 			expect(prompt).toContain(
 				"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.",
@@ -162,7 +162,7 @@ describe("buildSystemPrompt", () => {
 
 		test("steers independent work into batched parallel tool calls", () => {
 			const prompt = buildSystemPrompt({
-				selectedTools: ["read", "grep", "find", "ls"],
+				selectedTools: ["read", "grep", "Glob", "ls"],
 				contextFiles: [],
 				skills: [],
 				cwd: process.cwd(),

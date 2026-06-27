@@ -110,13 +110,13 @@ describe("plan-mode example extension", () => {
 
 		await runCommand("plan");
 
-		expect(activeTools()).toEqual(["read", "bash", "echo_tool", "grep", "find", "ls", "questionnaire"]);
+		expect(activeTools()).toEqual(["read", "bash", "echo_tool", "grep", "Glob", "ls", "questionnaire"]);
 		expect(setActiveTools).toHaveBeenLastCalledWith([
 			"read",
 			"bash",
 			"echo_tool",
 			"grep",
-			"find",
+			"Glob",
 			"ls",
 			"questionnaire",
 		]);

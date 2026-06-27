@@ -68,7 +68,7 @@ For the full first-run flow, see [Quickstart](quickstart.md).
 ## Reference
 
 - [Session format](session-format.md) - JSONL session file format, entry types, and SessionManager API.
-- [Search tools parity](search-tools-parity.md) - notes for grep/find backend behavior and Claude Code native-search parity.
+- [Search tools parity](search-tools-parity.md) - notes for Grep/Glob backend behavior and Claude Code native-search parity.
 - [Fork-mode sub-agent cache architecture](fork-cache-architecture.md) - how `context: "fork"` children inherit parent's prompt cache prefix byte-for-byte, sibling-fork parity, and regression triage.
 
 ## Platform setup

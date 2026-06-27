@@ -70,8 +70,8 @@ import type {
 	BashToolDetails,
 	BashToolInput,
 	EditToolInput,
-	FindToolDetails,
-	FindToolInput,
+	GlobToolDetails,
+	GlobToolInput,
 	GrepToolDetails,
 	GrepToolInput,
 	LsToolDetails,
@@ -1227,9 +1227,9 @@ export interface GrepToolCallEvent extends ToolCallEventBase {
 	input: GrepToolInput;
 }
 
-export interface FindToolCallEvent extends ToolCallEventBase {
-	toolName: "find";
-	input: FindToolInput;
+export interface GlobToolCallEvent extends ToolCallEventBase {
+	toolName: "Glob";
+	input: GlobToolInput;
 }
 
 export interface LsToolCallEvent extends ToolCallEventBase {
@@ -1254,7 +1254,7 @@ export type ToolCallEvent =
 	| EditToolCallEvent
 	| WriteToolCallEvent
 	| GrepToolCallEvent
-	| FindToolCallEvent
+	| GlobToolCallEvent
 	| LsToolCallEvent
 	| CustomToolCallEvent;
 
@@ -1295,9 +1295,9 @@ export interface GrepToolResultEvent extends ToolResultEventBase {
 	details: GrepToolDetails | undefined;
 }
 
-export interface FindToolResultEvent extends ToolResultEventBase {
-	toolName: "find";
-	details: FindToolDetails | undefined;
+export interface GlobToolResultEvent extends ToolResultEventBase {
+	toolName: "Glob";
+	details: GlobToolDetails | undefined;
 }
 
 export interface LsToolResultEvent extends ToolResultEventBase {
@@ -1317,7 +1317,7 @@ export type ToolResultEvent =
 	| EditToolResultEvent
 	| WriteToolResultEvent
 	| GrepToolResultEvent
-	| FindToolResultEvent
+	| GlobToolResultEvent
 	| LsToolResultEvent
 	| CustomToolResultEvent;
 
@@ -1337,8 +1337,8 @@ export function isWriteToolResult(e: ToolResultEvent): e is WriteToolResultEvent
 export function isGrepToolResult(e: ToolResultEvent): e is GrepToolResultEvent {
 	return e.toolName === "grep";
 }
-export function isFindToolResult(e: ToolResultEvent): e is FindToolResultEvent {
-	return e.toolName === "find";
+export function isGlobToolResult(e: ToolResultEvent): e is GlobToolResultEvent {
+	return e.toolName === "Glob";
 }
 export function isLsToolResult(e: ToolResultEvent): e is LsToolResultEvent {
 	return e.toolName === "ls";
@@ -1369,7 +1369,7 @@ export function isToolCallEventType(toolName: "read", event: ToolCallEvent): eve
 export function isToolCallEventType(toolName: "edit", event: ToolCallEvent): event is EditToolCallEvent;
 export function isToolCallEventType(toolName: "write", event: ToolCallEvent): event is WriteToolCallEvent;
 export function isToolCallEventType(toolName: "grep", event: ToolCallEvent): event is GrepToolCallEvent;
-export function isToolCallEventType(toolName: "find", event: ToolCallEvent): event is FindToolCallEvent;
+export function isToolCallEventType(toolName: "Glob", event: ToolCallEvent): event is GlobToolCallEvent;
 export function isToolCallEventType(toolName: "ls", event: ToolCallEvent): event is LsToolCallEvent;
 export function isToolCallEventType<TName extends string, TInput extends Record<string, unknown>>(
 	toolName: TName,

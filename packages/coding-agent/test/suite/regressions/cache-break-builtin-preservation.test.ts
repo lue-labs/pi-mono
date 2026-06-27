@@ -58,7 +58,7 @@ describe("cache-break Fix #3 — builtin preservation across setActiveToolsByNam
 		expect(before).toContain("Edit");
 		expect(before).toContain("Write");
 		expect(before).toContain("Grep");
-		expect(before).toContain("Find");
+		expect(before).toContain("Glob");
 		expect(before).toContain("Ls");
 
 		// Caller (simulating an extension) sets active to extension-only list.
@@ -72,7 +72,7 @@ describe("cache-break Fix #3 — builtin preservation across setActiveToolsByNam
 		expect(after).toContain("Edit");
 		expect(after).toContain("Write");
 		expect(after).toContain("Grep");
-		expect(after).toContain("Find");
+		expect(after).toContain("Glob");
 		expect(after).toContain("Ls");
 	});
 

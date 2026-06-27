@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // Regression coverage for the macOS Gatekeeper hot-loop fix: on Darwin, Pi must
 // never resolve a system-PATH (Homebrew adhoc-signed) search binary, because
-// spawning it on every Grep/Find triggers a Gatekeeper assessment. The resolver
+// spawning it on every Grep/Glob triggers a Gatekeeper assessment. The resolver
 // must return null so callers fall through to Pi's managed, quarantine-free copy.
 
 let currentPlatform = "darwin";

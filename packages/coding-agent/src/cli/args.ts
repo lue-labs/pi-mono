@@ -353,7 +353,7 @@ ${chalk.bold("Examples:")}
   ${APP_NAME} --thinking high "Solve this complex problem"
 
   # Read-only mode (no file modifications possible)
-  ${APP_NAME} --tools read,grep,find,ls -p "Review the code in src/"
+  ${APP_NAME} --tools read,grep,Glob,ls -p "Review the code in src/"
 
   # Disable one tool while keeping the rest available
   ${APP_NAME} --exclude-tools ask_question
@@ -414,7 +414,7 @@ ${chalk.bold("Built-in Tool Names:")}
   edit   - Edit files with find/replace
   write  - Write files (creates/overwrites)
   grep   - Search file contents (read-only, off by default)
-  find   - Find files by glob pattern (read-only, off by default)
+  Glob   - Match files by glob pattern (read-only, off by default)
   ls     - List directory contents (read-only, off by default)
 `);
 }

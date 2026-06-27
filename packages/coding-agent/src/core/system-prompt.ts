@@ -91,7 +91,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	// Build tools list based on selected tools.
 	// A tool appears in Available tools only when the caller provides a one-line snippet.
-	const tools = selectedTools || ["Read", "Bash", "Edit", "Write", "Grep", "Find", "Ls"];
+	const tools = selectedTools || ["Read", "Bash", "Edit", "Write", "Grep", "Glob", "Ls"];
 	const visibleTools = tools.filter((name) => !!toolSnippets?.[name]);
 	const toolsList =
 		visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets![name]}`).join("\n") : "(none)";
@@ -109,17 +109,17 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	const hasBash = tools.includes("bash") || tools.includes("Bash");
 	const hasGrep = tools.includes("grep") || tools.includes("Grep");
-	const hasFind = tools.includes("find") || tools.includes("Find");
+	const hasGlob = tools.includes("Glob");
 	const hasLs = tools.includes("ls") || tools.includes("Ls");
 	const hasRead = tools.includes("read") || tools.includes("Read");
 
 	// File exploration guidelines
-	if (hasBash && !hasGrep && !hasFind && !hasLs) {
+	if (hasBash && !hasGrep && !hasGlob && !hasLs) {
 		addGuideline("Use Bash for file operations like ls, rg, find");
-	} else if (hasBash && (hasGrep || hasFind || hasLs)) {
+	} else if (hasBash && (hasGrep || hasGlob || hasLs)) {
 		// Worded to match bash.ts promptGuidelines so addGuideline deduplicates shared rules.
 		addGuideline(
-			"File/dir exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Ls = directory listing; Grep = content search (known strings/regex); Find = file discovery by glob; SemanticGrep = conceptual search. Bash calls containing `ls`/`grep`/`rg`/`find` are rejected in full — split into separate native-tool calls, do not combine with other shell work in one bash invocation.",
+			"File/dir exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Ls = directory listing; Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Bash calls containing `ls`/`grep`/`rg`/`find` are rejected in full — split into separate native-tool calls, do not combine with other shell work in one bash invocation.",
 		);
 		addGuideline(
 			"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.",
@@ -127,7 +127,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		addGuideline("Use Read/Edit/Write for files instead of shelling out to view or modify file contents.");
 	}
 
-	if (hasRead || hasGrep || hasFind || hasLs) {
+	if (hasRead || hasGrep || hasGlob || hasLs) {
 		addGuideline(
 			"Batch independent tool calls in a single message: when several calls have no data dependency on each other — reads, directory listings, searches, bounded reads, independent read-only bash queries, edits to different files, or multiple Agent launches — emit them together in one assistant message instead of one call per turn. Serialize only when a later call needs an earlier call's result.",
 		);
