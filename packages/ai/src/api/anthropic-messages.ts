@@ -118,7 +118,7 @@ const fromClaudeCodeName = (name: string, tools?: Tool[]) => {
 // dispatch all consult ONE pair of maps (built per request) so names always agree.
 // Kill-switch (collapse to flat): PI_ANTHROPIC_NAMESPACE_WIRE=0. Flag-off / no
 // namespace stamped => the maps are empty => byte-identical to before.
-const namespaceWireEnabled = () => process.env["PI_ANTHROPIC_NAMESPACE_WIRE"] !== "0";
+const namespaceWireEnabled = () => process.env.PI_ANTHROPIC_NAMESPACE_WIRE !== "0";
 const toBaseToolName = (tool: Tool, isOAuth: boolean) => (isOAuth ? toClaudeCodeName(tool.name) : tool.name);
 // Server tools (anthropicServerTool / server-side advisor) are emitted verbatim by
 // convertOneTool BEFORE any name rewrite, so they must never be wire-prefixed.

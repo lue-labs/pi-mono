@@ -155,7 +155,7 @@ function toolUseResponse(wireName: string): Response {
 }
 
 afterEach(() => {
-	delete process.env["PI_ANTHROPIC_NAMESPACE_WIRE"];
+	delete process.env.PI_ANTHROPIC_NAMESPACE_WIRE;
 });
 
 describe("Anthropic tool-namespace wire prefixing", () => {
@@ -182,9 +182,9 @@ describe("Anthropic tool-namespace wire prefixing", () => {
 	});
 
 	it("kill-switch PI_ANTHROPIC_NAMESPACE_WIRE=0 collapses to flat, byte-identical to un-namespaced", async () => {
-		process.env["PI_ANTHROPIC_NAMESPACE_WIRE"] = "0";
+		process.env.PI_ANTHROPIC_NAMESPACE_WIRE = "0";
 		const off = await captureRequest({ messages: historyMessages(), tools: [nsTool] });
-		delete process.env["PI_ANTHROPIC_NAMESPACE_WIRE"];
+		delete process.env.PI_ANTHROPIC_NAMESPACE_WIRE;
 		const baseline = await captureRequest({ messages: historyMessages(), tools: [flatTool] });
 		expect(JSON.stringify(off.tools)).toBe(JSON.stringify(baseline.tools));
 		expect(JSON.stringify(off.messages)).toBe(JSON.stringify(baseline.messages));
@@ -221,7 +221,7 @@ describe("Anthropic tool-namespace wire prefixing", () => {
 	});
 
 	it("kill-switch off => inbound name passes through unchanged (no spurious strip)", async () => {
-		process.env["PI_ANTHROPIC_NAMESPACE_WIRE"] = "0";
+		process.env.PI_ANTHROPIC_NAMESPACE_WIRE = "0";
 		const model = pickModel("anthropic");
 		const context: Context = {
 			messages: [{ role: "user", content: "use the tool", timestamp: Date.now() }],
