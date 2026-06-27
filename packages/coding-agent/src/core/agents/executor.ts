@@ -630,10 +630,25 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		);
 	}
 
-	const agentDefaults = resolveAgentDefaults({
-		parentModel: options.parentModel,
-		settingsManager: options.parentServices.settingsManager,
-	});
+	// Fork mode = 1:1 cache-identity fork: the child inherits the parent's
+	// transcript (includeTranscript) and we freeze the parent's exact system bytes
+	// below. Such a fork only reuses the parent's warm prompt cache if it also runs
+	// on the parent's model + thinking level, so the settings.subagents provider pin
+	// (the cheap model for explore/general fan-out) must NOT apply here: dropping the
+	// resolved defaults lets model/thinking fall through to the parent unless the
+	// caller passes an explicit task-level override. Non-fork delegations
+	// (default/slim/none context) keep the subagents defaults so they stay cheap.
+	// Without this, a configured subagents model pin silently downgrades every
+	// context:"fork" caller (pi-memory extraction, pi-recap, fusion, suggested-tasks)
+	// off the parent model, cold-writing the whole inherited prefix on each run.
+	const isForkMode =
+		resolveContextPolicy(options.task.context).includeTranscript && Boolean(options.parentSystemPrompt);
+	const agentDefaults = isForkMode
+		? undefined
+		: resolveAgentDefaults({
+				parentModel: options.parentModel,
+				settingsManager: options.parentServices.settingsManager,
+			});
 	const model = resolveAgentModel({
 		modelReference: options.task.model,
 		agent,
@@ -650,7 +665,8 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		model,
 	});
 	const effectiveModel = applyMaxOutputTokens(model, options.task.maxOutputTokens);
-	// Fork mode: context:"fork" + parentSystemPrompt available.
+	// Fork mode (isForkMode is computed above, where it also forces model/thinking
+	// inheritance) governs tool inheritance too:
 	// Use parent's exact tool set — 1:1 inheritance, no GLOBAL_DENY_TOOLS filtering.
 	// Tool schemas must be byte-identical to the parent's API request for a cache hit.
 	// Consequence: the `agent` tool schema stays in the child's tool list, so the
@@ -659,8 +675,6 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	// Claude Code's <system-reminder> pattern). Default/slim modes keep the
 	// hard GLOBAL_DENY_TOOLS filter as defense-in-depth.
 	// All other modes: standard agent-definition-based tool resolution.
-	const isForkMode =
-		resolveContextPolicy(options.task.context).includeTranscript && Boolean(options.parentSystemPrompt);
 	let effectiveTools: string[];
 	let deniedTools: string[];
 	// Nested-delegation gate: a child at `childDepth` may itself delegate only while

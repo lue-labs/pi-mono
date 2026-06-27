@@ -412,4 +412,79 @@ describe("ctx.forkAgent", () => {
 		expect(["cancelled", "interrupted"]).toContain(details.status);
 		expect(captured.handle!.status).toBe(details.status);
 	});
+
+	// Regression: a settings.subagents provider model pin (the cheap model used for
+	// explore/general fan-out) must NOT apply to a context:"fork" fork. A 1:1 fork
+	// only reuses the parent's warm prompt cache when it runs on the parent's exact
+	// model + thinking level; the pin used to override the omitted model and silently
+	// downgrade every fork (pi-memory extraction, pi-recap, fusion, suggested-tasks),
+	// cold-writing the whole inherited prefix on each run.
+	it("fork mode inherits the parent model + thinking, bypassing a settings.subagents provider pin", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured); // default context:"fork"
+		const harness = await createHarness({
+			extensionFactories: [factory],
+			provider: "anthropic",
+			models: [
+				{ id: "parent-model", name: "Parent", reasoning: true },
+				{ id: "pinned-cheap-model", name: "Pinned", reasoning: true },
+			],
+			settings: {
+				subagents: {
+					providers: { anthropic: { model: "anthropic/pinned-cheap-model", thinking: "low" } },
+				},
+			},
+		});
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		// Parent runs on parent-model at a thinking level distinct from the pin's "low".
+		harness.session.setThinkingLevel("high");
+		const parentThinking = harness.session.thinkingLevel;
+		expect(parentThinking).not.toBe("low"); // setup sanity: pin thinking must differ
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+
+		expect(captured.error).toBeUndefined();
+		const details = await captured.handle!.wait();
+		expect(details.status).toBe("completed");
+		// The fork ran on the PARENT model + thinking (cache-identity), not the pin.
+		expect(details.runs[0]?.model?.id).toBe("parent-model");
+		expect(details.runs[0]?.thinking).toBe(parentThinking);
+	});
+
+	// Guard the cost optimization the fix must not regress: non-fork delegations
+	// (default/slim/none context) still take the cheap subagents pin.
+	it('non-fork delegation (context:"none") still honors the settings.subagents provider pin', async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured, { context: "none" });
+		const harness = await createHarness({
+			extensionFactories: [factory],
+			provider: "anthropic",
+			models: [
+				{ id: "parent-model", name: "Parent", reasoning: true },
+				{ id: "pinned-cheap-model", name: "Pinned", reasoning: true },
+			],
+			settings: {
+				subagents: {
+					providers: { anthropic: { model: "anthropic/pinned-cheap-model", thinking: "low" } },
+				},
+			},
+		});
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.session.setThinkingLevel("high"); // parent differs from the pin on purpose
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+
+		expect(captured.error).toBeUndefined();
+		const details = await captured.handle!.wait();
+		expect(details.status).toBe("completed");
+		// Non-fork: model + thinking come from the subagents pin, not the parent.
+		expect(details.runs[0]?.model?.id).toBe("pinned-cheap-model");
+		expect(details.runs[0]?.thinking).toBe("low");
+	});
 });
