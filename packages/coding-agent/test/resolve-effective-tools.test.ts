@@ -19,9 +19,9 @@ function agent(partial: Partial<AgentDefinition>): AgentDefinition {
 	} as AgentDefinition;
 }
 
-// Built-in agent definitions declare lowercase core tool names (read/grep/bash).
+// Built-in agent definitions declare canonical core tool names (read/grep/Glob/bash).
 // A profile may register the same capabilities under aliased names — e.g. Luke's
-// native-tool-overrides exposes Read/Grep/Bash and deferred Find/Ls. Resolution
+// native-tool-overrides exposes Read/Grep/Bash and deferred Glob/Ls. Resolution
 // must match by capability, not exact string, or every built-in agent runs with
 // ZERO tools and the model emits tool calls as literal text (0 tool uses).
 describe("resolveEffectiveTools capability matching", () => {
@@ -32,7 +32,7 @@ describe("resolveEffectiveTools capability matching", () => {
 		"Write",
 		"Agent",
 		"Grep",
-		"Find",
+		"Glob",
 		"Ls",
 		"BashOutput",
 		"KillShell",
@@ -41,9 +41,9 @@ describe("resolveEffectiveTools capability matching", () => {
 	it("resolves a lowercase allow-list against capitalized active aliases", () => {
 		const { effectiveTools } = resolveEffectiveTools({
 			parentActiveTools: capitalizedParent,
-			agent: agent({ tools: ["read", "grep", "find", "ls", "bash"], denyTools: ["agent", "edit", "write"] }),
+			agent: agent({ tools: ["read", "grep", "Glob", "ls", "bash"], denyTools: ["agent", "edit", "write"] }),
 		});
-		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Find", "Ls", "Bash"]));
+		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Glob", "Ls", "Bash"]));
 		expect(effectiveTools).not.toContain("Edit");
 		expect(effectiveTools).not.toContain("Write");
 		expect(effectiveTools).not.toContain("Agent");
@@ -62,18 +62,18 @@ describe("resolveEffectiveTools capability matching", () => {
 	it("excludes bash for a read-only agent", () => {
 		const { effectiveTools } = resolveEffectiveTools({
 			parentActiveTools: capitalizedParent,
-			agent: agent({ tools: ["read", "grep", "find", "ls"], denyTools: ["edit", "write", "bash", "agent"] }),
+			agent: agent({ tools: ["read", "grep", "Glob", "ls"], denyTools: ["edit", "write", "bash", "agent"] }),
 		});
-		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Find", "Ls"]));
+		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Glob", "Ls"]));
 		expect(effectiveTools).not.toContain("Bash");
 	});
 
 	it("matches case-insensitively against capitalized registry names", () => {
 		const { effectiveTools } = resolveEffectiveTools({
-			parentActiveTools: ["Read", "Grep", "Find"],
-			agent: agent({ tools: ["read", "grep", "find"] }),
+			parentActiveTools: ["Read", "Grep", "Glob"],
+			agent: agent({ tools: ["read", "grep", "glob"] }),
 		});
-		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Find"]));
+		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Glob"]));
 	});
 
 	it("denies the agent tool by default even with a wildcard allow-list", () => {

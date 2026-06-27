@@ -1,7 +1,7 @@
 /**
- * Test mirror of `my-pi/extensions/native-tool-aliases`.
+ * Test mirror of `my-pi/extensions/native-tool-overrides`.
  *
- * Registers Uppercase aliases for Read/Edit/Write/Grep/Find/Ls so tests that
+ * Registers production-style names for Read/Edit/Write/Grep/Glob/Ls so tests that
  * depend on these tools as builtins (the production reality, via my-pi-full)
  * can run without the on-disk extension being installed.
  *
@@ -11,7 +11,7 @@
 import type { ExtensionFactory } from "../src/core/extensions/types.ts";
 import {
 	createEditToolDefinition,
-	createFindToolDefinition,
+	createGlobToolDefinition,
 	createGrepToolDefinition,
 	createLsToolDefinition,
 	createReadToolDefinition,
@@ -23,7 +23,7 @@ const factories = [
 	{ name: "Edit", make: createEditToolDefinition },
 	{ name: "Write", make: createWriteToolDefinition },
 	{ name: "Grep", make: createGrepToolDefinition },
-	{ name: "Find", make: createFindToolDefinition },
+	{ name: "Glob", make: createGlobToolDefinition },
 	{ name: "Ls", make: createLsToolDefinition },
 ] as const;
 

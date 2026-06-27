@@ -99,7 +99,7 @@ export function getToolPath(tool: "fd" | "rg"): string | null {
 	// On macOS, skip the system-PATH lookup. Homebrew/system binaries are
 	// adhoc-signed without a kernel trust-cache entry, so every spawn triggers a
 	// Gatekeeper assessment (amfid -> syspolicyd -> trustd) — under Pi's hot
-	// Grep/Find loops this pins the CPU. Returning null here makes ensureTool()
+	// Grep/Glob loops this pins the CPU. Returning null here makes ensureTool()
 	// download a clean copy into our managed bin dir (no quarantine xattr, so no
 	// repeated assessment). Offline mode still falls back to system PATH so a
 	// machine with no managed binary can search.
@@ -127,8 +127,8 @@ export function getOptionalSearchToolPath(tool: OptionalSearchTool): string | nu
 
 	// On macOS, never spawn a system-PATH binary: Homebrew's adhoc-signed
 	// ugrep/bfs trigger a Gatekeeper assessment on every exec, which under Pi's
-	// hot Grep/Find loops pins amfid/syspolicyd. These optional backends are not
-	// downloaded, so returning null makes Grep/Find fall through to the managed
+	// hot Grep/Glob loops pins amfid/syspolicyd. These optional backends are not
+	// downloaded, so returning null makes Grep/Glob fall through to the managed
 	// rg/fd (which are Gatekeeper-inert). Offline mode keeps the PATH fallback
 	// (mirroring getToolPath): an offline mac with only ugrep/bfs and no managed
 	// rg/fd would otherwise lose search entirely.

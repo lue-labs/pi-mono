@@ -54,6 +54,7 @@ describe("ExtensionRunner deferred extension commands", () => {
 		getCustomEntries: () => [],
 		setActiveTools: () => {},
 		setDeferredOverrides: () => {},
+		setToolNamespaces: () => {},
 		refreshTools: () => {},
 		getCommands: () => [],
 		setModel: async () => false,

@@ -13,7 +13,7 @@ Related Pi baseline:
 
 - `packages/coding-agent/docs/search-tools-parity.md`
 - `packages/coding-agent/src/core/tools/grep.ts`
-- `packages/coding-agent/src/core/tools/find.ts`
+- `packages/coding-agent/src/core/tools/glob.ts`
 - `packages/coding-agent/src/core/tools/edit.ts`
 - `packages/coding-agent/src/core/tools/edit-diff.ts`
 - `packages/coding-agent/src/core/tools/read.ts`
@@ -46,13 +46,13 @@ Alias conflicts reject clearly, and built-in casing aliases like `Explore`/`Plan
 
 ### Search backend parity
 
-`packages/coding-agent/docs/search-tools-parity.md` already captures earlier Claude native-search work. Current Pi `grep`/`find` already moved in the right direction:
+`packages/coding-agent/docs/search-tools-parity.md` already captures earlier Claude native-search work. Current Pi `Grep`/`Glob` already moved in the right direction:
 
 - `grep` prefers `ugrep`, falls back to `rg`.
 - `grep` uses wrapper-side limits, truncation, and timeouts.
-- `grep` includes hidden files, respects ignore files via `--ignore-files`, and excludes VCS dirs.
-- `find` prefers `bfs`, falls back to `fd`.
-- `find` excludes VCS dirs and applies limits/timeouts.
+- `Grep` includes hidden files, respects ignore files via `--ignore-files`, and excludes VCS dirs.
+- `Glob` prefers `rg --files --sort=modified`, then `bfs`, then `fd`.
+- `Glob` excludes VCS dirs and applies limits/timeouts.
 
 ## Reverse-engineered Claude tool behavior
 

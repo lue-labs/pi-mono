@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
 import { Text } from "@valkyriweb/pi-tui";
 import { spawn } from "child_process";
+import { minimatch } from "minimatch";
 import path from "path";
 import { type Static, Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.ts";
@@ -17,7 +18,7 @@ function toPosixPath(value: string): string {
 	return value.split(path.sep).join("/");
 }
 
-const findSchema = Type.Object({
+const globSchema = Type.Object({
 	pattern: Type.String({
 		description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
 	}),
@@ -34,17 +35,17 @@ const findSchema = Type.Object({
 	),
 });
 
-export type FindToolInput = Static<typeof findSchema>;
+export type GlobToolInput = Static<typeof globSchema>;
 
 const DEFAULT_LIMIT = 1000;
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 300;
 const VCS_DIRS = [".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
 
-type FindBackend = "bfs" | "fd";
+type GlobBackend = "rg" | "bfs" | "fd";
 
-interface FindBackendCommand {
-	backend: FindBackend;
+interface GlobBackendCommand {
+	backend: GlobBackend;
 	command: string;
 	args: string[];
 }
@@ -92,23 +93,42 @@ export function buildFdArgs(input: {
 	return args;
 }
 
-async function resolveFindBackend(input: {
+export function buildRgFilesArgs(input: { searchPath: string; insideGitRepo?: boolean }): string[] {
+	const args = ["--files", "--sort=modified", "--hidden"];
+	for (const vcsDir of VCS_DIRS) args.push("--glob", `!${vcsDir}`);
+	if (!input.insideGitRepo) args.push("--no-require-git");
+	args.push(input.searchPath);
+	return args;
+}
+
+function matchesGlobPattern(relativePath: string, pattern: string): boolean {
+	const normalizedPattern = pattern.replace(/^\.\//, "");
+	return (
+		minimatch(relativePath, normalizedPattern, { dot: true }) ||
+		minimatch(path.basename(relativePath), normalizedPattern, { dot: true })
+	);
+}
+
+async function resolveGlobBackend(input: {
 	pattern: string;
 	searchPath: string;
 	limit: number;
-	backend?: FindBackend | "auto";
-}): Promise<FindBackendCommand | undefined> {
-	if (input.backend !== "fd") {
+	backend?: GlobBackend | "auto";
+}): Promise<GlobBackendCommand | undefined> {
+	const insideGitRepo = await isInsideGitRepo(input.searchPath);
+	if (input.backend !== "bfs" && input.backend !== "fd") {
+		const rgPath = await ensureTool("rg", true);
+		if (rgPath) return { backend: "rg", command: rgPath, args: buildRgFilesArgs({ ...input, insideGitRepo }) };
+	}
+
+	if (input.backend !== "rg" && input.backend !== "fd") {
 		const bfsPath = getOptionalSearchToolPath("bfs");
 		if (bfsPath) return { backend: "bfs", command: bfsPath, args: buildBfsArgs(input) };
 	}
 
-	if (input.backend !== "bfs") {
+	if (input.backend !== "rg" && input.backend !== "bfs") {
 		const fdPath = await ensureTool("fd", true);
-		if (fdPath) {
-			const insideGitRepo = await isInsideGitRepo(input.searchPath);
-			return { backend: "fd", command: fdPath, args: buildFdArgs({ ...input, insideGitRepo }) };
-		}
+		if (fdPath) return { backend: "fd", command: fdPath, args: buildFdArgs({ ...input, insideGitRepo }) };
 	}
 	return undefined;
 }
@@ -122,7 +142,7 @@ async function isInsideGitRepo(searchPath: string): Promise<boolean> {
 	}
 }
 
-export interface FindToolDetails {
+export interface GlobToolDetails {
 	truncation?: TruncationResult;
 	resultLimitReached?: number;
 	timedOut?: boolean;
@@ -142,7 +162,7 @@ function formatTimeoutSeconds(timeoutMs: number): string {
 	return seconds >= 1 ? `${Math.round(seconds)}s` : `${timeoutMs}ms`;
 }
 
-function formatFindTimeoutResult(args: {
+function formatGlobTimeoutResult(args: {
 	pattern: string;
 	path: string;
 	timeoutMs: number;
@@ -152,7 +172,7 @@ function formatFindTimeoutResult(args: {
 	const timeout = formatTimeoutSeconds(args.timeoutMs);
 	const partial = args.partialOutput?.trim();
 	const text = [
-		`find timed out after ${timeout} while searching ${args.path}.`,
+		`Glob timed out after ${timeout} while searching ${args.path}.`,
 		`Retry with a narrower path/glob, or explicitly raise timeout up to ${MAX_TIMEOUT_SECONDS}s.`,
 		partial ? `\nPartial entries returned before timeout:\n${partial}` : undefined,
 	]
@@ -176,32 +196,32 @@ function isAbortError(error: unknown): boolean {
 }
 
 /**
- * Pluggable operations for the find tool.
+ * Pluggable operations for the Glob tool.
  * Override these to delegate file search to remote systems (for example SSH).
  */
-export interface FindOperations {
+export interface GlobOperations {
 	/** Check if path exists */
 	exists: (absolutePath: string) => Promise<boolean> | boolean;
-	/** Find files matching glob pattern. Returns relative or absolute paths. */
+	/** Match files with a glob pattern. Returns relative or absolute paths. */
 	glob: (pattern: string, cwd: string, options: { ignore: string[]; limit: number }) => Promise<string[]> | string[];
 }
 
-const defaultFindOperations: FindOperations = {
+const defaultGlobOperations: GlobOperations = {
 	exists: pathExists,
 	// This is a placeholder. Actual fd execution happens in execute() when no custom glob is provided.
 	glob: () => [],
 };
 
-export interface FindToolOptions {
-	toolName?: "find" | "Find";
+export interface GlobToolOptions {
+	toolName?: "Glob";
 	label?: string;
-	/** Custom operations for find. Default: local filesystem plus bfs/fd */
-	operations?: FindOperations;
+	/** Custom operations for Glob. Default: local filesystem plus rg/bfs/fd. */
+	operations?: GlobOperations;
 	/** Internal backend override for deterministic tests and fallback verification. */
-	backend?: FindBackend | "auto";
+	backend?: GlobBackend | "auto";
 }
 
-function formatFindCall(
+function formatGlobCall(
 	args: { pattern: string; path?: string; limit?: number } | undefined,
 	theme: Theme,
 	label: string,
@@ -222,10 +242,10 @@ function formatFindCall(
 	return text;
 }
 
-function formatFindResult(
+function formatGlobResult(
 	result: {
 		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
-		details?: FindToolDetails;
+		details?: GlobToolDetails;
 	},
 	options: ToolRenderResultOptions,
 	theme: Theme,
@@ -260,21 +280,21 @@ function formatFindResult(
 	return text;
 }
 
-export function createFindToolDefinition(
+export function createGlobToolDefinition(
 	cwd: string,
-	options?: FindToolOptions,
-): ToolDefinition<typeof findSchema, FindToolDetails | undefined> {
+	options?: GlobToolOptions,
+): ToolDefinition<typeof globSchema, GlobToolDetails | undefined> {
 	const customOps = options?.operations;
 	const preferredBackend = options?.backend ?? "auto";
-	const toolName = options?.toolName ?? "find";
-	const label = options?.label ?? "Find";
+	const toolName = options?.toolName ?? "Glob";
+	const label = options?.label ?? "Glob";
 	return {
 		name: toolName,
 		label,
-		description: `Search for files by glob pattern. Returns matching file paths relative to the search directory, sorted by modification time when the rg backend is available. Use this tool for file discovery; do not invoke \`find\` via bash — those calls are blocked at runtime. Prefers rg for Claude Code-style mtime sorting, then bfs, then fd. The rg and fd backends respect .gitignore; bfs does not. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
-		promptSnippet: "Find files by glob pattern",
+		description: `Fast file pattern matching tool. Returns matching file paths relative to the search directory, sorted by modification time when the rg backend is available. Use this tool for file discovery; do not invoke \`find\` via bash — those calls are blocked at runtime. Prefers rg, then bfs, then fd. The rg and fd backends respect .gitignore; bfs does not. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
+		promptSnippet: "Match files by glob pattern",
 		executionMode: "parallel",
-		parameters: findSchema,
+		parameters: globSchema,
 		async execute(
 			_toolCallId,
 			{
@@ -318,7 +338,7 @@ export function createFindToolDefinition(
 					try {
 						const searchPath = resolveToCwd(searchDir || ".", cwd);
 						const effectiveLimit = full ? Number.MAX_SAFE_INTEGER : (limit ?? DEFAULT_LIMIT);
-						const ops = customOps ?? defaultFindOperations;
+						const ops = customOps ?? defaultGlobOperations;
 
 						// If custom operations provide glob(), use that instead of fd.
 						if (customOps?.glob) {
@@ -348,7 +368,7 @@ export function createFindToolDefinition(
 							if (customTimedOut) {
 								settle(() =>
 									resolve(
-										formatFindTimeoutResult({
+										formatGlobTimeoutResult({
 											pattern,
 											path: searchPath,
 											timeoutMs,
@@ -384,7 +404,7 @@ export function createFindToolDefinition(
 								full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
 							);
 							let resultOutput = truncation.content;
-							const details: FindToolDetails = {};
+							const details: GlobToolDetails = {};
 							const notices: string[] = [];
 							if (resultLimitReached) {
 								notices.push(`${effectiveLimit} results limit reached`);
@@ -406,7 +426,7 @@ export function createFindToolDefinition(
 							return;
 						}
 
-						const backendCommand = await resolveFindBackend({
+						const backendCommand = await resolveGlobBackend({
 							pattern,
 							searchPath,
 							limit: effectiveLimit,
@@ -417,7 +437,7 @@ export function createFindToolDefinition(
 							return;
 						}
 						if (!backendCommand) {
-							settle(() => reject(new Error("fd is not available and could not be downloaded")));
+							settle(() => reject(new Error("No file search backend is available and could not be downloaded")));
 							return;
 						}
 
@@ -454,7 +474,16 @@ export function createFindToolDefinition(
 						});
 
 						rl.on("line", (line) => {
+							if (backendCommand.backend === "rg") {
+								if (lines.length >= effectiveLimit) return;
+								const trimmed = line.replace(/\r$/, "").trim();
+								let relativePath = trimmed;
+								if (trimmed.startsWith(searchPath)) relativePath = trimmed.slice(searchPath.length + 1);
+								else relativePath = path.relative(searchPath, trimmed);
+								if (!matchesGlobPattern(toPosixPath(relativePath), pattern)) return;
+							}
 							lines.push(line);
+							if (backendCommand.backend === "rg" && lines.length >= effectiveLimit) stopChild?.();
 						});
 
 						child.on("error", (error) => {
@@ -487,7 +516,7 @@ export function createFindToolDefinition(
 								}).content;
 								settle(() =>
 									resolve(
-										formatFindTimeoutResult({
+										formatGlobTimeoutResult({
 											pattern,
 											path: searchPath,
 											timeoutMs,
@@ -502,7 +531,7 @@ export function createFindToolDefinition(
 							if (code !== 0) {
 								const backendName = toolDisplayName(backendCommand.command);
 								const errorMsg = stderr.trim() || `${backendName} exited with code ${code}`;
-								if (!output) {
+								if (!output && !(backendCommand.backend === "rg" && code === 1 && !stderr.trim())) {
 									settle(() => reject(new Error(errorMsg)));
 									return;
 								}
@@ -539,7 +568,7 @@ export function createFindToolDefinition(
 								full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
 							);
 							let resultOutput = truncation.content;
-							const details: FindToolDetails = {};
+							const details: GlobToolDetails = {};
 							const notices: string[] = [];
 							if (resultLimitReached) {
 								notices.push(
@@ -574,17 +603,17 @@ export function createFindToolDefinition(
 		},
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatFindCall(args, theme, label));
+			text.setText(formatGlobCall(args, theme, label));
 			return text;
 		},
 		renderResult(result, options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatFindResult(result as any, options, theme, context.showImages));
+			text.setText(formatGlobResult(result as any, options, theme, context.showImages));
 			return text;
 		},
 	};
 }
 
-export function createFindTool(cwd: string, options?: FindToolOptions): AgentTool<typeof findSchema> {
-	return wrapToolDefinition(createFindToolDefinition(cwd, options));
+export function createGlobTool(cwd: string, options?: GlobToolOptions): AgentTool<typeof globSchema> {
+	return wrapToolDefinition(createGlobToolDefinition(cwd, options));
 }

@@ -14,6 +14,7 @@ export function wrapToolDefinition<TDetails = unknown>(
 		deferLoading: definition.deferLoading,
 		alwaysLoad: definition.alwaysLoad,
 		searchHint: definition.searchHint,
+		namespace: definition.namespace,
 		prepareArguments: definition.prepareArguments,
 		executionMode: definition.executionMode,
 		execute: (toolCallId, params, signal, onUpdate) =>
@@ -44,6 +45,7 @@ export function createToolDefinitionFromAgentTool(tool: AgentTool<any>): ToolDef
 		deferLoading: tool.deferLoading,
 		alwaysLoad: tool.alwaysLoad,
 		searchHint: tool.searchHint,
+		namespace: tool.namespace,
 		prepareArguments: tool.prepareArguments,
 		executionMode: tool.executionMode,
 		execute: async (toolCallId, params, signal, onUpdate) => tool.execute(toolCallId, params, signal, onUpdate),

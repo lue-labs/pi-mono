@@ -2,12 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createFindToolDefinition } from "../../../src/core/tools/find.ts";
+import { createGlobToolDefinition } from "../../../src/core/tools/glob.ts";
 
 /**
  * Regression test for https://github.com/earendil-works/pi-mono/issues/3302
  *
- * The `find` tool advertises glob patterns like `src/**\/*.spec.ts`, but the
+ * The `Glob` tool advertises glob patterns like `src/**\/*.spec.ts`, but the
  * default fd-backed implementation used `fd --glob <pattern>` without
  * `--full-path`, which makes fd match only against the basename. Any pattern
  * containing a `/` therefore silently returned no matches.
@@ -16,7 +16,7 @@ import { createFindToolDefinition } from "../../../src/core/tools/find.ts";
  * and prepends `**\/` so the pattern can match against the absolute candidate
  * path that fd feeds to the matcher.
  */
-describe("issue #3302 find returns no results for path-based glob patterns", () => {
+describe("issue #3302 Glob returns no results for path-based glob patterns", () => {
 	let tempRoot: string;
 
 	beforeEach(() => {
@@ -32,9 +32,9 @@ describe("issue #3302 find returns no results for path-based glob patterns", () 
 		rmSync(tempRoot, { recursive: true, force: true });
 	});
 
-	async function runFind(pattern: string): Promise<string[]> {
-		const def = createFindToolDefinition(tempRoot);
-		// The find tool implementation does not touch ctx; pass a minimal stub.
+	async function runGlob(pattern: string): Promise<string[]> {
+		const def = createGlobToolDefinition(tempRoot);
+		// The Glob tool implementation does not touch ctx; pass a minimal stub.
 		const ctx = {} as Parameters<typeof def.execute>[4];
 		const result = (await def.execute("call-1", { pattern }, undefined, undefined, ctx)) as {
 			content: Array<{ type: string; text?: string }>;
@@ -48,25 +48,25 @@ describe("issue #3302 find returns no results for path-based glob patterns", () 
 	}
 
 	it("basename pattern still matches (regression-safe)", async () => {
-		const files = await runFind("*.spec.ts");
+		const files = await runGlob("*.spec.ts");
 		expect(files.sort()).toEqual(["some/parent/child/test.spec.ts", "src/foo/bar/example.spec.ts"]);
 	});
 
 	it("directory-prefixed pattern with ** tail matches subtree", async () => {
-		const files = await runFind("some/parent/child/**");
+		const files = await runGlob("some/parent/child/**");
 		// Matches files (and possibly directories) under the subtree. Assert the two files are present.
 		expect(files).toContain("some/parent/child/file.ext");
 		expect(files).toContain("some/parent/child/test.spec.ts");
 	});
 
 	it("leading ** wildcard with path segments matches", async () => {
-		const files = await runFind("**/parent/child/*");
+		const files = await runGlob("**/parent/child/*");
 		expect(files.sort()).toContain("some/parent/child/file.ext");
 		expect(files.sort()).toContain("some/parent/child/test.spec.ts");
 	});
 
 	it("src/**/*.spec.ts matches nested spec file", async () => {
-		const files = await runFind("src/**/*.spec.ts");
+		const files = await runGlob("src/**/*.spec.ts");
 		expect(files).toEqual(["src/foo/bar/example.spec.ts"]);
 	});
 });

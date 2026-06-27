@@ -100,6 +100,7 @@ const ccToolLookup = new Map(claudeCodeTools.map((t) => [t.toLowerCase(), t]));
 
 // Convert tool name to CC canonical casing if it matches (case-insensitive)
 const toClaudeCodeName = (name: string) => ccToolLookup.get(name.toLowerCase()) ?? name;
+
 const fromClaudeCodeName = (name: string, tools?: Tool[]) => {
 	if (tools && tools.length > 0) {
 		const lowerName = name.toLowerCase();
@@ -109,12 +110,62 @@ const fromClaudeCodeName = (name: string, tools?: Tool[]) => {
 	return name;
 };
 
+// Anthropic has no structural tool-namespace object; grouping is a name-prefix
+// convention (`github_`, `slack_`), and the deferred-tool flow requires that a
+// `tool_reference.tool_name` EXACTLY matches a tool defined in `tools[]`. So when
+// pi-tool-search stamps `tool.namespace`, we wire-prefix deferred tools as a full
+// round-trip: tools[] defs, tool_reference blocks, replayed tool_use, and response
+// dispatch all consult ONE pair of maps (built per request) so names always agree.
+// Kill-switch (collapse to flat): PI_ANTHROPIC_NAMESPACE_WIRE=0. Flag-off / no
+// namespace stamped => the maps are empty => byte-identical to before.
+const namespaceWireEnabled = () => process.env.PI_ANTHROPIC_NAMESPACE_WIRE !== "0";
+const toBaseToolName = (tool: Tool, isOAuth: boolean) => (isOAuth ? toClaudeCodeName(tool.name) : tool.name);
+// Server tools (anthropicServerTool / server-side advisor) are emitted verbatim by
+// convertOneTool BEFORE any name rewrite, so they must never be wire-prefixed.
+// This mirrors convertOneTool's early-return conditions exactly.
+const isAnthropicServerTool = (tool: Tool, model: Model<any>): boolean => {
+	if (model.provider !== "claude-bridge") return false;
+	if (tool.anthropicServerTool) return true;
+	if (tool.name === "advisor") {
+		const schema = tool.parameters as { properties?: { model?: { default?: string } } };
+		const advisorModel = schema.properties?.model?.default;
+		return typeof advisorModel === "string" && advisorModel.length > 0;
+	}
+	return false;
+};
+interface WireNameMaps {
+	canonicalToWire: Map<string, string>;
+	wireToCanonical: Map<string, string>;
+}
+// Authoritative per-request name maps. Collision-safe: every base name is reserved
+// first, so a `<namespace>_<base>` prefix that would shadow another tool's name is
+// skipped (the namespaced tool keeps its canonical name) rather than silently
+// dropped by the convertTools `seenNames` dedup.
+const buildWireNameMaps = (tools: Tool[] | undefined, model: Model<any>, isOAuth: boolean): WireNameMaps => {
+	const canonicalToWire = new Map<string, string>();
+	const wireToCanonical = new Map<string, string>();
+	if (!tools || !namespaceWireEnabled()) return { canonicalToWire, wireToCanonical };
+	const claimed = new Set(tools.map((tool) => toBaseToolName(tool, isOAuth)));
+	for (const tool of tools) {
+		if (!tool.namespace || isAnthropicServerTool(tool, model)) continue;
+		const wire = `${tool.namespace}_${toBaseToolName(tool, isOAuth)}`;
+		if (claimed.has(wire) || wireToCanonical.has(wire)) continue; // collision -> stay canonical
+		claimed.add(wire);
+		canonicalToWire.set(tool.name, wire);
+		wireToCanonical.set(wire, tool.name);
+	}
+	return { canonicalToWire, wireToCanonical };
+};
+
 /**
  * Convert content blocks to Anthropic API format
  */
 const ANTHROPIC_SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
-function convertContentBlocks(content: (TextContent | ImageContent | { type: "tool_reference"; name: string })[]):
+function convertContentBlocks(
+	content: (TextContent | ImageContent | { type: "tool_reference"; name: string })[],
+	canonicalToWire?: Map<string, string>,
+):
 	| string
 	| Array<
 			| { type: "text"; text: string }
@@ -132,7 +183,10 @@ function convertContentBlocks(content: (TextContent | ImageContent | { type: "to
 	if (hasToolReferences) {
 		return content
 			.filter((block): block is { type: "tool_reference"; name: string } => block.type === "tool_reference")
-			.map((block) => ({ type: "tool_reference" as const, tool_name: block.name }));
+			.map((block) => ({
+				type: "tool_reference" as const,
+				tool_name: canonicalToWire?.get(block.name) ?? block.name,
+			}));
 	}
 
 	// If only text blocks, return as concatenated string for simplicity
@@ -152,7 +206,7 @@ function convertContentBlocks(content: (TextContent | ImageContent | { type: "to
 		if (block.type === "tool_reference") {
 			return {
 				type: "tool_reference" as const,
-				tool_name: block.name,
+				tool_name: canonicalToWire?.get(block.name) ?? block.name,
 			};
 		}
 		if (!ANTHROPIC_SUPPORTED_IMAGE_MIME_TYPES.has(block.mimeType)) {
@@ -638,6 +692,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				isOAuth = created.isOAuthToken;
 			}
 			let params = buildParams(model, context, isOAuth, options);
+			// Reverse map for response dispatch: a namespaced wire tool name (e.g.
+			// `context_ctx_search`) must be stripped back to the canonical name the tool
+			// is registered under, for BOTH OAuth and API-key requests. Empty when
+			// namespacing is off => no behavior change.
+			const { wireToCanonical } = buildWireNameMaps(context.tools, model, isOAuth);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as MessageCreateParamsStreaming;
@@ -758,9 +817,10 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							const block: Block = {
 								type: "toolCall",
 								id: event.content_block.id,
-								name: isOAuth
-									? fromClaudeCodeName(event.content_block.name, context.tools)
-									: event.content_block.name,
+								name: (() => {
+									const canonical = wireToCanonical.get(event.content_block.name) ?? event.content_block.name;
+									return isOAuth ? fromClaudeCodeName(canonical, context.tools) : canonical;
+								})(),
 								arguments: (event.content_block.input as Record<string, any>) ?? {},
 								partialJson: "",
 								index: event.index,
@@ -1238,6 +1298,9 @@ function buildParams(
 ): MessageCreateParamsStreaming {
 	const { cacheControl } = getCacheControl(model, options?.cacheRetention, options?.env);
 	const compat = getAnthropicCompat(model);
+	// Single authoritative name map for this request — shared by tools[] and the
+	// message/tool_reference serialization so wire names always agree.
+	const { canonicalToWire } = buildWireNameMaps(context.tools, model, isOAuthToken);
 	const params: MessageCreateParamsStreaming = {
 		model: model.id,
 		messages: convertMessages(
@@ -1247,6 +1310,7 @@ function buildParams(
 			cacheControl,
 			compat.supportsDeferredTools,
 			compat.allowEmptySignature,
+			canonicalToWire,
 		),
 		max_tokens: options?.maxTokens ?? model.maxTokens,
 		stream: true,
@@ -1284,6 +1348,7 @@ function buildParams(
 			isOAuthToken,
 			compat.supportsEagerToolInputStreaming,
 			compat.supportsDeferredTools,
+			canonicalToWire,
 		);
 	}
 
@@ -1381,6 +1446,7 @@ function convertMessages(
 	cacheControl?: CacheControlEphemeral,
 	supportsDeferredTools = true,
 	allowEmptySignature = false,
+	canonicalToWire?: Map<string, string>,
 ): MessageParam[] {
 	const params: MessageParam[] = [];
 
@@ -1487,11 +1553,14 @@ function convertMessages(
 					blocks.push({
 						type: "tool_use",
 						id: block.id,
-						name: isOAuthToken ? toClaudeCodeName(block.name) : block.name,
+						name: canonicalToWire?.get(block.name) ?? (isOAuthToken ? toClaudeCodeName(block.name) : block.name),
 						input: block.arguments ?? {},
 					});
 				} else if (block.type === "tool_reference" && supportsDeferredTools) {
-					blocks.push({ type: "tool_reference", tool_name: block.name } as unknown as ContentBlockParam);
+					blocks.push({
+						type: "tool_reference",
+						tool_name: canonicalToWire?.get(block.name) ?? block.name,
+					} as unknown as ContentBlockParam);
 				}
 			}
 			if (blocks.length === 0) continue;
@@ -1508,7 +1577,7 @@ function convertMessages(
 				type: "tool_result",
 				tool_use_id: msg.toolCallId,
 				content: supportsDeferredTools
-					? convertContentBlocks(msg.content)
+					? convertContentBlocks(msg.content, canonicalToWire)
 					: stripToolReferencesFromContent(msg.content),
 				is_error: msg.isError,
 			});
@@ -1521,7 +1590,7 @@ function convertMessages(
 					type: "tool_result",
 					tool_use_id: nextMsg.toolCallId,
 					content: supportsDeferredTools
-						? convertContentBlocks(nextMsg.content)
+						? convertContentBlocks(nextMsg.content, canonicalToWire)
 						: stripToolReferencesFromContent(nextMsg.content),
 					is_error: nextMsg.isError,
 				});
@@ -1628,9 +1697,9 @@ const convertedToolCache = new WeakMap<object, Map<string, Anthropic.Messages.To
 function convertOneTool(
 	tool: Tool,
 	model: Model<any>,
-	isOAuthToken: boolean,
 	supportsEagerToolInputStreaming: boolean,
 	deferLoading: boolean,
+	wireName: string,
 ): Anthropic.Messages.ToolUnion {
 	// Explicit server-tool opt-in: the tool definition supplies the exact
 	// Anthropic server tool block (web_search_20250305, web_fetch_20260309, ...).
@@ -1661,7 +1730,7 @@ function convertOneTool(
 	const properties = sortObjectKeysDeep(schema.properties ?? {}) as Record<string, unknown>;
 	const required = (schema.required ?? []).slice().sort();
 	return {
-		name: isOAuthToken ? toClaudeCodeName(tool.name) : tool.name,
+		name: wireName,
 		description: tool.description,
 		...(supportsEagerToolInputStreaming ? { eager_input_streaming: true } : {}),
 		...(deferLoading ? { defer_loading: true } : {}),
@@ -1679,6 +1748,7 @@ function convertTools(
 	isOAuthToken: boolean,
 	supportsEagerToolInputStreaming: boolean,
 	supportsDeferredTools: boolean,
+	canonicalToWire?: Map<string, string>,
 ): Anthropic.Messages.ToolUnion[] {
 	if (!tools) return [];
 
@@ -1686,7 +1756,11 @@ function convertTools(
 	const seenNames = new Set<string>();
 	for (const tool of tools) {
 		const deferLoading = !!(supportsDeferredTools && tool.deferLoading && !tool.alwaysLoad);
-		const flagKey = `${model.provider}|${isOAuthToken ? 1 : 0}|${supportsEagerToolInputStreaming ? 1 : 0}|${deferLoading ? 1 : 0}`;
+		// Resolved wire name (collision-safe, server-tool-excluded) comes from the
+		// single authoritative map. It joins the cache key so flipping the namespace
+		// kill-switch (or a tool gaining/losing a namespace) can't return a stale name.
+		const wireName = canonicalToWire?.get(tool.name) ?? toBaseToolName(tool, isOAuthToken);
+		const flagKey = `${model.provider}|${isOAuthToken ? 1 : 0}|${supportsEagerToolInputStreaming ? 1 : 0}|${deferLoading ? 1 : 0}|${wireName}`;
 		let perToolMap = convertedToolCache.get(tool);
 		if (!perToolMap) {
 			perToolMap = new Map();
@@ -1694,7 +1768,7 @@ function convertTools(
 		}
 		let cached = perToolMap.get(flagKey);
 		if (!cached) {
-			cached = convertOneTool(tool, model, isOAuthToken, supportsEagerToolInputStreaming, deferLoading);
+			cached = convertOneTool(tool, model, supportsEagerToolInputStreaming, deferLoading, wireName);
 			perToolMap.set(flagKey, cached);
 		}
 		if (seenNames.has(cached.name)) continue;

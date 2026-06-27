@@ -76,7 +76,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 		const allToolNames = session.getAllTools().map((tool) => tool.name);
 		// All builtins remain registered (both lowercase and PascalCase variants)
 		// even when noTools: "builtin" disables them from the active set.
-		for (const name of ["agent", "bash", "bash_kill", "bash_output", "edit", "find", "grep", "ls", "read", "write"]) {
+		for (const name of ["agent", "bash", "bash_kill", "bash_output", "edit", "Glob", "grep", "ls", "read", "write"]) {
 			expect(allToolNames).toContain(name);
 		}
 		expect(allToolNames).toContain("dynamic_tool");

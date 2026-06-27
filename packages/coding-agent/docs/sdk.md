@@ -481,7 +481,7 @@ import { createAgentSession } from "@valkyriweb/pi-coding-agent";
 
 // Read-only mode
 const { session } = await createAgentSession({
-  tools: ["read", "grep", "find", "ls"],
+  tools: ["read", "grep", "Glob", "ls"],
 });
 
 // Pick specific tools
@@ -1127,7 +1127,7 @@ SettingsManager
 createCodingTools
 createReadOnlyTools
 createReadTool, createBashTool, createEditTool, createWriteTool
-createGrepTool, createFindTool, createLsTool
+createGrepTool, createGlobTool, createLsTool
 
 // Types
 type CreateAgentSessionOptions

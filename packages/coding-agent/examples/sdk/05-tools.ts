@@ -14,7 +14,7 @@ import { createAgentSession, SessionManager } from "@valkyriweb/pi-coding-agent"
 
 // Read-only mode (no edit/write)
 const { session: readOnlySession } = await createAgentSession({
-	tools: ["read", "grep", "find", "ls"],
+	tools: ["read", "grep", "Glob", "ls"],
 	sessionManager: SessionManager.inMemory(),
 });
 console.log("Read-only session created");

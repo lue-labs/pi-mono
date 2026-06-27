@@ -31,10 +31,10 @@ describe("built-in agent definitions", () => {
 			if (agent.id === "explore") {
 				expect(agent.denyTools).toEqual(expect.arrayContaining(["agent", "edit", "write"]));
 				expect(agent.denyTools).not.toContain("bash");
-				expect(agent.tools).toEqual(["read", "grep", "find", "ls", "bash"]);
+				expect(agent.tools).toEqual(["read", "grep", "Glob", "ls", "bash"]);
 			} else {
 				expect(agent.denyTools).toEqual(expect.arrayContaining(["agent", "edit", "write", "bash"]));
-				expect(agent.tools).toEqual(["read", "grep", "find", "ls"]);
+				expect(agent.tools).toEqual(["read", "grep", "Glob", "ls"]);
 			}
 		}
 	});

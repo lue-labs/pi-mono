@@ -1,18 +1,18 @@
 import { applyPatch } from "diff";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeBashWithOperations } from "../src/core/bash-executor.ts";
 import { type BashOperations, createBashTool, createLocalBashOperations } from "../src/core/tools/bash.ts";
 import { computeEditsDiff } from "../src/core/tools/edit-diff.ts";
-import { buildBfsArgs, buildFdArgs } from "../src/core/tools/find.ts";
+import { buildBfsArgs, buildFdArgs, buildRgFilesArgs } from "../src/core/tools/glob.ts";
 import { buildRgArgs, buildUgrepArgs } from "../src/core/tools/grep.ts";
 import { createAllToolDefinitions } from "../src/core/tools/index.ts";
 import {
 	createEditTool,
-	createFindTool,
-	createFindToolDefinition,
+	createGlobTool,
+	createGlobToolDefinition,
 	createGrepTool,
 	createGrepToolDefinition,
 	createLsTool,
@@ -26,23 +26,22 @@ const writeTool = createWriteTool(process.cwd());
 const editTool = createEditTool(process.cwd());
 const bashTool = createBashTool(process.cwd());
 const grepTool = createGrepTool(process.cwd());
-const findTool = createFindTool(process.cwd());
+const globTool = createGlobTool(process.cwd());
 const lsTool = createLsTool(process.cwd());
 
-describe("capitalized built-in tool aliases", () => {
-	// Read/Edit/Write/Grep/Find/Ls Uppercase aliases now live in
-	// my-pi/extensions/native-tool-aliases (PR #1C). Only Bash/Agent/Task Uppercase
-	// variants remain in core.
-	it("registers Bash/Agent/Task Uppercase variants alongside lowercase", () => {
+describe("built-in tool names", () => {
+	it("registers Claude-style Glob and the remaining built-ins", () => {
 		const tools = createAllToolDefinitions(process.cwd());
-		for (const name of ["Bash", "Agent", "Task"]) {
+		for (const name of ["Bash", "Agent", "Task", "Glob"]) {
 			expect(tools).toHaveProperty(name);
 			expect(tools[name as keyof typeof tools].name).toBe(name);
 		}
-		for (const name of ["read", "bash", "edit", "write", "grep", "find", "ls", "agent"]) {
+		for (const name of ["read", "bash", "edit", "write", "grep", "ls", "agent"]) {
 			expect(tools).toHaveProperty(name);
 			expect(tools[name as keyof typeof tools].name).toBe(name);
 		}
+		expect(tools).not.toHaveProperty("find");
+		expect(tools).not.toHaveProperty("Find");
 	});
 });
 
@@ -50,7 +49,7 @@ describe("built-in tool execution modes", () => {
 	it("marks read-only tools parallel and side-effecting tools sequential", () => {
 		const tools = createAllToolDefinitions(process.cwd());
 
-		for (const name of ["read", "grep", "find", "ls", "bash_output", "BashOutput", "agent", "Agent", "Task"]) {
+		for (const name of ["read", "grep", "Glob", "ls", "bash_output", "BashOutput", "agent", "Agent", "Task"]) {
 			expect(tools[name as keyof typeof tools].executionMode).toBe("parallel");
 		}
 
@@ -63,7 +62,7 @@ describe("built-in tool execution modes", () => {
 describe("full opt-out param", () => {
 	it("exposes an optional boolean `full` on every truncating tool", () => {
 		const tools = createAllToolDefinitions(process.cwd());
-		for (const name of ["read", "bash", "grep", "find", "ls"]) {
+		for (const name of ["read", "bash", "grep", "Glob", "ls"]) {
 			const props = (tools[name as keyof typeof tools].parameters as any)?.properties ?? {};
 			expect(props.full, `${name} should expose a full param`).toBeDefined();
 			expect(props.full.type).toBe("boolean");
@@ -925,6 +924,24 @@ describe("Coding Agent Tools", () => {
 			expect(existsSync(marker)).toBe(false);
 		});
 
+		it("should include ordinary hidden files but skip VCS metadata", async () => {
+			mkdirSync(join(testDir, ".git", "objects"), { recursive: true });
+			mkdirSync(join(testDir, ".secret"));
+			writeFileSync(join(testDir, ".git", "objects", "metadata.txt"), "hidden-needle in git metadata\n");
+			writeFileSync(join(testDir, ".secret", "data.txt"), "hidden-needle in dot dir\n");
+			writeFileSync(join(testDir, "source.txt"), "hidden-needle in source\n");
+
+			const result = await grepTool.execute("test-call-grep-hidden-vcs", {
+				pattern: "hidden-needle",
+				path: testDir,
+			});
+			const output = getTextOutput(result);
+
+			expect(output).toContain("source.txt");
+			expect(output).toContain(".secret/data.txt");
+			expect(output).not.toContain(".git/objects/metadata.txt");
+		});
+
 		it("should build ugrep argv with hidden, ignore-file, VCS exclusion, and glob defaults", () => {
 			const args = buildUgrepArgs({
 				pattern: "needle",
@@ -954,7 +971,7 @@ describe("Coding Agent Tools", () => {
 			expect(args.slice(-3)).toEqual(["--", "needle", testDir]);
 		});
 
-		it("should preserve rg fallback argv", () => {
+		it("should preserve rg argv with hidden files and VCS exclusion", () => {
 			const args = buildRgArgs({ pattern: "needle", searchPath: testDir, glob: "*.ts" });
 
 			expect(args).toEqual([
@@ -962,6 +979,18 @@ describe("Coding Agent Tools", () => {
 				"--line-number",
 				"--color=never",
 				"--hidden",
+				"--glob",
+				"!.git",
+				"--glob",
+				"!.svn",
+				"--glob",
+				"!.hg",
+				"--glob",
+				"!.bzr",
+				"--glob",
+				"!.jj",
+				"--glob",
+				"!.sl",
 				"--glob",
 				"*.ts",
 				"--",
@@ -1191,14 +1220,14 @@ describe("Coding Agent Tools", () => {
 		});
 	});
 
-	describe("find tool", () => {
+	describe("Glob tool", () => {
 		it("should include hidden files that are not gitignored", async () => {
 			const hiddenDir = join(testDir, ".secret");
 			mkdirSync(hiddenDir);
 			writeFileSync(join(hiddenDir, "hidden.txt"), "hidden");
 			writeFileSync(join(testDir, "visible.txt"), "visible");
 
-			const result = await findTool.execute("test-call-13", {
+			const result = await globTool.execute("test-call-13", {
 				pattern: "**/*.txt",
 				path: testDir,
 			});
@@ -1212,13 +1241,29 @@ describe("Coding Agent Tools", () => {
 			expect(outputLines).toContain(".secret/hidden.txt");
 		});
 
+		it("should respect .gitignore with the rg backend", async () => {
+			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
+			writeFileSync(join(testDir, "ignored.txt"), "ignored");
+			writeFileSync(join(testDir, "kept.txt"), "kept");
+			const rgGlobTool = createGlobTool(testDir, { backend: "rg" });
+
+			const result = await rgGlobTool.execute("test-call-glob-rg-ignore", {
+				pattern: "**/*.txt",
+				path: testDir,
+			});
+
+			const output = getTextOutput(result);
+			expect(output).toContain("kept.txt");
+			expect(output).not.toContain("ignored.txt");
+		});
+
 		it("should respect .gitignore with the fd backend", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");
 			writeFileSync(join(testDir, "kept.txt"), "kept");
-			const fdFindTool = createFindTool(testDir, { backend: "fd" });
+			const fdGlobTool = createGlobTool(testDir, { backend: "fd" });
 
-			const result = await fdFindTool.execute("test-call-14", {
+			const result = await fdGlobTool.execute("test-call-14", {
 				pattern: "**/*.txt",
 				path: testDir,
 			});
@@ -1229,10 +1274,10 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should surface fd glob parse errors", async () => {
-			const fdFindTool = createFindTool(testDir, { backend: "fd" });
+			const fdGlobTool = createGlobTool(testDir, { backend: "fd" });
 
 			await expect(
-				fdFindTool.execute("test-call-15", {
+				fdGlobTool.execute("test-call-15", {
 					pattern: "[",
 					path: testDir,
 				}),
@@ -1240,7 +1285,7 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should treat flag-like patterns as search text", async () => {
-			const result = await findTool.execute("test-call-find-flag-pattern", {
+			const result = await globTool.execute("test-call-glob-flag-pattern", {
 				pattern: "--help",
 				path: testDir,
 			});
@@ -1248,7 +1293,50 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result)).toContain("No files found matching pattern");
 		});
 
-		it("should build bfs argv for future native file discovery", () => {
+		it("should return rg-backed Glob results sorted by modification time", async () => {
+			writeFileSync(join(testDir, "old.ts"), "old");
+			writeFileSync(join(testDir, "new.ts"), "new");
+			utimesSync(join(testDir, "old.ts"), new Date("2020-01-01T00:00:00Z"), new Date("2020-01-01T00:00:00Z"));
+			utimesSync(join(testDir, "new.ts"), new Date("2021-01-01T00:00:00Z"), new Date("2021-01-01T00:00:00Z"));
+			const rgGlobTool = createGlobTool(testDir, { backend: "rg" });
+
+			const result = await rgGlobTool.execute("test-call-glob-rg-mtime", {
+				pattern: "*.ts",
+				path: testDir,
+			});
+
+			const outputLines = getTextOutput(result)
+				.split("\n")
+				.map((line) => line.trim())
+				.filter(Boolean);
+			expect(outputLines.indexOf("old.ts")).toBeLessThan(outputLines.indexOf("new.ts"));
+		});
+
+		it("should build rg files argv with modification sort, hidden files, VCS exclusion, and gitignore outside repos", () => {
+			const args = buildRgFilesArgs({ searchPath: testDir, insideGitRepo: false });
+
+			expect(args).toEqual([
+				"--files",
+				"--sort=modified",
+				"--hidden",
+				"--glob",
+				"!.git",
+				"--glob",
+				"!.svn",
+				"--glob",
+				"!.hg",
+				"--glob",
+				"!.bzr",
+				"--glob",
+				"!.jj",
+				"--glob",
+				"!.sl",
+				"--no-require-git",
+				testDir,
+			]);
+		});
+
+		it("should build bfs argv for native file discovery fallback", () => {
 			const args = buildBfsArgs({ pattern: "src/**/*.ts", searchPath: testDir, limit: 5 });
 
 			expect(args).toEqual(
@@ -1287,15 +1375,15 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should expose optional timeout in the schema", () => {
-			const definition = createFindToolDefinition(process.cwd());
+			const definition = createGlobToolDefinition(process.cwd());
 			expect((definition.parameters as any).properties.timeout).toBeDefined();
 			expect((definition.parameters as any).properties.timeout.exclusiveMinimum).toBe(0);
 			expect((definition.parameters as any).properties.timeout.maximum).toBe(300);
 		});
 
-		it("should time out slow find calls with an actionable result", async () => {
-			writeFileSync(join(testDir, "slow-find.txt"), "contents");
-			const result = await findTool.execute("test-call-find-timeout", {
+		it("should time out slow Glob calls with an actionable result", async () => {
+			writeFileSync(join(testDir, "slow-glob.txt"), "contents");
+			const result = await globTool.execute("test-call-glob-timeout", {
 				pattern: "**/*",
 				path: testDir,
 				timeout: 0.001,
@@ -1305,14 +1393,14 @@ describe("Coding Agent Tools", () => {
 			expect(result.details?.timedOut).toBe(true);
 			expect(result.details?.timeoutMs).toBe(1);
 			expect(result.details?.entriesReturned).toBeGreaterThanOrEqual(0);
-			expect(getTextOutput(result)).toContain("find timed out after 1ms");
+			expect(getTextOutput(result)).toContain("Glob timed out after 1ms");
 			expect(getTextOutput(result)).toContain("Retry with a narrower path/glob");
 		});
 
-		it("should honor explicit higher find timeout", async () => {
+		it("should honor explicit higher Glob timeout", async () => {
 			writeFileSync(join(testDir, "explicit-timeout.ts"), "contents");
 
-			const result = await findTool.execute("test-call-find-explicit-timeout", {
+			const result = await globTool.execute("test-call-glob-explicit-timeout", {
 				pattern: "**/*.ts",
 				path: testDir,
 				timeout: 1,
@@ -1321,12 +1409,12 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result)).toContain("explicit-timeout.ts");
 		});
 
-		it("should distinguish find AbortSignal cancellation from timeout", async () => {
+		it("should distinguish Glob AbortSignal cancellation from timeout", async () => {
 			const controller = new AbortController();
 			controller.abort();
 
 			await expect(
-				findTool.execute("test-call-find-abort", { pattern: "**/*", path: testDir, timeout: 1 }, controller.signal),
+				globTool.execute("test-call-glob-abort", { pattern: "**/*", path: testDir, timeout: 1 }, controller.signal),
 			).rejects.toThrow("Operation aborted");
 		});
 	});

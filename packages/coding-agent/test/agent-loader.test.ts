@@ -22,7 +22,7 @@ describe("agent markdown loader", () => {
 		const dir = await makeTempDir();
 		await writeFile(
 			join(dir, "scout.md"),
-			`---\nname: scout\ndescription: Fast recon\ntools: read, grep, find, ls\nmodel: inherit\ncontext: slim\ncacheProfile: stable\n---\nScout prompt.`,
+			`---\nname: scout\ndescription: Fast recon\ntools: read, grep, Glob, ls\nmodel: inherit\ncontext: slim\ncacheProfile: stable\n---\nScout prompt.`,
 		);
 
 		const result = await loadAgentDefinitionsFromDirectory(dir, "user");
@@ -30,7 +30,7 @@ describe("agent markdown loader", () => {
 		expect(result.agents[0]).toMatchObject({
 			id: "scout",
 			description: "Fast recon",
-			tools: ["read", "grep", "find", "ls"],
+			tools: ["read", "grep", "Glob", "ls"],
 			model: "inherit",
 			defaultContext: "slim",
 			cacheProfile: "stable",

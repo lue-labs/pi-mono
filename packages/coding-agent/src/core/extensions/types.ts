@@ -70,8 +70,8 @@ import type {
 	BashToolDetails,
 	BashToolInput,
 	EditToolInput,
-	FindToolDetails,
-	FindToolInput,
+	GlobToolDetails,
+	GlobToolInput,
 	GrepToolDetails,
 	GrepToolInput,
 	LsToolDetails,
@@ -778,6 +778,12 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	replacesBuiltins?: readonly string[];
 	/** Concise searchable hint used by tool discovery surfaces. */
 	searchHint?: string;
+	/**
+	 * Optional namespace/group label. Set post-registration by the policy owner
+	 * (tool-search) via setToolNamespaces so provider serializers can group
+	 * related tools into a provider-native namespace. Pure serialization metadata.
+	 */
+	namespace?: string;
 	/** Optional provider allow-list. When set, hide the tool from other providers' active/deferred surfaces. */
 	providers?: string[];
 	/** Parameter schema (TypeBox) */
@@ -1221,9 +1227,9 @@ export interface GrepToolCallEvent extends ToolCallEventBase {
 	input: GrepToolInput;
 }
 
-export interface FindToolCallEvent extends ToolCallEventBase {
-	toolName: "find";
-	input: FindToolInput;
+export interface GlobToolCallEvent extends ToolCallEventBase {
+	toolName: "Glob";
+	input: GlobToolInput;
 }
 
 export interface LsToolCallEvent extends ToolCallEventBase {
@@ -1248,7 +1254,7 @@ export type ToolCallEvent =
 	| EditToolCallEvent
 	| WriteToolCallEvent
 	| GrepToolCallEvent
-	| FindToolCallEvent
+	| GlobToolCallEvent
 	| LsToolCallEvent
 	| CustomToolCallEvent;
 
@@ -1289,9 +1295,9 @@ export interface GrepToolResultEvent extends ToolResultEventBase {
 	details: GrepToolDetails | undefined;
 }
 
-export interface FindToolResultEvent extends ToolResultEventBase {
-	toolName: "find";
-	details: FindToolDetails | undefined;
+export interface GlobToolResultEvent extends ToolResultEventBase {
+	toolName: "Glob";
+	details: GlobToolDetails | undefined;
 }
 
 export interface LsToolResultEvent extends ToolResultEventBase {
@@ -1311,7 +1317,7 @@ export type ToolResultEvent =
 	| EditToolResultEvent
 	| WriteToolResultEvent
 	| GrepToolResultEvent
-	| FindToolResultEvent
+	| GlobToolResultEvent
 	| LsToolResultEvent
 	| CustomToolResultEvent;
 
@@ -1331,8 +1337,8 @@ export function isWriteToolResult(e: ToolResultEvent): e is WriteToolResultEvent
 export function isGrepToolResult(e: ToolResultEvent): e is GrepToolResultEvent {
 	return e.toolName === "grep";
 }
-export function isFindToolResult(e: ToolResultEvent): e is FindToolResultEvent {
-	return e.toolName === "find";
+export function isGlobToolResult(e: ToolResultEvent): e is GlobToolResultEvent {
+	return e.toolName === "Glob";
 }
 export function isLsToolResult(e: ToolResultEvent): e is LsToolResultEvent {
 	return e.toolName === "ls";
@@ -1363,7 +1369,7 @@ export function isToolCallEventType(toolName: "read", event: ToolCallEvent): eve
 export function isToolCallEventType(toolName: "edit", event: ToolCallEvent): event is EditToolCallEvent;
 export function isToolCallEventType(toolName: "write", event: ToolCallEvent): event is WriteToolCallEvent;
 export function isToolCallEventType(toolName: "grep", event: ToolCallEvent): event is GrepToolCallEvent;
-export function isToolCallEventType(toolName: "find", event: ToolCallEvent): event is FindToolCallEvent;
+export function isToolCallEventType(toolName: "Glob", event: ToolCallEvent): event is GlobToolCallEvent;
 export function isToolCallEventType(toolName: "ls", event: ToolCallEvent): event is LsToolCallEvent;
 export function isToolCallEventType<TName extends string, TInput extends Record<string, unknown>>(
 	toolName: TName,
@@ -2124,6 +2130,15 @@ export interface ToolRegistryView {
 	 * ignored. Dropping a name restores its original `deferLoading`.
 	 */
 	setDeferredOverrides(names: string[]): void;
+	/**
+	 * Post-registration namespace seam (cache-critical). Annotates already-registered
+	 * tools with a `namespace` label (name -> namespace map) so provider serializers
+	 * can group related tools into a provider-native namespace. Pure serialization
+	 * metadata — does not change deferral, activation, or behavior. Apply once before
+	 * the first request; idempotent (an unchanged map is a no-op). An empty map
+	 * clears all namespaces.
+	 */
+	setToolNamespaces(map: Record<string, string>): void;
 }
 
 export type GetCommandsHandler = () => SlashCommandInfo[];
@@ -2131,6 +2146,8 @@ export type GetCommandsHandler = () => SlashCommandInfo[];
 export type SetActiveToolsHandler = (toolNames: string[]) => void;
 
 export type SetDeferredToolOverridesHandler = (names: string[]) => void;
+
+export type SetToolNamespacesHandler = (map: Record<string, string>) => void;
 
 export type RefreshToolsHandler = (options?: { activateNewTools?: boolean }) => void;
 
@@ -2221,6 +2238,7 @@ export interface ExtensionActions {
 	getCustomEntries: GetCustomEntriesHandler;
 	setActiveTools: SetActiveToolsHandler;
 	setDeferredOverrides: SetDeferredToolOverridesHandler;
+	setToolNamespaces: SetToolNamespacesHandler;
 	refreshTools: RefreshToolsHandler;
 	getCommands: GetCommandsHandler;
 	setModel: SetModelHandler;

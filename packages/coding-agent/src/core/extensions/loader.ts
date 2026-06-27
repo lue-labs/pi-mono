@@ -263,6 +263,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		getCustomEntries: notInitialized,
 		setActiveTools: notInitialized,
 		setDeferredOverrides: notInitialized,
+		setToolNamespaces: notInitialized,
 		// registerTool() is valid during extension load; refresh is only needed post-bind.
 		refreshTools: () => {},
 		getCommands: notInitialized,
@@ -599,6 +600,10 @@ function createExtensionAPI(
 			setDeferredOverrides(names: string[]): void {
 				runtime.assertActive();
 				runtime.setDeferredOverrides(names);
+			},
+			setToolNamespaces(map: Record<string, string>): void {
+				runtime.assertActive();
+				runtime.setToolNamespaces(map);
 			},
 		},
 

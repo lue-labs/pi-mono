@@ -181,6 +181,15 @@ function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean 
 	return true;
 }
 
+/** Order-independent key+value equality for two string maps. */
+function sameStringMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
+	if (a.size !== b.size) return false;
+	for (const [key, value] of a) {
+		if (b.get(key) !== value) return false;
+	}
+	return true;
+}
+
 function isRateLimitErrorText(text: string | undefined): boolean {
 	return /\b429\b|rate.?limit|quota|too many requests/i.test(text ?? "");
 }
@@ -599,6 +608,12 @@ export class AgentSession {
 	// _applyDeferredOverrides() inside _refreshToolRegistry(). See
 	// setDeferredToolOverrides().
 	private _deferredOverrides: Set<string> = new Set();
+	// Post-registration namespace seam (cache-critical). Maps tool name -> namespace
+	// label, stamped onto the freshly rebuilt registry/definitions on every rebuild
+	// so provider serializers can group related tools natively. Source of truth —
+	// applied by _applyToolNamespaces() inside _refreshToolRegistry(). See
+	// setToolNamespaces().
+	private _toolNamespaces: Map<string, string> = new Map();
 	private _toolPromptSnippets: Map<string, string> = new Map();
 	private _toolPromptGuidelines: Map<string, string[]> = new Map();
 
@@ -1531,6 +1546,58 @@ export class AgentSession {
 		// Rebuild via the same path registration uses; _applyDeferredOverrides()
 		// re-applies the override onto the freshly rebuilt registry/definitions.
 		this._refreshToolRegistry();
+	}
+
+	/**
+	 * Post-registration namespace seam (cache-critical).
+	 *
+	 * Annotates already-registered tools with a `namespace` label so provider
+	 * serializers can group related tools into a provider-native namespace. This is
+	 * pure serialization metadata — it does NOT change deferral, activation, or any
+	 * tool behavior. The policy owner (tool-search) computes name->namespace and
+	 * calls this once before the first request.
+	 *
+	 * Generic and idempotent. An unchanged map is a no-op so the within-session
+	 * `tools[]` cache prefix is not burst by a needless refresh. Passing an empty
+	 * map clears all namespaces on the next rebuild (the registry is reconstructed
+	 * from base/extension definitions, so the original undefined returns).
+	 */
+	setToolNamespaces(map: Record<string, string>): void {
+		const desired = new Map<string, string>();
+		for (const [name, namespace] of Object.entries(map)) {
+			if (!namespace) continue;
+			if (!this._toolDefinitions.has(name)) continue;
+			desired.set(name, namespace);
+		}
+
+		// CACHE CRITICAL: an unchanged map must not trigger a refresh — an
+		// unconditional rebuild bursts the within-session tools[] cache.
+		if (sameStringMap(this._toolNamespaces, desired)) return;
+
+		this._toolNamespaces = desired;
+		// Rebuild via the same path registration uses; _applyToolNamespaces()
+		// re-stamps the namespace onto the freshly rebuilt registry/definitions.
+		this._refreshToolRegistry();
+	}
+
+	/**
+	 * Stamp the `namespace` label from `_toolNamespaces` onto the freshly rebuilt
+	 * `_toolDefinitions` (shallow-copied so the shared base definition is untouched)
+	 * and `_toolRegistry` entries. Called from _refreshToolRegistry() so the
+	 * annotation survives every registry rebuild. No-op when the map is empty.
+	 */
+	private _applyToolNamespaces(): void {
+		if (this._toolNamespaces.size === 0) return;
+		for (const [name, namespace] of this._toolNamespaces) {
+			const entry = this._toolDefinitions.get(name);
+			if (entry && entry.definition.namespace !== namespace) {
+				entry.definition = { ...entry.definition, namespace };
+			}
+			const tool = this._toolRegistry.get(name);
+			if (tool && tool.namespace !== namespace) {
+				tool.namespace = namespace;
+			}
+		}
 	}
 
 	/**
@@ -3498,6 +3565,7 @@ export class AgentSession {
 						.filter((entry): entry is CustomEntry => entry.type === "custom" && entry.customType === customType),
 				setActiveTools: (toolNames) => this.setActiveToolsByName(toolNames),
 				setDeferredOverrides: (names) => this.setDeferredToolOverrides(names),
+				setToolNamespaces: (map) => this.setToolNamespaces(map),
 				refreshTools: (options) => this._refreshToolRegistry(options),
 				getCommands,
 				setModel: async (model) => {
@@ -3656,6 +3724,10 @@ export class AgentSession {
 		// registry + definitions so deferLoading stays forced across every rebuild
 		// (setDeferredToolOverrides seam). No-op when the override set is empty.
 		this._applyDeferredOverrides();
+		// Re-stamp post-registration namespace annotations (setToolNamespaces seam).
+		// No-op when the map is empty. Pure serialization metadata; order vs
+		// deferral overrides is irrelevant (disjoint fields).
+		this._applyToolNamespaces();
 
 		const nextActiveToolNames = (
 			options?.activeToolNames ? [...options.activeToolNames] : [...previousActiveToolNames]
@@ -3789,7 +3861,7 @@ export class AgentSession {
 		// them, run_in_background:true returns a bgId the model can never read or stop.
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
-			: ["Read", "Bash", "BashOutput", "KillShell", "Edit", "Write", "Agent", "Task", "Grep", "Find", "Ls"];
+			: ["Read", "Bash", "BashOutput", "KillShell", "Edit", "Write", "Agent", "Task", "Grep", "Glob", "Ls"];
 		const baseActiveToolNames = syncClaudeBridgeNativeTools(
 			options.activeToolNames ?? defaultActiveToolNames,
 			this.model,

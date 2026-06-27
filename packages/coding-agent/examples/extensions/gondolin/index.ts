@@ -26,15 +26,15 @@ import {
 	type BashOperations,
 	createBashTool,
 	createEditTool,
-	createFindTool,
+	createGlobTool,
 	createGrepTool,
 	createLsTool,
 	createReadTool,
 	createWriteTool,
 	DEFAULT_MAX_BYTES,
 	type EditOperations,
-	type FindOperations,
 	formatSize,
+	type GlobOperations,
 	type GrepToolDetails,
 	type GrepToolInput,
 	type LsOperations,
@@ -180,7 +180,7 @@ function matchesToolGlob(relativePath: string, pattern: string): boolean {
 	return path.posix.matchesGlob(path.posix.basename(relativePath), normalizedPattern);
 }
 
-function createGondolinFindOps(vm: VM, localCwd: string): FindOperations {
+function createGondolinGlobOps(vm: VM, localCwd: string): GlobOperations {
 	return {
 		exists: async (filePath) => {
 			try {
@@ -369,7 +369,7 @@ export default function (pi: ExtensionAPI) {
 	const localEdit = createEditTool(localCwd);
 	const localBash = createBashTool(localCwd);
 	const localGrep = createGrepTool(localCwd);
-	const localFind = createFindTool(localCwd);
+	const localGlob = createGlobTool(localCwd);
 	const localLs = createLsTool(localCwd);
 
 	let vm: VM | undefined;
@@ -496,11 +496,11 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		...localFind,
+		...localGlob,
 		async execute(id, params, signal, onUpdate, ctx) {
 			const activeVm = await ensureVm(ctx);
-			const tool = createFindTool(GUEST_WORKSPACE, {
-				operations: createGondolinFindOps(activeVm, localCwd),
+			const tool = createGlobTool(GUEST_WORKSPACE, {
+				operations: createGondolinGlobOps(activeVm, localCwd),
 			});
 			return tool.execute(id, params, signal, onUpdate);
 		},

@@ -203,7 +203,7 @@ describe("AgentSession context usage", () => {
 
 	it("does not count active native-deferred schemas as loaded context before discovery", () => {
 		const deferredTool = {
-			...toolDefinition("Find", "d".repeat(400)),
+			...toolDefinition("Glob", "d".repeat(400)),
 			deferLoading: true,
 		};
 		const deferredTokens = estimateToolSchemaTokens([deferredTool]);
@@ -229,7 +229,7 @@ describe("AgentSession context usage", () => {
 
 	it("counts discovered native-deferred schemas as loaded context", () => {
 		const deferredTool = {
-			...toolDefinition("Find", "d".repeat(400)),
+			...toolDefinition("Glob", "d".repeat(400)),
 			deferLoading: true,
 		};
 		const loadedToolTokens = estimateToolSchemaTokens([deferredTool]);

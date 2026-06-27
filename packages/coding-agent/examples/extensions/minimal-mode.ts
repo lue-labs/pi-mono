@@ -20,7 +20,7 @@ import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
 import {
 	createBashTool,
 	createEditTool,
-	createFindTool,
+	createGlobTool,
 	createGrepTool,
 	createLsTool,
 	createReadTool,
@@ -49,7 +49,7 @@ function createBuiltInTools(cwd: string) {
 		bash: createBashTool(cwd),
 		edit: createEditTool(cwd),
 		write: createWriteTool(cwd),
-		find: createFindTool(cwd),
+		Glob: createGlobTool(cwd),
 		grep: createGrepTool(cwd),
 		ls: createLsTool(cwd),
 	};
@@ -249,18 +249,18 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// =========================================================================
-	// Find Tool
+	// Glob Tool
 	// =========================================================================
 	pi.registerTool({
-		name: "find",
-		label: "find",
+		name: "Glob",
+		label: "Glob",
 		description:
-			"Find files by name pattern (glob). Searches recursively from the specified path. Output limited to 200 results.",
-		parameters: getBuiltInTools(process.cwd()).find.parameters,
+			"Match files by name pattern (glob). Searches recursively from the specified path. Output limited to 200 results.",
+		parameters: getBuiltInTools(process.cwd()).Glob.parameters,
 
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const tools = getBuiltInTools(ctx.cwd);
-			return tools.find.execute(toolCallId, params, signal, onUpdate);
+			return tools.Glob.execute(toolCallId, params, signal, onUpdate);
 		},
 
 		renderCall(args, theme, _context) {
@@ -268,7 +268,7 @@ export default function (pi: ExtensionAPI) {
 			const path = shortenPath(args.path || ".");
 			const limit = args.limit;
 
-			let text = `${theme.fg("toolTitle", theme.bold("find"))} ${theme.fg("accent", pattern)}`;
+			let text = `${theme.fg("toolTitle", theme.bold("Glob"))} ${theme.fg("accent", pattern)}`;
 			text += theme.fg("toolOutput", ` in ${path}`);
 			if (limit !== undefined) {
 				text += theme.fg("toolOutput", ` (limit ${limit})`);
