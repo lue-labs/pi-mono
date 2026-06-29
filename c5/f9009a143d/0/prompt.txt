@@ -1,0 +1,26 @@
+can we build the binaries when done, so I can run my pi fork again
+
+---
+
+Why is my pi not using my normal codex auth?
+
+ ting                                                                                                        
+                                                                                                             
+
+ Error: Codex usage limit reached (pro plan). Resets in ~67.4h. Current premium: 5h 3%, weekly 100%. Extra   
+ GPT-5.3-Codex-Spark: 5h 0%, weekly 0%.                                                                      
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                             
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/Projects/infra/lue-kube (main)                                                           🧠 5 hits · 3244ms
+$0.000 (sub) · t1 · 10.8% 29k+d19k/272k (auto)                                   (openai-codex) gpt-5.5 · low
+◦ boot: 20,115 tok Codex adapter V: low • web search • image gen ⚡ $-1.07 MCP: 0/1 servers
+
+---
+
+Ive logged out of my one codex provider, can I add more than one?
+
+---
+
+How do I switch it in pi
