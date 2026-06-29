@@ -26,6 +26,7 @@ import { registerSessionResourceCleanup } from "../session-resources.ts";
 import type {
 	Api,
 	AssistantMessage,
+	CacheRetention,
 	Context,
 	Model,
 	ProviderEnv,
@@ -45,6 +46,7 @@ import {
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
+import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
 import { buildBaseOptions } from "./simple-options.ts";
@@ -104,6 +106,7 @@ interface RequestBody {
 	text?: { verbosity?: string };
 	include?: string[];
 	prompt_cache_key?: string;
+	prompt_cache_retention?: "24h";
 	max_output_tokens?: number;
 	[key: string]: unknown;
 }
@@ -238,7 +241,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
 			}
-			const cacheRetention = options?.cacheRetention ?? "short";
+			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
+			body.prompt_cache_retention = codexPromptCacheRetention(cacheRetention);
 			const cacheAffinitySessionId =
 				cacheRetention === "none"
 					? options?.sessionId
@@ -481,6 +485,25 @@ export {
 	buildWebSocketHeaders as _buildWebSocketHeadersForTests,
 };
 
+/**
+ * Resolve cache retention preference.
+ * Defaults to "long"; set PI_CACHE_RETENTION=short or PI_CACHE_RETENTION=none to override process-wide.
+ */
+function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
+	if (cacheRetention) {
+		return cacheRetention;
+	}
+	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
+	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
+		return envRetention;
+	}
+	return "long";
+}
+
+function codexPromptCacheRetention(cacheRetention: StreamOptions["cacheRetention"] | undefined): "24h" | undefined {
+	return cacheRetention === "long" ? "24h" : undefined;
+}
+
 function buildRequestBody(
 	model: Model<"openai-codex-responses">,
 	context: Context,
@@ -490,7 +513,7 @@ function buildRequestBody(
 		includeSystemPrompt: false,
 	});
 
-	const cacheRetention = options?.cacheRetention ?? "short";
+	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 	const body: RequestBody = {
 		model: model.id,
 		store: false,
@@ -502,6 +525,7 @@ function buildRequestBody(
 		text: { verbosity: options?.textVerbosity || "low" },
 		include: ["reasoning.encrypted_content"],
 		prompt_cache_key: undefined,
+		prompt_cache_retention: codexPromptCacheRetention(cacheRetention),
 		tool_choice: "auto",
 		parallel_tool_calls: true,
 	};

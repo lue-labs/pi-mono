@@ -27,18 +27,45 @@ function buildBodyWith(tools: Tool[]) {
 }
 
 describe("buildRequestBody — Codex prompt cache", () => {
-	it("keeps session id cache fallback for long cache", () => {
+	it("defaults to long cache retention with session id fallback", () => {
 		const context: Context = {
 			systemPrompt: "",
 			messages: [],
 		};
 		const body = buildRequestBody(model, context, {
-			cacheRetention: "long",
 			sessionId: "codex-session",
 		});
 
 		expect(body.prompt_cache_key).toBe("codex-session");
-		expect(body.prompt_cache_retention).toBeUndefined();
+		expect(body.prompt_cache_retention).toBe("24h");
+	});
+
+	it("honors scoped PI_CACHE_RETENTION defaults", () => {
+		const context: Context = {
+			systemPrompt: "",
+			messages: [],
+		};
+
+		const shortBody = buildRequestBody(model, context, {
+			sessionId: "codex-session",
+			env: { PI_CACHE_RETENTION: "short" },
+		});
+		const noneBody = buildRequestBody(model, context, {
+			sessionId: "codex-session",
+			env: { PI_CACHE_RETENTION: "none" },
+		});
+		const explicitLongBody = buildRequestBody(model, context, {
+			cacheRetention: "long",
+			sessionId: "codex-session",
+			env: { PI_CACHE_RETENTION: "none" },
+		});
+
+		expect(shortBody.prompt_cache_retention).toBeUndefined();
+		expect(shortBody.prompt_cache_key).toBe("codex-session");
+		expect(noneBody.prompt_cache_retention).toBeUndefined();
+		expect(noneBody.prompt_cache_key).toBeUndefined();
+		expect(explicitLongBody.prompt_cache_retention).toBe("24h");
+		expect(explicitLongBody.prompt_cache_key).toBe("codex-session");
 	});
 
 	it("derives a UUID-shaped Codex thread cache key from Pi cache affinity", () => {
