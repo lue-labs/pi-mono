@@ -1,0 +1,68 @@
+{
+  "cli_version": "0.7.6",
+  "checkpoint_id": "196956e95914",
+  "session_id": "019f0fa3-1072-7d93-8649-f9efbc1fbdd2",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-29T05:25:08.529935Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pi-fork-patch-inventory.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "55f8ba51be5c",
+  "token_usage": {
+    "input_tokens": 197860,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1109376,
+    "output_tokens": 5042,
+    "api_call_count": 17
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-29T05:25:08.475998Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 1,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 1,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1236,
+      "user_lines_removed": 5,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".changeset/fix-pi-claude-glob-conflict.md": 6,
+        "docs/goals/goal-2026-06-22T14-54-39Z-777921f9.md": 279,
+        "docs/goals/goal-2026-06-23T09-53-20Z-5133d087.md": 41,
+        "docs/goals/goal-2026-06-23T10-57-58Z-c89a5670.md": 50,
+        "docs/goals/goal-2026-06-23T11-51-16Z-c76c04fc.md": 33,
+        "docs/goals/goal-2026-06-24T07-40-36Z-b94457ed.md": 36,
+        "docs/goals/goal-2026-06-24T07-40-51Z-b94457ed.md": 36,
+        "docs/goals/goal-2026-06-24T08-35-13Z-0aa16e30.md": 86,
+        "docs/goals/goal-2026-06-24T09-02-07Z-e73f91b2.md": 63,
+        "docs/goals/goal-2026-06-24T09-38-38Z-ba2a3332.md": 52,
+        "docs/goals/goal-2026-06-24T09-40-52Z-ba2a3332.md": 52,
+        "docs/goals/goal-2026-06-25T11-17-56Z-4ec7476d.md": 52,
+        "docs/goals/goal-2026-06-26T07-58-35Z-a2880511.md": 326,
+        "docs/goals/goal-2026-06-26T08-01-48Z-b6d2d15f.md": 47,
+        "docs/goals/goal-2026-06-26T13-11-48Z-ebd5cd26.md": 61,
+        "extensions/pi-claude-conversion/src/index.ts": 2,
+        "extensions/pi-claude-conversion/src/tool-set.ts": 1,
+        "extensions/pi-claude-conversion/test-load.mjs": 13
+      },
+      "user_removed_per_file": {
+        "extensions/pi-claude-conversion/src/index.ts": 2,
+        "extensions/pi-claude-conversion/src/tool-set.ts": 1,
+        "extensions/pi-claude-conversion/test-load.mjs": 2
+      }
+    }
+  ]
+}
