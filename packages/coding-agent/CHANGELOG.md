@@ -9,6 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Flag likely prompt-cache TTL expiry as cache-health telemetry in session logs and the interactive footer so cold turns after warm same-model turns are easier to diagnose.
 - Bound Grep's formatted model-facing output before the final join so broad or `full:true` searches cannot exhaust memory before truncation; suppress noisy skill collision warnings for byte-identical duplicate installs.
 - Cap aggregate model-facing tool-result text at 100k chars after extension `tool_result` hooks, preserve full text artifacts under `.pi/tool-results`, and bound edit-tool original-content details to `originalContentPreview`.
 - Fix cache-safe split-turn compaction summaries so the `Turn Context (split turn)` section uses a delta-only format instead of repeating the main Goal/Progress/Next Steps checkpoint headings.
