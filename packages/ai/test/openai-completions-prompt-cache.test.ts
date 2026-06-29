@@ -111,11 +111,11 @@ describe("openai-completions prompt caching", () => {
 		};
 	}
 
-	it("sets prompt_cache_key for direct OpenAI requests when caching is enabled", async () => {
+	it("defaults direct OpenAI requests to long prompt cache retention", async () => {
 		const { payload } = await captureRequest({ sessionId: "session-123" });
 
 		expect(payload?.prompt_cache_key).toBe("session-123");
-		expect(payload?.prompt_cache_retention).toBeUndefined();
+		expect(payload?.prompt_cache_retention).toBe("24h");
 	});
 
 	it("sets prompt_cache_retention to 24h for direct OpenAI requests when cacheRetention is long", async () => {
@@ -150,12 +150,12 @@ describe("openai-completions prompt caching", () => {
 		expect(payload?.prompt_cache_retention).toBeUndefined();
 	});
 
-	it("uses PI_CACHE_RETENTION for direct OpenAI requests", async () => {
-		process.env.PI_CACHE_RETENTION = "long";
+	it("uses PI_CACHE_RETENTION overrides for direct OpenAI requests", async () => {
+		process.env.PI_CACHE_RETENTION = "short";
 		const { payload } = await captureRequest({ sessionId: "session-env" });
 
 		expect(payload?.prompt_cache_key).toBe("session-env");
-		expect(payload?.prompt_cache_retention).toBe("24h");
+		expect(payload?.prompt_cache_retention).toBeUndefined();
 	});
 
 	it("sends known session-affinity headers when compat.sendSessionAffinityHeaders is enabled", async () => {

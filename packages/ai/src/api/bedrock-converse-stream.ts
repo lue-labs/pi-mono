@@ -594,16 +594,17 @@ function mapThinkingLevelToEffort(
 
 /**
  * Resolve cache retention preference.
- * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
+ * Defaults to "long"; set PI_CACHE_RETENTION=short or PI_CACHE_RETENTION=none to override process-wide.
  */
 function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
 	if (cacheRetention) {
 		return cacheRetention;
 	}
-	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
-		return "long";
+	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
+	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
+		return envRetention;
 	}
-	return "short";
+	return "long";
 }
 
 /**
