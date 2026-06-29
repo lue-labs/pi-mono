@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@valkyriweb/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
+import { type CacheHealthExemption, computeCacheHealth } from "../../../core/cache-health.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { getLatestCompactionEntry } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";
@@ -74,6 +75,12 @@ interface UsageTotals {
 	totalCost: number;
 	assistantTurns: number;
 	lastUsage?: UsageSnapshot;
+	lastTimestamp?: string | number;
+	lastModel?: string;
+	previousUsage?: UsageSnapshot;
+	previousTimestamp?: string | number;
+	previousModel?: string;
+	cacheHealthExemptions: CacheHealthExemption[];
 	/** True when the latest assistant turn is the first after a compaction —
 	 * its cold cache write is expected, not prefix drift. */
 	postCompactionTurn: boolean;
@@ -95,6 +102,7 @@ export class FooterComponent implements Component {
 		totalCacheWrite: 0,
 		totalCost: 0,
 		assistantTurns: 0,
+		cacheHealthExemptions: [],
 		postCompactionTurn: false,
 	};
 	private selectedExtensionFooterId: string | undefined = undefined;
@@ -160,14 +168,39 @@ export class FooterComponent implements Component {
 
 	private getUsageTotals(): UsageTotals {
 		const entries = this.getUsageEntries();
-		let lastUsage: UsageSnapshot | undefined;
+		let lastAssistantEntry: (typeof entries)[number] | undefined;
+		let previousAssistantEntry: (typeof entries)[number] | undefined;
+		let lastAssistantIndex = -1;
+		let previousAssistantIndex = -1;
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const entry = entries[i];
 			if (entry?.type === "message" && entry.message.role === "assistant") {
-				lastUsage = entry.message.usage;
-				break;
+				if (lastAssistantEntry === undefined) {
+					lastAssistantEntry = entry;
+					lastAssistantIndex = i;
+				} else {
+					previousAssistantEntry = entry;
+					previousAssistantIndex = i;
+					break;
+				}
 			}
 		}
+		const lastUsage =
+			lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
+				? lastAssistantEntry.message.usage
+				: undefined;
+		const previousUsage =
+			previousAssistantEntry?.type === "message" && previousAssistantEntry.message.role === "assistant"
+				? previousAssistantEntry.message.usage
+				: undefined;
+		const cacheHealthExemptions: CacheHealthExemption[] =
+			previousAssistantIndex >= 0 && lastAssistantIndex >= 0
+				? entries
+						.slice(previousAssistantIndex + 1, lastAssistantIndex)
+						.some((entry) => entry.type === "model_change")
+					? ["model_change"]
+					: []
+				: [];
 		const latestCompaction = getLatestCompactionEntry(entries);
 		const cacheKey = [
 			entries.length,
@@ -179,6 +212,16 @@ export class FooterComponent implements Component {
 			lastUsage?.cacheRead ?? 0,
 			lastUsage?.cacheWrite ?? 0,
 			lastUsage?.cost.total ?? 0,
+			lastAssistantEntry?.timestamp ?? "",
+			lastAssistantEntry?.type === "message" ? ((lastAssistantEntry.message as { model?: string }).model ?? "") : "",
+			previousUsage?.input ?? 0,
+			previousUsage?.cacheRead ?? 0,
+			previousUsage?.cacheWrite ?? 0,
+			previousAssistantEntry?.timestamp ?? "",
+			previousAssistantEntry?.type === "message"
+				? ((previousAssistantEntry.message as { model?: string }).model ?? "")
+				: "",
+			cacheHealthExemptions.join(","),
 		].join(":");
 
 		if (cacheKey === this.usageCacheKey) {
@@ -193,6 +236,18 @@ export class FooterComponent implements Component {
 			totalCost: 0,
 			assistantTurns: 0,
 			lastUsage,
+			lastTimestamp: lastAssistantEntry?.timestamp,
+			lastModel:
+				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
+					? (lastAssistantEntry.message as { model?: string }).model
+					: undefined,
+			previousUsage,
+			previousTimestamp: previousAssistantEntry?.timestamp,
+			previousModel:
+				previousAssistantEntry?.type === "message" && previousAssistantEntry.message.role === "assistant"
+					? (previousAssistantEntry.message as { model?: string }).model
+					: undefined,
+			cacheHealthExemptions,
 			postCompactionTurn: false,
 		};
 
@@ -230,6 +285,12 @@ export class FooterComponent implements Component {
 			totalCost,
 			assistantTurns,
 			lastUsage,
+			lastTimestamp,
+			lastModel,
+			previousUsage,
+			previousTimestamp,
+			previousModel,
+			cacheHealthExemptions,
 			postCompactionTurn,
 		} = this.getUsageTotals();
 
@@ -308,43 +369,37 @@ export class FooterComponent implements Component {
 		if (totalCacheRead) leftParts.push(theme.fg("dim", `R${formatTokens(totalCacheRead)}`));
 		if (totalCacheWrite) leftParts.push(theme.fg("dim", `W${formatTokens(totalCacheWrite)}`));
 		// Provider usage is normalized into non-cached input, cache reads, and
-		// cache writes. For prompt-cache stability, fresh uncached tail input is not
-		// a cache miss: a large new tool result/user message can legitimately add
-		// input while the stable prefix still reads from cache. Measure warmth from
-		// cache read vs cache write; only a turn with no cache activity at all is cold.
-		const latestCacheRead = lastUsage?.cacheRead ?? 0;
-		const latestCacheWrite = lastUsage?.cacheWrite ?? 0;
-		const latestInput = lastUsage?.input ?? 0;
-		const latestCacheActivity = latestCacheRead + latestCacheWrite;
-		const hasLatestUsage = latestInput + latestCacheActivity > 0;
-		if (hasLatestUsage) {
-			const hitPct = latestCacheActivity > 0 ? (latestCacheRead / latestCacheActivity) * 100 : 0;
-			const totalCacheActivity = totalCacheRead + totalCacheWrite;
-			const avgPct =
-				totalCacheActivity > 0 ? (totalCacheRead / totalCacheActivity) * 100 : totalInput > 0 ? 0 : undefined;
-			const label =
-				avgPct === undefined
-					? `cache ${hitPct.toFixed(0)}%`
-					: `cache ${hitPct.toFixed(0)}% avg ${avgPct.toFixed(0)}%`;
-			// Past the warmup window (≥10 assistant turns) the prefix should be
-			// steady-state cached. <90% means real drift; <80% means something is
-			// mutating the cached prefix every turn. Under 10 turns we keep the
-			// loose thresholds because turn 1 always writes the full prefix.
-			const steadyState = assistantTurns >= 10;
+		// cache writes. The footer's primary `cache N%` is total input coverage:
+		// cacheRead / (input + cacheRead + cacheWrite). Prefix health is separate:
+		// warnings call out a large fresh tail or an unexpected cold prefix write.
+		const hasLatestUsage =
+			lastUsage !== undefined && lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite > 0;
+		if (hasLatestUsage && lastUsage) {
+			const health = computeCacheHealth({
+				usage: lastUsage,
+				timestamp: lastTimestamp,
+				model: lastModel ?? state.model?.id,
+				assistantTurn: assistantTurns,
+				postCompactionTurn,
+				exemptions: cacheHealthExemptions,
+				previousAssistant: previousUsage
+					? { usage: previousUsage, timestamp: previousTimestamp, model: previousModel }
+					: undefined,
+			});
+			const markers: string[] = [];
+			if (postCompactionTurn) markers.push("⟳compact");
+			if (health.warnings.includes("fresh_tail_large")) markers.push("⚠fresh");
+			if (health.warnings.includes("prefix_cold_write")) markers.push("🔥prefix");
+			if (health.warnings.includes("ttl_expiry_likely")) markers.push("⌛ttl");
+			const label = [`cache ${health.coveragePct}%`, ...markers].join(" ");
 			let colored: string;
-			if (postCompactionTurn) {
-				// Expected one-time full-prefix rewrite right after compaction — show
-				// it as informational, never as drift.
-				colored = theme.fg("dim", `cache ${hitPct.toFixed(0)}% ⟳compact`);
-			} else if (steadyState) {
-				if (hitPct >= 90) colored = theme.fg("success", label);
-				else if (hitPct >= 80) colored = theme.fg("warning", label);
-				else colored = theme.fg("error", theme.bold(label));
-			} else {
-				if (hitPct >= 80) colored = theme.fg("success", label);
-				else if (hitPct >= 50) colored = theme.fg("dim", label);
-				else colored = theme.fg("warning", label);
-			}
+			if (postCompactionTurn) colored = theme.fg("dim", label);
+			else if (health.warnings.includes("prefix_cold_write")) colored = theme.fg("error", theme.bold(label));
+			else if (health.warnings.includes("ttl_expiry_likely")) colored = theme.fg("warning", theme.bold(label));
+			else if (health.warnings.includes("fresh_tail_large")) colored = theme.fg("warning", label);
+			else if (health.warmthPct >= 80) colored = theme.fg("success", label);
+			else if (assistantTurns <= 1) colored = theme.fg("dim", label);
+			else colored = theme.fg("warning", label);
 			leftParts.push(colored);
 		}
 
