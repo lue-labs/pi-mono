@@ -186,7 +186,7 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("Line 1");
 			expect(output).toContain("Line 10");
 			expect(output).not.toContain("Line 11");
-			expect(output).toContain("[90 more lines in file. Use offset=11 to continue.]");
+			expect(output).toContain("[90 more lines in file (100 lines total). Use offset=11 to continue.]");
 		});
 
 		it("should handle offset + limit together", async () => {
@@ -205,16 +205,32 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("Line 41");
 			expect(output).toContain("Line 60");
 			expect(output).not.toContain("Line 61");
-			expect(output).toContain("[40 more lines in file. Use offset=61 to continue.]");
+			expect(output).toContain("[40 more lines in file (100 lines total). Use offset=61 to continue.]");
 		});
 
-		it("should show error when offset is beyond file length", async () => {
+		it("should return actionable bounds when offset is beyond file length", async () => {
 			const testFile = join(testDir, "short.txt");
 			writeFileSync(testFile, "Line 1\nLine 2\nLine 3");
 
-			await expect(readTool.execute("test-call-8", { path: testFile, offset: 100 })).rejects.toThrow(
-				/Offset 100 is beyond end of file \(3 lines total\)/,
-			);
+			const result = await readTool.execute("test-call-8", { path: testFile, offset: 100, limit: 20 });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("Requested lines 100-119");
+			expect(output).toContain("has only 3 lines");
+			expect(output).toContain("Last valid offset is 3");
+			expect(output).toContain("read with offset=1, limit=3");
+		});
+
+		it("should report the total line count at EOF for bounded reads", async () => {
+			const testFile = join(testDir, "bounded-eof.txt");
+			writeFileSync(testFile, "Line 1\nLine 2\nLine 3");
+
+			const result = await readTool.execute("test-call-bounded-eof", { path: testFile, offset: 2, limit: 10 });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("Line 2");
+			expect(output).toContain("Line 3");
+			expect(output).toContain("[End of file: requested through line 11, file has 3 lines.]");
 		});
 
 		it("should include truncation details when truncated", async () => {

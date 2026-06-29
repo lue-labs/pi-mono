@@ -232,6 +232,7 @@ export function createReadToolDefinition(
 		promptGuidelines: [
 			"Use read to examine files instead of cat or sed.",
 			"Read only the region you need: when you already know which part of a file is relevant, pass offset/limit instead of reading the whole file. Reserve full reads for when you genuinely need the entire file.",
+			"Track line counts from read results and never request an offset greater than the file's reported total lines.",
 		],
 		executionMode: "parallel",
 		parameters: readSchema,
@@ -303,49 +304,66 @@ export function createReadToolDefinition(
 								// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
 								const startLine = offset ? Math.max(0, offset - 1) : 0;
 								const startLineDisplay = startLine + 1;
+								const requestedEndLineDisplay = limit !== undefined ? startLineDisplay + Math.max(0, limit) - 1 : undefined;
 								// Check if offset is out of bounds.
 								if (startLine >= allLines.length) {
-									throw new Error(`Offset ${offset} is beyond end of file (${allLines.length} lines total)`);
-								}
-								let selectedContent: string;
-								let userLimitedLines: number | undefined;
-								// If limit is specified by the user, honor it first. Otherwise truncateHead decides.
-								if (limit !== undefined) {
-									const endLine = Math.min(startLine + limit, allLines.length);
-									selectedContent = allLines.slice(startLine, endLine).join("\n");
-									userLimitedLines = endLine - startLine;
+									const fallbackLimit = Math.min(Math.max(1, limit ?? 20), totalFileLines);
+									const fallbackOffset = Math.max(1, totalFileLines - fallbackLimit + 1);
+									const rangeText = requestedEndLineDisplay ? `-${requestedEndLineDisplay}` : "";
+									const fallbackText = totalFileLines > 0
+										? ` Last valid offset is ${totalFileLines}. To inspect the file end, read with offset=${fallbackOffset}${limit !== undefined ? `, limit=${fallbackLimit}` : ""}.`
+										: " The file is empty.";
+									content = [
+										{
+											type: "text",
+											text: `Requested lines ${startLineDisplay}${rangeText}, but ${path} has only ${totalFileLines} lines.${fallbackText}`,
+										},
+									];
 								} else {
-									selectedContent = allLines.slice(startLine).join("\n");
-								}
-								// Apply truncation, respecting both line and byte limits.
-								const truncation = truncateHead(selectedContent, full ? FULL_TRUNCATION : undefined);
-								let outputText: string;
-								if (truncation.firstLineExceedsLimit) {
-									// First line alone exceeds the byte limit. Point the model at a bash fallback.
-									const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
-									outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-									details = { truncation };
-								} else if (truncation.truncated) {
-									// Truncation occurred. Build an actionable continuation notice.
-									const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
-									const nextOffset = endLineDisplay + 1;
-									outputText = truncation.content;
-									if (truncation.truncatedBy === "lines") {
-										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
+									let selectedContent: string;
+									let userLimitedLines: number | undefined;
+									// If limit is specified by the user, honor it first. Otherwise truncateHead decides.
+									if (limit !== undefined) {
+										const endLine = Math.min(startLine + limit, allLines.length);
+										selectedContent = allLines.slice(startLine, endLine).join("\n");
+										userLimitedLines = endLine - startLine;
 									} else {
-										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+										selectedContent = allLines.slice(startLine).join("\n");
 									}
-									details = { truncation };
-								} else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
-									// User-specified limit stopped early, but the file still has more content.
-									const remaining = allLines.length - (startLine + userLimitedLines);
-									const nextOffset = startLine + userLimitedLines + 1;
-									outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
-								} else {
-									// No truncation and no remaining user-limited content.
-									outputText = truncation.content;
+									// Apply truncation, respecting both line and byte limits.
+									const truncation = truncateHead(selectedContent, full ? FULL_TRUNCATION : undefined);
+									let outputText: string;
+									if (truncation.firstLineExceedsLimit) {
+										// First line alone exceeds the byte limit. Point the model at a bash fallback.
+										const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
+										outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
+										details = { truncation };
+									} else if (truncation.truncated) {
+										// Truncation occurred. Build an actionable continuation notice.
+										const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+										const nextOffset = endLineDisplay + 1;
+										outputText = truncation.content;
+										if (truncation.truncatedBy === "lines") {
+											outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
+										} else {
+											outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+										}
+										details = { truncation };
+									} else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
+										// User-specified limit stopped early, but the file still has more content.
+										const remaining = allLines.length - (startLine + userLimitedLines);
+										const nextOffset = startLine + userLimitedLines + 1;
+										outputText = `${truncation.content}\n\n[${remaining} more lines in file (${totalFileLines} lines total). Use offset=${nextOffset} to continue.]`;
+									} else if (requestedEndLineDisplay !== undefined && requestedEndLineDisplay > totalFileLines) {
+										outputText = `${truncation.content}\n\n[End of file: requested through line ${requestedEndLineDisplay}, file has ${totalFileLines} lines.]`;
+									} else if (offset !== undefined || limit !== undefined) {
+										outputText = `${truncation.content}\n\n[End of file: file has ${totalFileLines} lines.]`;
+									} else {
+										// No truncation, explicit range, or remaining user-limited content.
+										outputText = truncation.content;
+									}
+									content = [{ type: "text", text: outputText }];
 								}
-								content = [{ type: "text", text: outputText }];
 							}
 
 							if (aborted) return;
