@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "af3bac033730",
+  "strategy": "manual-commit",
+  "branch": "wip/my-pi-canonical-dirty-20260629",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/pi-claude-conversion/src/index.ts",
+    "extensions/pi-claude-conversion/src/tool-set.ts",
+    "extensions/pi-claude-conversion/test-load.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/af/3bac033730/0/metadata.json",
+      "transcript": "/af/3bac033730/0/full.jsonl",
+      "content_hash": "/af/3bac033730/0/content_hash.txt",
+      "prompt": "/af/3bac033730/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 197860,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1109376,
+    "output_tokens": 5042,
+    "api_call_count": 17
+  }
+}
