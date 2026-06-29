@@ -111,6 +111,41 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.4-mini");
 	});
 
+	test('"medium" alias resolves openai-codex workers to gpt-5.4', () => {
+		const faux = registerFauxProvider({
+			provider: "openai-codex",
+			models: [
+				{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+				{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+			],
+		});
+		registrations.push(faux);
+		const auth = AuthStorage.inMemory();
+		auth.setRuntimeApiKey("openai-codex", "faux-key");
+		const registry = ModelRegistry.inMemory(auth);
+		registry.registerProvider("openai-codex", {
+			baseUrl: faux.getModel().baseUrl,
+			apiKey: "faux-key",
+			api: faux.api,
+			models: faux.models.map((model) => ({
+				id: model.id,
+				name: model.name,
+				api: model.api,
+				reasoning: model.reasoning,
+				input: model.input,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				maxTokens: model.maxTokens,
+				baseUrl: model.baseUrl,
+			})),
+		});
+		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.5");
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
+		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("openai-codex");
+		expect(selected?.id).toBe("gpt-5.4");
+	});
+
 	test('"fast" alias falls back to parent when provider has no mapped fast model', () => {
 		// Re-register faux under a provider name with no fastModelPerProvider entry.
 		const faux = registerFauxProvider({
