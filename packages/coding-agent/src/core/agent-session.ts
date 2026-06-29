@@ -50,6 +50,7 @@ import type { AgentBackgroundCompletion } from "./agents/types.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
+import { type CacheHealthMetrics, computeCacheHealth } from "./cache-health.ts";
 import {
 	type CompactionResult,
 	calculateContextTokens,
@@ -235,7 +236,13 @@ export type AgentSessionEvent =
 			cacheWrite: number;
 			input: number;
 			cacheHitRate: number | undefined;
-	  };
+	  }
+	| (CacheHealthMetrics & {
+			sessionId: string;
+			turn: number;
+			model: string;
+			timestamp: string;
+	  });
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -895,9 +902,68 @@ export class AgentSession {
 					});
 					this._retryAttempt = 0;
 				}
+
+				this._appendCacheHealthEntry(assistantMsg);
 			}
 		}
 	};
+
+	private _appendCacheHealthEntry(message: AssistantMessage): void {
+		const branch = this.sessionManager.getBranch();
+		const assistantEntries = branch.filter((entry) => entry.type === "message" && entry.message.role === "assistant");
+		const assistantTurn = assistantEntries.length;
+		const latestCompaction = getLatestCompactionEntry(branch);
+		const assistantTurnsAfterCompaction = latestCompaction
+			? branch
+					.slice(branch.findIndex((entry) => entry.id === latestCompaction.id) + 1)
+					.filter((entry) => entry.type === "message" && entry.message.role === "assistant").length
+			: assistantTurn;
+		const postCompactionTurn = latestCompaction !== null && assistantTurnsAfterCompaction <= 1;
+		const currentAssistantIndex = branch.length - 1;
+		let previousAssistantIndex = -1;
+		for (let i = currentAssistantIndex - 1; i >= 0; i--) {
+			const entry = branch[i];
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				previousAssistantIndex = i;
+				break;
+			}
+		}
+		const previousAssistantEntry = previousAssistantIndex >= 0 ? branch[previousAssistantIndex] : undefined;
+		const entriesSincePreviousAssistant = branch.slice(previousAssistantIndex + 1, currentAssistantIndex);
+		const exemptions = entriesSincePreviousAssistant.some((entry) => entry.type === "model_change")
+			? ["model_change" as const]
+			: [];
+		const currentEntry = branch[currentAssistantIndex];
+		const model = (message as { model?: string }).model ?? this.model?.id ?? "unknown";
+		const timestamp =
+			currentEntry?.timestamp ??
+			(Number.isFinite(message.timestamp) ? new Date(message.timestamp).toISOString() : new Date().toISOString());
+		const previousAssistant =
+			previousAssistantEntry?.type === "message" && previousAssistantEntry.message.role === "assistant"
+				? {
+						usage: (previousAssistantEntry.message as AssistantMessage).usage,
+						timestamp: previousAssistantEntry.timestamp,
+						model: (previousAssistantEntry.message as AssistantMessage & { model?: string }).model,
+					}
+				: undefined;
+		const health = {
+			...computeCacheHealth({
+				usage: message.usage,
+				timestamp,
+				model,
+				assistantTurn,
+				postCompactionTurn,
+				exemptions,
+				previousAssistant,
+			}),
+			sessionId: this.sessionManager.getSessionId(),
+			turn: assistantTurn,
+			model,
+			timestamp,
+		};
+		this.sessionManager.appendCustomEntry("cache_health", health);
+		if (health.warnings.length > 0) this._emit(health);
+	}
 
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
 		const settings = this.settingsManager.getRetrySettings();

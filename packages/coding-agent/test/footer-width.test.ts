@@ -321,7 +321,7 @@ describe("FooterComponent width handling", () => {
 		expect(rendered).toContain("W2.0k");
 		// First assistant turn after a compaction: the cold full-prefix write is
 		// expected, so the cache label is informational, not drift-colored.
-		expect(rendered).toContain("cache 80% ⟳compact");
+		expect(rendered).toContain("cache 67% ⟳compact");
 		expect(rendered).toContain("t1");
 		expect(rendered).not.toContain("↑102k");
 		expect(rendered).not.toContain("t2");
@@ -352,7 +352,7 @@ describe("FooterComponent width handling", () => {
 		);
 
 		const rendered = footer.render(140).join("\n");
-		expect(rendered).toContain("cache 100% avg 90%");
+		expect(rendered).toContain("cache 100%");
 		expect(rendered).not.toContain("⟳compact");
 	});
 
@@ -412,7 +412,7 @@ describe("FooterComponent width handling", () => {
 
 		expect(rendered).toContain("↑3.0k");
 		expect(rendered).toContain("R17k");
-		expect(rendered).toContain("cache 100% avg 100%");
+		expect(rendered).toContain("cache 80%");
 		expect(rendered).not.toContain("↑103k");
 		expect(rendered).not.toContain("W100k");
 	});
@@ -437,7 +437,7 @@ describe("FooterComponent width handling", () => {
 		const rendered = footer.render(140).join("\n");
 
 		expect(rendered).toContain("↑37k");
-		expect(rendered).toContain("cache 0% avg 0%");
+		expect(rendered).toContain("cache 0%");
 		expect(rendered).toContain("t1");
 	});
 
@@ -461,7 +461,7 @@ describe("FooterComponent width handling", () => {
 		const rendered = footer.render(140).join("\n");
 
 		expect(rendered).toContain("R37k");
-		expect(rendered).toContain("cache 100% avg 100%");
+		expect(rendered).toContain("cache 99%");
 		expect(rendered).toContain("t1");
 	});
 
@@ -508,8 +508,279 @@ describe("FooterComponent width handling", () => {
 
 		expect(rendered).toContain("↑34k");
 		expect(rendered).toContain("R33k");
-		expect(rendered).toContain("cache 100% avg 100%");
-		expect(rendered).not.toContain("cache 49% avg");
+		expect(rendered).toContain("cache 100%");
+		expect(rendered).not.toContain("cache 49%");
+	});
+
+	it("flags a large fresh input tail while keeping coverage as the primary cache metric", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				provider: "openai-codex",
+				usage: {
+					input: 29_033,
+					output: 1,
+					cacheRead: 35_840,
+					cacheWrite: 0,
+					cost: { total: 1 },
+				},
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 55% ⚠fresh");
+		expect(rendered).not.toContain("🔥prefix");
+	});
+
+	it("does not warn when small fresh input rides a warm prefix", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				usage: { input: 300, output: 1, cacheRead: 36_864, cacheWrite: 0, cost: { total: 1 } },
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 99%");
+		expect(rendered).not.toContain("⚠fresh");
+		expect(rendered).not.toContain("🔥prefix");
+	});
+
+	it("flags unexpected large prefix writes after warmup", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				entries: [
+					{
+						id: "warm",
+						type: "message",
+						message: {
+							role: "assistant",
+							usage: { input: 200, output: 1, cacheRead: 20_000, cacheWrite: 0, cost: { total: 1 } },
+						},
+					},
+					{
+						id: "cold-write",
+						type: "message",
+						message: {
+							role: "assistant",
+							usage: { input: 100, output: 1, cacheRead: 10_000, cacheWrite: 6_000, cost: { total: 1 } },
+						},
+					},
+				],
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 62% 🔥prefix");
+	});
+
+	it("does not flag first-turn cache writes as prefix drift", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				usage: { input: 100, output: 1, cacheRead: 0, cacheWrite: 6_000, cost: { total: 1 } },
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 0%");
+		expect(rendered).not.toContain("🔥prefix");
+	});
+
+	it("flags likely TTL-expiry cold turns", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				modelId: "gpt-5.5",
+				entries: [
+					{
+						id: "warm",
+						timestamp: "2026-06-29T08:48:27.000Z",
+						type: "message",
+						message: {
+							role: "assistant",
+							model: "gpt-5.5",
+							usage: { input: 19_361, output: 1, cacheRead: 87_040, cacheWrite: 0, cost: { total: 1 } },
+						},
+					},
+					{
+						id: "cold",
+						timestamp: "2026-06-29T08:53:27.000Z",
+						type: "message",
+						message: {
+							role: "assistant",
+							model: "gpt-5.5",
+							usage: { input: 110_133, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 1 } },
+						},
+					},
+				],
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 0% ⌛ttl");
+		expect(rendered).not.toContain("🔥prefix");
+	});
+
+	it("does not flag short cold gaps as TTL expiry", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				modelId: "gpt-5.5",
+				entries: [
+					{
+						id: "warm",
+						timestamp: "2026-06-29T08:48:27.000Z",
+						type: "message",
+						message: {
+							role: "assistant",
+							model: "gpt-5.5",
+							usage: { input: 19_361, output: 1, cacheRead: 87_040, cacheWrite: 0, cost: { total: 1 } },
+						},
+					},
+					{
+						id: "cold",
+						timestamp: "2026-06-29T08:50:00.000Z",
+						type: "message",
+						message: {
+							role: "assistant",
+							model: "gpt-5.5",
+							usage: { input: 110_133, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 1 } },
+						},
+					},
+				],
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 0%");
+		expect(rendered).not.toContain("⌛ttl");
+	});
+
+	it("suppresses cache-health warnings across model changes", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				modelId: "gpt-5.5",
+				entries: [
+					{
+						id: "warm",
+						timestamp: "2026-06-29T08:48:27.000Z",
+						type: "message",
+						message: {
+							role: "assistant",
+							model: "gpt-5.4-mini",
+							usage: { input: 19_361, output: 1, cacheRead: 87_040, cacheWrite: 0, cost: { total: 1 } },
+						},
+					},
+					{
+						id: "model-change",
+						timestamp: "2026-06-29T08:50:00.000Z",
+						type: "model_change",
+						provider: "openai-codex",
+						modelId: "gpt-5.5",
+					},
+					{
+						id: "cold",
+						timestamp: "2026-06-29T08:53:27.000Z",
+						type: "message",
+						message: {
+							role: "assistant",
+							model: "gpt-5.5",
+							usage: { input: 110_133, output: 1, cacheRead: 0, cacheWrite: 6_000, cost: { total: 1 } },
+						},
+					},
+				],
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 0%");
+		expect(rendered).not.toContain("⌛ttl");
+		expect(rendered).not.toContain("🔥prefix");
+	});
+
+	it("does not infer TTL expiry when previous model metadata is missing", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				modelId: "gpt-5.5",
+				entries: [
+					{
+						id: "warm",
+						timestamp: "2026-06-29T08:48:27.000Z",
+						type: "message",
+						message: {
+							role: "assistant",
+							usage: { input: 19_361, output: 1, cacheRead: 87_040, cacheWrite: 0, cost: { total: 1 } },
+						},
+					},
+					{
+						id: "cold",
+						timestamp: "2026-06-29T08:53:27.000Z",
+						type: "message",
+						message: {
+							role: "assistant",
+							model: "gpt-5.5",
+							usage: { input: 110_133, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 1 } },
+						},
+					},
+				],
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 0%");
+		expect(rendered).not.toContain("⌛ttl");
+	});
+
+	it("marks post-compaction cache writes as expected instead of prefix drift", () => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				entries: [
+					{
+						id: "compact",
+						type: "compaction",
+						timestamp: "2026-05-31T08:00:00.000Z",
+						summary: "summary",
+						firstKeptEntryId: "after",
+						tokensBefore: 100_000,
+					},
+					{
+						id: "after",
+						type: "message",
+						message: {
+							role: "assistant",
+							usage: { input: 100, output: 1, cacheRead: 0, cacheWrite: 6_000, cost: { total: 1 } },
+						},
+					},
+				],
+			}),
+			createFooterData(1),
+		);
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+
+		expect(rendered).toContain("cache 0% ⟳compact");
+		expect(rendered).not.toContain("🔥prefix");
 	});
 
 	it("never renders the work-bar in the footer (moved to the working loader, #53)", () => {
