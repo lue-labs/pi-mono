@@ -1297,6 +1297,27 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("ignored.txt");
 		});
 
+		it("should include gitignored files with ignore:false on the rg backend", async () => {
+			writeFileSync(join(testDir, ".gitignore"), ".pi/\n");
+			mkdirSync(join(testDir, ".pi", "worktrees"), { recursive: true });
+			writeFileSync(join(testDir, ".pi", "worktrees", "registry.json"), "{}\n");
+			const rgGlobTool = createGlobTool(testDir, { backend: "rg" });
+
+			const defaultResult = await rgGlobTool.execute("test-call-glob-rg-ignore-default", {
+				pattern: "**/.pi/worktrees/registry.json",
+				path: testDir,
+			});
+			expect(getTextOutput(defaultResult)).toContain("retry this Glob call with ignore:false");
+
+			const noIgnoreResult = await rgGlobTool.execute("test-call-glob-rg-no-ignore", {
+				pattern: "**/.pi/worktrees/registry.json",
+				path: testDir,
+				ignore: false,
+			});
+
+			expect(getTextOutput(noIgnoreResult)).toContain(".pi/worktrees/registry.json");
+		});
+
 		it("should respect .gitignore with the fd backend", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");
@@ -1311,6 +1332,36 @@ describe("Coding Agent Tools", () => {
 			const output = getTextOutput(result);
 			expect(output).toContain("kept.txt");
 			expect(output).not.toContain("ignored.txt");
+		});
+
+		it("should include gitignored files with ignore:false on the fd backend", async () => {
+			writeFileSync(join(testDir, ".gitignore"), ".pi/\n");
+			mkdirSync(join(testDir, ".pi", "worktrees"), { recursive: true });
+			writeFileSync(join(testDir, ".pi", "worktrees", "registry.json"), "{}\n");
+			const fdGlobTool = createGlobTool(testDir, { backend: "fd" });
+
+			const noIgnoreResult = await fdGlobTool.execute("test-call-glob-fd-no-ignore", {
+				pattern: "**/.pi/worktrees/registry.json",
+				path: testDir,
+				ignore: false,
+			});
+
+			expect(getTextOutput(noIgnoreResult)).toContain(".pi/worktrees/registry.json");
+		});
+
+		it("should keep VCS metadata excluded with ignore:false on the fd backend", async () => {
+			mkdirSync(join(testDir, ".git", "objects"), { recursive: true });
+			writeFileSync(join(testDir, ".git", "objects", "metadata.txt"), "metadata");
+			const fdGlobTool = createGlobTool(testDir, { backend: "fd" });
+
+			const result = await fdGlobTool.execute("test-call-glob-fd-no-ignore-vcs", {
+				pattern: "**/.git/objects/metadata.txt",
+				path: testDir,
+				ignore: false,
+			});
+
+			expect(getTextOutput(result)).toContain("No files found matching pattern");
+			expect(getTextOutput(result)).not.toContain(".git/objects/metadata.txt");
 		});
 
 		it("should surface fd glob parse errors", async () => {
@@ -1376,6 +1427,18 @@ describe("Coding Agent Tools", () => {
 			]);
 		});
 
+		it("should build rg files argv with --no-ignore when Glob ignore is false", () => {
+			const args = buildRgFilesArgs({
+				searchPath: testDir,
+				insideGitRepo: true,
+				ignore: false,
+			});
+
+			expect(args).toContain("--no-ignore");
+			expect(args.indexOf("--no-ignore")).toBeLessThan(args.indexOf(testDir));
+			expect(args).not.toContain("--no-require-git");
+		});
+
 		it("should build bfs argv for native file discovery fallback", () => {
 			const args = buildBfsArgs({ pattern: "src/**/*.ts", searchPath: testDir, limit: 5 });
 
@@ -1404,6 +1467,18 @@ describe("Coding Agent Tools", () => {
 				"--glob",
 				"--color=never",
 				"--hidden",
+				"--exclude",
+				".git",
+				"--exclude",
+				".svn",
+				"--exclude",
+				".hg",
+				"--exclude",
+				".bzr",
+				"--exclude",
+				".jj",
+				"--exclude",
+				".sl",
 				"--no-require-git",
 				"--max-results",
 				"5",
@@ -1414,8 +1489,45 @@ describe("Coding Agent Tools", () => {
 			]);
 		});
 
-		it("should expose optional timeout in the schema", () => {
+		it("should build fd fallback argv with --no-ignore when Glob ignore is false", () => {
+			const args = buildFdArgs({
+				pattern: "src/**/*.ts",
+				searchPath: testDir,
+				limit: 5,
+				insideGitRepo: true,
+				ignore: false,
+			});
+
+			expect(args).toEqual([
+				"--glob",
+				"--color=never",
+				"--hidden",
+				"--exclude",
+				".git",
+				"--exclude",
+				".svn",
+				"--exclude",
+				".hg",
+				"--exclude",
+				".bzr",
+				"--exclude",
+				".jj",
+				"--exclude",
+				".sl",
+				"--no-ignore",
+				"--max-results",
+				"5",
+				"--full-path",
+				"--",
+				"**/src/**/*.ts",
+				testDir,
+			]);
+		});
+
+		it("should expose optional timeout and ignore in the schema", () => {
 			const definition = createGlobToolDefinition(process.cwd());
+			expect((definition.parameters as any).properties.ignore).toBeDefined();
+			expect((definition.parameters as any).properties.ignore.type).toBe("boolean");
 			expect((definition.parameters as any).properties.timeout).toBeDefined();
 			expect((definition.parameters as any).properties.timeout.exclusiveMinimum).toBe(0);
 			expect((definition.parameters as any).properties.timeout.maximum).toBe(300);
