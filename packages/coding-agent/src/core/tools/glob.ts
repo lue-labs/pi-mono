@@ -24,6 +24,12 @@ const globSchema = Type.Object({
 	}),
 	path: Type.Optional(Type.String({ description: "Directory to search in (default: current directory)" })),
 	limit: Type.Optional(Type.Number({ description: "Maximum number of results (default: 1000)" })),
+	ignore: Type.Optional(
+		Type.Boolean({
+			description:
+				"Respect .gitignore and similar ignore files (default: true). Set false to include ignored files.",
+		}),
+	),
 	timeout: Type.Optional(
 		Type.Number({ description: "Timeout in seconds (default: 30, max 300)", exclusiveMinimum: 0, maximum: 300 }),
 	),
@@ -70,8 +76,11 @@ export function buildFdArgs(input: {
 	searchPath: string;
 	limit: number;
 	insideGitRepo?: boolean;
+	ignore?: boolean;
 }): string[] {
 	const args = ["--glob", "--color=never", "--hidden"];
+	for (const vcsDir of VCS_DIRS) args.push("--exclude", vcsDir);
+	if (input.ignore === false) args.push("--no-ignore");
 
 	// fd normally ignores .gitignore outside git repos, so keep --no-require-git there.
 	// Inside repos, use fd's default git-aware behavior so parent .gitignore rules stop at
@@ -93,9 +102,10 @@ export function buildFdArgs(input: {
 	return args;
 }
 
-export function buildRgFilesArgs(input: { searchPath: string; insideGitRepo?: boolean }): string[] {
+export function buildRgFilesArgs(input: { searchPath: string; insideGitRepo?: boolean; ignore?: boolean }): string[] {
 	const args = ["--files", "--sort=modified", "--hidden"];
 	for (const vcsDir of VCS_DIRS) args.push("--glob", `!${vcsDir}`);
+	if (input.ignore === false) args.push("--no-ignore");
 	if (!input.insideGitRepo) args.push("--no-require-git");
 	args.push(input.searchPath);
 	return args;
@@ -113,6 +123,7 @@ async function resolveGlobBackend(input: {
 	pattern: string;
 	searchPath: string;
 	limit: number;
+	ignore?: boolean;
 	backend?: GlobBackend | "auto";
 }): Promise<GlobBackendCommand | undefined> {
 	const insideGitRepo = await isInsideGitRepo(input.searchPath);
@@ -160,6 +171,12 @@ function timeoutMsFromSeconds(timeout: number | undefined): number {
 function formatTimeoutSeconds(timeoutMs: number): string {
 	const seconds = timeoutMs / 1000;
 	return seconds >= 1 ? `${Math.round(seconds)}s` : `${timeoutMs}ms`;
+}
+
+function formatNoFilesFound(respectIgnores: boolean): string {
+	return respectIgnores
+		? "No files found matching pattern. If the file may be ignored by .gitignore or another ignore file, retry this Glob call with ignore:false."
+		: "No files found matching pattern";
 }
 
 function formatGlobTimeoutResult(args: {
@@ -291,7 +308,7 @@ export function createGlobToolDefinition(
 	return {
 		name: toolName,
 		label,
-		description: `Fast file pattern matching tool. Returns matching file paths relative to the search directory, sorted by modification time when the rg backend is available. Use this tool for file discovery; do not invoke \`find\` via bash — those calls are blocked at runtime. Prefers rg, then bfs, then fd. The rg and fd backends respect .gitignore; bfs does not. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
+		description: `Fast file pattern matching tool. Returns matching file paths relative to the search directory, sorted by modification time when the rg backend is available. Use this tool for file discovery; do not invoke \`find\` via bash — those calls are blocked at runtime. Prefers rg, then bfs, then fd. The rg and fd backends respect .gitignore by default; if a known file is missing because it may be ignored, retry the same Glob call with ignore:false. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
 		promptSnippet: "Match files by glob pattern",
 		executionMode: "parallel",
 		parameters: globSchema,
@@ -301,9 +318,10 @@ export function createGlobToolDefinition(
 				pattern,
 				path: searchDir,
 				limit,
+				ignore,
 				timeout,
 				full,
-			}: { pattern: string; path?: string; limit?: number; timeout?: number; full?: boolean },
+			}: { pattern: string; path?: string; limit?: number; ignore?: boolean; timeout?: number; full?: boolean },
 			signal?: AbortSignal,
 			_onUpdate?,
 			_ctx?,
@@ -338,6 +356,7 @@ export function createGlobToolDefinition(
 					try {
 						const searchPath = resolveToCwd(searchDir || ".", cwd);
 						const effectiveLimit = full ? Number.MAX_SAFE_INTEGER : (limit ?? DEFAULT_LIMIT);
+						const respectIgnores = ignore !== false;
 						const ops = customOps ?? defaultGlobOperations;
 
 						// If custom operations provide glob(), use that instead of fd.
@@ -359,7 +378,7 @@ export function createGlobToolDefinition(
 								}, timeoutMs);
 							});
 							const globPromise = ops.glob(pattern, searchPath, {
-								ignore: ["**/node_modules/**", "**/.git/**"],
+								ignore: respectIgnores ? ["**/node_modules/**", "**/.git/**"] : ["**/.git/**"],
 								limit: effectiveLimit,
 							});
 							const results =
@@ -385,7 +404,7 @@ export function createGlobToolDefinition(
 							if (results.length === 0) {
 								settle(() =>
 									resolve({
-										content: [{ type: "text", text: "No files found matching pattern" }],
+										content: [{ type: "text", text: formatNoFilesFound(respectIgnores) }],
 										details: undefined,
 									}),
 								);
@@ -430,6 +449,7 @@ export function createGlobToolDefinition(
 							pattern,
 							searchPath,
 							limit: effectiveLimit,
+							ignore: respectIgnores,
 							backend: preferredBackend,
 						});
 						if (signal?.aborted) {
@@ -539,7 +559,7 @@ export function createGlobToolDefinition(
 							if (!output) {
 								settle(() =>
 									resolve({
-										content: [{ type: "text", text: "No files found matching pattern" }],
+										content: [{ type: "text", text: formatNoFilesFound(respectIgnores) }],
 										details: undefined,
 									}),
 								);
