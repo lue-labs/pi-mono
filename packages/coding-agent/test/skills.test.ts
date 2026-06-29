@@ -7,6 +7,7 @@ import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 
 const fixturesDir = resolve(__dirname, "fixtures/skills");
 const collisionFixturesDir = resolve(__dirname, "fixtures/skills-collision");
+const identicalCollisionFixturesDir = resolve(__dirname, "fixtures/skills-identical-collision");
 
 function createTestSkill(options: {
 	name: string;
@@ -390,6 +391,18 @@ describe("skills", () => {
 	});
 
 	describe("collision handling", () => {
+		it("should suppress diagnostics for byte-identical duplicate skill installs", () => {
+			const { skills, diagnostics } = loadSkills({
+				agentDir: resolve(__dirname, "fixtures/empty-agent"),
+				cwd: resolve(__dirname, "fixtures/empty-cwd"),
+				skillPaths: [join(identicalCollisionFixturesDir, "first"), join(identicalCollisionFixturesDir, "second")],
+				includeDefaults: false,
+			});
+
+			expect(skills.filter((skill) => skill.name === "linear-local-first-architecture")).toHaveLength(1);
+			expect(diagnostics.some((diagnostic) => diagnostic.type === "collision")).toBe(false);
+		});
+
 		it("should detect name collisions and keep first skill", () => {
 			// Load from first directory
 			const first = loadSkillsFromDir({

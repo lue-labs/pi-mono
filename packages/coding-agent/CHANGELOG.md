@@ -9,6 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Bound Grep's formatted model-facing output before the final join so broad or `full:true` searches cannot exhaust memory before truncation; suppress noisy skill collision warnings for byte-identical duplicate installs.
 - Cap aggregate model-facing tool-result text at 100k chars after extension `tool_result` hooks, preserve full text artifacts under `.pi/tool-results`, and bound edit-tool original-content details to `originalContentPreview`.
 - Fix cache-safe split-turn compaction summaries so the `Turn Context (split turn)` section uses a delta-only format instead of repeating the main Goal/Progress/Next Steps checkpoint headings.
 - macOS: route search backends (`rg`/`fd`/`ugrep`/`bfs`) exclusively through Pi's managed `~/.pi/bin` instead of system-PATH (Homebrew) binaries. Homebrew's adhoc-signed binaries trigger a Gatekeeper assessment (`amfid`/`syspolicyd`/`trustd`) on every spawn; under Pi's hot Grep/Find loops this pinned the CPU. Managed copies carry no quarantine xattr and are assessment-inert; `downloadTool` strips the xattr as belt-and-suspenders. Offline mode keeps the PATH fallback (for both required and optional backends) so a machine with no managed copy can still search. darwin-gated; no effect on Linux/Termux/Windows.
