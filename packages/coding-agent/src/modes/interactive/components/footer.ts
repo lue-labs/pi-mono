@@ -308,17 +308,20 @@ export class FooterComponent implements Component {
 		if (totalCacheRead) leftParts.push(theme.fg("dim", `R${formatTokens(totalCacheRead)}`));
 		if (totalCacheWrite) leftParts.push(theme.fg("dim", `W${formatTokens(totalCacheWrite)}`));
 		// Provider usage is normalized into non-cached input, cache reads, and
-		// cache writes. Show cache warmth for the latest turn, not cumulative
-		// session totals: a two-turn Codex session has one cold turn + one warm turn,
-		// so cumulative math misleadingly displays 50% even when turn 2 is fully warm.
+		// cache writes. For prompt-cache stability, fresh uncached tail input is not
+		// a cache miss: a large new tool result/user message can legitimately add
+		// input while the stable prefix still reads from cache. Measure warmth from
+		// cache read vs cache write; only a turn with no cache activity at all is cold.
 		const latestCacheRead = lastUsage?.cacheRead ?? 0;
 		const latestCacheWrite = lastUsage?.cacheWrite ?? 0;
 		const latestInput = lastUsage?.input ?? 0;
-		const cacheDenom = latestInput + latestCacheRead + latestCacheWrite;
-		if (cacheDenom > 0) {
-			const hitPct = (latestCacheRead / cacheDenom) * 100;
-			const totalCacheDenom = totalInput + totalCacheRead + totalCacheWrite;
-			const avgPct = totalCacheDenom > 0 ? (totalCacheRead / totalCacheDenom) * 100 : undefined;
+		const latestCacheActivity = latestCacheRead + latestCacheWrite;
+		const hasLatestUsage = latestInput + latestCacheActivity > 0;
+		if (hasLatestUsage) {
+			const hitPct = latestCacheActivity > 0 ? (latestCacheRead / latestCacheActivity) * 100 : 0;
+			const totalCacheActivity = totalCacheRead + totalCacheWrite;
+			const avgPct =
+				totalCacheActivity > 0 ? (totalCacheRead / totalCacheActivity) * 100 : totalInput > 0 ? 0 : undefined;
 			const label =
 				avgPct === undefined
 					? `cache ${hitPct.toFixed(0)}%`

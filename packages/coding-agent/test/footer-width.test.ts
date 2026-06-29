@@ -321,7 +321,7 @@ describe("FooterComponent width handling", () => {
 		expect(rendered).toContain("W2.0k");
 		// First assistant turn after a compaction: the cold full-prefix write is
 		// expected, so the cache label is informational, not drift-colored.
-		expect(rendered).toContain("cache 67% ⟳compact");
+		expect(rendered).toContain("cache 80% ⟳compact");
 		expect(rendered).toContain("t1");
 		expect(rendered).not.toContain("↑102k");
 		expect(rendered).not.toContain("t2");
@@ -412,7 +412,7 @@ describe("FooterComponent width handling", () => {
 
 		expect(rendered).toContain("↑3.0k");
 		expect(rendered).toContain("R17k");
-		expect(rendered).toContain("cache 80% avg 85%");
+		expect(rendered).toContain("cache 100% avg 100%");
 		expect(rendered).not.toContain("↑103k");
 		expect(rendered).not.toContain("W100k");
 	});
@@ -461,7 +461,7 @@ describe("FooterComponent width handling", () => {
 		const rendered = footer.render(140).join("\n");
 
 		expect(rendered).toContain("R37k");
-		expect(rendered).toContain("cache 99% avg 99%");
+		expect(rendered).toContain("cache 100% avg 100%");
 		expect(rendered).toContain("t1");
 	});
 
@@ -508,7 +508,7 @@ describe("FooterComponent width handling", () => {
 
 		expect(rendered).toContain("↑34k");
 		expect(rendered).toContain("R33k");
-		expect(rendered).toContain("cache 100% avg 49%");
+		expect(rendered).toContain("cache 100% avg 100%");
 		expect(rendered).not.toContain("cache 49% avg");
 	});
 
