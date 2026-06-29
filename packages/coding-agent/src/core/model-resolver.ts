@@ -48,6 +48,7 @@ export const mediumModelPerProvider: Record<string, string> = {
 	anthropic: "claude-sonnet-4-6",
 	"amazon-bedrock": "us.anthropic.claude-sonnet-4-6-20251001-v1:0",
 	openai: "gpt-5.4",
+	"openai-codex": "gpt-5.4",
 	"azure-openai-responses": "gpt-5.4",
 	"github-copilot": "gpt-5.4",
 	google: "gemini-3.1-flash",
