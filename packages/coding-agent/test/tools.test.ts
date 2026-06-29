@@ -1180,6 +1180,30 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("many-matches.txt:150: needle 150");
 		});
 
+		it("bounds large full grep output before joining formatted lines", async () => {
+			const testFile = join(testDir, "many-large-matches.txt");
+			const largeSuffix = "x".repeat(1200);
+			writeFileSync(
+				testFile,
+				`${Array.from({ length: 300 }, (_, i) => `needle ${i + 1} ${largeSuffix}`).join("\n")}\n`,
+			);
+
+			const result = await grepTool.execute("test-call-grep-full-large-bounded", {
+				pattern: "needle",
+				path: testFile,
+				outputMode: "content",
+				full: true,
+			});
+			const output = getTextOutput(result);
+
+			expect(Buffer.byteLength(output, "utf-8")).toBeLessThan(60 * 1024);
+			expect(output).toContain("many-large-matches.txt:1: needle 1");
+			expect(output).not.toContain("needle 300");
+			expect(output).toContain("50.0KB limit reached");
+			expect(result.details?.truncation?.truncated).toBe(true);
+			expect(result.details?.truncation?.outputBytes).toBeLessThanOrEqual(50 * 1024);
+		});
+
 		it("should reject unsupported multiline mode clearly", async () => {
 			const testFile = join(testDir, "multiline.txt");
 			writeFileSync(testFile, "needle\nacross\n");

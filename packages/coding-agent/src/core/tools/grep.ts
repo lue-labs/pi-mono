@@ -14,26 +14,42 @@ import { getTextOutput, invalidArgText, shortenPath, str } from "./render-utils.
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import {
 	DEFAULT_MAX_BYTES,
-	FULL_TRUNCATION,
 	formatSize,
 	GREP_MAX_LINE_LENGTH,
 	type TruncationResult,
-	truncateHead,
 	truncateLine,
 } from "./truncate.ts";
 
 const grepSchema = Type.Object({
-	pattern: Type.String({ description: "Search pattern (regex or literal string)" }),
-	path: Type.Optional(Type.String({ description: "Directory or file to search (default: current directory)" })),
-	glob: Type.Optional(Type.String({ description: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'" })),
+	pattern: Type.String({
+		description: "Search pattern (regex or literal string)",
+	}),
+	path: Type.Optional(
+		Type.String({
+			description: "Directory or file to search (default: current directory)",
+		}),
+	),
+	glob: Type.Optional(
+		Type.String({
+			description: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'",
+		}),
+	),
 	ignoreCase: Type.Optional(Type.Boolean({ description: "Case-insensitive search (default: false)" })),
 	literal: Type.Optional(
-		Type.Boolean({ description: "Treat pattern as literal string instead of regex (default: false)" }),
+		Type.Boolean({
+			description: "Treat pattern as literal string instead of regex (default: false)",
+		}),
 	),
 	context: Type.Optional(
-		Type.Number({ description: "Number of lines to show before and after each match (default: 0)" }),
+		Type.Number({
+			description: "Number of lines to show before and after each match (default: 0)",
+		}),
 	),
-	limit: Type.Optional(Type.Number({ description: "Maximum number of matches to return (default: 100)" })),
+	limit: Type.Optional(
+		Type.Number({
+			description: "Maximum number of matches to return (default: 100)",
+		}),
+	),
 	outputMode: Type.Optional(
 		Type.Union([Type.Literal("content"), Type.Literal("files_with_matches"), Type.Literal("count")], {
 			description:
@@ -45,22 +61,38 @@ const grepSchema = Type.Object({
 			description: "Alias for outputMode.",
 		}),
 	),
-	headLimit: Type.Optional(Type.Number({ description: "Maximum output entries after offset; 0 means unlimited" })),
+	headLimit: Type.Optional(
+		Type.Number({
+			description: "Maximum output entries after offset; 0 means unlimited",
+		}),
+	),
 	head_limit: Type.Optional(Type.Number({ description: "Alias for headLimit" })),
 	offset: Type.Optional(
-		Type.Number({ description: "Number of matching output entries to skip before returning results (default: 0)" }),
+		Type.Number({
+			description: "Number of matching output entries to skip before returning results (default: 0)",
+		}),
 	),
-	type: Type.Optional(Type.String({ description: "Ripgrep file type filter, e.g. js, py, rust. Uses rg backend." })),
+	type: Type.Optional(
+		Type.String({
+			description: "Ripgrep file type filter, e.g. js, py, rust. Uses rg backend.",
+		}),
+	),
 	multiline: Type.Optional(
-		Type.Boolean({ description: "Unsupported in Pi native grep until ugrep/rg backend parity is verified" }),
+		Type.Boolean({
+			description: "Unsupported in Pi native grep until ugrep/rg backend parity is verified",
+		}),
 	),
 	timeout: Type.Optional(
-		Type.Number({ description: "Timeout in seconds (default: 30, max 300)", exclusiveMinimum: 0, maximum: 300 }),
+		Type.Number({
+			description: "Timeout in seconds (default: 30, max 300)",
+			exclusiveMinimum: 0,
+			maximum: 300,
+		}),
 	),
 	full: Type.Optional(
 		Type.Boolean({
 			description:
-				"Return ALL matches with no match-count/byte/line truncation (and skip tokenjuice compaction). Use only when you genuinely need every match. Defaults to false.",
+				"Lift the default 100-match cap and per-line truncation. Large model-facing output is still byte-capped to prevent crashes; use narrower paths/globs when you need exhaustive output. Defaults to false.",
 		}),
 	),
 });
@@ -127,7 +159,12 @@ export async function resolveGrepBackend(input: {
 
 	if (!input.type) {
 		const ugrepPath = getOptionalSearchToolPath("ugrep");
-		if (ugrepPath) return { backend: "ugrep", command: ugrepPath, args: buildUgrepArgs(input) };
+		if (ugrepPath)
+			return {
+				backend: "ugrep",
+				command: ugrepPath,
+				args: buildUgrepArgs(input),
+			};
 	}
 	return undefined;
 }
@@ -239,6 +276,64 @@ function normalizeGrepOutputOptions(input: {
 	};
 }
 
+function createBoundedGrepOutput(maxBytes: number = DEFAULT_MAX_BYTES) {
+	const outputLines: string[] = [];
+	let outputBytes = 0;
+	let totalBytes = 0;
+	let totalLines = 0;
+	let truncated = false;
+	let firstLineExceedsLimit = false;
+
+	const append = (line: string): boolean => {
+		const lineBytes = Buffer.byteLength(line, "utf-8");
+		const totalLineBytes = lineBytes + (totalLines > 0 ? 1 : 0);
+		totalBytes += totalLineBytes;
+		totalLines++;
+
+		if (truncated) return false;
+
+		const outputLineBytes = lineBytes + (outputLines.length > 0 ? 1 : 0);
+		if (outputBytes + outputLineBytes > maxBytes) {
+			truncated = true;
+			firstLineExceedsLimit = outputLines.length === 0;
+			return false;
+		}
+
+		outputLines.push(line);
+		outputBytes += outputLineBytes;
+		return true;
+	};
+
+	const appendMany = (lines: string[]): boolean => {
+		for (const line of lines) {
+			if (!append(line)) return false;
+		}
+		return true;
+	};
+
+	const snapshot = (): { content: string; truncation: TruncationResult } => {
+		const content = outputLines.join("\n");
+		return {
+			content,
+			truncation: {
+				content,
+				truncated,
+				truncatedBy: truncated ? "bytes" : null,
+				totalLines,
+				totalBytes,
+				outputLines: outputLines.length,
+				outputBytes,
+				lastLinePartial: false,
+				firstLineExceedsLimit,
+				maxLines: Number.MAX_SAFE_INTEGER,
+				maxBytes,
+			},
+		};
+	};
+
+	return { append, appendMany, snapshot };
+}
+
 /**
  * Pluggable operations for the grep tool.
  * Override these to delegate search to remote systems (for example SSH).
@@ -322,7 +417,12 @@ function formatGrepCall(
 
 function formatGrepResult(
 	result: {
-		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		content: Array<{
+			type: string;
+			text?: string;
+			data?: string;
+			mimeType?: string;
+		}>;
 		details?: GrepToolDetails;
 	},
 	options: ToolRenderResultOptions,
@@ -373,7 +473,7 @@ export function createGrepToolDefinition(
 	return {
 		name: toolName,
 		label,
-		description: `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Use this tool for content search; do not invoke \`grep\` or \`rg\` via bash — those calls are blocked at runtime. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars. For conceptual or meaning-based searches ('where is auth handled?', 'how does X work?', 'find the retry logic'), prefer \`semantic_grep\` if available — it finds concepts even when the exact wording differs. Default rule: if you don't already know the exact string, use \`semantic_grep\` first. \`grep\` is for known literals, identifiers, and error messages.`,
+		description: `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Use this tool for content search; do not invoke \`grep\` or \`rg\` via bash — those calls are blocked at runtime. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars unless full:true is set; huge full:true output is still byte-capped to prevent crashes. For conceptual or meaning-based searches ('where is auth handled?', 'how does X work?', 'find the retry logic'), prefer \`semantic_grep\` if available — it finds concepts even when the exact wording differs. Default rule: if you don't already know the exact string, use \`semantic_grep\` first. \`grep\` is for known literals, identifiers, and error messages.`,
 		promptSnippet: "Search file contents for patterns (respects .gitignore)",
 		executionMode: "parallel",
 		parameters: grepSchema,
@@ -458,7 +558,11 @@ export function createGrepToolDefinition(
 							);
 							return;
 						}
-						let outputOptions: { mode: GrepOutputMode; headLimit?: number; offset: number };
+						let outputOptions: {
+							mode: GrepOutputMode;
+							headLimit?: number;
+							offset: number;
+						};
 						try {
 							outputOptions = normalizeGrepOutputOptions({
 								outputMode,
@@ -525,7 +629,7 @@ export function createGrepToolDefinition(
 						let aborted = false;
 						let timedOut = false;
 						let killedDueToLimit = false;
-						const outputLines: string[] = [];
+						const output = createBoundedGrepOutput();
 
 						const cleanup = () => {
 							rl.close();
@@ -578,7 +682,11 @@ export function createGrepToolDefinition(
 						};
 
 						// Collect matches during streaming, then format them after rg exits.
-						const matches: Array<{ filePath: string; lineNumber: number; lineText?: string }> = [];
+						const matches: Array<{
+							filePath: string;
+							lineNumber: number;
+							lineText?: string;
+						}> = [];
 						rl.on("line", (line) => {
 							if (!line.trim() || matchCount >= effectiveLimit) return;
 							if (backendCommand.backend === "ugrep") {
@@ -628,20 +736,13 @@ export function createGrepToolDefinition(
 											.replace(/\r/g, "")
 											.replace(/\n$/, "");
 										const { text: truncatedText } = full ? { text: sanitized } : truncateLine(sanitized);
-										outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
+										if (!output.append(`${relativePath}:${match.lineNumber}: ${truncatedText}`)) break;
 									} else {
 										const block = await formatBlock(match.filePath, match.lineNumber);
-										outputLines.push(...block);
+										if (!output.appendMany(block)) break;
 									}
 								}
-								const partialOutput = truncateHead(
-									outputLines.join("\n"),
-									full
-										? FULL_TRUNCATION
-										: {
-												maxLines: Number.MAX_SAFE_INTEGER,
-											},
-								).content;
+								const partialOutput = output.snapshot().content;
 								settle(() =>
 									resolve(
 										formatGrepTimeoutResult({
@@ -665,13 +766,22 @@ export function createGrepToolDefinition(
 							if (matchCount === 0) {
 								const text =
 									outputOptions.mode === "files_with_matches" ? "No files found" : "No matches found";
-								settle(() => resolve({ content: [{ type: "text", text }], details: undefined }));
+								settle(() =>
+									resolve({
+										content: [{ type: "text", text }],
+										details: undefined,
+									}),
+								);
 								return;
 							}
 
 							const paginate = <T>(
 								items: T[],
-							): { items: T[]; appliedLimit?: number; appliedOffset?: number } => {
+							): {
+								items: T[];
+								appliedLimit?: number;
+								appliedOffset?: number;
+							} => {
 								const paged = items.slice(
 									outputOptions.offset,
 									outputOptions.headLimit === undefined
@@ -736,7 +846,12 @@ export function createGrepToolDefinition(
 									: "";
 								settle(() =>
 									resolve({
-										content: [{ type: "text", text: output ? `${output}${notice}` : "No matches found" }],
+										content: [
+											{
+												type: "text",
+												text: output ? `${output}${notice}` : "No matches found",
+											},
+										],
 										details,
 									}),
 								);
@@ -756,20 +871,16 @@ export function createGrepToolDefinition(
 										? { text: sanitized, wasTruncated: false }
 										: truncateLine(sanitized);
 									if (wasTruncated) linesTruncated = true;
-									outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
+									if (!output.append(`${relativePath}:${match.lineNumber}: ${truncatedText}`)) break;
 								} else {
 									const block = await formatBlock(match.filePath, match.lineNumber);
-									outputLines.push(...block);
+									if (!output.appendMany(block)) break;
 								}
 							}
 
-							const rawOutput = outputLines.join("\n");
-							// Apply byte truncation. There is no line limit here because the match limit already capped rows.
-							const truncation = truncateHead(
-								rawOutput,
-								full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
-							);
-							let output = truncation.content;
+							const outputSnapshot = output.snapshot();
+							const truncation = outputSnapshot.truncation;
+							let outputText = outputSnapshot.content;
 							const details: GrepToolDetails = {
 								mode: outputOptions.mode,
 								matchesReturned: pagedMatches.items.length,
@@ -802,10 +913,10 @@ export function createGrepToolDefinition(
 								);
 								details.linesTruncated = true;
 							}
-							if (notices.length > 0) output += `\n\n[${notices.join(". ")}]`;
+							if (notices.length > 0) outputText += `\n\n[${notices.join(". ")}]`;
 							settle(() =>
 								resolve({
-									content: [{ type: "text", text: output }],
+									content: [{ type: "text", text: outputText }],
 									details: Object.keys(details).length > 0 ? details : undefined,
 								}),
 							);
