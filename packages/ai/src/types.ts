@@ -118,7 +118,7 @@ export interface StreamOptions {
 	transport?: Transport;
 	/**
 	 * Prompt cache retention preference. Providers map this to their supported values.
-	 * Default: "short".
+	 * Default: "long".
 	 */
 	cacheRetention?: CacheRetention;
 	/**

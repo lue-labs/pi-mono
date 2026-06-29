@@ -143,10 +143,11 @@ function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEn
 	if (cacheRetention) {
 		return cacheRetention;
 	}
-	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
-		return "long";
+	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
+	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
+		return envRetention;
 	}
-	return "short";
+	return "long";
 }
 
 export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptions> = (
