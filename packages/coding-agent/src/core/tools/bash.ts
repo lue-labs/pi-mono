@@ -36,6 +36,23 @@ import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead, truncateTail } from "./truncate.ts";
 
+const MAX_TIMEOUT_MS = 2_147_483_647;
+const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
+
+function resolveTimeoutMs(timeout: number | undefined): number | undefined {
+	if (timeout === undefined) return undefined;
+	if (!Number.isFinite(timeout)) {
+		throw new Error("Invalid timeout: must be a finite number of seconds");
+	}
+	if (timeout <= 0) return undefined;
+
+	const timeoutMs = timeout * 1000;
+	if (timeoutMs > MAX_TIMEOUT_MS) {
+		throw new Error(`Invalid timeout: maximum is ${MAX_TIMEOUT_SECONDS} seconds`);
+	}
+	return timeoutMs;
+}
+
 const bashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
 	workdir: Type.Optional(
@@ -625,14 +642,15 @@ export interface BashOperations {
 export function createLocalBashOperations(options?: { shellPath?: string }): BashOperations {
 	return {
 		exec: async (command, cwd, { onData, signal, timeout, env }) => {
+			const timeoutMs = resolveTimeoutMs(timeout);
+			if (signal?.aborted) {
+				throw new Error("aborted");
+			}
 			const shellConfig = getShellConfig(options?.shellPath);
 			try {
 				await fsAccess(cwd, constants.F_OK);
 			} catch {
 				throw new Error(`Working directory does not exist: ${cwd}\nCannot execute bash commands.`);
-			}
-			if (signal?.aborted) {
-				throw new Error("aborted");
 			}
 
 			const commandFromStdin = shellConfig.commandTransport === "stdin";
@@ -670,9 +688,9 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				// parity) so long work keeps running and stays readable/killable by bgId.
 				const exitPromise = waitForChildProcess(child).then((code) => ({ kind: "exit" as const, code }));
 				const timeoutPromise =
-					timeout !== undefined && timeout > 0
+					timeoutMs !== undefined
 						? new Promise<{ kind: "timeout" }>((resolveTimeout) => {
-								timeoutHandle = setTimeout(() => resolveTimeout({ kind: "timeout" }), timeout * 1000);
+								timeoutHandle = setTimeout(() => resolveTimeout({ kind: "timeout" }), timeoutMs);
 							})
 						: undefined;
 				const outcome = timeoutPromise ? await Promise.race([exitPromise, timeoutPromise]) : await exitPromise;
@@ -684,7 +702,7 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 					// then hand off to the configured disposition.
 					child.stdout?.off("data", onData);
 					child.stderr?.off("data", onData);
-					const disposition = disposeBashTimeout(child, command, cwd, (timeout ?? 0) * 1000);
+					const disposition = disposeBashTimeout(child, command, cwd, timeoutMs ?? 0);
 					if ("backgroundedJobId" in disposition) {
 						backgroundedJobId = disposition.backgroundedJobId;
 						return { exitCode: null, backgroundedJobId };
