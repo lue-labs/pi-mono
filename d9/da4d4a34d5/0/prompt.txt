@@ -1,0 +1,58 @@
+ok I tested it now, seemed to work, but confidence is 0?
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/Projects · Pi Coding Sessions                                                            🧠 5 hits · 3085ms
+↑8.7k · ↓1.9k · R122k · cache 89% · $0.063 (sub) · t5 · 42.7% 55k/128k (auto)      gpt-5.3-codex-spark · high
+Codex adapter V: low • web search Goal paused (/goal resume) ⚡ $-1.07 MCP: 0/1 servers
+
+^C
+pi --model openai-codex/auto
+
+ Auto model selected: openai-codex/gpt-5.4 · tier medium · thinking medium · confidence 0.00 ·               
+ semantic_router, endpoint:http://127.0.0.1:8899/v1/chat/completions, decision:semantic-tier-route,          
+ model:medium                                                                                                
+
+ Thinking...                                                                                                 
+
+                                                                                                             
+ Read docs/goals/goal-2026-06-30T20-53-19Z-a1133546.md                                                       
+                                                                                                             
+
+ ✽ Gitifying                                                                                                 
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                             
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/Projects
+↑30k · ↓65 · R7.2k · cache 19% avg 19% ⚠fresh · $0.078 (sub) · t1 · 14.0% 38k/272k (auto)    gpt-5.4 · medium
+◦ boot: 14,440 tok Codex adapter V: low • web search • image gen Pursuing goal (5s) ⚡ $-1.07 auto:openai-...
+
+did this even do anything?
+
+---
+
+does the semantic router know about sonnet 5?
+
+---
+
+so does the semantic router ever know about the actual provider / models? should it?
+
+---
+
+is this what other people do or vLLM semantic router docs say?
+
+---
+
+no I think we should comply with the official config docs and just add our weird provider labelling / routing where needed
+
+---
+
+land the changes
+
+---
+
+is the semantic router also aware of token pricing etc?
+
+---
+
+and caching semantics? / cached state?
