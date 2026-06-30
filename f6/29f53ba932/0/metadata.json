@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "f629f53ba932",
+  "session_id": "019f1a28-cea8-7040-a7bf-c2707d028c56",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-30T21:15:53.472839Z",
+  "branch": "wip/my-pi-closeout-20260630",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/claude-bridge-rollout.md",
+    "docs/pi-stack-inventory.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "2e265333b85a",
+  "checkpoint_transcript_start": 1330,
+  "transcript_lines_at_start": 1330,
+  "initial_attribution": {
+    "calculated_at": "2026-06-30T21:15:53.386839Z",
+    "agent_lines": 3,
+    "agent_removed": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3,
+    "total_lines_changed": 6,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

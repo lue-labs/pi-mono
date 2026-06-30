@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "f629f53ba932",
+  "strategy": "manual-commit",
+  "branch": "wip/my-pi-closeout-20260630",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/claude-bridge-rollout.md",
+    "docs/pi-stack-inventory.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f6/29f53ba932/0/metadata.json",
+      "transcript": "/f6/29f53ba932/0/full.jsonl",
+      "content_hash": "/f6/29f53ba932/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
