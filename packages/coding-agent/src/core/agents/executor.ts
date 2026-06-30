@@ -14,6 +14,7 @@ import type { SettingsManager } from "../settings-manager.ts";
 import { appendTaskMessage } from "../tasks/messages.ts";
 import { EXPLORE_BASH_POLICY, runWithBashPolicy } from "../tools/bash.ts";
 import {
+	backgroundAgentReminder,
 	buildAgentSystemAppend,
 	buildChildTaskPrompt,
 	clampThinkingForModel,
@@ -34,6 +35,7 @@ import {
 	formatAgentDurationMs,
 	getAgentRecentRunGeneration,
 	markAgentRecentRunNeedsAttention,
+	parseBackgroundAgentProtocolFromRuns,
 	restartAgentRecentRun,
 	startAgentRecentRun,
 	updateAgentRecentRunProgress,
@@ -684,6 +686,14 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	const maxDelegationDepth = getMaxDelegationDepth(options.parentServices.settingsManager);
 	const childDepth = callerDepth + 1;
 	const childCanDelegate = canDelegateAtDepth(childDepth, maxDelegationDepth);
+	const childPrompt = buildChildTaskPrompt(
+		options.task,
+		{
+			canDelegate: childCanDelegate,
+			remaining: childCanDelegate ? maxDelegationDepth - childDepth : 0,
+		},
+		{ background: options.progressInput.background === true },
+	);
 	if (isForkMode) {
 		const parentSet = new Set(options.parentActiveTools);
 		effectiveTools = options.task.tools
@@ -765,6 +775,8 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		// input/before_agent_start independently.
 		source: "child-agent",
 	});
+	details.model = formatModelForDetails(session.model);
+	details.thinking = session.thinkingLevel;
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
@@ -798,10 +810,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		...options,
 		details,
 		startedAt,
-		prompt: buildChildTaskPrompt(options.task, {
-			canDelegate: childCanDelegate,
-			remaining: childCanDelegate ? maxDelegationDepth - childDepth : 0,
-		}),
+		prompt: childPrompt,
 	});
 }
 
@@ -827,16 +836,20 @@ function buildBackgroundCompletion(run: AgentRecentRun): AgentBackgroundCompleti
 	const firstFinal = run.runs.find(
 		(child) => typeof child.finalOutput === "string" && child.finalOutput.length > 0,
 	)?.finalOutput;
+	const protocolSignal = parseBackgroundAgentProtocolFromRuns(run.runs);
+	const resultPreview = protocolSignal?.kind === "result" ? protocolSignal.message : firstFinal;
 	const summary =
-		run.status === "completed"
-			? `Background agent ${run.id} (${run.agents.join(", ")}) completed`
-			: run.status === "failed"
-				? `Background agent ${run.id} failed: ${run.error || "unknown error"}`
-				: run.status === "cancelled"
-					? `Background agent ${run.id} was cancelled`
-					: run.status === "interrupted"
-						? `Background agent ${run.id} was interrupted`
-						: `Background agent ${run.id} reached status ${run.status}`;
+		protocolSignal?.kind === "needs_input"
+			? `Background agent ${run.id} needs input: ${protocolSignal.message}`
+			: run.status === "completed"
+				? `Background agent ${run.id} (${run.agents.join(", ")}) completed`
+				: run.status === "failed"
+					? `Background agent ${run.id} failed: ${run.error || protocolSignal?.message || "unknown error"}`
+					: run.status === "cancelled"
+						? `Background agent ${run.id} was cancelled`
+						: run.status === "interrupted"
+							? `Background agent ${run.id} was interrupted`
+							: `Background agent ${run.id} reached status ${run.status}`;
 	return {
 		runId: run.id,
 		status: run.status,
@@ -844,7 +857,7 @@ function buildBackgroundCompletion(run: AgentRecentRun): AgentBackgroundCompleti
 		agents: [...run.agents],
 		tasks: [...run.tasks],
 		summary,
-		result: truncatePreview(firstFinal, BACKGROUND_RESULT_PREVIEW_CHARS),
+		result: truncatePreview(resultPreview, BACKGROUND_RESULT_PREVIEW_CHARS),
 		outputPaths: [...run.outputPaths],
 		sessionPaths: run.sessionRefs.map((ref) => ref.sessionPath).filter((path): path is string => Boolean(path)),
 		error: run.error,

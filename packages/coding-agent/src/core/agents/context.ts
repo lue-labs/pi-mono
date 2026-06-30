@@ -194,6 +194,14 @@ const CHILD_AGENT_REMINDER =
 	"them dispatch the follow-up work.\n" +
 	"</system-reminder>";
 
+const BACKGROUND_AGENT_REMINDER =
+	"<system-reminder>\n" +
+	"This delegated session is running in the background. A parent status surface reads only your assistant text, not raw tool output. " +
+	"Restate important results in your own words. When the task is delivered, write `result:` on its own line followed by a one-line self-contained headline. " +
+	"When exactly one human action is required to proceed, write `needs input:` on its own line and state the specific ask. " +
+	"When the task is impossible as framed, write `failed:` on its own line with the reason. Otherwise keep working or report progress normally.\n" +
+	"</system-reminder>";
+
 // When nested delegation is enabled and this child is still under the cap, tell it
 // it MAY delegate (and how many further levels remain) instead of the default
 // "agent tool not available" reminder. Kept depth-aware so the boundary child still
@@ -212,11 +220,18 @@ function childAgentReminder(delegation?: { canDelegate: boolean; remaining: numb
 	return CHILD_AGENT_REMINDER;
 }
 
+export function backgroundAgentReminder(): string {
+	return BACKGROUND_AGENT_REMINDER;
+}
+
 export function buildChildTaskPrompt(
 	task: AgentTaskConfig,
 	delegation?: { canDelegate: boolean; remaining: number },
+	options: { background?: boolean } = {},
 ): string {
-	const parts = [childAgentReminder(delegation), "", "Complete this delegated task:", "", task.task.trim()];
+	const parts = [childAgentReminder(delegation)];
+	if (options.background) parts.push("", BACKGROUND_AGENT_REMINDER);
+	parts.push("", "Complete this delegated task:", "", task.task.trim());
 	if (task.extraContext?.trim()) {
 		parts.push("", "Additional context:", task.extraContext.trim());
 	}

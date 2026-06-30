@@ -196,5 +196,35 @@ describe("buildSystemPrompt", () => {
 
 			expect(prompt.match(/- Use dynamic_tool for summaries\./g)).toHaveLength(1);
 		});
+
+		test("keeps Codex tool-name guidance active for openai-codex models", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["exec_command", "apply_patch", "write_stdin"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+				selectedModel: { provider: "openai-codex", id: "gpt-5-codex" } as any,
+			});
+
+			expect(prompt).toContain("Adapter profile: OpenAI Codex");
+			expect(prompt).toContain("exec_command for shell work");
+			expect(prompt).toContain("apply_patch for text-file edits");
+			expect(prompt).not.toContain("exec_command → bash");
+		});
+
+		test("translates stale Codex tool aliases for Claude/Pi-native models", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["bash", "edit", "write"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+				selectedModel: { provider: "claude-bridge", id: "sonnet" } as any,
+			});
+
+			expect(prompt).toContain("Adapter profile: Claude/Pi native tools");
+			expect(prompt).toContain("exec_command → bash");
+			expect(prompt).toContain("apply_patch → edit/write");
+			expect(prompt).toContain("A denied tool call means the user or harness declined it");
+		});
 	});
 });

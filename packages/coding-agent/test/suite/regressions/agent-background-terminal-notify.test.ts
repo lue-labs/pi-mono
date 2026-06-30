@@ -14,7 +14,7 @@ describe("background agent terminal notification", () => {
 	it("fires onBackgroundTerminal exactly once with runId + status when a background run completes", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
-		harness.setResponses([() => fauxAssistantMessage("background child done")]);
+		harness.setResponses([() => fauxAssistantMessage("background child done\nresult: indexed 3 files")]);
 
 		const completions: AgentBackgroundCompletion[] = [];
 
@@ -54,9 +54,9 @@ describe("background agent terminal notification", () => {
 		expect(note.status).toBe(finalRun.status);
 		expect(note.agents).toEqual(["general"]);
 		expect(note.summary).toMatch(/Background agent agent-/);
-		// Result preview should carry the child's final assistant text on success.
+		// Result preview should prefer the child's explicit background protocol result line on success.
 		if (note.status === "completed") {
-			expect(note.result).toBe("background child done");
+			expect(note.result).toBe("indexed 3 files");
 		}
 	});
 });

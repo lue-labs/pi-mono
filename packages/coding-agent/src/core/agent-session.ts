@@ -1731,6 +1731,7 @@ export class AgentSession {
 
 		this._baseSystemPromptOptions = {
 			cwd: this._cwd,
+			selectedModel: this.model,
 			skills: loadedSkills,
 			contextFiles: loadedContextFiles,
 			customPrompt: loaderSystemPrompt,

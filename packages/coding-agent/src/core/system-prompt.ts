@@ -2,7 +2,7 @@
  * System prompt construction and project context loading
  */
 
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@valkyriweb/pi-ai";
+import { type Model, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@valkyriweb/pi-ai";
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import type { ContextFile } from "./context-file-imports.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
@@ -18,6 +18,8 @@ export interface BuildSystemPromptOptions {
 	promptGuidelines?: string[];
 	/** Text to append to system prompt. */
 	appendSystemPrompt?: string;
+	/** Selected model/provider, used only for deterministic adapter-specific wording. */
+	selectedModel?: Model<any>;
 	/** Working directory. */
 	cwd: string;
 	/** Pre-loaded context files. */
@@ -27,6 +29,25 @@ export interface BuildSystemPromptOptions {
 }
 
 /** Build the system prompt with tools, guidelines, and context */
+function adapterGuidelines(model: Model<any> | undefined): string[] {
+	const provider = model?.provider ?? "";
+	if (provider === "openai-codex") {
+		return [
+			"Adapter profile: OpenAI Codex. Codex-style tool names in project instructions are active for this provider: use exec_command for shell work, apply_patch for text-file edits, and write_stdin only for active command sessions when those tools are exposed.",
+		];
+	}
+	if (provider === "claude-bridge" || provider === "anthropic" || provider.startsWith("claude")) {
+		return [
+			"Adapter profile: Claude/Pi native tools. If project instructions mention Codex-only tools, translate them to the actual available tools: exec_command → bash, apply_patch → edit/write, write_stdin → interactive command input only when such a tool is actually exposed. Prefer the tools listed in Available tools over stale tool aliases in project docs.",
+			"A denied tool call means the user or harness declined it. Adjust the plan or ask a targeted question; do not retry the same denied call verbatim.",
+		];
+	}
+	return [
+		"Adapter profile: use the tools listed in Available tools. Treat provider-specific tool names in project instructions as aliases only when the matching tool is actually exposed.",
+		"A denied tool call means the user or harness declined it. Adjust the plan or ask a targeted question; do not retry the same denied call verbatim.",
+	];
+}
+
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const {
 		customPrompt,
@@ -34,6 +55,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		toolSnippets,
 		promptGuidelines,
 		appendSystemPrompt,
+		selectedModel,
 		cwd,
 		contextFiles: providedContextFiles,
 		skills: providedSkills,
@@ -54,6 +76,12 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	if (customPrompt) {
 		let prompt = customPrompt;
+		const adapterSection = adapterGuidelines(selectedModel)
+			.map((guideline) => `- ${guideline}`)
+			.join("\n");
+		if (adapterSection) {
+			prompt += `\n\nAdapter-specific tool guidance:\n${adapterSection}`;
+		}
 
 		if (appendSection) {
 			prompt += appendSection;
@@ -144,6 +172,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		if (normalized.length > 0) {
 			addGuideline(normalized);
 		}
+	}
+
+	for (const guideline of adapterGuidelines(selectedModel)) {
+		addGuideline(guideline);
 	}
 
 	// Always include these

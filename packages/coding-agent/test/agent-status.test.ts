@@ -179,6 +179,41 @@ describe("native agent status", () => {
 		expect(formatAgentDurationMs(61_000)).toBe("1m 1s");
 	});
 
+	test("marks background runs as needing attention from needs input protocol lines", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		finishAgentRecentRun(run, {
+			mode: "single",
+			status: "completed",
+			runs: [
+				{
+					...makeRunDetails("completed"),
+					finalOutput: "Partial work complete.\nneeds input: approve API key rotation",
+				},
+			],
+		});
+
+		expect(listAgentRecentRuns()[0]).toMatchObject({ status: "interrupted", resumable: true });
+		expect(formatAgentFooterStatus()).toContain("needs attention");
+		expect(formatAgentStatus()).toContain("needs-attention: approve API key rotation");
+	});
+
+	test("classifies completed background runs as failed from failed protocol lines", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		finishAgentRecentRun(run, {
+			mode: "single",
+			status: "completed",
+			runs: [
+				{
+					...makeRunDetails("completed"),
+					finalOutput: "failed: missing repo checkout",
+				},
+			],
+		});
+
+		expect(listAgentRecentRuns()[0]).toMatchObject({ status: "failed", error: "missing repo checkout" });
+		expect(formatAgentStatus()).toContain("single background failed");
+	});
+
 	test("marks stale background runs as needing attention", () => {
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		markAgentRecentRunNeedsAttention(run, "No child progress for 10m");

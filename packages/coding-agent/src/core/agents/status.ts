@@ -116,6 +116,43 @@ function summarizeSessions(runs: AgentRunDetails[]): AgentRecentRun["sessionRefs
 	return runs.map((run) => ({ agent: run.agent, sessionId: run.sessionId, sessionPath: run.sessionPath }));
 }
 
+export type BackgroundAgentProtocolSignal =
+	| { kind: "result"; message: string }
+	| { kind: "needs_input"; message: string }
+	| { kind: "failed"; message: string };
+
+const BACKGROUND_PROTOCOL_LINE = /^\s*(result|needs input|failed)\s*:\s*(.+?)\s*$/i;
+
+export function parseBackgroundAgentProtocol(text: string | undefined): BackgroundAgentProtocolSignal | undefined {
+	if (!text) return undefined;
+	const lines = text.split(/\r?\n/);
+	let result: BackgroundAgentProtocolSignal | undefined;
+	for (const line of lines) {
+		const match = BACKGROUND_PROTOCOL_LINE.exec(line);
+		if (!match) continue;
+		const message = match[2]?.trim();
+		if (!message) continue;
+		const kind = match[1]?.toLowerCase();
+		if (kind === "needs input") return { kind: "needs_input", message };
+		if (kind === "failed") return { kind: "failed", message };
+		result = { kind: "result", message };
+	}
+	return result;
+}
+
+export function parseBackgroundAgentProtocolFromRuns(
+	runs: AgentRunDetails[],
+): BackgroundAgentProtocolSignal | undefined {
+	let result: BackgroundAgentProtocolSignal | undefined;
+	for (const run of runs) {
+		const signal = parseBackgroundAgentProtocol(run.rawOutput) ?? parseBackgroundAgentProtocol(run.finalOutput);
+		if (!signal) continue;
+		if (signal.kind === "needs_input" || signal.kind === "failed") return signal;
+		result = signal;
+	}
+	return result;
+}
+
 function isTerminalStatus(status: AgentToolStatus): boolean {
 	return status !== "running";
 }
@@ -180,10 +217,23 @@ function applyRunDetails(
 	run.status = details.status;
 	updateRunTimestamps(run, terminal);
 	refreshRunSummary(run, details.runs);
+	const protocolSignal = run.execution === "background" ? parseBackgroundAgentProtocolFromRuns(run.runs) : undefined;
+	if (protocolSignal?.kind === "failed" && run.status === "completed") {
+		run.status = "failed";
+		run.error = protocolSignal.message;
+	}
+	if (protocolSignal?.kind === "needs_input" && run.status === "completed") {
+		run.status = "interrupted";
+	}
 	if (run.status !== "interrupted") run.resumable = false;
+	else run.resumable = canResumeRun(run);
 	if (run.status === "running") {
 		run.needsAttention = false;
 		run.attentionMessage = undefined;
+	}
+	if (protocolSignal?.kind === "needs_input") {
+		run.needsAttention = true;
+		run.attentionMessage = protocolSignal.message;
 	}
 	if (run.status === "completed" || run.status === "cancelled" || run.status === "failed") {
 		liveRunControllers.delete(run.id);

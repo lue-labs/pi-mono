@@ -42,4 +42,18 @@ describe("buildChildTaskPrompt", () => {
 		const b = buildChildTaskPrompt(baseTask);
 		expect(a).toBe(b);
 	});
+
+	it("adds the background result/needs-input/failed protocol only for background runs", () => {
+		const foreground = buildChildTaskPrompt(baseTask);
+		const background = buildChildTaskPrompt(baseTask, undefined, { background: true });
+
+		expect(foreground).not.toContain("needs input:");
+		expect(background).toContain("This delegated session is running in the background");
+		expect(background).toContain("`result:`");
+		expect(background).toContain("`needs input:`");
+		expect(background).toContain("`failed:`");
+		expect(background.indexOf("This delegated session is running in the background")).toBeLessThan(
+			background.indexOf("Complete this delegated task:"),
+		);
+	});
 });
