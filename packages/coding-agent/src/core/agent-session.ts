@@ -2621,7 +2621,7 @@ export class AgentSession {
 			resolvedMetadata?.llmRouterUnavailable !== undefined ||
 			typeof resolvedMetadata?.tier === "string" ||
 			!modelsAreEqual(currentModel, nextModel) ||
-			resolved.thinkingLevel !== undefined;
+			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== this.thinkingLevel);
 		if (!hasRoutingDecision) {
 			throw new Error(`Auto model ${pending.requestedModel} did not resolve to a semantic routing decision`);
 		}

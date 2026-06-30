@@ -151,6 +151,30 @@ describe("model:resolve startup filter", () => {
 		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-opus-4-8");
 	});
 
+	it("does not clear a deferred auto alias when no router resolves it", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-noop-"));
+		addFilter<any>("model:resolve", "test-model-resolve", (value) => value);
+
+		const result = await createAgentSession({
+			cwd: tempDir,
+			agentDir: tempDir,
+			resourceLoader: createTestResourceLoader(),
+			sessionManager: SessionManager.inMemory(),
+			settingsManager: SettingsManager.create(tempDir, tempDir),
+			modelRegistry: fakeModelRegistry(),
+			model: baseModel,
+			thinkingLevel: "high",
+			requestedModel: "pi-fork/auto",
+			deferRequestedModelResolution: true,
+		});
+
+		await expect((result.session as any)._resolvePendingAutoModelForPrompt("hello")).rejects.toThrow(
+			/pi-fork\/auto did not resolve/,
+		);
+		expect(result.session.pendingAutoModelAlias).toBe("pi-fork/auto");
+		expect(result.session.model?.id).toBe("claude-opus-4-8");
+	});
+
 	it("passes initial routing metadata into the startup filter", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-metadata-"));
 		let seenRoutingMetadata: unknown;
