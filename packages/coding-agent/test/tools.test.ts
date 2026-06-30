@@ -137,7 +137,10 @@ describe("Coding Agent Tools", () => {
 			const lines = Array.from({ length: 2500 }, (_, i) => `Line ${i + 1}`);
 			writeFileSync(testFile, lines.join("\n"));
 
-			const result = await readTool.execute("test-call-full", { path: testFile, full: true });
+			const result = await readTool.execute("test-call-full", {
+				path: testFile,
+				full: true,
+			});
 			const output = getTextOutput(result);
 
 			expect(output).toContain("Line 1");
@@ -165,7 +168,10 @@ describe("Coding Agent Tools", () => {
 			const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);
 			writeFileSync(testFile, lines.join("\n"));
 
-			const result = await readTool.execute("test-call-5", { path: testFile, offset: 51 });
+			const result = await readTool.execute("test-call-5", {
+				path: testFile,
+				offset: 51,
+			});
 			const output = getTextOutput(result);
 
 			expect(output).not.toContain("Line 50");
@@ -180,13 +186,16 @@ describe("Coding Agent Tools", () => {
 			const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);
 			writeFileSync(testFile, lines.join("\n"));
 
-			const result = await readTool.execute("test-call-6", { path: testFile, limit: 10 });
+			const result = await readTool.execute("test-call-6", {
+				path: testFile,
+				limit: 10,
+			});
 			const output = getTextOutput(result);
 
 			expect(output).toContain("Line 1");
 			expect(output).toContain("Line 10");
 			expect(output).not.toContain("Line 11");
-			expect(output).toContain("[90 more lines in file. Use offset=11 to continue.]");
+			expect(output).toContain("[90 more lines in file (100 lines total). Use offset=11 to continue.]");
 		});
 
 		it("should handle offset + limit together", async () => {
@@ -205,16 +214,40 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("Line 41");
 			expect(output).toContain("Line 60");
 			expect(output).not.toContain("Line 61");
-			expect(output).toContain("[40 more lines in file. Use offset=61 to continue.]");
+			expect(output).toContain("[40 more lines in file (100 lines total). Use offset=61 to continue.]");
 		});
 
-		it("should show error when offset is beyond file length", async () => {
+		it("should return actionable bounds when offset is beyond file length", async () => {
 			const testFile = join(testDir, "short.txt");
 			writeFileSync(testFile, "Line 1\nLine 2\nLine 3");
 
-			await expect(readTool.execute("test-call-8", { path: testFile, offset: 100 })).rejects.toThrow(
-				/Offset 100 is beyond end of file \(3 lines total\)/,
-			);
+			const result = await readTool.execute("test-call-8", {
+				path: testFile,
+				offset: 100,
+				limit: 20,
+			});
+			const output = getTextOutput(result);
+
+			expect(output).toContain("Requested lines 100-119");
+			expect(output).toContain("has only 3 lines");
+			expect(output).toContain("Last valid offset is 3");
+			expect(output).toContain("read with offset=1, limit=3");
+		});
+
+		it("should report the total line count at EOF for bounded reads", async () => {
+			const testFile = join(testDir, "bounded-eof.txt");
+			writeFileSync(testFile, "Line 1\nLine 2\nLine 3");
+
+			const result = await readTool.execute("test-call-bounded-eof", {
+				path: testFile,
+				offset: 2,
+				limit: 10,
+			});
+			const output = getTextOutput(result);
+
+			expect(output).toContain("Line 2");
+			expect(output).toContain("Line 3");
+			expect(output).toContain("[End of file: requested through line 11, file has 3 lines.]");
 		});
 
 		it("should include truncation details when truncated", async () => {
@@ -240,7 +273,9 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "image.txt");
 			writeFileSync(testFile, pngBuffer);
 
-			const result = await readTool.execute("test-call-img-1", { path: testFile });
+			const result = await readTool.execute("test-call-img-1", {
+				path: testFile,
+			});
 
 			expect(result.content[0]?.type).toBe("text");
 			expect(getTextOutput(result)).toContain("Read image file [image/png]");
@@ -258,7 +293,9 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "not-an-image.png");
 			writeFileSync(testFile, "<html><body>definitely not a png</body></html>");
 
-			const result = await readTool.execute("test-call-img-2", { path: testFile });
+			const result = await readTool.execute("test-call-img-2", {
+				path: testFile,
+			});
 			const output = getTextOutput(result);
 
 			expect(output).toContain("<html><body>definitely not a png</body></html>");
@@ -272,7 +309,10 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "write-test.txt");
 			const content = "Test content";
 
-			const result = await writeTool.execute("test-call-3", { path: testFile, content });
+			const result = await writeTool.execute("test-call-3", {
+				path: testFile,
+				content,
+			});
 
 			expect(getTextOutput(result)).toContain("Successfully wrote");
 			expect(getTextOutput(result)).toContain(testFile);
@@ -283,7 +323,10 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "nested", "dir", "test.txt");
 			const content = "Nested content";
 
-			const result = await writeTool.execute("test-call-4", { path: testFile, content });
+			const result = await writeTool.execute("test-call-4", {
+				path: testFile,
+				content,
+			});
 
 			expect(getTextOutput(result)).toContain("Successfully wrote");
 		});
@@ -376,7 +419,12 @@ describe("Coding Agent Tools", () => {
 			await expect(
 				editTool.execute("test-call-exact-quotes", {
 					path: testFile,
-					edits: [{ oldText: 'const message = "hello";\n', newText: 'const message = "goodbye";\n' }],
+					edits: [
+						{
+							oldText: 'const message = "hello";\n',
+							newText: 'const message = "goodbye";\n',
+						},
+					],
 				}),
 			).rejects.toThrow(/Could not find the exact text/);
 			expect(readFileSync(testFile, "utf-8")).toBe(originalContent);
@@ -560,7 +608,9 @@ describe("Coding Agent Tools", () => {
 			const missingFile = join(testDir, "missing-preview.txt");
 			const result = await computeEditsDiff(missingFile, [{ oldText: "hello", newText: "world" }], testDir);
 
-			expect(result).toEqual({ error: `Could not edit file: ${missingFile}. Error code: ENOENT.` });
+			expect(result).toEqual({
+				error: `Could not edit file: ${missingFile}. Error code: ENOENT.`,
+			});
 		});
 
 		it("should include EACCES in diff preview for unreadable files", async () => {
@@ -570,13 +620,17 @@ describe("Coding Agent Tools", () => {
 
 			const result = await computeEditsDiff(unreadableFile, [{ oldText: "hello", newText: "world" }], testDir);
 
-			expect(result).toEqual({ error: `Could not edit file: ${unreadableFile}. Error code: EACCES.` });
+			expect(result).toEqual({
+				error: `Could not edit file: ${unreadableFile}. Error code: EACCES.`,
+			});
 		});
 	});
 
 	describe("bash tool", () => {
 		it("should execute simple commands", async () => {
-			const result = await bashTool.execute("test-call-8", { command: "echo 'test output'" });
+			const result = await bashTool.execute("test-call-8", {
+				command: "echo 'test output'",
+			});
 
 			expect(getTextOutput(result)).toContain("test output");
 			expect(result.details).toBeUndefined();
@@ -611,7 +665,9 @@ describe("Coding Agent Tools", () => {
 
 				let error: unknown;
 				try {
-					await bash.execute(`test-call-${testCase.error}`, { command: "chatty-fail" });
+					await bash.execute(`test-call-${testCase.error}`, {
+						command: "chatty-fail",
+					});
 				} catch (err) {
 					error = err;
 				}
@@ -660,7 +716,9 @@ describe("Coding Agent Tools", () => {
 				},
 			});
 
-			await bashWithCustomShell.execute("test-call-12b", { command: "echo test" });
+			await bashWithCustomShell.execute("test-call-12b", {
+				command: "echo test",
+			});
 
 			expect(getShellConfigSpy).not.toHaveBeenCalled();
 
@@ -683,7 +741,9 @@ describe("Coding Agent Tools", () => {
 				commandTransport: "stdin",
 			});
 			const chunks: Buffer[] = [];
-			const ops = createLocalBashOperations({ shellPath: "C:\\Windows\\System32\\bash.exe" });
+			const ops = createLocalBashOperations({
+				shellPath: "C:\\Windows\\System32\\bash.exe",
+			});
 			const nameExpansion = "$" + "{name}";
 			const countExpansion = "$" + "{count}";
 			const iExpansion = "$" + "{i}";
@@ -728,7 +788,9 @@ describe("Coding Agent Tools", () => {
 				commandPrefix: "export TEST_VAR=hello",
 			});
 
-			const result = await bashWithPrefix.execute("test-prefix-1", { command: "echo $TEST_VAR" });
+			const result = await bashWithPrefix.execute("test-prefix-1", {
+				command: "echo $TEST_VAR",
+			});
 			expect(getTextOutput(result).trim()).toBe("hello");
 		});
 
@@ -737,14 +799,18 @@ describe("Coding Agent Tools", () => {
 				commandPrefix: "echo prefix-output",
 			});
 
-			const result = await bashWithPrefix.execute("test-prefix-2", { command: "echo command-output" });
+			const result = await bashWithPrefix.execute("test-prefix-2", {
+				command: "echo command-output",
+			});
 			expect(getTextOutput(result).trim()).toBe("prefix-output\ncommand-output");
 		});
 
 		it("should work without command prefix", async () => {
 			const bashWithoutPrefix = createBashTool(testDir, {});
 
-			const result = await bashWithoutPrefix.execute("test-prefix-3", { command: "echo no-prefix" });
+			const result = await bashWithoutPrefix.execute("test-prefix-3", {
+				command: "echo no-prefix",
+			});
 			expect(getTextOutput(result).trim()).toBe("no-prefix");
 		});
 
@@ -757,7 +823,10 @@ describe("Coding Agent Tools", () => {
 					return { exitCode: 0 };
 				},
 			};
-			const updates: Array<{ content: Array<{ type: string; text?: string }>; details?: unknown }> = [];
+			const updates: Array<{
+				content: Array<{ type: string; text?: string }>;
+				details?: unknown;
+			}> = [];
 			const bash = createBashTool(testDir, { operations });
 
 			const result = await bash.execute("test-call-chatty-updates", { command: "chatty" }, undefined, (update) =>
@@ -801,7 +870,9 @@ describe("Coding Agent Tools", () => {
 			};
 			const bash = createBashTool(testDir, { operations });
 
-			const result = await bash.execute("test-call-split-utf8", { command: "split-utf8" });
+			const result = await bash.execute("test-call-split-utf8", {
+				command: "split-utf8",
+			});
 
 			expect(getTextOutput(result).trim()).toBe("€");
 		});
@@ -832,7 +903,9 @@ describe("Coding Agent Tools", () => {
 
 		it("should persist full output when truncation happens by line count only", async () => {
 			const bash = createBashTool(testDir);
-			const result = await bash.execute("test-call-line-truncation", { command: "seq 3000" });
+			const result = await bash.execute("test-call-line-truncation", {
+				command: "seq 3000",
+			});
 			const output = getTextOutput(result);
 			const fullOutputPath = result.details?.fullOutputPath;
 
@@ -972,7 +1045,11 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should preserve rg argv with hidden files and VCS exclusion", () => {
-			const args = buildRgArgs({ pattern: "needle", searchPath: testDir, glob: "*.ts" });
+			const args = buildRgArgs({
+				pattern: "needle",
+				searchPath: testDir,
+				glob: "*.ts",
+			});
 
 			expect(args).toEqual([
 				"--json",
@@ -1000,7 +1077,11 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should add rg type filter when requested", () => {
-			const args = buildRgArgs({ pattern: "needle", searchPath: testDir, type: "ts" });
+			const args = buildRgArgs({
+				pattern: "needle",
+				searchPath: testDir,
+				type: "ts",
+			});
 
 			expect(args).toContain("--type");
 			expect(args).toContain("ts");
@@ -1180,6 +1261,30 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("many-matches.txt:150: needle 150");
 		});
 
+		it("bounds large full grep output before joining formatted lines", async () => {
+			const testFile = join(testDir, "many-large-matches.txt");
+			const largeSuffix = "x".repeat(1200);
+			writeFileSync(
+				testFile,
+				`${Array.from({ length: 300 }, (_, i) => `needle ${i + 1} ${largeSuffix}`).join("\n")}\n`,
+			);
+
+			const result = await grepTool.execute("test-call-grep-full-large-bounded", {
+				pattern: "needle",
+				path: testFile,
+				outputMode: "content",
+				full: true,
+			});
+			const output = getTextOutput(result);
+
+			expect(Buffer.byteLength(output, "utf-8")).toBeLessThan(60 * 1024);
+			expect(output).toContain("many-large-matches.txt:1: needle 1");
+			expect(output).not.toContain("needle 300");
+			expect(output).toContain("50.0KB limit reached");
+			expect(result.details?.truncation?.truncated).toBe(true);
+			expect(result.details?.truncation?.outputBytes).toBeLessThanOrEqual(50 * 1024);
+		});
+
 		it("should reject unsupported multiline mode clearly", async () => {
 			const testFile = join(testDir, "multiline.txt");
 			writeFileSync(testFile, "needle\nacross\n");
@@ -1257,6 +1362,27 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("ignored.txt");
 		});
 
+		it("should include gitignored files with ignore:false on the rg backend", async () => {
+			writeFileSync(join(testDir, ".gitignore"), ".pi/\n");
+			mkdirSync(join(testDir, ".pi", "worktrees"), { recursive: true });
+			writeFileSync(join(testDir, ".pi", "worktrees", "registry.json"), "{}\n");
+			const rgGlobTool = createGlobTool(testDir, { backend: "rg" });
+
+			const defaultResult = await rgGlobTool.execute("test-call-glob-rg-ignore-default", {
+				pattern: "**/.pi/worktrees/registry.json",
+				path: testDir,
+			});
+			expect(getTextOutput(defaultResult)).toContain("retry this Glob call with ignore:false");
+
+			const noIgnoreResult = await rgGlobTool.execute("test-call-glob-rg-no-ignore", {
+				pattern: "**/.pi/worktrees/registry.json",
+				path: testDir,
+				ignore: false,
+			});
+
+			expect(getTextOutput(noIgnoreResult)).toContain(".pi/worktrees/registry.json");
+		});
+
 		it("should respect .gitignore with the fd backend", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");
@@ -1271,6 +1397,21 @@ describe("Coding Agent Tools", () => {
 			const output = getTextOutput(result);
 			expect(output).toContain("kept.txt");
 			expect(output).not.toContain("ignored.txt");
+		});
+
+		it("should include gitignored files with ignore:false on the fd backend", async () => {
+			writeFileSync(join(testDir, ".gitignore"), ".pi/\n");
+			mkdirSync(join(testDir, ".pi", "worktrees"), { recursive: true });
+			writeFileSync(join(testDir, ".pi", "worktrees", "registry.json"), "{}\n");
+			const fdGlobTool = createGlobTool(testDir, { backend: "fd" });
+
+			const noIgnoreResult = await fdGlobTool.execute("test-call-glob-fd-no-ignore", {
+				pattern: "**/.pi/worktrees/registry.json",
+				path: testDir,
+				ignore: false,
+			});
+
+			expect(getTextOutput(noIgnoreResult)).toContain(".pi/worktrees/registry.json");
 		});
 
 		it("should surface fd glob parse errors", async () => {
@@ -1313,7 +1454,10 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should build rg files argv with modification sort, hidden files, VCS exclusion, and gitignore outside repos", () => {
-			const args = buildRgFilesArgs({ searchPath: testDir, insideGitRepo: false });
+			const args = buildRgFilesArgs({
+				searchPath: testDir,
+				insideGitRepo: false,
+			});
 
 			expect(args).toEqual([
 				"--files",
@@ -1336,8 +1480,24 @@ describe("Coding Agent Tools", () => {
 			]);
 		});
 
+		it("should build rg files argv with --no-ignore when Glob ignore is false", () => {
+			const args = buildRgFilesArgs({
+				searchPath: testDir,
+				insideGitRepo: true,
+				ignore: false,
+			});
+
+			expect(args).toContain("--no-ignore");
+			expect(args.indexOf("--no-ignore")).toBeLessThan(args.indexOf(testDir));
+			expect(args).not.toContain("--no-require-git");
+		});
+
 		it("should build bfs argv for native file discovery fallback", () => {
-			const args = buildBfsArgs({ pattern: "src/**/*.ts", searchPath: testDir, limit: 5 });
+			const args = buildBfsArgs({
+				pattern: "src/**/*.ts",
+				searchPath: testDir,
+				limit: 5,
+			});
 
 			expect(args).toEqual(
 				expect.arrayContaining([
@@ -1358,7 +1518,11 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should preserve fd fallback argv and ignore-aware defaults", () => {
-			const args = buildFdArgs({ pattern: "src/**/*.ts", searchPath: testDir, limit: 5 });
+			const args = buildFdArgs({
+				pattern: "src/**/*.ts",
+				searchPath: testDir,
+				limit: 5,
+			});
 
 			expect(args).toEqual([
 				"--glob",
@@ -1374,8 +1538,33 @@ describe("Coding Agent Tools", () => {
 			]);
 		});
 
-		it("should expose optional timeout in the schema", () => {
+		it("should build fd fallback argv with --no-ignore when Glob ignore is false", () => {
+			const args = buildFdArgs({
+				pattern: "src/**/*.ts",
+				searchPath: testDir,
+				limit: 5,
+				insideGitRepo: true,
+				ignore: false,
+			});
+
+			expect(args).toEqual([
+				"--glob",
+				"--color=never",
+				"--hidden",
+				"--no-ignore",
+				"--max-results",
+				"5",
+				"--full-path",
+				"--",
+				"**/src/**/*.ts",
+				testDir,
+			]);
+		});
+
+		it("should expose optional timeout and ignore in the schema", () => {
 			const definition = createGlobToolDefinition(process.cwd());
+			expect((definition.parameters as any).properties.ignore).toBeDefined();
+			expect((definition.parameters as any).properties.ignore.type).toBe("boolean");
 			expect((definition.parameters as any).properties.timeout).toBeDefined();
 			expect((definition.parameters as any).properties.timeout.exclusiveMinimum).toBe(0);
 			expect((definition.parameters as any).properties.timeout.maximum).toBe(300);
@@ -1467,7 +1656,12 @@ describe("edit tool exact matching", () => {
 		await expect(
 			editTool.execute("test-exact-chinese", {
 				path: testFile,
-				edits: [{ oldText: "你好,世界\n你好(世界)\n", newText: "你好，pi\n你好(pi)\n" }],
+				edits: [
+					{
+						oldText: "你好,世界\n你好(世界)\n",
+						newText: "你好，pi\n你好(pi)\n",
+					},
+				],
 			}),
 		).rejects.toThrow(/Could not find the exact text/);
 		expect(readFileSync(testFile, "utf-8")).toBe(originalContent);
@@ -1495,7 +1689,12 @@ describe("edit tool exact matching", () => {
 		await expect(
 			editTool.execute("test-exact-single-quotes", {
 				path: testFile,
-				edits: [{ oldText: "console.log('hello');", newText: "console.log('world');" }],
+				edits: [
+					{
+						oldText: "console.log('hello');",
+						newText: "console.log('world');",
+					},
+				],
 			}),
 		).rejects.toThrow(/Could not find the exact text/);
 		expect(readFileSync(testFile, "utf-8")).toBe(originalContent);
@@ -1509,7 +1708,12 @@ describe("edit tool exact matching", () => {
 		await expect(
 			editTool.execute("test-exact-double-quotes", {
 				path: testFile,
-				edits: [{ oldText: 'const msg = "Hello World";', newText: 'const msg = "Goodbye";' }],
+				edits: [
+					{
+						oldText: 'const msg = "Hello World";',
+						newText: 'const msg = "Goodbye";',
+					},
+				],
 			}),
 		).rejects.toThrow(/Could not find the exact text/);
 		expect(readFileSync(testFile, "utf-8")).toBe(originalContent);
@@ -1523,7 +1727,12 @@ describe("edit tool exact matching", () => {
 		await expect(
 			editTool.execute("test-exact-dashes", {
 				path: testFile,
-				edits: [{ oldText: "range: 1-5\nbreak-here", newText: "range: 10-50\nbreak--here" }],
+				edits: [
+					{
+						oldText: "range: 1-5\nbreak-here",
+						newText: "range: 10-50\nbreak--here",
+					},
+				],
 			}),
 		).rejects.toThrow(/Could not find the exact text/);
 		expect(readFileSync(testFile, "utf-8")).toBe(originalContent);
@@ -1589,7 +1798,10 @@ describe("edit tool exact matching", () => {
 			editTool.execute("test-exact-multi", {
 				path: testFile,
 				edits: [
-					{ oldText: "console.log('hello');\n", newText: "console.log('world');\n" },
+					{
+						oldText: "console.log('hello');\n",
+						newText: "console.log('world');\n",
+					},
 					{ oldText: "hello world\n", newText: "hello universe\n" },
 				],
 			}),
