@@ -1,6 +1,6 @@
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
 import { Container, Text } from "@valkyriweb/pi-tui";
-import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
+import { mkdir as fsMkdir, stat as fsStat, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.ts";
@@ -8,6 +8,7 @@ import { getLanguageFromPath, highlightCode, type Theme } from "../../modes/inte
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
 import { resolveToCwd } from "./path-utils.ts";
+import type { FileReadLedger } from "./read-ledger.ts";
 import { normalizeDisplayText, renderToolPath, replaceTabs, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
@@ -27,16 +28,21 @@ export interface WriteOperations {
 	writeFile: (absolutePath: string, content: string) => Promise<void>;
 	/** Create directory recursively */
 	mkdir: (dir: string) => Promise<void>;
+	/** Stat a file after writing for stale-read ledger updates */
+	stat?: (absolutePath: string) => Promise<{ mtimeMs: number; size?: number }>;
 }
 
 const defaultWriteOperations: WriteOperations = {
 	writeFile: (path, content) => fsWriteFile(path, content, "utf-8"),
 	mkdir: (dir) => fsMkdir(dir, { recursive: true }).then(() => {}),
+	stat: (path) => fsStat(path),
 };
 
 export interface WriteToolOptions {
 	toolName?: "write" | "Write";
 	label?: string;
+	/** Session read ledger used to detect stale overwrites after reads */
+	readLedger?: FileReadLedger;
 	/** Custom operations for file writing. Default: local filesystem */
 	operations?: WriteOperations;
 }
@@ -186,6 +192,7 @@ export function createWriteToolDefinition(
 	options?: WriteToolOptions,
 ): ToolDefinition<typeof writeSchema, undefined> {
 	const ops = options?.operations ?? defaultWriteOperations;
+	const optionLedger = options?.readLedger;
 	const toolName = options?.toolName ?? "write";
 	const label = options?.label ?? "Write";
 	return {
@@ -196,6 +203,7 @@ export function createWriteToolDefinition(
 		promptSnippet: "Create or overwrite files",
 		promptGuidelines: [
 			"Use write only for new files or complete rewrites.",
+			"If overwriting a file that may have changed since you last read it, re-read first; write rejects when that file changed since the last session Read. With no prior Read, write preserves its existing create/overwrite behavior.",
 			"After write succeeds, do not re-read the file to confirm it was written — write returns an error on failure.",
 		],
 		executionMode: "sequential",
@@ -208,6 +216,7 @@ export function createWriteToolDefinition(
 			_ctx?,
 		) {
 			const absolutePath = resolveToCwd(path, cwd);
+			const ledger = _ctx?.fileReadLedger ?? optionLedger;
 			const dir = dirname(absolutePath);
 			return withFileMutationQueue(absolutePath, async () => {
 				// Do not reject from an abort event listener here: that would release the
@@ -219,12 +228,17 @@ export function createWriteToolDefinition(
 				};
 
 				throwIfAborted();
+				await ledger?.assertFresh(absolutePath, "write");
+				throwIfAborted();
+
 				// Create parent directories if needed.
 				await ops.mkdir(dir);
 				throwIfAborted();
 
 				// Write the file contents.
 				await ops.writeFile(absolutePath, content);
+				const afterWriteStat = await ops.stat?.(absolutePath);
+				await ledger?.recordWrite(absolutePath, Buffer.from(content, "utf-8"), afterWriteStat);
 				throwIfAborted();
 
 				return {
