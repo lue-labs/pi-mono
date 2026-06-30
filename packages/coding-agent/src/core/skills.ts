@@ -129,6 +129,14 @@ function validateDescription(description: string | undefined): string[] {
 	return errors;
 }
 
+function haveSameSkillFileContent(firstPath: string, secondPath: string): boolean {
+	try {
+		return readFileSync(firstPath, "utf-8") === readFileSync(secondPath, "utf-8");
+	} catch {
+		return false;
+	}
+}
+
 export interface LoadSkillsFromDirOptions {
 	/** Directory to scan for skills */
 	dir: string;
@@ -423,6 +431,10 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 
 			const existing = skillMap.get(skill.name);
 			if (existing) {
+				if (haveSameSkillFileContent(existing.filePath, skill.filePath)) {
+					realPathSet.add(realPath);
+					continue;
+				}
 				collisionDiagnostics.push({
 					type: "collision",
 					message: `name "${skill.name}" collision`,
