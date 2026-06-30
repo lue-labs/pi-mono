@@ -33,6 +33,7 @@ describe("agent child auto model routing", () => {
 		const seen: Array<{ requestedModel: string; routing: Record<string, unknown> }> = [];
 
 		addFilter<any>("model:resolve", FILTER_ID, (value, context) => {
+			const resolveContext = context as { modelRegistry: { find(provider: string, modelId: string): unknown } };
 			const routing = value.metadata?.routing as Record<string, unknown>;
 			seen.push({ requestedModel: value.requestedModel, routing });
 			const prompt = String(routing.promptPreview ?? "").toLowerCase();
@@ -43,7 +44,7 @@ describe("agent child auto model routing", () => {
 					: "frontier-child";
 			return {
 				...value,
-				model: context.modelRegistry.find(provider, target),
+				model: resolveContext.modelRegistry.find(provider, target),
 				thinkingLevel: target === "cheap-child" ? "low" : target === "medium-child" ? "medium" : "high",
 				metadata: { ...(value.metadata ?? {}), route: value.requestedModel, reason: [`target:${target}`] },
 			};
