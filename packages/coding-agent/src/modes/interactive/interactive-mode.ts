@@ -133,7 +133,7 @@ import { FooterComponent } from "./components/footer.ts";
 import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.ts";
 import { LoginDialogComponent } from "./components/login-dialog.ts";
 import { memorySavedMessageRenderer } from "./components/memory-saved-message.ts";
-import { ModelSelectorComponent } from "./components/model-selector.ts";
+import { isAutoModelAlias, ModelSelectorComponent } from "./components/model-selector.ts";
 import { type AuthSelectorProvider, OAuthSelectorComponent } from "./components/oauth-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { ServerToolActivityComponent } from "./components/server-tool-activity.ts";
@@ -538,15 +538,28 @@ export class InteractiveMode {
 						? this.session.scopedModels.map((s) => s.model)
 						: this.session.modelRegistry.getAvailable();
 
-				if (models.length === 0) return null;
-
 				// Create items with provider/id format
-				const items = models.map((m) => ({
-					id: m.id,
-					provider: m.provider,
-					name: m.name,
-					label: `${m.provider}/${m.id}`,
-				}));
+				const items = [
+					{ id: "auto", provider: "pi-fork", name: "Auto (semantic, provider-neutral)", label: "pi-fork/auto" },
+					{
+						id: "auto",
+						provider: "claude-bridge",
+						name: "Auto (semantic Claude Bridge)",
+						label: "claude-bridge/auto",
+					},
+					{
+						id: "auto",
+						provider: "openai-codex",
+						name: "Auto (semantic OpenAI Codex)",
+						label: "openai-codex/auto",
+					},
+					...models.map((m) => ({
+						id: m.id,
+						provider: m.provider,
+						name: m.name,
+						label: `${m.provider}/${m.id}`,
+					})),
+				];
 
 				// Fuzzy filter by model ID + provider in either order.
 				const filtered = fuzzyFilter(items, prefix, getModelSearchText);
@@ -4575,6 +4588,14 @@ export class InteractiveMode {
 			return;
 		}
 
+		const autoAlias = this.findAutoModelAlias(searchTerm);
+		if (autoAlias) {
+			this.session.setPendingAutoModelAlias(autoAlias);
+			this.footer.invalidate();
+			this.showStatus(`Model: ${autoAlias} (routes on next prompt)`);
+			return;
+		}
+
 		const model = await this.findExactModelMatch(searchTerm);
 		if (model) {
 			try {
@@ -4591,6 +4612,14 @@ export class InteractiveMode {
 		}
 
 		this.showModelSelector(searchTerm);
+	}
+
+	private findAutoModelAlias(searchTerm: string): string | undefined {
+		const normalized = searchTerm.trim().toLowerCase();
+		if (normalized === "auto" || normalized === "pi-fork/auto") return "pi-fork/auto";
+		if (normalized === "claude-bridge/auto") return "claude-bridge/auto";
+		if (normalized === "openai-codex/auto") return "openai-codex/auto";
+		return undefined;
 	}
 
 	private async findExactModelMatch(searchTerm: string): Promise<Model<any> | undefined> {
@@ -4763,6 +4792,14 @@ export class InteractiveMode {
 				this.session.scopedModels,
 				async (model) => {
 					try {
+						if (isAutoModelAlias(model)) {
+							const alias = `${model.provider}/${model.id}`;
+							this.session.setPendingAutoModelAlias(alias);
+							this.footer.invalidate();
+							done();
+							this.showStatus(`Model: ${alias} (routes on next prompt)`);
+							return;
+						}
 						await this.session.setModel(model);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
@@ -4780,6 +4817,7 @@ export class InteractiveMode {
 					this.ui.requestRender();
 				},
 				initialSearchInput,
+				this.session.pendingAutoModelAlias,
 			);
 			return { component: selector, focus: selector };
 		});

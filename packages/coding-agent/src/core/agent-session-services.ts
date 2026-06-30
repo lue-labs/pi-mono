@@ -62,6 +62,8 @@ export interface CreateAgentSessionFromServicesOptions {
 	requestedModel?: string;
 	/** Prompt/session metadata forwarded to startup alias resolution hooks. */
 	routingMetadata?: CreateAgentSessionOptions["routingMetadata"];
+	/** Defer requested auto-alias resolution until the first prompt supplies semantic input. */
+	deferRequestedModelResolution?: CreateAgentSessionOptions["deferRequestedModelResolution"];
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	tools?: string[];
 	excludeTools?: CreateAgentSessionOptions["excludeTools"];
@@ -212,6 +214,7 @@ export async function createAgentSessionFromServices(
 		thinkingLevel: options.thinkingLevel,
 		requestedModel: options.requestedModel,
 		routingMetadata: options.routingMetadata,
+		deferRequestedModelResolution: options.deferRequestedModelResolution,
 		scopedModels: options.scopedModels,
 		tools: options.tools,
 		excludeTools: options.excludeTools,

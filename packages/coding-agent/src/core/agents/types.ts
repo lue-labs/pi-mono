@@ -131,6 +131,8 @@ export interface AgentRunDetails {
 	task: string;
 	description?: string;
 	status: AgentRunStatus;
+	/** Epoch ms when this child run started; used by task panels to render child rows. */
+	startedAt?: number;
 	context: ResolvedContextPolicy;
 	model?: { provider: string; id: string; name?: string };
 	thinking?: ThinkingLevel;

@@ -33,6 +33,8 @@ export interface TaskSnapshot {
 	resumable: boolean;
 	/** Optional human-readable error message when status is failed/cancelled. */
 	error?: string;
+	/** Optional leaf tasks for aggregate/group tasks such as a parallel Agent call. */
+	children?: TaskSnapshot[];
 }
 
 export interface TaskControlResult {
