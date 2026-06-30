@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "63d7df8279a9",
+  "strategy": "manual-commit",
+  "branch": "wip/my-pi-closeout-20260630",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/pi-memory/test/prompt-policy.test.ts",
+    "extensions/pi-session-todo/src/prompt.ts",
+    "extensions/pi-workflow/package.json",
+    "extensions/pi-workflow/src/index.ts",
+    "extensions/pi-workflow/src/ultracode.ts",
+    "extensions/pi-workflow/test/tool-description.test.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/63/d7df8279a9/0/metadata.json",
+      "transcript": "/63/d7df8279a9/0/full.jsonl",
+      "content_hash": "/63/d7df8279a9/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 37623,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 149504,
+    "output_tokens": 900,
+    "api_call_count": 4
+  }
+}
