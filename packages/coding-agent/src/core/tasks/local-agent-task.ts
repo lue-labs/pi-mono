@@ -40,11 +40,35 @@ function mapStatus(status: AgentToolStatus): TaskStatus {
 	}
 }
 
+function previewTask(task: string): string {
+	return task.length > 60 ? `${task.slice(0, 59)}…` : task;
+}
+
 function describeRun(run: AgentRecentRun): string {
 	const agents = run.agents.length > 0 ? run.agents.join(", ") : "agent";
 	const first = run.tasks[0] ?? "";
-	const preview = first.length > 60 ? `${first.slice(0, 59)}…` : first;
+	const preview = previewTask(first);
 	return preview ? `${agents}: ${preview}` : agents;
+}
+
+function describeChildRun(detail: AgentRunDetails): string {
+	const task = detail.description ?? previewTask(detail.task);
+	return task ? `${detail.agent}: ${task}` : detail.agent;
+}
+
+function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, index: number): TaskSnapshot {
+	const status = mapStatus(detail.status);
+	const startedAt = detail.startedAt ?? Date.parse(run.startedAt);
+	return {
+		id: `${run.id}:${index + 1}`,
+		type: "local_agent",
+		status,
+		description: describeChildRun(detail),
+		startedAt,
+		endedAt: status === "running" || status === "interrupted" ? undefined : startedAt + detail.durationMs,
+		resumable: false,
+		error: detail.error,
+	};
 }
 
 function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
@@ -57,6 +81,7 @@ function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 		endedAt: run.endedAt ? Date.parse(run.endedAt) : undefined,
 		resumable: run.resumable,
 		error: run.error,
+		children: run.runs.map((detail, index) => childSnapshotFromRun(run, detail, index)),
 	};
 }
 

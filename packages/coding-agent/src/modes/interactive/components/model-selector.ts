@@ -22,6 +22,41 @@ interface ModelItem {
 	model: Model<any>;
 }
 
+const AUTO_MODEL_ALIAS_PROVIDERS = new Set(["pi-fork", "claude-bridge", "openai-codex"]);
+
+export function isAutoModelAlias(model: Model<any> | undefined): boolean {
+	return !!model && model.id === "auto" && AUTO_MODEL_ALIAS_PROVIDERS.has(model.provider);
+}
+
+function makeAutoAliasModel(provider: string, name: string): Model<any> {
+	return {
+		provider,
+		id: "auto",
+		name,
+		api: "auto",
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 0,
+		maxTokens: 0,
+	} as unknown as Model<any>;
+}
+
+function autoAliasItems(): ModelItem[] {
+	return [
+		{ provider: "pi-fork", id: "auto", model: makeAutoAliasModel("pi-fork", "Auto (semantic, provider-neutral)") },
+		{
+			provider: "claude-bridge",
+			id: "auto",
+			model: makeAutoAliasModel("claude-bridge", "Auto (semantic Claude Bridge)"),
+		},
+		{
+			provider: "openai-codex",
+			id: "auto",
+			model: makeAutoAliasModel("openai-codex", "Auto (semantic OpenAI Codex)"),
+		},
+	];
+}
+
 interface ScopedModelItem {
 	model: Model<any>;
 	thinkingLevel?: string;
@@ -51,6 +86,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private filteredModels: ModelItem[] = [];
 	private selectedIndex: number = 0;
 	private currentModel?: Model<any>;
+	private currentAutoModelAlias?: string;
 	private settingsManager: SettingsManager;
 	private modelRegistry: ModelRegistry;
 	private onSelectCallback: (model: Model<any>) => void;
@@ -71,11 +107,13 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		onSelect: (model: Model<any>) => void,
 		onCancel: () => void,
 		initialSearchInput?: string,
+		currentAutoModelAlias?: string,
 	) {
 		super();
 
 		this.tui = tui;
 		this.currentModel = currentModel;
+		this.currentAutoModelAlias = currentAutoModelAlias;
 		this.settingsManager = settingsManager;
 		this.modelRegistry = modelRegistry;
 		this.scopedModels = scopedModels;
@@ -164,7 +202,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			return;
 		}
 
-		this.allModels = this.sortModels(models);
+		this.allModels = this.sortModels([...autoAliasItems(), ...models]);
 		this.scopedModels = this.scopedModels.map((scoped) => {
 			const refreshed = this.modelRegistry.find(scoped.model.provider, scoped.model.id);
 			return refreshed ? { ...scoped, model: refreshed } : scoped;
@@ -176,7 +214,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		}));
 		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
 		this.filteredModels = this.activeModels;
-		const currentIndex = this.filteredModels.findIndex((item) => modelsAreEqual(this.currentModel, item.model));
+		const currentIndex = this.filteredModels.findIndex((item) => this.isCurrentItem(item));
 		this.selectedIndex =
 			currentIndex >= 0 ? currentIndex : Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));
 	}
@@ -185,13 +223,24 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		const sorted = [...models];
 		// Sort: current model first, then by provider
 		sorted.sort((a, b) => {
-			const aIsCurrent = modelsAreEqual(this.currentModel, a.model);
-			const bIsCurrent = modelsAreEqual(this.currentModel, b.model);
+			const aIsCurrent = this.isCurrentItem(a);
+			const bIsCurrent = this.isCurrentItem(b);
 			if (aIsCurrent && !bIsCurrent) return -1;
 			if (!aIsCurrent && bIsCurrent) return 1;
+			const aIsAuto = isAutoModelAlias(a.model);
+			const bIsAuto = isAutoModelAlias(b.model);
+			if (aIsAuto && !bIsAuto) return -1;
+			if (!aIsAuto && bIsAuto) return 1;
 			return a.provider.localeCompare(b.provider);
 		});
 		return sorted;
+	}
+
+	private isCurrentItem(item: ModelItem): boolean {
+		if (isAutoModelAlias(item.model)) {
+			return this.currentAutoModelAlias === `${item.provider}/${item.id}`;
+		}
+		return modelsAreEqual(this.currentModel, item.model);
 	}
 
 	private getScopeText(): string {
@@ -208,7 +257,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		if (this.scope === scope) return;
 		this.scope = scope;
 		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
-		const currentIndex = this.activeModels.findIndex((item) => modelsAreEqual(this.currentModel, item.model));
+		const currentIndex = this.activeModels.findIndex((item) => this.isCurrentItem(item));
 		this.selectedIndex = currentIndex >= 0 ? currentIndex : 0;
 		this.filterModels(this.searchInput.getValue());
 		if (this.scopeText) {
@@ -242,7 +291,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			if (!item) continue;
 
 			const isSelected = i === this.selectedIndex;
-			const isCurrent = modelsAreEqual(this.currentModel, item.model);
+			const isCurrent = this.isCurrentItem(item);
 
 			let line = "";
 			if (isSelected) {
@@ -326,8 +375,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	}
 
 	private handleSelect(model: Model<any>): void {
-		// Save as new default
-		this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		// Save concrete models as new default. Auto aliases are ephemeral until they resolve.
+		if (!isAutoModelAlias(model)) {
+			this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		}
 		this.onSelectCallback(model);
 	}
 

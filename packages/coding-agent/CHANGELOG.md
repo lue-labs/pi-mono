@@ -9,6 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Add cache-safe semantic auto model routing boundaries: `model:resolve` hooks can resolve `auto` / provider-scoped `*/auto` aliases at session, child-agent, or first-prompt interactive boundaries; unresolved aliases now fail clearly or remain pending instead of silently using a seed model, and parallel Agent child rows expose routed child task details.
 - Add a first-class Glob `ignore:false` retry mode for ignored known paths while keeping ignore-aware defaults and VCS metadata exclusions.
 - Show running background bash jobs in the existing background status footer/pane by backing it with the unified task registry instead of agent-only status.
 - Flag likely prompt-cache TTL expiry as cache-health telemetry in session logs and the interactive footer so cold turns after warm same-model turns are easier to diagnose.

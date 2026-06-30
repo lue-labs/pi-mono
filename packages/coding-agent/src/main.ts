@@ -119,6 +119,18 @@ function isPlainRuntimeMetadataCommand(parsed: Args): boolean {
 	return !parsed.print && parsed.mode === undefined && (parsed.help === true || parsed.listModels !== undefined);
 }
 
+function buildInitialRoutingMetadata(parsed: Args, appMode: AppMode, stdinContent?: string): Record<string, unknown> {
+	const promptPreview = [stdinContent, parsed.messages[0]].filter((part): part is string => Boolean(part)).join("\n");
+	return {
+		appMode,
+		promptPreview: promptPreview.slice(0, 6000),
+		promptLength: promptPreview.length,
+		hasPipedStdin: stdinContent !== undefined,
+		cliMessageCount: parsed.messages.length,
+		fileArgCount: parsed.fileArgs.length,
+	};
+}
+
 async function prepareInitialMessage(
 	parsed: Args,
 	autoResizeImages: boolean,
@@ -353,6 +365,31 @@ async function createSessionManager(
 	return SessionManager.create(cwd, sessionDir, { id: parsed.sessionId });
 }
 
+function isAutoModelRequest(model: string | undefined): boolean {
+	const value = model?.trim().toLowerCase();
+	return value === "auto" || value?.endsWith("/auto") === true;
+}
+
+function requestedAutoModelAlias(cliProvider: string | undefined, cliModel: string): string {
+	const model = cliModel.trim();
+	if (model.toLowerCase() === "auto" && cliProvider?.trim()) {
+		return `${cliProvider.trim()}/auto`;
+	}
+	return model;
+}
+
+function providerScopedAutoProvider(requestedModel: string | undefined): string | undefined {
+	const parts = requestedModel?.trim().split("/");
+	if (parts?.length !== 2 || parts[1].toLowerCase() !== "auto") return undefined;
+	return parts[0] === "pi-fork" ? undefined : parts[0];
+}
+
+function seedProviderScopedAutoModel(modelRegistry: ModelRegistry, requestedModel: string | undefined) {
+	const provider = providerScopedAutoProvider(requestedModel);
+	if (!provider) return undefined;
+	return modelRegistry.getAll().find((model) => model.provider === provider);
+}
+
 function buildSessionOptions(
 	parsed: Args,
 	scopedModels: ScopedModel[],
@@ -372,25 +409,31 @@ function buildSessionOptions(
 	// - supports --provider <name> --model <pattern>
 	// - supports --model <provider>/<pattern>
 	if (parsed.model) {
-		const resolved = resolveCliModel({
-			cliProvider: parsed.provider,
-			cliModel: parsed.model,
-			cliThinking: parsed.thinking,
-			modelRegistry,
-		});
-		if (resolved.warning) {
-			diagnostics.push({ type: "warning", message: resolved.warning });
-		}
-		if (resolved.error) {
-			diagnostics.push({ type: "error", message: resolved.error });
-		}
-		if (resolved.model) {
-			options.model = resolved.model;
-			// Allow "--model <pattern>:<thinking>" as a shorthand.
-			// Explicit --thinking still takes precedence (applied later).
-			if (!parsed.thinking && resolved.thinkingLevel) {
-				options.thinkingLevel = resolved.thinkingLevel;
-				cliThinkingFromModel = true;
+		const isAutoRequest = isAutoModelRequest(parsed.model);
+		if (isAutoRequest) {
+			options.requestedModel = requestedAutoModelAlias(parsed.provider, parsed.model);
+			options.model = seedProviderScopedAutoModel(modelRegistry, options.requestedModel);
+		} else {
+			const resolved = resolveCliModel({
+				cliProvider: parsed.provider,
+				cliModel: parsed.model,
+				cliThinking: parsed.thinking,
+				modelRegistry,
+			});
+			if (resolved.warning) {
+				diagnostics.push({ type: "warning", message: resolved.warning });
+			}
+			if (resolved.error) {
+				diagnostics.push({ type: "error", message: resolved.error });
+			}
+			if (resolved.model) {
+				options.model = resolved.model;
+				// Allow "--model <pattern>:<thinking>" as a shorthand.
+				// Explicit --thinking still takes precedence (applied later).
+				if (!parsed.thinking && resolved.thinkingLevel) {
+					options.thinkingLevel = resolved.thinkingLevel;
+					cliThinkingFromModel = true;
+				}
 			}
 		}
 	}
@@ -617,6 +660,18 @@ export async function main(args: string[], options?: MainOptions) {
 	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
 	const projectTrustByCwd = new Map<string, boolean>();
 
+	// Read piped stdin before initial session creation so cache-domain routing hooks
+	// can classify the first task without mutating cached system prompts/tools.
+	let stdinContent: string | undefined;
+	if (appMode !== "rpc" && !isPlainRuntimeMetadataCommand(parsed)) {
+		stdinContent = await readPipedStdin();
+		if (stdinContent !== undefined && appMode === "interactive") {
+			appMode = "print";
+		}
+	}
+	time("readPipedStdin");
+	const initialRoutingMetadata = buildInitialRoutingMetadata(parsed, appMode, stdinContent);
+
 	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
@@ -728,12 +783,24 @@ export async function main(args: string[], options?: MainOptions) {
 			}
 		}
 
+		const hasExistingMessages = sessionManager.buildSessionContext().messages.length > 0;
+		const shouldDeferAutoRouting =
+			isInitialRuntime &&
+			!hasExistingMessages &&
+			sessionOptions.requestedModel !== undefined &&
+			appMode === "interactive" &&
+			initialRoutingMetadata.promptLength === 0 &&
+			initialRoutingMetadata.fileArgCount === 0;
+
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager,
 			sessionStartEvent,
 			model: sessionOptions.model,
 			thinkingLevel: sessionOptions.thinkingLevel,
+			requestedModel: sessionOptions.requestedModel,
+			routingMetadata: isInitialRuntime ? initialRoutingMetadata : undefined,
+			deferRequestedModelResolution: shouldDeferAutoRouting,
 			scopedModels: sessionOptions.scopedModels,
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
@@ -783,16 +850,6 @@ export async function main(args: string[], options?: MainOptions) {
 		await listModels(modelRegistry, searchPattern);
 		process.exit(0);
 	}
-
-	// Read piped stdin content (if any) - skip for RPC mode which uses stdin for JSON-RPC
-	let stdinContent: string | undefined;
-	if (appMode !== "rpc") {
-		stdinContent = await readPipedStdin();
-		if (stdinContent !== undefined && appMode === "interactive") {
-			appMode = "print";
-		}
-	}
-	time("readPipedStdin");
 
 	const { initialMessage, initialImages } = await prepareInitialMessage(
 		parsed,
@@ -860,6 +917,9 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		await interactiveMode.run();
 	} else {
+		if (modelFallbackMessage) {
+			console.error(chalk.yellow(`Warning: ${modelFallbackMessage}`));
+		}
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {
 			mode: toPrintOutputMode(appMode),

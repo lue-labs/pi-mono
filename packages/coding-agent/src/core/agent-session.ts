@@ -68,6 +68,7 @@ import { isDeferredTool } from "./deferred-tools.ts";
 
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
+import { applyFilters } from "./extensions/extension-hooks.ts";
 import {
 	type ContextUsage,
 	type ExtensionCommandContextActions,
@@ -151,6 +152,11 @@ export function parseSkillBlock(text: string): ParsedSkillBlock | null {
 
 function estimateSystemPromptTokens(systemPrompt: string): number {
 	return Math.ceil(systemPrompt.length / 4);
+}
+
+export interface PendingAutoModelRequest {
+	requestedModel: string;
+	routingMetadata?: Record<string, unknown>;
 }
 
 const IDLE_CACHE_HINT_MS = 55 * 60 * 1000;
@@ -303,6 +309,8 @@ export interface AgentSessionConfig {
 	agentRunIdentity?: AgentRunIdentity;
 	/** Session start event metadata emitted when extensions bind to this runtime. */
 	sessionStartEvent?: SessionStartEvent;
+	/** Auto-model alias waiting for semantic input before resolving to a concrete model. */
+	pendingAutoModelRequest?: PendingAutoModelRequest;
 	/**
 	 * Origin of this session. Exposed on `ExtensionContext.source` so hooks
 	 * can distinguish user-driven sessions (interactive TUI, `pi --print`,
@@ -636,6 +644,7 @@ export class AgentSession {
 	// (date strip, base-boundary relocation) are not lost — see _rebuildSystemPrompt.
 	private _systemPromptNeedsRefilter = false;
 	private _source: InputSource = "interactive";
+	private _pendingAutoModelRequest?: PendingAutoModelRequest;
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -654,6 +663,7 @@ export class AgentSession {
 		this._agentToolServices = config.agentToolServices;
 		this._agentRunIdentity = config.agentRunIdentity;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
+		this._pendingAutoModelRequest = config.pendingAutoModelRequest;
 		if (config.source) this._source = config.source;
 
 		// Always subscribe to agent events for internal handling
@@ -1413,6 +1423,11 @@ export class AgentSession {
 		return this.agent.state.model;
 	}
 
+	/** Auto-model alias selected but not yet semantically resolved. */
+	get pendingAutoModelAlias(): string | undefined {
+		return this._pendingAutoModelRequest?.requestedModel;
+	}
+
 	/** Current thinking level */
 	get thinkingLevel(): ThinkingLevel {
 		return this.agent.state.thinkingLevel;
@@ -1974,6 +1989,8 @@ export class AgentSession {
 
 			// Flush any pending bash messages before the new prompt
 			this._flushPendingBashMessages();
+
+			await this._resolvePendingAutoModelForPrompt(expandedText);
 
 			// Validate model
 			if (!this.model) {
@@ -2554,6 +2571,75 @@ export class AgentSession {
 	}
 
 	/**
+	 * Select an auto-model alias that should resolve at the next prompt boundary.
+	 */
+	setPendingAutoModelAlias(requestedModel: string, routingMetadata?: Record<string, unknown>): void {
+		const trimmed = requestedModel.trim();
+		if (!trimmed) return;
+		this._pendingAutoModelRequest = { requestedModel: trimmed, routingMetadata };
+	}
+
+	private async _resolvePendingAutoModelForPrompt(promptText: string): Promise<void> {
+		const pending = this._pendingAutoModelRequest;
+		if (!pending) return;
+
+		const currentModel = this.model;
+		if (!currentModel) {
+			throw new Error(formatNoModelSelectedMessage());
+		}
+
+		const routing = {
+			...(pending.routingMetadata ?? {}),
+			promptPreview: promptText.slice(0, 6000),
+			promptLength: promptText.length,
+		};
+		const resolved = await applyFilters(
+			"model:resolve",
+			{
+				requestedModel: pending.requestedModel,
+				model: currentModel,
+				thinkingLevel: this.thinkingLevel,
+				metadata: { routing } as Record<string, unknown>,
+			},
+			{
+				cwd: this._cwd,
+				source: this._source,
+				sessionId: this.sessionManager.getSessionId(),
+				// A pending alias is resolved only at an explicit prompt/cache-domain boundary;
+				// do not let startup's existing-session guard suppress this deliberate route.
+				hasExistingSession: false,
+				modelRegistry: this._modelRegistry,
+				settingsManager: this.settingsManager,
+				sessionManager: this.sessionManager,
+			},
+		);
+
+		const nextModel = resolved.model ?? currentModel;
+		const resolvedMetadata = resolved.metadata as Record<string, unknown> | undefined;
+		const hasRoutingDecision =
+			resolvedMetadata?.llmRouterDecision !== undefined ||
+			resolvedMetadata?.llmRouterUnavailable !== undefined ||
+			typeof resolvedMetadata?.tier === "string" ||
+			!modelsAreEqual(currentModel, nextModel) ||
+			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== this.thinkingLevel);
+		if (!hasRoutingDecision) {
+			throw new Error(`Auto model ${pending.requestedModel} did not resolve to a semantic routing decision`);
+		}
+		if (!this._modelRegistry.hasConfiguredAuth(nextModel)) {
+			throw new Error(`No API key for ${nextModel.provider}/${nextModel.id}`);
+		}
+
+		const previousModel = this.model;
+		this.agent.state.model = nextModel;
+		this.agent.cacheAffinityKey = createPromptCacheAffinityKey(nextModel, this.agent.state);
+		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
+		this.setThinkingLevel((resolved.thinkingLevel ?? this.thinkingLevel) as ThinkingLevel);
+		this._pendingAutoModelRequest = undefined;
+
+		await this._emitModelSelect(nextModel, previousModel, "set");
+	}
+
+	/**
 	 * Set model directly.
 	 * Validates that auth is configured, saves to session and settings.
 	 * @throws Error if no auth is configured for the model
@@ -2564,6 +2650,7 @@ export class AgentSession {
 		}
 
 		const previousModel = this.model;
+		this._pendingAutoModelRequest = undefined;
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = model;
 		this.agent.cacheAffinityKey = createPromptCacheAffinityKey(model, this.agent.state);
@@ -2603,6 +2690,7 @@ export class AgentSession {
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.thinkingLevel);
 
 		// Apply model
+		this._pendingAutoModelRequest = undefined;
 		this.agent.state.model = next.model;
 		this.agent.cacheAffinityKey = createPromptCacheAffinityKey(next.model, this.agent.state);
 		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
@@ -2632,6 +2720,7 @@ export class AgentSession {
 		const nextModel = availableModels[nextIndex];
 
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
+		this._pendingAutoModelRequest = undefined;
 		this.agent.state.model = nextModel;
 		this.agent.cacheAffinityKey = createPromptCacheAffinityKey(nextModel, this.agent.state);
 		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);

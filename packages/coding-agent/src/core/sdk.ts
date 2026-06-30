@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { clampThinkingLevel, type Message, type Model, streamSimple } from "@valkyriweb/pi-ai/compat";
+import { clampThinkingLevel, type Message, type Model, modelsAreEqual, streamSimple } from "@valkyriweb/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { type AgentRunIdentity, AgentSession } from "./agent-session.ts";
@@ -9,6 +9,7 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
+import { applyFilters } from "./extensions/extension-hooks.ts";
 import type {
 	ExtensionRunner,
 	InputSource,
@@ -56,6 +57,12 @@ export interface CreateAgentSessionOptions {
 	model?: Model<any>;
 	/** Thinking level. Default: from settings, else 'medium' (clamped to model capabilities) */
 	thinkingLevel?: ThinkingLevel;
+	/** Original requested model string, preserved for pre-session alias resolution such as `auto`/`provider/auto`. */
+	requestedModel?: string;
+	/** Prompt/session metadata available to pre-session model routing hooks. Must not include cached system/tools bytes. */
+	routingMetadata?: Record<string, unknown>;
+	/** Defer requested auto-alias resolution until the first prompt supplies semantic input. */
+	deferRequestedModelResolution?: boolean;
 	/** Models available for cycling (Ctrl+P in interactive mode) */
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
@@ -290,6 +297,58 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
 	}
 
+	const sessionSource = options.source ?? "interactive";
+	const requestedModel = options.requestedModel?.trim();
+	const pendingRequestedModel =
+		requestedModel && options.deferRequestedModelResolution && !hasExistingSession ? requestedModel : undefined;
+	if (requestedModel && model && !hasExistingSession && !pendingRequestedModel) {
+		const before = model;
+		const resolved = await applyFilters(
+			"model:resolve",
+			{
+				requestedModel,
+				model,
+				thinkingLevel,
+				metadata: (options.routingMetadata ? { routing: options.routingMetadata } : undefined) as
+					| Record<string, unknown>
+					| undefined,
+			},
+			{
+				cwd,
+				source: sessionSource,
+				sessionId: sessionManager.getSessionId(),
+				hasExistingSession,
+				modelRegistry,
+				settingsManager,
+				sessionManager,
+			},
+		);
+		const nextModel = resolved.model ?? model;
+		const nextThinkingLevel = resolved.thinkingLevel ?? thinkingLevel;
+		const resolvedMetadata = resolved.metadata as Record<string, unknown> | undefined;
+		const hasRoutingDecision =
+			resolvedMetadata?.llmRouterDecision !== undefined ||
+			resolvedMetadata?.llmRouterUnavailable !== undefined ||
+			typeof resolvedMetadata?.tier === "string" ||
+			!modelsAreEqual(before, nextModel) ||
+			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== thinkingLevel);
+		if (!hasRoutingDecision) {
+			throw new Error(`Auto model ${requestedModel} did not resolve to a semantic routing decision`);
+		}
+		model = nextModel;
+		thinkingLevel = nextThinkingLevel;
+		const reason = Array.isArray(resolved.metadata?.reason) ? resolved.metadata.reason.join(", ") : undefined;
+		const route = typeof resolved.metadata?.route === "string" ? resolved.metadata.route : requestedModel;
+		const unavailable = resolved.metadata?.llmRouterUnavailable as { message?: string } | undefined;
+		if (unavailable?.message) {
+			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}${unavailable.message}`;
+		} else if (model && (before.provider !== model.provider || before.id !== model.id || resolved.thinkingLevel)) {
+			const thinkingSuffix = resolved.thinkingLevel ? ` · thinking ${thinkingLevel}` : "";
+			const reasonSuffix = reason ? ` · ${reason}` : "";
+			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}Auto model ${route} selected ${model.provider}/${model.id}${thinkingSuffix}${reasonSuffix}`;
+		}
+	}
+
 	// Clamp to model capabilities
 	if (!model) {
 		thinkingLevel = "off";
@@ -325,7 +384,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	).filter((name) => !excludedToolNameSet?.has(name));
 
 	let agent: Agent;
-	const sessionSource = options.source ?? "interactive";
 
 	// Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
 	const convertToLlmWithBlockImages = (messages: AgentMessage[]): Message[] => {
@@ -475,8 +533,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			sessionManager.appendThinkingLevelChange(thinkingLevel);
 		}
 	} else {
-		// Save initial model and thinking level for new sessions so they can be restored on resume
-		if (model) {
+		// Save initial model and thinking level for new sessions so they can be restored on resume.
+		// Pending auto aliases intentionally do not persist the seed model as a concrete choice;
+		// the first real prompt will resolve and persist the selected model at that cache boundary.
+		if (model && !pendingRequestedModel) {
 			sessionManager.appendModelChange(model.provider, model.id);
 		}
 		sessionManager.appendThinkingLevelChange(thinkingLevel);
@@ -501,6 +561,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 		source: sessionSource,
+		pendingAutoModelRequest: pendingRequestedModel
+			? { requestedModel: pendingRequestedModel, routingMetadata: options.routingMetadata }
+			: undefined,
 	});
 	const extensionsResult = resourceLoader.getExtensions();
 
