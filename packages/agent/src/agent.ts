@@ -21,6 +21,7 @@ import type {
 	AgentTool,
 	BeforeToolCallContext,
 	BeforeToolCallResult,
+	PrepareNextTurnContext,
 	QueueMode,
 	ShouldStopAfterTurnContext,
 	StreamFn,
@@ -105,6 +106,7 @@ export interface AgentOptions {
 	beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
 	prepareNextTurn?: (
+		context: PrepareNextTurnContext,
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
 	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
@@ -194,6 +196,7 @@ export class Agent {
 		signal?: AbortSignal,
 	) => Promise<AfterToolCallResult | undefined>;
 	public prepareNextTurn?: (
+		context: PrepareNextTurnContext,
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
 	/** Graceful stop hook checked after each turn. See {@link AgentLoopConfig.shouldStopAfterTurn}. */
@@ -488,7 +491,9 @@ export class Agent {
 			maxTurns: this.maxTurns,
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
-			prepareNextTurn: this.prepareNextTurn ? async () => await this.prepareNextTurn?.(this.signal) : undefined,
+			prepareNextTurn: this.prepareNextTurn
+				? async (context) => await this.prepareNextTurn?.(context, this.signal)
+				: undefined,
 			shouldStopAfterTurn: this.shouldStopAfterTurn
 				? async (context) => (await this.shouldStopAfterTurn?.(context)) ?? false
 				: undefined,

@@ -673,6 +673,7 @@ export class AgentSession {
 		// (session persistence, extensions, auto-compaction, retry logic)
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
+		this._installAgentNextTurnRefresh();
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
@@ -821,6 +822,25 @@ export class AgentSession {
 			if (!shouldCompact(calculateContextTokens(message.usage), contextWindow, settings)) return false;
 			this._midRunCompactionStop = true;
 			return true;
+		};
+	}
+
+	private _installAgentNextTurnRefresh(): void {
+		const previousPrepareNextTurn = this.agent.prepareNextTurn;
+		this.agent.prepareNextTurn = async (turn, signal) => {
+			const previousSnapshot = await previousPrepareNextTurn?.(turn, signal);
+			const previousContext = previousSnapshot?.context ?? turn.context;
+
+			return {
+				...previousSnapshot,
+				context: {
+					...previousContext,
+					systemPrompt: this.agent.state.systemPrompt,
+					tools: this.agent.state.tools.slice(),
+				},
+				model: this.agent.state.model,
+				thinkingLevel: this.agent.state.thinkingLevel,
+			};
 		};
 	}
 
