@@ -119,6 +119,18 @@ function isPlainRuntimeMetadataCommand(parsed: Args): boolean {
 	return !parsed.print && parsed.mode === undefined && (parsed.help === true || parsed.listModels !== undefined);
 }
 
+function buildInitialRoutingMetadata(parsed: Args, appMode: AppMode, stdinContent?: string): Record<string, unknown> {
+	const promptPreview = [stdinContent, parsed.messages[0]].filter((part): part is string => Boolean(part)).join("\n");
+	return {
+		appMode,
+		promptPreview: promptPreview.slice(0, 6000),
+		promptLength: promptPreview.length,
+		hasPipedStdin: stdinContent !== undefined,
+		cliMessageCount: parsed.messages.length,
+		fileArgCount: parsed.fileArgs.length,
+	};
+}
+
 async function prepareInitialMessage(
 	parsed: Args,
 	autoResizeImages: boolean,
@@ -353,6 +365,11 @@ async function createSessionManager(
 	return SessionManager.create(cwd, sessionDir, { id: parsed.sessionId });
 }
 
+function isAutoModelRequest(model: string | undefined): boolean {
+	const value = model?.trim().toLowerCase();
+	return value === "auto" || value?.endsWith("/auto") === true;
+}
+
 function buildSessionOptions(
 	parsed: Args,
 	scopedModels: ScopedModel[],
@@ -372,16 +389,20 @@ function buildSessionOptions(
 	// - supports --provider <name> --model <pattern>
 	// - supports --model <provider>/<pattern>
 	if (parsed.model) {
+		const isAutoRequest = isAutoModelRequest(parsed.model);
+		if (isAutoRequest) {
+			options.requestedModel = parsed.model;
+		}
 		const resolved = resolveCliModel({
 			cliProvider: parsed.provider,
 			cliModel: parsed.model,
 			cliThinking: parsed.thinking,
 			modelRegistry,
 		});
-		if (resolved.warning) {
+		if (resolved.warning && !isAutoRequest) {
 			diagnostics.push({ type: "warning", message: resolved.warning });
 		}
-		if (resolved.error) {
+		if (resolved.error && !isAutoRequest) {
 			diagnostics.push({ type: "error", message: resolved.error });
 		}
 		if (resolved.model) {
@@ -617,6 +638,18 @@ export async function main(args: string[], options?: MainOptions) {
 	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
 	const projectTrustByCwd = new Map<string, boolean>();
 
+	// Read piped stdin before initial session creation so cache-domain routing hooks
+	// can classify the first task without mutating cached system prompts/tools.
+	let stdinContent: string | undefined;
+	if (appMode !== "rpc" && !isPlainRuntimeMetadataCommand(parsed)) {
+		stdinContent = await readPipedStdin();
+		if (stdinContent !== undefined && appMode === "interactive") {
+			appMode = "print";
+		}
+	}
+	time("readPipedStdin");
+	const initialRoutingMetadata = buildInitialRoutingMetadata(parsed, appMode, stdinContent);
+
 	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
@@ -734,6 +767,8 @@ export async function main(args: string[], options?: MainOptions) {
 			sessionStartEvent,
 			model: sessionOptions.model,
 			thinkingLevel: sessionOptions.thinkingLevel,
+			requestedModel: sessionOptions.requestedModel,
+			routingMetadata: isInitialRuntime ? initialRoutingMetadata : undefined,
 			scopedModels: sessionOptions.scopedModels,
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
@@ -783,16 +818,6 @@ export async function main(args: string[], options?: MainOptions) {
 		await listModels(modelRegistry, searchPattern);
 		process.exit(0);
 	}
-
-	// Read piped stdin content (if any) - skip for RPC mode which uses stdin for JSON-RPC
-	let stdinContent: string | undefined;
-	if (appMode !== "rpc") {
-		stdinContent = await readPipedStdin();
-		if (stdinContent !== undefined && appMode === "interactive") {
-			appMode = "print";
-		}
-	}
-	time("readPipedStdin");
 
 	const { initialMessage, initialImages } = await prepareInitialMessage(
 		parsed,
@@ -860,6 +885,9 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		await interactiveMode.run();
 	} else {
+		if (modelFallbackMessage) {
+			console.error(chalk.yellow(`Warning: ${modelFallbackMessage}`));
+		}
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {
 			mode: toPrintOutputMode(appMode),

@@ -9,6 +9,7 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
+import { applyFilters } from "./extensions/extension-hooks.ts";
 import type {
 	ExtensionRunner,
 	InputSource,
@@ -56,6 +57,10 @@ export interface CreateAgentSessionOptions {
 	model?: Model<any>;
 	/** Thinking level. Default: from settings, else 'medium' (clamped to model capabilities) */
 	thinkingLevel?: ThinkingLevel;
+	/** Original requested model string, preserved for pre-session alias resolution such as `auto`/`provider/auto`. */
+	requestedModel?: string;
+	/** Prompt/session metadata available to pre-session model routing hooks. Must not include cached system/tools bytes. */
+	routingMetadata?: Record<string, unknown>;
 	/** Models available for cycling (Ctrl+P in interactive mode) */
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
@@ -290,6 +295,41 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
 	}
 
+	const sessionSource = options.source ?? "interactive";
+	const requestedModel = options.requestedModel?.trim();
+	if (requestedModel && model && !hasExistingSession) {
+		const before = model;
+		const resolved = await applyFilters(
+			"model:resolve",
+			{
+				requestedModel,
+				model,
+				thinkingLevel,
+				metadata: (options.routingMetadata ? { routing: options.routingMetadata } : undefined) as
+					| Record<string, unknown>
+					| undefined,
+			},
+			{
+				cwd,
+				source: sessionSource,
+				sessionId: sessionManager.getSessionId(),
+				hasExistingSession,
+				modelRegistry,
+				settingsManager,
+				sessionManager,
+			},
+		);
+		model = resolved.model ?? model;
+		thinkingLevel = resolved.thinkingLevel ?? thinkingLevel;
+		const reason = Array.isArray(resolved.metadata?.reason) ? resolved.metadata.reason.join(", ") : undefined;
+		const route = typeof resolved.metadata?.route === "string" ? resolved.metadata.route : requestedModel;
+		if (model && (before.provider !== model.provider || before.id !== model.id || resolved.thinkingLevel)) {
+			const thinkingSuffix = resolved.thinkingLevel ? ` · thinking ${thinkingLevel}` : "";
+			const reasonSuffix = reason ? ` · ${reason}` : "";
+			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}Auto model ${route} selected ${model.provider}/${model.id}${thinkingSuffix}${reasonSuffix}`;
+		}
+	}
+
 	// Clamp to model capabilities
 	if (!model) {
 		thinkingLevel = "off";
@@ -325,7 +365,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	).filter((name) => !excludedToolNameSet?.has(name));
 
 	let agent: Agent;
-	const sessionSource = options.source ?? "interactive";
 
 	// Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
 	const convertToLlmWithBlockImages = (messages: AgentMessage[]): Message[] => {

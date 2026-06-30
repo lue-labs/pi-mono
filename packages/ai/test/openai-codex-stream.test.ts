@@ -290,6 +290,7 @@ describe("openai-codex streaming", () => {
 		expect(headers.get("session-id")).toBe("cache-stability-test-session");
 		expect(headers.get("thread-id")).toBe("cache-stability-test-session");
 		expect(headers.get("x-client-request-id")).toBe("cache-stability-test-session");
+		expect(body.prompt_cache_retention).toBeUndefined();
 	});
 
 	it("streams SSE responses into AssistantMessageEventStream", async () => {

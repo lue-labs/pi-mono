@@ -1554,14 +1554,20 @@ async function writeCodexCacheDebugSnapshot(
 	const tools = Array.isArray(body.tools) ? body.tools : [];
 	const inputJson = JSON.stringify(input) ?? "";
 	const toolsJson = JSON.stringify(tools) ?? "";
+	const toolNames = tools
+		.map((tool) => (tool && typeof tool === "object" ? (tool as { name?: unknown }).name : undefined))
+		.filter(Boolean)
+		.map(String);
 	const snapshot = {
 		timestamp: new Date().toISOString(),
 		provider: model.provider,
 		api: "openai-codex-responses",
 		model: `${model.provider}/${model.id}`,
+		cwd: typeof process !== "undefined" ? process.cwd?.() : undefined,
 		sessionId: options?.sessionId,
 		cacheAffinityKey: options?.cacheAffinityKey,
 		promptCacheKey: body.prompt_cache_key,
+		promptCacheRetention: "unsupported",
 		transport: options?.transport,
 		sseSessionId: headers.get("session-id"),
 		sseThreadId: headers.get("thread-id"),
@@ -1574,6 +1580,7 @@ async function writeCodexCacheDebugSnapshot(
 		toolCount: tools.length,
 		toolsHash: stableSnapshotHash(tools),
 		toolsBytes: Buffer.byteLength(toolsJson),
+		hasToolSearch: toolNames.includes("tool_search"),
 		deferredToolCount: tools.filter(
 			(tool) => !!tool && typeof tool === "object" && (tool as { defer_loading?: unknown }).defer_loading === true,
 		).length,
