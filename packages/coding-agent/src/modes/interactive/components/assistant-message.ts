@@ -111,7 +111,7 @@ export class AssistantMessageComponent extends Container {
 				if (this.hideThinkingBlock) {
 					// Show static thinking label when hidden
 					this.contentContainer.addChild(
-						new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), 1, 0),
+						new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0),
 					);
 					if (hasVisibleContentAfter) {
 						this.contentContainer.addChild(new Spacer(1));
@@ -144,7 +144,7 @@ export class AssistantMessageComponent extends Container {
 						"error",
 						"Error: Model stopped because it reached the maximum output token limit. The response may be incomplete.",
 					),
-					1,
+					this.outputPad,
 					0,
 				),
 			);
@@ -155,11 +155,11 @@ export class AssistantMessageComponent extends Container {
 						? message.errorMessage
 						: "Operation aborted";
 				this.contentContainer.addChild(new Spacer(1));
-				this.contentContainer.addChild(new Text(theme.fg("error", abortMessage), 1, 0));
+				this.contentContainer.addChild(new Text(theme.fg("error", abortMessage), this.outputPad, 0));
 			} else if (message.stopReason === "error") {
 				const errorMsg = message.errorMessage || "Unknown error";
 				this.contentContainer.addChild(new Spacer(1));
-				this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), 1, 0));
+				this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), this.outputPad, 0));
 			}
 		}
 	}

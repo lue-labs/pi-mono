@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@valkyriweb/pi-ai";
 import { describe, expect, test } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
+import { UserMessageComponent } from "../src/modes/interactive/components/user-message.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -95,5 +96,17 @@ describe("AssistantMessageComponent", () => {
 		const updatedLines = component.render(80).map((line) => stripAnsi(line));
 		expect(updatedLines.some((line) => line.startsWith("hello"))).toBe(true);
 		expect(updatedLines.some((line) => line.startsWith("reasoning"))).toBe(true);
+	});
+
+	test("uses configured output padding for user messages", () => {
+		initTheme("dark");
+
+		const paddedComponent = new UserMessageComponent("hello", undefined, 1);
+		const paddedLines = paddedComponent.render(40).map((line) => stripAnsi(line));
+		expect(paddedLines.some((line) => line.startsWith(" hello"))).toBe(true);
+
+		const unpaddedComponent = new UserMessageComponent("hello", undefined, 0);
+		const unpaddedLines = unpaddedComponent.render(40).map((line) => stripAnsi(line));
+		expect(unpaddedLines.some((line) => line.startsWith("hello"))).toBe(true);
 	});
 });
