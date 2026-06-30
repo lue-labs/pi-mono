@@ -1,3 +1,4 @@
+import type * as NodeFs from "node:fs";
 import type * as NodeOs from "node:os";
 import type {
 	Tool as OpenAITool,
@@ -6,20 +7,22 @@ import type {
 	ResponseStreamEvent,
 } from "openai/resources/responses/responses.js";
 
-// NEVER convert to top-level runtime imports - breaks browser/Vite builds
-let _os: typeof NodeOs | null = null;
+type ProcessWithNodeBuiltinModule = typeof process & {
+	getBuiltinModule?: {
+		(id: "node:fs"): typeof NodeFs;
+		(id: "node:os"): typeof NodeOs;
+	};
+};
 
-type DynamicImport = (specifier: string) => Promise<unknown>;
-
-const dynamicImport: DynamicImport = (specifier) => import(specifier);
-const NODE_OS_SPECIFIER = "node:" + "os";
-const NODE_FS_SPECIFIER = "node:" + "fs";
-
-if (typeof process !== "undefined" && (process.versions?.node || process.versions?.bun)) {
-	dynamicImport(NODE_OS_SPECIFIER).then((m) => {
-		_os = m as typeof NodeOs;
-	});
+function loadNodeOs(): typeof NodeOs | null {
+	if (typeof process === "undefined" || !(process.versions?.node || process.versions?.bun)) {
+		return null;
+	}
+	return (process as ProcessWithNodeBuiltinModule).getBuiltinModule?.("node:os") ?? null;
 }
+
+// NEVER convert to top-level runtime imports - breaks browser/Vite builds
+const _os: typeof NodeOs | null = loadNodeOs();
 
 import { clampThinkingLevel } from "../models.ts";
 import { registerSessionResourceCleanup } from "../session-resources.ts";
@@ -1590,7 +1593,8 @@ async function writeCodexCacheDebugSnapshot(
 		).length,
 	};
 	try {
-		const fs = (await dynamicImport(NODE_FS_SPECIFIER)) as typeof import("node:fs");
+		const fs = (process as ProcessWithNodeBuiltinModule).getBuiltinModule?.("node:fs");
+		if (!fs) return;
 		fs.appendFileSync(
 			`${process.env.HOME ?? "."}/.pi/agent/logs/codex-cache-debug.jsonl`,
 			`${JSON.stringify(snapshot)}\n`,
