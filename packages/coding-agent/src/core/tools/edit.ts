@@ -1,7 +1,7 @@
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
 import { Box, Container, Spacer, Text } from "@valkyriweb/pi-tui";
 import { constants } from "fs";
-import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
+import { access as fsAccess, readFile as fsReadFile, stat as fsStat, writeFile as fsWriteFile } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { renderDiff } from "../../modes/interactive/components/diff.ts";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
@@ -23,6 +23,7 @@ import {
 } from "./edit-diff.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
 import { resolveToCwd } from "./path-utils.ts";
+import type { FileReadLedger } from "./read-ledger.ts";
 import { renderToolPath, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
@@ -123,6 +124,8 @@ export interface EditOperations {
 	readFile: (absolutePath: string) => Promise<Buffer>;
 	/** Write content to a file */
 	writeFile: (absolutePath: string, content: string) => Promise<void>;
+	/** Stat a file for stale-write detection */
+	stat?: (absolutePath: string) => Promise<{ mtimeMs: number; size?: number }>;
 	/** Check if file is readable and writable (throw if not) */
 	access: (absolutePath: string) => Promise<void>;
 }
@@ -130,12 +133,15 @@ export interface EditOperations {
 const defaultEditOperations: EditOperations = {
 	readFile: (path) => fsReadFile(path),
 	writeFile: (path, content) => fsWriteFile(path, content, "utf-8"),
+	stat: (path) => fsStat(path),
 	access: (path) => fsAccess(path, constants.R_OK | constants.W_OK),
 };
 
 export interface EditToolOptions {
 	toolName?: "edit" | "Edit";
 	label?: string;
+	/** Session read ledger used to detect stale edits after reads */
+	readLedger?: FileReadLedger;
 	/** Custom operations for file editing. Default: local filesystem */
 	operations?: EditOperations;
 }
@@ -352,6 +358,7 @@ export function createEditToolDefinition(
 	options?: EditToolOptions,
 ): ToolDefinition<typeof editSchema, EditToolDetails | undefined, EditRenderState> {
 	const ops = options?.operations ?? defaultEditOperations;
+	const optionLedger = options?.readLedger;
 	const toolName = options?.toolName ?? "edit";
 	const label = options?.label ?? "Edit";
 	return {
@@ -369,6 +376,7 @@ export function createEditToolDefinition(
 			"Keep edits[].oldText as small as possible while still being unique in the file. Prefer the shortest stable surrounding lines over large copied blocks.",
 			"If edit reports that oldText was not found, read the target region and retry with exact current text; do not repeat the same oldText.",
 			"After edit succeeds, do not re-read the file to confirm the change landed — edit returns an error if it failed. Re-read only when you need the updated content for a later change.",
+			"If a linter, formatter, user, or another tool may have changed the file since you last read it, re-read before editing; edit rejects when the file changed since the last session Read and aborts when it changes during the operation.",
 		],
 		executionMode: "sequential",
 		parameters: editSchema,
@@ -400,7 +408,12 @@ export function createEditToolDefinition(
 				}
 				throwIfAborted();
 
+				const ledger = _ctx?.fileReadLedger ?? optionLedger;
+				await ledger?.assertFresh(absolutePath, "edit");
+				throwIfAborted();
+
 				// Read the file.
+				const beforeStat = await ops.stat?.(absolutePath);
 				const buffer = await ops.readFile(absolutePath);
 				const rawContent = buffer.toString("utf-8");
 				throwIfAborted();
@@ -413,7 +426,13 @@ export function createEditToolDefinition(
 				throwIfAborted();
 
 				const finalContent = bom + restoreLineEndings(newContent, originalEnding);
+				const latestStat = await ops.stat?.(absolutePath);
+				if (beforeStat && latestStat && latestStat.mtimeMs !== beforeStat.mtimeMs) {
+					throw new Error(`File changed while editing: ${path}. Re-read the file and retry with current contents.`);
+				}
 				await ops.writeFile(absolutePath, finalContent);
+				const afterWriteStat = await ops.stat?.(absolutePath);
+				await ledger?.recordWrite(absolutePath, Buffer.from(finalContent, "utf-8"), afterWriteStat);
 				throwIfAborted();
 
 				const diffResult = generateDiffString(baseContent, newContent);

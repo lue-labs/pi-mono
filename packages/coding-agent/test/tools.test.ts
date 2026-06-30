@@ -9,6 +9,7 @@ import { computeEditsDiff } from "../src/core/tools/edit-diff.ts";
 import { buildBfsArgs, buildFdArgs, buildRgFilesArgs } from "../src/core/tools/glob.ts";
 import { buildRgArgs, buildUgrepArgs } from "../src/core/tools/grep.ts";
 import { createAllToolDefinitions } from "../src/core/tools/index.ts";
+import { SessionFileReadLedger } from "../src/core/tools/read-ledger.ts";
 import {
 	createEditTool,
 	createGlobTool,
@@ -330,6 +331,35 @@ describe("Coding Agent Tools", () => {
 
 			expect(getTextOutput(result)).toContain("Successfully wrote");
 		});
+
+		it("rejects stale overwrites after a session read", async () => {
+			const testFile = join(testDir, "stale-write.txt");
+			writeFileSync(testFile, "original\n");
+			const ledger = new SessionFileReadLedger();
+			const localReadTool = createReadTool(testDir, { readLedger: ledger });
+			const localWriteTool = createWriteTool(testDir, { readLedger: ledger });
+
+			await localReadTool.execute("read-stale-write", { path: testFile });
+			writeFileSync(testFile, "user changed\n");
+			const future = new Date(Date.now() + 2000);
+			utimesSync(testFile, future, future);
+
+			await expect(
+				localWriteTool.execute("write-stale-write", { path: testFile, content: "overwrite\n" }),
+			).rejects.toThrow(/changed since the last Read/);
+			expect(readFileSync(testFile, "utf-8")).toBe("user changed\n");
+		});
+
+		it("preserves Write overwrite behavior when there is no prior session read", async () => {
+			const testFile = join(testDir, "write-no-read.txt");
+			writeFileSync(testFile, "original\n");
+			const ledger = new SessionFileReadLedger();
+			const localWriteTool = createWriteTool(testDir, { readLedger: ledger });
+
+			await localWriteTool.execute("write-no-read", { path: testFile, content: "replacement\n" });
+
+			expect(readFileSync(testFile, "utf-8")).toBe("replacement\n");
+		});
 	});
 
 	describe("edit tool", () => {
@@ -372,6 +402,47 @@ describe("Coding Agent Tools", () => {
 			expect("originalContent" in result.details).toBe(false);
 			expect(result.details.originalContentPreview).toBe(originalContent.slice(0, 4000));
 			expect(result.details.originalContentPreview.length).toBeLessThanOrEqual(4000);
+		});
+
+		it("rejects stale edits after a session read", async () => {
+			const testFile = join(testDir, "stale-edit.txt");
+			writeFileSync(testFile, "alpha\nbeta\n");
+			const ledger = new SessionFileReadLedger();
+			const localReadTool = createReadTool(testDir, { readLedger: ledger });
+			const localEditTool = createEditTool(testDir, { readLedger: ledger });
+
+			await localReadTool.execute("read-stale-edit", { path: testFile });
+			writeFileSync(testFile, "alpha\nchanged\n");
+			const future = new Date(Date.now() + 2000);
+			utimesSync(testFile, future, future);
+
+			await expect(
+				localEditTool.execute("edit-stale-edit", {
+					path: testFile,
+					edits: [{ oldText: "alpha", newText: "ALPHA" }],
+				}),
+			).rejects.toThrow(/changed since the last Read/);
+			expect(readFileSync(testFile, "utf-8")).toBe("alpha\nchanged\n");
+		});
+
+		it("updates the read ledger after successful edits", async () => {
+			const testFile = join(testDir, "edit-refreshes-ledger.txt");
+			writeFileSync(testFile, "alpha\nbeta\n");
+			const ledger = new SessionFileReadLedger();
+			const localReadTool = createReadTool(testDir, { readLedger: ledger });
+			const localEditTool = createEditTool(testDir, { readLedger: ledger });
+
+			await localReadTool.execute("read-refresh-edit", { path: testFile });
+			await localEditTool.execute("edit-refresh-1", {
+				path: testFile,
+				edits: [{ oldText: "alpha", newText: "ALPHA" }],
+			});
+			await localEditTool.execute("edit-refresh-2", {
+				path: testFile,
+				edits: [{ oldText: "beta", newText: "BETA" }],
+			});
+
+			expect(readFileSync(testFile, "utf-8")).toBe("ALPHA\nBETA\n");
 		});
 
 		it("should fail if text not found", async () => {

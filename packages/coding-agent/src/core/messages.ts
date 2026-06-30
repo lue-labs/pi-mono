@@ -7,6 +7,7 @@
 
 import type { AgentMessage } from "@valkyriweb/pi-agent-core";
 import type { ImageContent, Message, TextContent } from "@valkyriweb/pi-ai";
+import type { SourceInfo } from "./source-info.ts";
 
 export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
 
@@ -49,6 +50,7 @@ export interface CustomMessage<T = unknown> {
 	content: string | (TextContent | ImageContent)[];
 	display: boolean;
 	details?: T;
+	sourceInfo?: SourceInfo;
 	timestamp: number;
 }
 
@@ -126,6 +128,7 @@ export function createCustomMessage(
 	display: boolean,
 	details: unknown | undefined,
 	timestamp: string,
+	sourceInfo?: SourceInfo,
 ): CustomMessage {
 	return {
 		role: "custom",
@@ -133,6 +136,7 @@ export function createCustomMessage(
 		content,
 		display,
 		details,
+		sourceInfo,
 		timestamp: new Date(timestamp).getTime(),
 	};
 }
@@ -164,6 +168,7 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 					return {
 						role: "user",
 						content,
+						sourceInfo: m.sourceInfo,
 						timestamp: m.timestamp,
 					};
 				}

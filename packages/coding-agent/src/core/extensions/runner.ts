@@ -15,6 +15,7 @@ import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import { type FileReadLedger, SessionFileReadLedger } from "../tools/read-ledger.ts";
 import { applyFilters } from "./extension-hooks.ts";
 import { getExtensionProcessService, loadDeferredExtension } from "./loader.ts";
 import type {
@@ -328,6 +329,7 @@ export class ExtensionRunner {
 	private commandDiagnostics: ResourceDiagnostic[] = [];
 	private staleMessage: string | undefined;
 	private deferredLoadedListeners: Set<() => void> = new Set();
+	private fileReadLedger: FileReadLedger;
 
 	constructor(
 		extensions: Extension[],
@@ -338,6 +340,7 @@ export class ExtensionRunner {
 		sessionManager: SessionManager,
 		modelRegistry: ModelRegistry,
 		source: InputSource = "interactive",
+		fileReadLedger: FileReadLedger = new SessionFileReadLedger(),
 	) {
 		this.extensions = extensions;
 		this.deferredExtensions = deferredExtensions;
@@ -348,6 +351,7 @@ export class ExtensionRunner {
 		this.sessionManager = sessionManager;
 		this.modelRegistry = modelRegistry;
 		this.source = source;
+		this.fileReadLedger = fileReadLedger;
 	}
 
 	bindCore(
@@ -919,6 +923,10 @@ export class ExtensionRunner {
 			get model() {
 				runner.assertActive();
 				return getModel();
+			},
+			get fileReadLedger() {
+				runner.assertActive();
+				return runner.fileReadLedger;
 			},
 			isIdle: () => {
 				runner.assertActive();

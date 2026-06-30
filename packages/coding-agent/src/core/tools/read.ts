@@ -3,7 +3,7 @@ import type { AgentTool } from "@valkyriweb/pi-agent-core";
 import type { Api, ImageContent, Model, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
 import { Text } from "@valkyriweb/pi-tui";
 import { constants } from "fs";
-import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
+import { access as fsAccess, readFile as fsReadFile, stat as fsStat } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { getReadmePath } from "../../config.ts";
 import { keyHint, keyText } from "../../modes/interactive/components/keybinding-hints.ts";
@@ -13,6 +13,7 @@ import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../utils/paths.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import { resolveReadPathAsync, resolveToCwd } from "./path-utils.ts";
+import type { FileReadLedger } from "./read-ledger.ts";
 import { getTextOutput, renderToolPath, replaceTabs, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import {
@@ -58,6 +59,8 @@ export interface ReadOperations {
 	readFile: (absolutePath: string) => Promise<Buffer>;
 	/** Check if file is readable (throw if not) */
 	access: (absolutePath: string) => Promise<void>;
+	/** Stat a file for stale-read ledger recording */
+	stat?: (absolutePath: string) => Promise<{ mtimeMs: number; size?: number }>;
 	/** Detect image MIME type, return null or undefined for non-images */
 	detectImageMimeType?: (absolutePath: string) => Promise<string | null | undefined>;
 }
@@ -65,6 +68,7 @@ export interface ReadOperations {
 const defaultReadOperations: ReadOperations = {
 	readFile: (path) => fsReadFile(path),
 	access: (path) => fsAccess(path, constants.R_OK),
+	stat: (path) => fsStat(path),
 	detectImageMimeType: detectSupportedImageMimeTypeFromFile,
 };
 
@@ -73,6 +77,8 @@ export interface ReadToolOptions {
 	label?: string;
 	/** Whether to auto-resize images to 2000x2000 max. Default: true */
 	autoResizeImages?: boolean;
+	/** Session read ledger used to detect stale edits/writes after reads */
+	readLedger?: FileReadLedger;
 	/** Custom operations for file reading. Default: local filesystem */
 	operations?: ReadOperations;
 }
@@ -222,6 +228,7 @@ export function createReadToolDefinition(
 ): ToolDefinition<typeof readSchema, ReadToolDetails | undefined> {
 	const autoResizeImages = options?.autoResizeImages ?? true;
 	const ops = options?.operations ?? defaultReadOperations;
+	const optionLedger = options?.readLedger;
 	const toolName = options?.toolName ?? "read";
 	const label = options?.label ?? "Read";
 	return {
@@ -233,6 +240,7 @@ export function createReadToolDefinition(
 			"Use read to examine files instead of cat or sed.",
 			"Read only the region you need: when you already know which part of a file is relevant, pass offset/limit instead of reading the whole file. Reserve full reads for when you genuinely need the entire file.",
 			"Track line counts from read results and never request an offset greater than the file's reported total lines.",
+			"Read records a session file fingerprint; later Edit/Write calls reject if that file changed since your last Read, so re-read after formatters, linters, or user edits.",
 		],
 		executionMode: "parallel",
 		parameters: readSchema,
@@ -266,10 +274,12 @@ export function createReadToolDefinition(
 							const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
 							let content: (TextContent | ImageContent)[];
 							let details: ReadToolDetails | undefined;
+							let ledgerBuffer: Buffer | undefined;
 							const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
 							if (mimeType) {
 								// Read image as binary.
 								const buffer = await ops.readFile(absolutePath);
+								ledgerBuffer = buffer;
 								if (autoResizeImages) {
 									// Resize image if needed before sending it back to the model.
 									const resized = await resizeImage(buffer, mimeType);
@@ -298,6 +308,7 @@ export function createReadToolDefinition(
 							} else {
 								// Read text content.
 								const buffer = await ops.readFile(absolutePath);
+								ledgerBuffer = buffer;
 								const textContent = buffer.toString("utf-8");
 								const allLines = textContent.split("\n");
 								const totalFileLines = allLines.length;
@@ -375,6 +386,11 @@ export function createReadToolDefinition(
 							}
 
 							if (aborted) return;
+							const ledger = ctx?.fileReadLedger ?? optionLedger;
+							if (ledger && ledgerBuffer) {
+								const stat = await ops.stat?.(absolutePath);
+								await ledger.recordRead(absolutePath, ledgerBuffer, stat);
+							}
 							signal?.removeEventListener("abort", onAbort);
 							resolve({ content, details });
 						} catch (error: any) {

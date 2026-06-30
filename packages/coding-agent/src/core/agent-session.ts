@@ -890,6 +890,7 @@ export class AgentSession {
 					event.message.content,
 					event.message.display,
 					event.message.details,
+					event.message.sourceInfo,
 				);
 			} else if (
 				event.message.role === "user" ||
@@ -2073,6 +2074,7 @@ export class AgentSession {
 						content: msg.content,
 						display: msg.display,
 						details: msg.details,
+						sourceInfo: msg.sourceInfo,
 						timestamp: Date.now(),
 					});
 				}
@@ -2275,7 +2277,7 @@ export class AgentSession {
 	 *   the queue already drains into the active run. No-op when triggerTurn is set.
 	 */
 	async sendCustomMessage<T = unknown>(
-		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
+		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "sourceInfo">,
 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn"; wakeOnIdle?: boolean },
 	): Promise<void> {
 		const appMessage = {
@@ -2284,6 +2286,7 @@ export class AgentSession {
 			content: message.content,
 			display: message.display,
 			details: message.details,
+			sourceInfo: message.sourceInfo,
 			timestamp: Date.now(),
 		} satisfies CustomMessage<T>;
 		if (options?.deliverAs === "nextTurn") {
@@ -2362,6 +2365,7 @@ export class AgentSession {
 						content: msg.content,
 						display: msg.display,
 						details: msg.details,
+						sourceInfo: msg.sourceInfo,
 						timestamp: Date.now(),
 					});
 				}
@@ -2398,6 +2402,7 @@ export class AgentSession {
 				message.content,
 				message.display,
 				message.details,
+				message.sourceInfo,
 			);
 			this._emit({ type: "message_start", message: appMessage });
 			this._emit({ type: "message_end", message: appMessage });
