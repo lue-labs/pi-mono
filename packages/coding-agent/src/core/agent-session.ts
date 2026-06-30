@@ -2618,6 +2618,7 @@ export class AgentSession {
 		const resolvedMetadata = resolved.metadata as Record<string, unknown> | undefined;
 		const hasRoutingDecision =
 			resolvedMetadata?.llmRouterDecision !== undefined ||
+			resolvedMetadata?.llmRouterUnavailable !== undefined ||
 			typeof resolvedMetadata?.tier === "string" ||
 			!modelsAreEqual(currentModel, nextModel) ||
 			resolved.thinkingLevel !== undefined;

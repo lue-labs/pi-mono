@@ -327,7 +327,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = resolved.thinkingLevel ?? thinkingLevel;
 		const reason = Array.isArray(resolved.metadata?.reason) ? resolved.metadata.reason.join(", ") : undefined;
 		const route = typeof resolved.metadata?.route === "string" ? resolved.metadata.route : requestedModel;
-		if (model && (before.provider !== model.provider || before.id !== model.id || resolved.thinkingLevel)) {
+		const unavailable = resolved.metadata?.llmRouterUnavailable as { message?: string } | undefined;
+		if (unavailable?.message) {
+			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}${unavailable.message}`;
+		} else if (model && (before.provider !== model.provider || before.id !== model.id || resolved.thinkingLevel)) {
 			const thinkingSuffix = resolved.thinkingLevel ? ` · thinking ${thinkingLevel}` : "";
 			const reasonSuffix = reason ? ` · ${reason}` : "";
 			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}Auto model ${route} selected ${model.provider}/${model.id}${thinkingSuffix}${reasonSuffix}`;

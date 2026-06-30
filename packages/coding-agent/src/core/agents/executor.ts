@@ -776,6 +776,10 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	// relative tool path resolves against the bad dir (the classic "explore
 	// guessed the wrong cwd" failure).
 	const childCwd = resolveChildCwd(options.task.cwd, options.parentServices.cwd);
+	const childPrompt = buildChildTaskPrompt(options.task, {
+		canDelegate: childCanDelegate,
+		remaining: childCanDelegate ? maxDelegationDepth - childDepth : 0,
+	});
 	const routingMetadata = requestedAutoModel
 		? buildChildRoutingMetadata({
 				agent,
@@ -835,6 +839,8 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		// input/before_agent_start independently.
 		source: "child-agent",
 	});
+	details.model = formatModelForDetails(session.model ?? effectiveModel);
+	details.thinking = session.thinkingLevel;
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
@@ -868,10 +874,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		...options,
 		details,
 		startedAt,
-		prompt: buildChildTaskPrompt(options.task, {
-			canDelegate: childCanDelegate,
-			remaining: childCanDelegate ? maxDelegationDepth - childDepth : 0,
-		}),
+		prompt: childPrompt,
 	});
 }
 
@@ -1086,12 +1089,9 @@ async function resumeSingleBackgroundRun(
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 
 	const runs: AgentRunDetails[] = [details];
-	const baseResumePrompt =
+	const resumePrompt =
 		prompt?.trim() ||
 		"Continue the interrupted delegated task from where you left off. Return the final report when done.";
-	const resumePrompt = input.background
-		? [backgroundAgentReminder(), "", baseResumePrompt].join("\n")
-		: baseResumePrompt;
 
 	try {
 		await driveChildSession(session, {

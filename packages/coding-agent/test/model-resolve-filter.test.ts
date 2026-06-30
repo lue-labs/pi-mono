@@ -119,6 +119,38 @@ describe("model:resolve startup filter", () => {
 		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-sonnet-4-6");
 	});
 
+	it("keeps the current model when deferred auto routing is unavailable", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-unavailable-"));
+		addFilter<any>("model:resolve", "test-model-resolve", (value) => ({
+			...value,
+			metadata: {
+				...(value.metadata ?? {}),
+				llmRouterUnavailable: { message: "Auto model unavailable: semantic router is not running." },
+			},
+		}));
+
+		const sessionManager = SessionManager.inMemory();
+		const result = await createAgentSession({
+			cwd: tempDir,
+			agentDir: tempDir,
+			resourceLoader: createTestResourceLoader(),
+			sessionManager,
+			settingsManager: SettingsManager.create(tempDir, tempDir),
+			modelRegistry: fakeModelRegistry(),
+			model: baseModel,
+			thinkingLevel: "high",
+			requestedModel: "pi-fork/auto",
+			deferRequestedModelResolution: true,
+		});
+
+		expect(result.session.pendingAutoModelAlias).toBe("pi-fork/auto");
+		await (result.session as any)._resolvePendingAutoModelForPrompt("hello");
+
+		expect(result.session.pendingAutoModelAlias).toBeUndefined();
+		expect(result.session.model?.id).toBe("claude-opus-4-8");
+		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-opus-4-8");
+	});
+
 	it("passes initial routing metadata into the startup filter", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-metadata-"));
 		let seenRoutingMetadata: unknown;
