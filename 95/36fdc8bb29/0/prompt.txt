@@ -1,0 +1,5 @@
+ok so how does the semantic router take into account whether a session is ached or not, or the cost of tokens / per token of each model
+
+---
+
+thats fine for now, add it as a note / ref somewhere to do this
