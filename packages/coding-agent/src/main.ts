@@ -370,6 +370,14 @@ function isAutoModelRequest(model: string | undefined): boolean {
 	return value === "auto" || value?.endsWith("/auto") === true;
 }
 
+function requestedAutoModelAlias(cliProvider: string | undefined, cliModel: string): string {
+	const model = cliModel.trim();
+	if (model.toLowerCase() === "auto" && cliProvider?.trim()) {
+		return `${cliProvider.trim()}/auto`;
+	}
+	return model;
+}
+
 function buildSessionOptions(
 	parsed: Args,
 	scopedModels: ScopedModel[],
@@ -391,7 +399,7 @@ function buildSessionOptions(
 	if (parsed.model) {
 		const isAutoRequest = isAutoModelRequest(parsed.model);
 		if (isAutoRequest) {
-			options.requestedModel = parsed.model;
+			options.requestedModel = requestedAutoModelAlias(parsed.provider, parsed.model);
 		} else {
 			const resolved = resolveCliModel({
 				cliProvider: parsed.provider,
