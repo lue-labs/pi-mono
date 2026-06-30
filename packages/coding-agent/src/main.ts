@@ -378,6 +378,18 @@ function requestedAutoModelAlias(cliProvider: string | undefined, cliModel: stri
 	return model;
 }
 
+function providerScopedAutoProvider(requestedModel: string | undefined): string | undefined {
+	const parts = requestedModel?.trim().split("/");
+	if (parts?.length !== 2 || parts[1].toLowerCase() !== "auto") return undefined;
+	return parts[0] === "pi-fork" ? undefined : parts[0];
+}
+
+function seedProviderScopedAutoModel(modelRegistry: ModelRegistry, requestedModel: string | undefined) {
+	const provider = providerScopedAutoProvider(requestedModel);
+	if (!provider) return undefined;
+	return modelRegistry.getAvailable().find((model) => model.provider === provider);
+}
+
 function buildSessionOptions(
 	parsed: Args,
 	scopedModels: ScopedModel[],
@@ -400,6 +412,7 @@ function buildSessionOptions(
 		const isAutoRequest = isAutoModelRequest(parsed.model);
 		if (isAutoRequest) {
 			options.requestedModel = requestedAutoModelAlias(parsed.provider, parsed.model);
+			options.model = seedProviderScopedAutoModel(modelRegistry, options.requestedModel);
 		} else {
 			const resolved = resolveCliModel({
 				cliProvider: parsed.provider,
@@ -770,10 +783,8 @@ export async function main(args: string[], options?: MainOptions) {
 			}
 		}
 
-		const hasExistingMessages = sessionManager.buildSessionContext().messages.length > 0;
 		const shouldDeferAutoRouting =
 			isInitialRuntime &&
-			!hasExistingMessages &&
 			sessionOptions.requestedModel !== undefined &&
 			appMode === "interactive" &&
 			initialRoutingMetadata.promptLength === 0 &&

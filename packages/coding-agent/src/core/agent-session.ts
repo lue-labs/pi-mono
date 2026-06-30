@@ -393,6 +393,14 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 	return tokens;
 }
 
+function customMessageText(content: CustomMessage["content"]): string {
+	if (typeof content === "string") return content;
+	return content
+		.filter((block): block is TextContent => block.type === "text")
+		.map((block) => block.text)
+		.join("\n");
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -2302,6 +2310,12 @@ export class AgentSession {
 				this.agent.steer(appMessage);
 			}
 		} else if (options?.triggerTurn) {
+			// Resolve pending auto aliases before synthetic extension-driven turns too.
+			// prompt() already does this for user turns; without the same preflight here,
+			// goal/startup continuations can invoke the unresolved seed model before the
+			// router has a chance to pick a concrete model.
+			await this._resolvePendingAutoModelForPrompt(customMessageText(message.content));
+
 			// Mirror prompt()'s pre-turn compaction check. Without it, harness-driven
 			// turns (e.g. pi-goal continuations via sendCustomMessage({triggerTurn}))
 			// never hit threshold compaction — context grows unbounded across goal
@@ -2619,6 +2633,7 @@ export class AgentSession {
 		const resolvedMetadata = resolved.metadata as Record<string, unknown> | undefined;
 		const hasRoutingDecision =
 			resolvedMetadata?.llmRouterDecision !== undefined ||
+			resolvedMetadata?.llmRouterUnavailable !== undefined ||
 			typeof resolvedMetadata?.tier === "string" ||
 			!modelsAreEqual(currentModel, nextModel) ||
 			resolved.thinkingLevel !== undefined;
