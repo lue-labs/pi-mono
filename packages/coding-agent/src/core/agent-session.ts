@@ -15,16 +15,16 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
-import type { Agent, AgentEvent, AgentMessage, AgentState, AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type {
-	AssistantMessage,
-	Context,
-	ImageContent,
-	Message,
-	Model,
-	TextContent,
-	ToolReferenceContent,
-} from "@valkyriweb/pi-ai";
+	Agent,
+	AgentEvent,
+	AgentMessage,
+	AgentState,
+	AgentTool,
+	PrepareNextTurnContext,
+	ThinkingLevel,
+} from "@valkyriweb/pi-agent-core";
+import type { AssistantMessage, Context, ImageContent, Message, Model, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -646,6 +646,7 @@ export class AgentSession {
 	// `systemPrompt:build` filters before sending so cache-stabilising transforms
 	// (date strip, base-boundary relocation) are not lost — see _rebuildSystemPrompt.
 	private _systemPromptNeedsRefilter = false;
+	private _systemPromptOverride?: string;
 	private _source: InputSource = "interactive";
 	private _pendingAutoModelRequest?: PendingAutoModelRequest;
 
@@ -826,16 +827,20 @@ export class AgentSession {
 	}
 
 	private _installAgentNextTurnRefresh(): void {
-		const previousPrepareNextTurn = this.agent.prepareNextTurn;
-		this.agent.prepareNextTurn = async (turn, signal) => {
-			const previousSnapshot = await previousPrepareNextTurn?.(turn, signal);
+		const previousPrepareNextTurnWithContext =
+			this.agent.prepareNextTurnWithContext ??
+			(this.agent.prepareNextTurn
+				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
+				: undefined);
+		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
+			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
 			const previousContext = previousSnapshot?.context ?? turn.context;
 
 			return {
 				...previousSnapshot,
 				context: {
 					...previousContext,
-					systemPrompt: this.agent.state.systemPrompt,
+					systemPrompt: this._systemPromptOverride ?? this._baseSystemPrompt,
 					tools: this.agent.state.tools.slice(),
 				},
 				model: this.agent.state.model,
@@ -1618,7 +1623,7 @@ export class AgentSession {
 		// Rebuild base system prompt with new tool set. The rebuild is UNFILTERED
 		// (skips systemPrompt:build); mark for re-filtering before the next send.
 		this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
-		this.agent.state.systemPrompt = this._baseSystemPrompt;
+		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
 		this._systemPromptNeedsRefilter = true;
 	}
 
@@ -1907,6 +1912,7 @@ export class AgentSession {
 				await this.agent.continue();
 			}
 		} finally {
+			this._systemPromptOverride = undefined;
 			this._flushPendingBashMessages();
 		}
 	}
@@ -2136,16 +2142,17 @@ export class AgentSession {
 			// extensions would double-inject goal/recall context that is already
 			// present in the parent's prompt, producing different bytes every turn.
 			if (!this._systemPromptFrozen) {
-				if (result?.systemPrompt) {
+				if (result?.systemPrompt !== undefined) {
 					// Promote to _baseSystemPrompt so subsequent turns that return no
 					// systemPrompt reset to this extended prompt, not the pre-injection
-					// base. Without this, turn-1 memory injection is silently stripped
-					// on turn 2, busting cache on every subsequent turn.
+					// base. Preserve it as an override during tool refresh as well.
 					this._baseSystemPrompt = result.systemPrompt;
+					this._systemPromptOverride = result.systemPrompt;
 					this.agent.state.systemPrompt = result.systemPrompt;
 				} else {
 					// Reset to stable base (covers pre-modification turns and all
 					// turns after a one-shot extension injection has promoted the base).
+					this._systemPromptOverride = undefined;
 					this.agent.state.systemPrompt = this._baseSystemPrompt;
 				}
 			}
