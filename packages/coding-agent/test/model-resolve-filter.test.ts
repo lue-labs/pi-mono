@@ -77,6 +77,25 @@ describe("model:resolve startup filter", () => {
 		expect(result.modelFallbackMessage).toContain("Auto model pi-fork/auto selected claude-bridge/claude-sonnet-4-6");
 	});
 
+	it("rejects a startup auto alias when no router resolves it", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-startup-noop-"));
+		addFilter<any>("model:resolve", "test-model-resolve", (value) => value);
+
+		await expect(
+			createAgentSession({
+				cwd: tempDir,
+				agentDir: tempDir,
+				resourceLoader: createTestResourceLoader(),
+				sessionManager: SessionManager.inMemory(),
+				settingsManager: SettingsManager.create(tempDir, tempDir),
+				modelRegistry: fakeModelRegistry(),
+				model: baseModel,
+				thinkingLevel: "high",
+				requestedModel: "pi-fork/auto",
+			}),
+		).rejects.toThrow(/pi-fork\/auto did not resolve/);
+	});
+
 	it("defers an interactive auto alias until semantic prompt text exists", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-deferred-"));
 		let called = false;

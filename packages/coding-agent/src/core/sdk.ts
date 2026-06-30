@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { clampThinkingLevel, type Message, type Model, streamSimple } from "@valkyriweb/pi-ai/compat";
+import { clampThinkingLevel, type Message, type Model, modelsAreEqual, streamSimple } from "@valkyriweb/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { type AgentRunIdentity, AgentSession } from "./agent-session.ts";
@@ -323,8 +323,20 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				sessionManager,
 			},
 		);
-		model = resolved.model ?? model;
-		thinkingLevel = resolved.thinkingLevel ?? thinkingLevel;
+		const nextModel = resolved.model ?? model;
+		const nextThinkingLevel = resolved.thinkingLevel ?? thinkingLevel;
+		const resolvedMetadata = resolved.metadata as Record<string, unknown> | undefined;
+		const hasRoutingDecision =
+			resolvedMetadata?.llmRouterDecision !== undefined ||
+			resolvedMetadata?.llmRouterUnavailable !== undefined ||
+			typeof resolvedMetadata?.tier === "string" ||
+			!modelsAreEqual(before, nextModel) ||
+			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== thinkingLevel);
+		if (!hasRoutingDecision) {
+			throw new Error(`Auto model ${requestedModel} did not resolve to a semantic routing decision`);
+		}
+		model = nextModel;
+		thinkingLevel = nextThinkingLevel;
 		const reason = Array.isArray(resolved.metadata?.reason) ? resolved.metadata.reason.join(", ") : undefined;
 		const route = typeof resolved.metadata?.route === "string" ? resolved.metadata.route : requestedModel;
 		const unavailable = resolved.metadata?.llmRouterUnavailable as { message?: string } | undefined;
