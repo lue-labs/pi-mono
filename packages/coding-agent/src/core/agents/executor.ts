@@ -284,6 +284,30 @@ export function resolveEffectiveTools(options: {
 	return { effectiveTools: [...new Set(effectiveTools)], deniedTools: [...new Set(deniedTools)] };
 }
 
+function resolveAgentModelReference(options: {
+	modelReference?: string;
+	agent: AgentDefinition;
+	defaults?: AgentDefaultSelection;
+}): string | undefined {
+	const defaultRef =
+		options.defaults?.model && options.defaults.model !== "inherit" ? options.defaults.model : undefined;
+	return (
+		options.modelReference ??
+		(options.agent.model && options.agent.model !== "inherit" ? options.agent.model : undefined) ??
+		defaultRef
+	);
+}
+
+function isAutoModelAlias(reference: string | undefined): boolean {
+	const normalized = reference?.trim().toLowerCase();
+	return (
+		normalized === "auto" ||
+		normalized === "pi-fork/auto" ||
+		normalized === "claude-bridge/auto" ||
+		normalized === "openai-codex/auto"
+	);
+}
+
 export function resolveAgentModel(options: {
 	modelReference?: string;
 	agent: AgentDefinition;
@@ -292,13 +316,8 @@ export function resolveAgentModel(options: {
 	modelRegistry: ModelRegistry;
 }): Model<Api> | undefined {
 	// Precedence: explicit task option > agent frontmatter > settings.subagents (provider override > defaults) > parent inheritance.
-	const defaultRef =
-		options.defaults?.model && options.defaults.model !== "inherit" ? options.defaults.model : undefined;
-	const reference =
-		options.modelReference ??
-		(options.agent.model && options.agent.model !== "inherit" ? options.agent.model : undefined) ??
-		defaultRef;
-	if (!reference) return options.parentModel;
+	const reference = resolveAgentModelReference(options);
+	if (!reference || isAutoModelAlias(reference)) return options.parentModel;
 
 	// `"fast"` / `"medium"` aliases: resolve to the parent provider's mapped tier.
 	// `fast` is used by the read-only `explore` agent to avoid burning the parent's
@@ -380,6 +399,38 @@ function extractFinalAssistantText(messages: readonly { role: string; content?: 
 		if (textParts.length > 0) return textParts.join("\n");
 	}
 	return "";
+}
+
+function buildChildRoutingMetadata(options: {
+	agent: AgentDefinition;
+	task: NormalizedAgentTaskConfig;
+	childPrompt: string;
+	childCwd: string;
+	effectiveTools: string[];
+	deniedTools: string[];
+}): Record<string, unknown> {
+	const promptText = [options.task.task, options.task.extraContext]
+		.filter((part): part is string => typeof part === "string" && part.length > 0)
+		.join("\n\n");
+	return {
+		source: "child-agent",
+		appMode: "agent",
+		agentId: options.agent.id,
+		agentDescription: options.agent.description,
+		agentSource: options.agent.source,
+		contextMode: options.task.context,
+		promptPreview: promptText.slice(0, 6000),
+		promptLength: promptText.length,
+		childPromptPreview: options.childPrompt.slice(0, 6000),
+		childPromptLength: options.childPrompt.length,
+		taskDescription: options.task.description,
+		hasExtraContext: Boolean(options.task.extraContext),
+		toolCount: options.effectiveTools.length,
+		deniedToolCount: options.deniedTools.length,
+		cwd: options.childCwd,
+		cliMessageCount: 1,
+		fileArgCount: 0,
+	};
 }
 
 function createInitialRunDetails(options: {
@@ -649,6 +700,12 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 				parentModel: options.parentModel,
 				settingsManager: options.parentServices.settingsManager,
 			});
+	const selectedModelReference = resolveAgentModelReference({
+		modelReference: options.task.model,
+		agent,
+		defaults: agentDefaults,
+	});
+	const requestedAutoModel = isAutoModelAlias(selectedModelReference) ? selectedModelReference : undefined;
 	const model = resolveAgentModel({
 		modelReference: options.task.model,
 		agent,
@@ -718,6 +775,16 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	// relative tool path resolves against the bad dir (the classic "explore
 	// guessed the wrong cwd" failure).
 	const childCwd = resolveChildCwd(options.task.cwd, options.parentServices.cwd);
+	const routingMetadata = requestedAutoModel
+		? buildChildRoutingMetadata({
+				agent,
+				task: options.task,
+				childPrompt,
+				childCwd,
+				effectiveTools,
+				deniedTools,
+			})
+		: undefined;
 	const childServices = await createAgentSessionServices({
 		cwd: childCwd,
 		agentDir: options.parentServices.agentDir,
@@ -735,6 +802,8 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		sessionManager: childSessionManager,
 		model: effectiveModel,
 		thinkingLevel: thinking,
+		requestedModel: requestedAutoModel,
+		routingMetadata,
 		tools: effectiveTools,
 		// Record this child's delegation depth on its own agent-tool services. When the
 		// child later calls `agent`, executeAgentTool reads this depth and enforces the
@@ -1016,9 +1085,12 @@ async function resumeSingleBackgroundRun(
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 
 	const runs: AgentRunDetails[] = [details];
-	const resumePrompt =
+	const baseResumePrompt =
 		prompt?.trim() ||
 		"Continue the interrupted delegated task from where you left off. Return the final report when done.";
+	const resumePrompt = input.background
+		? [backgroundAgentReminder(), "", baseResumePrompt].join("\n")
+		: baseResumePrompt;
 
 	try {
 		await driveChildSession(session, {
