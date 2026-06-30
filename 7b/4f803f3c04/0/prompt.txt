@@ -1,0 +1,78 @@
+Can we fix this error in my pi fork:
+ Error: Codex error:                                                                                         
+ {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"Unsupported parameter:      
+ prompt_cache_retention"}}                                                                                   
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                             
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/Projects/personal/my-pi (wip/my-pi-closeout-20260630) · Codex Model Error                🧠 5 hits · 1574ms
+$0.000 (sub) · t1 · 13.5% 37k+d19k/272k (auto)                                  (openai-codex) gpt-5.5 · high
+Codex adapter V: low • web search • image gen  PR #488 ⚡ $-1.07 MCP: 0/1 servers 💡 3 cues · memory 99% ·...
+
+---
+
+and this error?
+pi --model openai-codex/auto
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[pi-otel-exporter] loaded external bridge from /Users/luke/Projects/infra/agent-cli-otel/pi-extension/dist/pi Goal set. (full objective written to docs/goals/goal-2026-06-30T20-05-26Z-a1133546.md)                      
+
+ Error: Codex error: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The     
+ 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."}}                    
+
+ Error: Codex error: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The     
+ 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."}}                    
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                             
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/Projects
+$0.000 (sub) · t2 · 27.4% 35k+d19k/128k (auto)                                              openai-codex/auto
+Codex adapter V: low • web search Goal needs attention (non-retryable provider error (Codex error: {"type"...
+
+---
+
+but why does my chatgpt-backed codex account reject that, its a valid model?
+
+---
+
+what is the valid codex spark model id?
+
+---
+
+pi --model openai-codex/auto
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[pi-otel-exporter] loaded external bridge from /Users/luke/Projects/infra/agent-cli-otel/pi-extension/dist/pi Goal set. (full objective written to docs/goals/goal-2026-06-30T20-20-36Z-a1133546.md)                      
+
+ Error: Codex error: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The     
+ 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."}}                    
+
+ Error: Codex error: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The     
+ 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."}}                    
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                             
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/Projects
+$0.000 (sub) · t2 · 27.4% 35k+d19k/128k (auto)                                              openai-codex/auto
+◦ boot: 14,193 tok Codex adapter V: low • web search Goal needs attention (non-retryable provider error (C...
+
+still getting this error when trying to use auto mode
+
+---
+
+that is probably because im on a plus plan and not my pro plan
+
+---
+
+but still, the autorouter doesn't seem to be working, why?
+
+---
+
+is semantic router back up?
+
+---
+
+what broke this? can we get it back up?
