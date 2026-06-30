@@ -387,7 +387,7 @@ function providerScopedAutoProvider(requestedModel: string | undefined): string 
 function seedProviderScopedAutoModel(modelRegistry: ModelRegistry, requestedModel: string | undefined) {
 	const provider = providerScopedAutoProvider(requestedModel);
 	if (!provider) return undefined;
-	return modelRegistry.getAvailable().find((model) => model.provider === provider);
+	return modelRegistry.getAll().find((model) => model.provider === provider);
 }
 
 function buildSessionOptions(
