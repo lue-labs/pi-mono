@@ -1,0 +1,77 @@
+ok can we closeout
+
+---
+
+for /goal runs should the semantic router try to use smarter models / have biased weighting towards frontier level models?
+
+Like this /goal prompt on pi openai-codex/auto mode:
+
+I want to discuss and possibly work on: Cloud Pi follow-ups — arm64 CI burst pool/laptop compute + robust etcd HA hardening
+
+Context:
+- Repo: `valkyriweb/lue-kube`.
+- Recent landed work:
+  - `valkyriweb/lue-kube#578` — Stage 0 Cloud Pi responsiveness fix: cloud-pi now has `prod-critical` priority, CPU request `1`, tmp/cache/tmux scratch on `/cache` emptyDir, and `lue-kube-arc maxRunners` capped from 6 to 3.
+  - `valkyriweb/lue-kube#584` — Cloud Pi runtime image bumped to herdr `0.7.1` and deployed.
+- Live state after those PRs: `cloud-pi-status` showed `pi 0.80.6`, `pi-profile persistent 0.2.26`, OTEL endpoint `http://otel-gateway.observability.svc.cluster.local:4318`, and `herdr 0.7.1`.
+- Root cause found: Cloud Pi herdr sluggishness was not raw network latency or degraded Longhorn; it was CPU starvation/noisy-neighbor pressure on `lue-and-naddy-mbp-old` when `lue-kube-arc` CI runners stacked at ~2 CPU each on the same node as cloud-pi and etcd/control-plane. ICMP ping was ~5ms, but terminal responsiveness suffered because node CPU PSI spiked.
+- Follow-up issues:
+  - `https://github.com/valkyriweb/lue-kube/issues/579` — Stage 1: arm64 CI burst pool (Mac Mini + laptop) to offload CI off etcd/home nodes.
+  - `https://github.com/valkyriweb/lue-kube/issues/581` — Stage 3: etcd HA hardening (demote mbp-old, 3rd independent control-plane, taints, failure domains).
+
+Before doing any implementation:
+- Find the `valkyriweb/lue-kube` repo from the current directory, a parent directory, or the usual workspace.
+- Read local repo/agent instructions and the relevant docs/runbooks for Flux, GitOps, cloud-pi, github-runners/ARC, Longhorn, and etcd restore drills.
+- Re-check live GitHub/Flux/Kubernetes state. Do not assume the issue bodies or this prompt are current.
+- Inspect recent commits/PRs around cloud-pi, github-runners, BuildKit, Longhorn, and control-plane nodes.
+- Decide whether each follow-up is still real, whether the proposed direction is the best direction, and whether there is a smaller safer slice.
+- Call out stale assumptions, hidden risks, and anything that should stop or defer the work.
+
+Task A — arm64 CI burst pool / laptop compute (`#579`):
+- Goal: make CI/build/batch capacity burst onto arm64 nodes (`lue-mac-mini-cm-01` and the laptop node `lue-mbp-cm-01` when online) so amd64 home/control nodes stop being starved by ARC runner bursts.
+- Review the ARC runner scale sets, especially `lue-kube-arc`, and verify which workloads truly require amd64 vs can run on arm64. Remember that Docker/image builds should offload to the BuildKit pool via `BUILDKIT_HOST`; runner architecture may not need to match build target if the build is remote/multi-platform capable.
+- Verify `ghcr.io/actions/actions-runner` architecture support, BuildKit behavior from arm64 runners, and any repo-specific tools that might be amd64-only.
+- Design scheduling policy:
+  - Prefer/tolerate `smoke-worker`/burst nodes for CI where safe.
+  - Keep stateful workloads, Longhorn replicas, etcd, and singleton runtime state off flapping laptop nodes.
+  - The laptop should be extra compute when online, never authoritative state.
+  - Include auto-cordon/uncordon on Tailscale/laptop availability, short unreachable tolerations, and PDB/eviction behavior where appropriate.
+- Balance CI throughput with node protection. Do not slow all CI unnecessarily; preserve fast and efficient builds.
+
+Task B — robust etcd HA hardening (`#581`):
+- First verify current etcd/control-plane topology and health. Known recent state: three etcd/control-plane members were `lue-and-naddy-mbp-old`, `lue-kube-cp-01`, and `lue-kube-cp-02`; `cp-01`/`cp-02` had `control-plane:NoSchedule`, while `mbp-old` did not.
+- Recognize that 3-member etcd is already quorum-HA, but fragile if one member is an overloaded home node and the quorum is stretched over Tailscale/home internet.
+- Assess failure domains: confirm whether `cp-01` and `cp-02` are genuinely independent provider/region/failure domains. If they are same provider/region, propose the right third independent control-plane node.
+- Evaluate the best target design:
+  - likely demote `mbp-old` from control-plane/etcd to plain worker;
+  - run three dedicated, low-latency, independent etcd/control-plane nodes;
+  - taint all control-plane nodes so CI/apps/cloud-pi do not land there;
+  - keep member count odd;
+  - verify local disk/fsync characteristics;
+  - ensure offsite snapshots and a tested restore drill.
+- Do not make destructive control-plane membership changes without an explicit, reviewed runbook and Luke's go-ahead.
+
+Constraints and non-goals:
+- Flux/Git is the source of truth. Avoid live drift; changes should land through manifests/PRs unless explicitly doing a read-only investigation.
+- No deletes. Use rollout/scale/reconcile patterns. Do not `kubectl delete` pods/resources.
+- Do not move state onto laptop/burst nodes.
+- Do not demote/add etcd members casually; that is a high-risk infra operation requiring a staged plan, backups, rollback path, and approval.
+- Do not push, merge, close issues/PRs, label, or post public comments unless explicitly told.
+
+Validation expectations:
+- For Task A: provide evidence from CI runs, runner scheduling, node CPU/memory/PSI before/after, and proof that builds still run fast enough.
+- For Task B: provide etcd member health, snapshot status, failure-domain assessment, and a migration/rollback plan before any mutation.
+- Any manifest changes should pass kustomize render, policy/image checks, server-side dry-run where relevant, PR CI, Flux reconcile, and live smoke checks.
+
+Output:
+- Start with review findings and a recommendation: what is safe to do now, what should be planned, and what should not be done.
+- Then propose a staged plan with risk levels and rollout order.
+- If implementing, keep changes scoped to one slice, open a PR, wait for checks, and report exact proof.
+- Include follow-up links and next actions for anything deferred.
+
+
+selected gpt-5.4 - medium thinking, is that fair / correct?
+
+---
+
+ok lets do it, minTier doesn't need to be frontier, can be medium sized models, but also every time I've used pi openai-codex/auto as the model it has selected gpt-5.4 medium thinking, can we confirm if there is anything wrong with the semantic router, and if it is working as intentned / clearly?
