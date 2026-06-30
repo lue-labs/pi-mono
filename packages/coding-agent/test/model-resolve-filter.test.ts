@@ -77,6 +77,48 @@ describe("model:resolve startup filter", () => {
 		expect(result.modelFallbackMessage).toContain("Auto model pi-fork/auto selected claude-bridge/claude-sonnet-4-6");
 	});
 
+	it("defers an interactive auto alias until semantic prompt text exists", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-deferred-"));
+		let called = false;
+		addFilter<any>("model:resolve", "test-model-resolve", (value) => {
+			called = true;
+			return {
+				...value,
+				model: routedModel,
+				thinkingLevel: "low",
+				metadata: { route: value.requestedModel, tier: "cheap" },
+			};
+		});
+
+		const sessionManager = SessionManager.inMemory();
+		const result = await createAgentSession({
+			cwd: tempDir,
+			agentDir: tempDir,
+			resourceLoader: createTestResourceLoader(),
+			sessionManager,
+			settingsManager: SettingsManager.create(tempDir, tempDir),
+			modelRegistry: fakeModelRegistry(),
+			model: baseModel,
+			thinkingLevel: "high",
+			requestedModel: "openai-codex/auto",
+			routingMetadata: { appMode: "interactive", promptPreview: "", promptLength: 0 },
+			deferRequestedModelResolution: true,
+		});
+
+		expect(called).toBe(false);
+		expect(result.session.pendingAutoModelAlias).toBe("openai-codex/auto");
+		expect(result.session.model?.id).toBe("claude-opus-4-8");
+		expect(sessionManager.buildSessionContext().model).toBeNull();
+
+		await (result.session as any)._resolvePendingAutoModelForPrompt("Implement the router boundary tests");
+
+		expect(called).toBe(true);
+		expect(result.session.pendingAutoModelAlias).toBeUndefined();
+		expect(result.session.model?.id).toBe("claude-sonnet-4-6");
+		expect(result.session.thinkingLevel).toBe("low");
+		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-sonnet-4-6");
+	});
+
 	it("passes initial routing metadata into the startup filter", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-metadata-"));
 		let seenRoutingMetadata: unknown;

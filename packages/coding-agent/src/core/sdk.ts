@@ -61,6 +61,8 @@ export interface CreateAgentSessionOptions {
 	requestedModel?: string;
 	/** Prompt/session metadata available to pre-session model routing hooks. Must not include cached system/tools bytes. */
 	routingMetadata?: Record<string, unknown>;
+	/** Defer requested auto-alias resolution until the first prompt supplies semantic input. */
+	deferRequestedModelResolution?: boolean;
 	/** Models available for cycling (Ctrl+P in interactive mode) */
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
@@ -297,7 +299,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	const sessionSource = options.source ?? "interactive";
 	const requestedModel = options.requestedModel?.trim();
-	if (requestedModel && model && !hasExistingSession) {
+	const pendingRequestedModel =
+		requestedModel && options.deferRequestedModelResolution && !hasExistingSession ? requestedModel : undefined;
+	if (requestedModel && model && !hasExistingSession && !pendingRequestedModel) {
 		const before = model;
 		const resolved = await applyFilters(
 			"model:resolve",
@@ -514,8 +518,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			sessionManager.appendThinkingLevelChange(thinkingLevel);
 		}
 	} else {
-		// Save initial model and thinking level for new sessions so they can be restored on resume
-		if (model) {
+		// Save initial model and thinking level for new sessions so they can be restored on resume.
+		// Pending auto aliases intentionally do not persist the seed model as a concrete choice;
+		// the first real prompt will resolve and persist the selected model at that cache boundary.
+		if (model && !pendingRequestedModel) {
 			sessionManager.appendModelChange(model.provider, model.id);
 		}
 		sessionManager.appendThinkingLevelChange(thinkingLevel);
@@ -540,6 +546,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 		source: sessionSource,
+		pendingAutoModelRequest: pendingRequestedModel
+			? { requestedModel: pendingRequestedModel, routingMetadata: options.routingMetadata }
+			: undefined,
 	});
 	const extensionsResult = resourceLoader.getExtensions();
 

@@ -422,10 +422,11 @@ export class FooterComponent implements Component {
 		if (statsLeftWidth > width) statsLeftWidth = visibleWidth(truncateToWidth(statsLeft, width, "..."));
 
 		// Right side: model (warm yellow) · thinking level (teal)
-		const modelName = state.model?.id || "no-model";
+		const pendingAutoModelAlias = this.session.pendingAutoModelAlias;
+		const modelName = pendingAutoModelAlias ?? state.model?.id ?? "no-model";
 		const rightParts: string[] = [];
 		rightParts.push(theme.fg("syntaxFunction", modelName));
-		if (state.model?.reasoning) {
+		if (!pendingAutoModelAlias && state.model?.reasoning) {
 			const thinkingLevel = state.thinkingLevel || "off";
 			rightParts.push(thinkingLevel === "off" ? theme.fg("dim", "thinking off") : theme.fg("accent", thinkingLevel));
 		}
@@ -433,7 +434,7 @@ export class FooterComponent implements Component {
 
 		// Prepend provider if multiple providers and there's room
 		const minPadding = 2;
-		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
+		if (this.footerData.getAvailableProviderCount() > 1 && state.model && !pendingAutoModelAlias) {
 			const withProvider = theme.fg("dim", `(${state.model.provider}) `) + rightSide;
 			if (statsLeftWidth + minPadding + visibleWidth(withProvider) <= width) {
 				rightSide = withProvider;

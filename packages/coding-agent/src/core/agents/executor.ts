@@ -450,6 +450,7 @@ function createInitialRunDetails(options: {
 		task: options.task.task,
 		description: options.task.description,
 		status: "running",
+		startedAt: options.startedAt,
 		context: resolveContextPolicy(options.task.context),
 		model: formatModelForDetails(options.model),
 		thinking: options.thinking,

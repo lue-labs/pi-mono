@@ -392,26 +392,27 @@ function buildSessionOptions(
 		const isAutoRequest = isAutoModelRequest(parsed.model);
 		if (isAutoRequest) {
 			options.requestedModel = parsed.model;
-		}
-		const resolved = resolveCliModel({
-			cliProvider: parsed.provider,
-			cliModel: parsed.model,
-			cliThinking: parsed.thinking,
-			modelRegistry,
-		});
-		if (resolved.warning && !isAutoRequest) {
-			diagnostics.push({ type: "warning", message: resolved.warning });
-		}
-		if (resolved.error && !isAutoRequest) {
-			diagnostics.push({ type: "error", message: resolved.error });
-		}
-		if (resolved.model) {
-			options.model = resolved.model;
-			// Allow "--model <pattern>:<thinking>" as a shorthand.
-			// Explicit --thinking still takes precedence (applied later).
-			if (!parsed.thinking && resolved.thinkingLevel) {
-				options.thinkingLevel = resolved.thinkingLevel;
-				cliThinkingFromModel = true;
+		} else {
+			const resolved = resolveCliModel({
+				cliProvider: parsed.provider,
+				cliModel: parsed.model,
+				cliThinking: parsed.thinking,
+				modelRegistry,
+			});
+			if (resolved.warning) {
+				diagnostics.push({ type: "warning", message: resolved.warning });
+			}
+			if (resolved.error) {
+				diagnostics.push({ type: "error", message: resolved.error });
+			}
+			if (resolved.model) {
+				options.model = resolved.model;
+				// Allow "--model <pattern>:<thinking>" as a shorthand.
+				// Explicit --thinking still takes precedence (applied later).
+				if (!parsed.thinking && resolved.thinkingLevel) {
+					options.thinkingLevel = resolved.thinkingLevel;
+					cliThinkingFromModel = true;
+				}
 			}
 		}
 	}
@@ -761,6 +762,15 @@ export async function main(args: string[], options?: MainOptions) {
 			}
 		}
 
+		const hasExistingMessages = sessionManager.buildSessionContext().messages.length > 0;
+		const shouldDeferAutoRouting =
+			isInitialRuntime &&
+			!hasExistingMessages &&
+			sessionOptions.requestedModel !== undefined &&
+			appMode === "interactive" &&
+			initialRoutingMetadata.promptLength === 0 &&
+			initialRoutingMetadata.fileArgCount === 0;
+
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager,
@@ -769,6 +779,7 @@ export async function main(args: string[], options?: MainOptions) {
 			thinkingLevel: sessionOptions.thinkingLevel,
 			requestedModel: sessionOptions.requestedModel,
 			routingMetadata: isInitialRuntime ? initialRoutingMetadata : undefined,
+			deferRequestedModelResolution: shouldDeferAutoRouting,
 			scopedModels: sessionOptions.scopedModels,
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
