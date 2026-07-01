@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "64e229e1ab71",
+  "strategy": "manual-commit",
+  "branch": "wip/my-pi-closeout-20260630",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/llm-router-auto-model/README.md",
+    "extensions/llm-router-auto-model/index.ts",
+    "extensions/llm-router-auto-model/test-load.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/64/e229e1ab71/0/metadata.json",
+      "transcript": "/64/e229e1ab71/0/full.jsonl",
+      "content_hash": "/64/e229e1ab71/0/content_hash.txt",
+      "prompt": "/64/e229e1ab71/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18680,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 904576,
+    "output_tokens": 2282,
+    "api_call_count": 9
+  }
+}

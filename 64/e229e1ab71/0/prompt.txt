@@ -1,0 +1,1 @@
+but /goal should be able to route to anymodel, why have we added a guard for this? remove that guard
