@@ -435,18 +435,26 @@ export class FooterComponent implements Component {
 
 		// Right side: model (warm yellow) · thinking level (teal)
 		const pendingAutoModelAlias = this.session.pendingAutoModelAlias;
-		const modelName = pendingAutoModelAlias ?? state.model?.id ?? "no-model";
+		const resolvedModelName = state.model?.id ?? "no-model";
+		const hasResolvedAutoModel = Boolean(
+			pendingAutoModelAlias && state.model && state.model.id !== pendingAutoModelAlias,
+		);
+		const modelName = hasResolvedAutoModel
+			? `${pendingAutoModelAlias} → ${resolvedModelName}`
+			: (pendingAutoModelAlias ?? resolvedModelName);
 		const rightParts: string[] = [];
 		rightParts.push(theme.fg("syntaxFunction", modelName));
-		if (!pendingAutoModelAlias && state.model?.reasoning) {
+		if (state.model?.reasoning) {
 			const thinkingLevel = state.thinkingLevel || "off";
 			rightParts.push(thinkingLevel === "off" ? theme.fg("dim", "thinking off") : theme.fg("accent", thinkingLevel));
 		}
 		let rightSide = rightParts.join(sep);
 
-		// Prepend provider if multiple providers and there's room
+		// Prepend provider if multiple providers and there's room. For deferred auto
+		// aliases, keep the alias visible but still expose the concrete provider/model
+		// currently backing the session.
 		const minPadding = 2;
-		if (this.footerData.getAvailableProviderCount() > 1 && state.model && !pendingAutoModelAlias) {
+		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
 			const withProvider = theme.fg("dim", `(${state.model.provider}) `) + rightSide;
 			if (statsLeftWidth + minPadding + visibleWidth(withProvider) <= width) {
 				rightSide = withProvider;

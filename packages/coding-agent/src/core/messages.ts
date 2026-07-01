@@ -5,8 +5,10 @@
  * and provides a transformer to convert them to LLM-compatible messages.
  */
 
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
+import type { AgentMessage, CustomMessage } from "@valkyriweb/pi-agent-core";
 import type { ImageContent, Message, TextContent } from "@valkyriweb/pi-ai";
+
+export type { CustomMessage };
 
 export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
 
@@ -37,19 +39,6 @@ export interface BashExecutionMessage {
 	timestamp: number;
 	/** If true, this message is excluded from LLM context (!! prefix) */
 	excludeFromContext?: boolean;
-}
-
-/**
- * Message type for extension-injected messages via sendMessage().
- * These are custom messages that extensions can inject into the conversation.
- */
-export interface CustomMessage<T = unknown> {
-	role: "custom";
-	customType: string;
-	content: string | (TextContent | ImageContent)[];
-	display: boolean;
-	details?: T;
-	timestamp: number;
 }
 
 export interface BranchSummaryMessage {
