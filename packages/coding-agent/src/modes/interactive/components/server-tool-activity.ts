@@ -5,8 +5,8 @@ import { theme } from "../theme/theme.ts";
 const MAX_SOURCES_SHOWN = 5;
 
 /**
- * Display-only activity card for provider-executed (server-side) web tools —
- * Anthropic native `web_search` / `web_fetch`. These run inside the model turn on
+ * Display-only activity card for provider-executed (server-side) tools —
+ * Anthropic native `web_search` / `web_fetch` / `advisor`. These run inside the model turn on
  * the provider side, so they never become real tool calls (no local execution, no
  * round-trip). They are surfaced via `server_tool_use` / `server_tool_result`
  * stream events and rendered here as a distinct activity card, intentionally
@@ -40,7 +40,7 @@ export class ServerToolActivityComponent extends Container {
 	}
 
 	private title(): string {
-		const verb = this.toolName === "web_fetch" ? "Web fetch" : "Web search";
+		const verb = this.toolName === "web_fetch" ? "Web fetch" : this.toolName === "advisor" ? "Advisor" : "Web search";
 		const icon = this.status === "error" ? "✗" : this.status === "completed" ? "✓" : "…";
 		const subject = this.query ?? this.url;
 		return `${icon} ${verb}${subject ? `: ${subject}` : ""}`;
