@@ -292,7 +292,7 @@ class SessionList implements Component, Focusable {
 	private searchInput: Input;
 	private showCwd = false;
 	private sortMode: SortMode = "threaded";
-	private nameFilter: NameFilter = "all";
+	private nameFilter: NameFilter = "named";
 	private keybindings: KeybindingsManager;
 	private showPath = false;
 	private confirmingDeletePath: string | null = null;
@@ -733,7 +733,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 	private keybindings: KeybindingsManager;
 	private scope: SessionScope = "current";
 	private sortMode: SortMode = "threaded";
-	private nameFilter: NameFilter = "all";
+	private nameFilter: NameFilter = "named";
 	private currentSessions: SessionInfo[] | null = null;
 	private allSessions: SessionInfo[] | null = null;
 	private currentSessionsLoader: SessionsLoader;
