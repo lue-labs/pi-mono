@@ -37,7 +37,7 @@ import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { createSyntheticSourceInfo } from "../source-info.ts";
-import { time } from "../timings.ts";
+import { recordTiming, time, timingsEnabled } from "../timings.ts";
 import {
 	addAction,
 	addFilter,
@@ -934,6 +934,7 @@ async function loadExtensionsInternal(
 	const resolvedEventBus = eventBus ?? createEventBus();
 	const resolvedRuntime = runtime ?? createExtensionRuntime();
 
+	const timing = timingsEnabled();
 	for (const input of inputs) {
 		const { path: extPath, load } = normalizeLoadRequest(input);
 		if (load === "deferred") {
@@ -941,6 +942,7 @@ async function loadExtensionsInternal(
 			continue;
 		}
 
+		const startedAt = timing ? performance.now() : 0;
 		const { extension, error } = await loadExtension(
 			extPath,
 			resolvedCwd,
@@ -948,6 +950,9 @@ async function loadExtensionsInternal(
 			resolvedRuntime,
 			cacheToken,
 		);
+		if (timing) {
+			recordTiming(`import ${extPath}`, performance.now() - startedAt, "extensions");
+		}
 
 		if (error) {
 			errors.push({ path: extPath, error });

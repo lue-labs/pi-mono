@@ -15,6 +15,7 @@ import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import { timeExtension, timingsEnabled } from "../timings.ts";
 import { applyFilters } from "./extension-hooks.ts";
 import { getExtensionProcessService, loadDeferredExtension } from "./loader.ts";
 import type {
@@ -1081,11 +1082,13 @@ export class ExtensionRunner {
 		if (this.staleMessage) return undefined as RunnerEmitResult<TEvent>;
 		const ctx = this.createContext();
 		let result: SessionBeforeEventResult | undefined;
+		const timeHandlers = event.type === "session_start" && timingsEnabled();
 
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get(event.type);
 			if (!handlers || handlers.length === 0) continue;
 
+			const startedAt = timeHandlers ? performance.now() : 0;
 			for (const handler of handlers) {
 				try {
 					const handlerResult = await handler(event, ctx);
@@ -1106,6 +1109,9 @@ export class ExtensionRunner {
 						stack,
 					});
 				}
+			}
+			if (timeHandlers) {
+				timeExtension(`session_start ${ext.path}`, performance.now() - startedAt);
 			}
 		}
 
