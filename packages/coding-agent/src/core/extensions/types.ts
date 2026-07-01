@@ -482,6 +482,18 @@ export interface ForkAgentOptions {
 	systemPrompt?: string;
 	/** Abort signal chained with `ctx.signal`. */
 	signal?: AbortSignal;
+	/**
+	 * Detach the fork from the parent session's abort signal. By default the
+	 * fork's effective signal is `AbortSignal.any([opts.signal, parent.signal])`,
+	 * so `AgentSession.dispose()` / `agent.abort()` cancels an in-flight fork.
+	 *
+	 * When true, the parent signal is NOT chained in — only `opts.signal` (if
+	 * any) governs the fork. Use for best-effort background work that must survive
+	 * a session replacement/dispose and is instead bounded by the caller's own
+	 * drain (e.g. pi-memory turn-end extraction flushed on `session_shutdown`).
+	 * Additive and opt-in: default (unset/false) preserves prior behaviour.
+	 */
+	detachFromParent?: boolean;
 	/** Short human label for logs/UI. */
 	description?: string;
 	/**

@@ -183,6 +183,53 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		runtimeHost.setRebindSession(undefined);
 	});
 
+	// R3 invariant lock (pi-memory drain-before-abort): teardownCurrent must
+	// `await emitSessionShutdownEvent(...)` to completion BEFORE `session.dispose()`.
+	// pi-memory registers an async `session_shutdown` handler that drains an
+	// in-flight turn-end extraction (drain(60_000)); if dispose() ran before that
+	// awaited handler resolved, the extraction fork's parent session would be torn
+	// down mid-flight. This guards the ordering so a future refactor can't move
+	// dispose() ahead of the awaited drain.
+	it("awaits an async session_shutdown handler (drain) before disposing the old session", async () => {
+		const phases: string[] = [];
+		let releaseDrain!: () => void;
+		const drainGate = new Promise<void>((r) => {
+			releaseDrain = r;
+		});
+		const { runtimeHost } = await createRuntimeHost((pi) => {
+			pi.on("session_shutdown", async () => {
+				phases.push("drain:start");
+				await drainGate; // stand-in for pi-memory's bounded drain(60_000)
+				phases.push("drain:done");
+			});
+		});
+		const oldSession = runtimeHost.session;
+
+		// newSession() must not resolve until the awaited drain completes.
+		let newSessionResolved = false;
+		const pending = runtimeHost.newSession().then((r) => {
+			newSessionResolved = true;
+			return r;
+		});
+
+		// While the drain is gated: the handler has started, newSession is still
+		// pending, and the old session is NOT yet disposed (ctx still usable).
+		await new Promise((r) => setTimeout(r, 10));
+		expect(phases).toEqual(["drain:start"]);
+		expect(newSessionResolved).toBe(false);
+		expect(() => oldSession.extensionRunner.createContext().cwd).not.toThrow();
+
+		// Release the drain → teardown proceeds to dispose() only now.
+		releaseDrain();
+		await pending;
+		expect(phases).toEqual(["drain:start", "drain:done"]);
+		// dispose() ran strictly after the awaited drain: the old ctx is now stale.
+		expect(() => oldSession.extensionRunner.createContext().cwd).toThrow(
+			"This extension ctx is stale after session replacement or reload",
+		);
+		await runtimeHost.session.bindExtensions({});
+	});
+
 	it("emits session_before_fork and session_start and honors cancellation", async () => {
 		const events: RecordedSessionEvent[] = [];
 		let cancelNextFork = false;
