@@ -6,6 +6,7 @@ import { type Static, Type } from "typebox";
 import { renderDiff } from "../../modes/interactive/components/diff.ts";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import { renderHunks } from "../../utils/color-diff.ts";
+import { isPierreDiffRendererEnabled, renderPierrePatchToAnsi } from "../../utils/pierre-diff.ts";
 import type { ToolDefinition } from "../extensions/types.ts";
 import {
 	applyEditsToNormalizedContent,
@@ -78,7 +79,60 @@ export interface EditToolDetails {
  * background colours (green/red lines, word-level changes) using the
  * ColorDiff engine adapted from Claude Code.
  */
-class ColorDiffComponent {
+type PierreRenderCacheEntry = {
+	lines?: string[];
+	promise?: Promise<void>;
+	failed?: boolean;
+};
+
+const pierreRenderCache = new Map<string, PierreRenderCacheEntry>();
+
+class PierreBackedDiffComponent {
+	private readonly patch?: string;
+	private readonly invalidateHost?: () => void;
+
+	constructor(patch?: string, invalidateHost?: () => void) {
+		this.patch = patch;
+		this.invalidateHost = invalidateHost;
+	}
+
+	protected tryRenderPierre(width: number): string[] | undefined {
+		const themeName = (theme.name?.toLowerCase() ?? "").includes("light") ? "light" : "dark";
+		if (!isPierreDiffRendererEnabled() || !this.patch) {
+			return undefined;
+		}
+		const cacheKey = `${themeName}:${width}:${this.patch}`;
+		const cached = pierreRenderCache.get(cacheKey);
+		if (cached?.lines) {
+			return cached.lines;
+		}
+		if (cached?.failed) {
+			return undefined;
+		}
+		if (!cached?.promise) {
+			const entry: PierreRenderCacheEntry = {};
+			entry.promise = renderPierrePatchToAnsi(this.patch, width, { theme: themeName })
+				.then((lines) => {
+					entry.lines = lines;
+					entry.promise = undefined;
+					this.invalidateHost?.();
+				})
+				.catch(() => {
+					entry.failed = true;
+					entry.promise = undefined;
+				});
+			pierreRenderCache.set(cacheKey, entry);
+		}
+		return undefined;
+	}
+
+	invalidate(): void {
+		// Pierre render results are cached across component rebuilds because
+		// ToolExecutionComponent invalidation reconstructs renderer children.
+	}
+}
+
+class ColorDiffComponent extends PierreBackedDiffComponent {
 	private readonly hunks: DiffHunk[];
 	private readonly filePath: string;
 	private readonly originalContent: string | null;
@@ -87,7 +141,15 @@ class ColorDiffComponent {
 	private cachedTheme?: string;
 	private cachedLines?: string[];
 
-	constructor(hunks: DiffHunk[], filePath: string, originalContent: string | null, dim: boolean) {
+	constructor(
+		hunks: DiffHunk[],
+		filePath: string,
+		originalContent: string | null,
+		dim: boolean,
+		patch?: string,
+		invalidateHost?: () => void,
+	) {
+		super(patch, invalidateHost);
 		this.hunks = hunks;
 		this.filePath = filePath;
 		this.originalContent = originalContent;
@@ -95,6 +157,9 @@ class ColorDiffComponent {
 	}
 
 	render(width: number): string[] {
+		const pierreLines = this.tryRenderPierre(width);
+		if (pierreLines) return pierreLines;
+
 		const themeName = (theme.name?.toLowerCase() ?? "").includes("light") ? "light" : "dark";
 		if (this.cachedLines && this.cachedWidth === width && this.cachedTheme === themeName) {
 			return this.cachedLines;
@@ -107,10 +172,30 @@ class ColorDiffComponent {
 		return lines;
 	}
 
-	invalidate(): void {
+	override invalidate(): void {
+		super.invalidate();
 		this.cachedWidth = undefined;
 		this.cachedLines = undefined;
 		this.cachedTheme = undefined;
+	}
+}
+
+class PlainDiffComponent extends PierreBackedDiffComponent {
+	private readonly diff: string;
+	private readonly filePath?: string;
+	private cachedText?: string;
+
+	constructor(diff: string, filePath?: string, patch?: string, invalidateHost?: () => void) {
+		super(patch, invalidateHost);
+		this.diff = diff;
+		this.filePath = filePath;
+	}
+
+	render(width: number): string[] {
+		const pierreLines = this.tryRenderPierre(width);
+		if (pierreLines) return pierreLines;
+		this.cachedText ??= renderDiff(this.diff, { filePath: this.filePath });
+		return this.cachedText.split("\n");
 	}
 }
 
@@ -241,6 +326,13 @@ function getRenderablePreviewInput(args: RenderableEditArgs | undefined): { path
 	return null;
 }
 
+function hasRenderableStreamingDiff(previewInput: { path: string; edits: Edit[] } | null): previewInput is {
+	path: string;
+	edits: Edit[];
+} {
+	return previewInput?.edits.every((edit) => edit.oldText.length > 0) ?? false;
+}
+
 function formatEditCall(args: RenderableEditArgs | undefined, theme: Theme, label: string, cwd: string): string {
 	const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
 	return `${theme.fg("toolTitle", theme.bold(label))} ${pathDisplay}`;
@@ -302,6 +394,7 @@ function buildEditCallComponent(
 	theme: Theme,
 	label: string,
 	cwd: string,
+	invalidateHost?: () => void,
 ): EditCallRenderComponent {
 	component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
 	component.clear();
@@ -318,11 +411,20 @@ function buildEditCallComponent(
 		const rawPath = str((args as RenderableEditArgs)?.file_path ?? (args as RenderableEditArgs)?.path);
 		const filePath = rawPath ?? "";
 		component.addChild(
-			new ColorDiffComponent(component.preview.hunks, filePath, component.preview.originalContent ?? null, false),
+			new ColorDiffComponent(
+				component.preview.hunks,
+				filePath,
+				component.preview.originalContent ?? null,
+				false,
+				component.preview.patch,
+				invalidateHost,
+			),
 		);
 	} else {
-		const body = renderDiff(component.preview.diff);
-		component.addChild(new Text(body, 0, 0));
+		const rawPath = str((args as RenderableEditArgs)?.file_path ?? (args as RenderableEditArgs)?.path);
+		component.addChild(
+			new PlainDiffComponent(component.preview.diff, rawPath ?? undefined, component.preview.patch, invalidateHost),
+		);
 	}
 	return component;
 }
@@ -449,7 +551,7 @@ export function createEditToolDefinition(
 				component.settledError = false;
 			}
 
-			if (context.argsComplete && previewInput && !component.preview && !component.previewPending) {
+			if (hasRenderableStreamingDiff(previewInput) && !component.preview && !component.previewPending) {
 				component.previewPending = true;
 				const requestKey = argsKey;
 				void computeEditsDiff(previewInput.path, previewInput.edits, context.cwd).then((preview) => {
@@ -460,7 +562,7 @@ export function createEditToolDefinition(
 				});
 			}
 
-			return buildEditCallComponent(component, args, theme, label, context.cwd);
+			return buildEditCallComponent(component, args, theme, label, context.cwd, context.invalidate);
 		},
 		renderResult(result, _options, theme, context) {
 			const callComponent = context.state.callComponent;
@@ -481,6 +583,7 @@ export function createEditToolDefinition(
 								firstChangedLine: typedResult.details?.firstChangedLine,
 								hunks: typedResult.details?.hunks ?? [],
 								originalContent: typedResult.details?.originalContentPreview ?? "",
+								patch: typedResult.details?.patch ?? "",
 							},
 							argsKey,
 						) || changed;
@@ -496,6 +599,7 @@ export function createEditToolDefinition(
 						theme,
 						label,
 						context.cwd,
+						context.invalidate,
 					);
 				}
 			}
@@ -519,10 +623,18 @@ export function createEditToolDefinition(
 						rawPath ?? "",
 						typedResult.details.originalContentPreview ?? null,
 						false,
+						typedResult.details.patch,
+						context.invalidate,
 					),
 				);
 			} else {
-				component.addChild(new Text(output, 1, 0));
+				const rawPath = str(
+					(context.args as RenderableEditArgs | undefined)?.file_path ??
+						(context.args as RenderableEditArgs | undefined)?.path,
+				);
+				component.addChild(
+					new PlainDiffComponent(output, rawPath ?? undefined, typedResult.details?.patch, context.invalidate),
+				);
 			}
 			return component;
 		},

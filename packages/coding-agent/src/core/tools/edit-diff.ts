@@ -323,6 +323,7 @@ export function generateDiffString(
 
 export interface EditDiffResult {
 	diff: string;
+	patch: string;
 	firstChangedLine: number | undefined;
 	hunks: DiffHunk[];
 	originalContent: string;
@@ -361,7 +362,8 @@ export async function computeEditsDiff(
 		const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, path);
 
 		// Generate the diff
-		return generateDiffString(baseContent, newContent);
+		const diffResult = generateDiffString(baseContent, newContent);
+		return { ...diffResult, patch: generateUnifiedPatch(path, baseContent, newContent) };
 	} catch (err) {
 		return { error: err instanceof Error ? err.message : String(err) };
 	}
