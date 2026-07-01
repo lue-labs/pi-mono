@@ -33,10 +33,9 @@ const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
 
 function resolveTimeoutMs(timeout: number | undefined): Result<number | undefined, ExecutionError> {
 	if (timeout === undefined) return ok(undefined);
-	if (!Number.isFinite(timeout)) {
+	if (!Number.isFinite(timeout) || timeout <= 0) {
 		return err(new ExecutionError("timeout", "Invalid timeout: must be a finite number of seconds"));
 	}
-	if (timeout <= 0) return ok(undefined);
 
 	const timeoutMs = timeout * 1000;
 	if (timeoutMs > MAX_TIMEOUT_MS) {
