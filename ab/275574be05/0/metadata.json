@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.7.8",
+  "checkpoint_id": "ab275574be05",
+  "session_id": "019f1a28-cea8-7040-a7bf-c2707d028c56",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-01T08:55:30.664056Z",
+  "branch": "feat/improve-trigger-slash-only",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".changeset/improve-trigger-slash-only.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "9f2affb6268b",
+  "checkpoint_transcript_start": 2209,
+  "transcript_lines_at_start": 2209,
+  "token_usage": {
+    "input_tokens": 118001,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 778240,
+    "output_tokens": 2712,
+    "api_call_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-01T08:55:30.490603Z",
+    "agent_lines": 5,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 5,
+    "total_lines_changed": 5,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

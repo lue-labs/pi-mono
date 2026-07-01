@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.8",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "ab275574be05",
+  "strategy": "manual-commit",
+  "branch": "feat/improve-trigger-slash-only",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".changeset/improve-trigger-slash-only.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ab/275574be05/0/metadata.json",
+      "transcript": "/ab/275574be05/0/full.jsonl",
+      "compact_transcript": "/ab/275574be05/0/transcript.jsonl",
+      "content_hash": "/ab/275574be05/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 118001,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 778240,
+    "output_tokens": 2712,
+    "api_call_count": 8
+  }
+}
