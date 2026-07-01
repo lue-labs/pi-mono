@@ -48,7 +48,7 @@ describe("Cache Retention (PI_CACHE_RETENTION)", () => {
 
 	describe("Anthropic Provider", () => {
 		it.skipIf(!process.env.ANTHROPIC_API_KEY)(
-			"should use default cache TTL (no ttl field) when PI_CACHE_RETENTION is not set",
+			"should default to 1h cache TTL when PI_CACHE_RETENTION is not set (default long, #147)",
 			async () => {
 				const model = pickModel("anthropic");
 				let capturedPayload: any = null;
@@ -65,9 +65,9 @@ describe("Cache Retention (PI_CACHE_RETENTION)", () => {
 				}
 
 				expect(capturedPayload).not.toBeNull();
-				// System prompt should have cache_control without ttl
+				// Default retention is "long" (#147) -> 1h ttl on models that support it
 				expect(capturedPayload.system).toBeDefined();
-				expect(capturedPayload.system[0].cache_control).toEqual({ type: "ephemeral" });
+				expect(capturedPayload.system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 			},
 		);
 
@@ -208,7 +208,8 @@ describe("Cache Retention (PI_CACHE_RETENTION)", () => {
 			const lastMessage = capturedPayload.messages[capturedPayload.messages.length - 1];
 			expect(Array.isArray(lastMessage.content)).toBe(true);
 			const lastBlock = lastMessage.content[lastMessage.content.length - 1];
-			expect(lastBlock.cache_control).toEqual({ type: "ephemeral" });
+			// Default retention is "long" (#147) -> 1h ttl on models that support it
+			expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 		});
 
 		it("should set 1h cache TTL when cacheRetention is long", async () => {
@@ -238,7 +239,7 @@ describe("Cache Retention (PI_CACHE_RETENTION)", () => {
 
 	describe("OpenAI Responses Provider", () => {
 		it.skipIf(!process.env.OPENAI_API_KEY)(
-			"should not set prompt_cache_retention when PI_CACHE_RETENTION is not set",
+			"should default prompt_cache_retention to 24h when PI_CACHE_RETENTION is not set (default long, #147)",
 			async () => {
 				const model = pickModel("openai");
 				let capturedPayload: any = null;
@@ -255,7 +256,7 @@ describe("Cache Retention (PI_CACHE_RETENTION)", () => {
 				}
 
 				expect(capturedPayload).not.toBeNull();
-				expect(capturedPayload.prompt_cache_retention).toBeUndefined();
+				expect(capturedPayload.prompt_cache_retention).toBe("24h");
 			},
 		);
 
