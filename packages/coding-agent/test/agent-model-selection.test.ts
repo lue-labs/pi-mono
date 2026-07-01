@@ -179,6 +179,44 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.4-mini");
 	});
 
+	test("provider-qualified model refs do not fuzzy-match proxy provider ids", () => {
+		const faux = registerFauxProvider({
+			provider: "kilo",
+			models: [{ id: "missing-provider/foo-model", name: "Proxy Model via Kilo", reasoning: true }],
+		});
+		registrations.push(faux);
+		const auth = AuthStorage.inMemory();
+		auth.setRuntimeApiKey("kilo", "faux-key");
+		const registry = ModelRegistry.inMemory(auth);
+		registry.registerProvider("kilo", {
+			baseUrl: faux.getModel().baseUrl,
+			apiKey: "faux-key",
+			api: faux.api,
+			models: faux.models.map((model) => ({
+				id: model.id,
+				name: model.name,
+				api: model.api,
+				reasoning: model.reasoning,
+				input: model.input,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				maxTokens: model.maxTokens,
+				baseUrl: model.baseUrl,
+			})),
+		});
+		const parent = registry.getAvailable().find((m) => m.provider === "kilo");
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "inherit" };
+
+		expect(() =>
+			resolveAgentModel({
+				modelReference: "missing-provider/foo-model",
+				agent,
+				parentModel: parent,
+				modelRegistry: registry,
+			}),
+		).toThrow(/Unknown or unavailable model: missing-provider\/foo-model/);
+	});
+
 	test('"medium" alias resolves openai-codex workers to gpt-5.4', () => {
 		const faux = registerFauxProvider({
 			provider: "openai-codex",
