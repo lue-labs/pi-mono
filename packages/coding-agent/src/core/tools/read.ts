@@ -304,15 +304,17 @@ export function createReadToolDefinition(
 								// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
 								const startLine = offset ? Math.max(0, offset - 1) : 0;
 								const startLineDisplay = startLine + 1;
-								const requestedEndLineDisplay = limit !== undefined ? startLineDisplay + Math.max(0, limit) - 1 : undefined;
+								const requestedEndLineDisplay =
+									limit !== undefined ? startLineDisplay + Math.max(0, limit) - 1 : undefined;
 								// Check if offset is out of bounds.
 								if (startLine >= allLines.length) {
 									const fallbackLimit = Math.min(Math.max(1, limit ?? 20), totalFileLines);
 									const fallbackOffset = Math.max(1, totalFileLines - fallbackLimit + 1);
 									const rangeText = requestedEndLineDisplay ? `-${requestedEndLineDisplay}` : "";
-									const fallbackText = totalFileLines > 0
-										? ` Last valid offset is ${totalFileLines}. To inspect the file end, read with offset=${fallbackOffset}${limit !== undefined ? `, limit=${fallbackLimit}` : ""}.`
-										: " The file is empty.";
+									const fallbackText =
+										totalFileLines > 0
+											? ` Last valid offset is ${totalFileLines}. To inspect the file end, read with offset=${fallbackOffset}${limit !== undefined ? `, limit=${fallbackLimit}` : ""}.`
+											: " The file is empty.";
 									content = [
 										{
 											type: "text",
@@ -349,12 +351,18 @@ export function createReadToolDefinition(
 											outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
 										}
 										details = { truncation };
-									} else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
+									} else if (
+										userLimitedLines !== undefined &&
+										startLine + userLimitedLines < allLines.length
+									) {
 										// User-specified limit stopped early, but the file still has more content.
 										const remaining = allLines.length - (startLine + userLimitedLines);
 										const nextOffset = startLine + userLimitedLines + 1;
 										outputText = `${truncation.content}\n\n[${remaining} more lines in file (${totalFileLines} lines total). Use offset=${nextOffset} to continue.]`;
-									} else if (requestedEndLineDisplay !== undefined && requestedEndLineDisplay > totalFileLines) {
+									} else if (
+										requestedEndLineDisplay !== undefined &&
+										requestedEndLineDisplay > totalFileLines
+									) {
 										outputText = `${truncation.content}\n\n[End of file: requested through line ${requestedEndLineDisplay}, file has ${totalFileLines} lines.]`;
 									} else if (offset !== undefined || limit !== undefined) {
 										outputText = `${truncation.content}\n\n[End of file: file has ${totalFileLines} lines.]`;
