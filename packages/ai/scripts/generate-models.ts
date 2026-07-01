@@ -526,7 +526,7 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	if (model.provider === "openrouter" && model.id === "z-ai/glm-5.2") {
 		mergeThinkingLevelMap(model, { xhigh: "xhigh" });
 	}
-	if (model.provider === "fireworks" && model.id === "accounts/fireworks/models/glm-5p2") {
+	if (model.provider === "fireworks" && model.id.includes("glm-5p2")) {
 		mergeThinkingLevelMap(model, { off: "none", minimal: null, low: "high", medium: "high", xhigh: "max" });
 	}
 	if (model.provider === "opencode-go" && model.id === "glm-5.2") {
@@ -1670,7 +1670,7 @@ async function generateModels() {
 			candidate.cost.output = 1.9;
 			candidate.cost.cacheRead = 0.119;
 		}
-		if (candidate.provider === "fireworks" && candidate.id === "accounts/fireworks/models/glm-5p2") {
+		if (candidate.provider === "fireworks" && candidate.id.includes("glm-5p2")) {
 			candidate.api = "openai-completions";
 			candidate.baseUrl = "https://api.fireworks.ai/inference/v1";
 			candidate.compat = { supportsStore: false, supportsDeveloperRole: false };
