@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.7.8",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "08ad593fc537",
+  "strategy": "manual-commit",
+  "branch": "wip/my-pi-closeout-20260630",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".changeset/pi-memory-stale-ctx-survival.md",
+    "docs/memory-extraction-parity.md",
+    "docs/pi-fork-patch-inventory.md",
+    "extensions/pi-memory/src/util.ts",
+    "extensions/pi-memory/test/extractor-stability.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/08/ad593fc537/0/metadata.json",
+      "transcript": "/08/ad593fc537/0/full.jsonl",
+      "compact_transcript": "/08/ad593fc537/0/transcript.jsonl",
+      "content_hash": "/08/ad593fc537/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 154490,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2881920,
+    "output_tokens": 6028,
+    "api_call_count": 42
+  }
+}
