@@ -2429,6 +2429,7 @@ export class AgentSession {
 					content:
 						"Background work finished while you were idle (see the completion notification above). Handle it now: read the result, continue the task it unblocks, or report the outcome. Do not wait for further user input if the next step is clear.",
 					display: false,
+					details: undefined,
 				},
 				{ deliverAs: "followUp", triggerTurn: true },
 			).catch(() => {

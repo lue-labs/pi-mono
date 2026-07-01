@@ -25,6 +25,7 @@ function createSession(options: {
 	provider?: string;
 	reasoning?: boolean;
 	thinkingLevel?: string;
+	pendingAutoModelAlias?: string;
 	usage?: AssistantUsage;
 	entries?: unknown[];
 	branchEntries?: unknown[];
@@ -75,6 +76,7 @@ function createSession(options: {
 			getCwd: () => "/tmp/project",
 		},
 		getContextUsage: () => options.contextUsage ?? { tokens: 24_600, contextWindow: 200_000, percent: 12.3 },
+		pendingAutoModelAlias: options.pendingAutoModelAlias,
 		modelRegistry: {
 			isUsingOAuth: () => false,
 		},
@@ -242,6 +244,23 @@ describe("FooterComponent width handling", () => {
 
 		expect(rendered).toContain("50k/200k");
 		expect(rendered).not.toContain("25k/200k");
+	});
+
+	it("shows resolved provider and model for pending auto aliases", () => {
+		const session = createSession({
+			sessionName: "",
+			modelId: "gpt-5.5",
+			provider: "openai-codex",
+			reasoning: true,
+			thinkingLevel: "low",
+			pendingAutoModelAlias: "auto",
+		});
+		const footer = new FooterComponent(session, createFooterData(2));
+
+		const rendered = stripAnsi(footer.render(160).join("\n"));
+
+		expect(rendered).toContain("(openai-codex) auto → gpt-5.5");
+		expect(rendered).toContain("low");
 	});
 
 	it("keeps stats line within width for wide model and provider names", () => {

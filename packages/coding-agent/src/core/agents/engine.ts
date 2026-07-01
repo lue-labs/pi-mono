@@ -109,7 +109,10 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 			const snapshot = options.getParentSnapshot();
 			const signals: AbortSignal[] = [];
 			if (opts.signal) signals.push(opts.signal);
-			if (snapshot.signal) signals.push(snapshot.signal);
+			// R2: a detached fork runs on the caller's own signal only. Skipping the
+			// parent snapshot signal means session dispose()/agent.abort() no longer
+			// cancels this fork — the caller bounds it via its own drain instead.
+			if (snapshot.signal && !opts.detachFromParent) signals.push(snapshot.signal);
 			const forkSignal =
 				signals.length === 0 ? undefined : signals.length === 1 ? signals[0] : AbortSignal.any(signals);
 

@@ -4,6 +4,10 @@ Fork-specific changes maintained by valkyriweb. Upstream package changelogs stay
 
 ## [Unreleased]
 
+### Added
+
+- **`ForkAgentOptions.detachFromParent` opt-out of the parent session abort signal (`#fork-detach-from-parent`).** `engine.ts` fork() chains `AbortSignal.any([opts.signal, parentSnapshot.signal])`, so `AgentSession.dispose()`/`agent.abort()` on a session replace/reload cancels an in-flight fork. The new additive, default-off `detachFromParent` flag skips the parent snapshot signal (`if (snapshot.signal && !opts.detachFromParent) signals.push(snapshot.signal)`), so a best-effort background fork runs on the caller's own signal and is bounded by the caller's drain instead — pi-memory's turn-end extraction flushed on `session_shutdown`. Default (unset/false) preserves prior behaviour; lifecycle flag only, not part of the cached prefix. Also locks the drain-before-abort invariant (`teardownCurrent` awaits `emitSessionShutdownEvent(session_shutdown)` before `session.dispose()`) with a regression test in `packages/coding-agent/test/agent-session-runtime-events.test.ts` ("awaits an async session_shutdown handler (drain) before disposing the old session"). Fork `test:build-gate` 53/53 green. Refs [#151](https://github.com/valkyriweb/pi-mono/issues/151). ([#152](https://github.com/valkyriweb/pi-mono/pull/152))
+
 ### Changed
 
 - **Added cache-domain auto model routing hooks and tests.** Coding-agent now exposes cache-safe `model:resolve` routing boundaries for `auto` / provider-scoped `*/auto` aliases, keeps interactive no-input auto aliases pending until first prompt text, rejects unresolved/no-op auto aliases, and records child-agent routing metadata in the cache-stability gate.
