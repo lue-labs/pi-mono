@@ -76,6 +76,42 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.provider).toBe("anthropic");
 	});
 
+	test('"fast" alias resolves clawrouter explore workers to claude-haiku-4-5', () => {
+		const faux = registerFauxProvider({
+			provider: "clawrouter",
+			models: [
+				{ id: "claude-fable-5-200k", name: "Claude Fable", reasoning: true },
+				{ id: "claude-haiku-4-5", name: "Claude Haiku", reasoning: true },
+			],
+		});
+		registrations.push(faux);
+		const auth = AuthStorage.inMemory();
+		auth.setRuntimeApiKey("clawrouter", "faux-key");
+		const registry = ModelRegistry.inMemory(auth);
+		registry.registerProvider("clawrouter", {
+			baseUrl: faux.getModel().baseUrl,
+			apiKey: "faux-key",
+			api: faux.api,
+			models: faux.models.map((model) => ({
+				id: model.id,
+				name: model.name,
+				api: model.api,
+				reasoning: model.reasoning,
+				input: model.input,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				maxTokens: model.maxTokens,
+				baseUrl: model.baseUrl,
+			})),
+		});
+		const parent = registry.getAvailable().find((m) => m.provider === "clawrouter" && m.id === "claude-fable-5-200k");
+		const explore = getBuiltinAgentDefinitions().find((definition) => definition.id === "explore");
+		if (!explore) throw new Error("expected builtin explore agent");
+		const selected = resolveAgentModel({ agent: explore, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("claude-haiku-4-5");
+	});
+
 	test('"fast" alias resolves openai-codex explore workers to gpt-5.4-mini', () => {
 		const faux = registerFauxProvider({
 			provider: "openai-codex",
@@ -146,6 +182,41 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.4");
 	});
 
+	test('"medium" alias resolves clawrouter workers to claude-sonnet-5', () => {
+		const faux = registerFauxProvider({
+			provider: "clawrouter",
+			models: [
+				{ id: "claude-fable-5-200k", name: "Claude Fable", reasoning: true },
+				{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
+			],
+		});
+		registrations.push(faux);
+		const auth = AuthStorage.inMemory();
+		auth.setRuntimeApiKey("clawrouter", "faux-key");
+		const registry = ModelRegistry.inMemory(auth);
+		registry.registerProvider("clawrouter", {
+			baseUrl: faux.getModel().baseUrl,
+			apiKey: "faux-key",
+			api: faux.api,
+			models: faux.models.map((model) => ({
+				id: model.id,
+				name: model.name,
+				api: model.api,
+				reasoning: model.reasoning,
+				input: model.input,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				maxTokens: model.maxTokens,
+				baseUrl: model.baseUrl,
+			})),
+		});
+		const parent = registry.getAvailable().find((m) => m.provider === "clawrouter" && m.id === "claude-fable-5-200k");
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
+		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("claude-sonnet-5");
+	});
+
 	test('"fast" alias falls back to parent when provider has no mapped fast model', () => {
 		// Re-register faux under a provider name with no fastModelPerProvider entry.
 		const faux = registerFauxProvider({
@@ -173,9 +244,18 @@ describe("agent model and thinking selection", () => {
 			})),
 		});
 		const parent = registry.getAvailable().find((m) => m.id === "parent-model");
-		const agent = { ...getBuiltinAgentDefinitions()[0], model: "fast" };
-		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		const agent = { ...getBuiltinAgentDefinitions()[0], id: "explore", model: "fast" };
+		const warnings: string[] = [];
+		const selected = resolveAgentModel({
+			agent,
+			parentModel: parent,
+			modelRegistry: registry,
+			onWarning: (warning) => warnings.push(warning),
+		});
 		expect(selected?.id).toBe("parent-model");
+		expect(warnings).toEqual([
+			"Warning: explore running on parent model opencode/parent-model for fast alias — add a fast-tier mapping for this provider or pass an explicit cheap model",
+		]);
 	});
 
 	test("invalid model errors", () => {
@@ -190,15 +270,20 @@ describe("agent model and thinking selection", () => {
 		).toThrow("Unknown or unavailable model");
 	});
 
-	test("thinking precedence clamps non-reasoning models", () => {
+	test("thinking precedence clamps unsupported off to the lowest supported level", () => {
 		const { registry } = createRegistry();
 		const reasoningModel = registry.getAvailable().find((model) => model.id === "child-model");
 		const plainModel = registry.getAvailable().find((model) => model.id === "plain-model");
+		if (!reasoningModel) throw new Error("expected reasoning model");
+		const noOffModel = { ...reasoningModel, thinkingLevelMap: { off: null } };
 		const agent = { ...getBuiltinAgentDefinitions()[0], thinking: "low" as const };
 		expect(
 			resolveAgentThinking({ taskThinking: "high", agent, parentThinkingLevel: "minimal", model: reasoningModel }),
 		).toBe("high");
 		expect(resolveAgentThinking({ agent, parentThinkingLevel: "minimal", model: plainModel })).toBe("off");
+		expect(
+			resolveAgentThinking({ taskThinking: "off", agent, parentThinkingLevel: "minimal", model: noOffModel }),
+		).toBe("minimal");
 	});
 
 	// Subagents precedence layer: settings.subagents.defaults / providers[parent.provider].

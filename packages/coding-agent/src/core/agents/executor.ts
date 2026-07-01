@@ -308,12 +308,38 @@ function isAutoModelAlias(reference: string | undefined): boolean {
 	);
 }
 
+const FRONTIER_MODEL_ID_PATTERN = /(?:opus|fable|-pro$|-max$)/i;
+
+function warnIfFastAgentUsesExpensiveModel(options: {
+	reference: string;
+	agent: AgentDefinition;
+	model: Model<Api> | undefined;
+	parentModel: Model<Api> | undefined;
+	fellBack: boolean;
+	onWarning?: (warning: string) => void;
+}): void {
+	if (options.reference !== "fast" || !options.model) return;
+	const frontier = FRONTIER_MODEL_ID_PATTERN.test(options.model.id);
+	const parent = Boolean(
+		options.parentModel &&
+			options.model.provider === options.parentModel.provider &&
+			options.model.id === options.parentModel.id,
+	);
+	if (!options.fellBack && !frontier && !parent) return;
+	const modelKind = frontier ? "frontier" : parent ? "parent" : "fallback";
+	const label = `${options.model.provider}/${options.model.id}`;
+	options.onWarning?.(
+		`Warning: ${options.agent.id} running on ${modelKind} model ${label} for fast alias — add a fast-tier mapping for this provider or pass an explicit cheap model`,
+	);
+}
+
 export function resolveAgentModel(options: {
 	modelReference?: string;
 	agent: AgentDefinition;
 	defaults?: AgentDefaultSelection;
 	parentModel: Model<Api> | undefined;
 	modelRegistry: ModelRegistry;
+	onWarning?: (warning: string) => void;
 }): Model<Api> | undefined {
 	// Precedence: explicit task option > agent frontmatter > settings.subagents (provider override > defaults) > parent inheritance.
 	const reference = resolveAgentModelReference(options);
@@ -332,8 +358,26 @@ export function resolveAgentModel(options: {
 		if (mappedId) {
 			const available = options.modelRegistry.getAvailable();
 			const hit = available.find((m) => m.provider === parentProvider && m.id === mappedId);
-			if (hit) return hit;
+			if (hit) {
+				warnIfFastAgentUsesExpensiveModel({
+					reference,
+					agent: options.agent,
+					model: hit,
+					parentModel: options.parentModel,
+					fellBack: false,
+					onWarning: options.onWarning,
+				});
+				return hit;
+			}
 		}
+		warnIfFastAgentUsesExpensiveModel({
+			reference,
+			agent: options.agent,
+			model: options.parentModel,
+			parentModel: options.parentModel,
+			fellBack: true,
+			onWarning: options.onWarning,
+		});
 		return options.parentModel;
 	}
 
@@ -440,6 +484,7 @@ function createInitialRunDetails(options: {
 	deniedTools: string[];
 	model: Model<Api> | undefined;
 	thinking: ThinkingLevel;
+	warnings?: string[];
 	startedAt: number;
 }): AgentRunDetails {
 	return {
@@ -452,6 +497,7 @@ function createInitialRunDetails(options: {
 		context: resolveContextPolicy(options.task.context),
 		model: formatModelForDetails(options.model),
 		thinking: options.thinking,
+		warnings: options.warnings && options.warnings.length > 0 ? [...options.warnings] : undefined,
 		effectiveTools: options.effectiveTools,
 		deniedTools: options.deniedTools,
 		durationMs: Date.now() - options.startedAt,
@@ -707,12 +753,14 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		defaults: agentDefaults,
 	});
 	const requestedAutoModel = isAutoModelAlias(selectedModelReference) ? selectedModelReference : undefined;
+	const warnings: string[] = [];
 	const model = resolveAgentModel({
 		modelReference: options.task.model,
 		agent,
 		defaults: agentDefaults,
 		parentModel: options.parentModel,
 		modelRegistry: options.parentServices.modelRegistry,
+		onWarning: (warning) => warnings.push(warning),
 	});
 	const thinking = resolveAgentThinking({
 		taskThinking: options.task.thinking,
@@ -766,6 +814,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		deniedTools,
 		model: effectiveModel,
 		thinking,
+		warnings,
 		startedAt,
 	});
 	const policy = details.context;
@@ -1009,12 +1058,14 @@ async function resumeSingleBackgroundRun(
 		parentModel: options.parentModel,
 		settingsManager: options.parentServices.settingsManager,
 	});
+	const warnings: string[] = [];
 	const model = resolveAgentModel({
 		modelReference: task.model,
 		agent,
 		defaults: agentDefaults,
 		parentModel: options.parentModel,
 		modelRegistry: options.parentServices.modelRegistry,
+		onWarning: (warning) => warnings.push(warning),
 	});
 	const thinking = resolveAgentThinking({
 		taskThinking: task.thinking,
@@ -1042,6 +1093,7 @@ async function resumeSingleBackgroundRun(
 		deniedTools,
 		model,
 		thinking,
+		warnings,
 		startedAt,
 	});
 	const policy = details.context;

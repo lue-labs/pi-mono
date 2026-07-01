@@ -361,6 +361,11 @@ function formatToolActivity(run: AgentRunDetails): string {
 	return run.error ? previewText(run.error) : run.status;
 }
 
+function formatRunWarnings(run: AgentRunDetails, prefix: string): string | undefined {
+	if (!run.warnings || run.warnings.length === 0) return undefined;
+	return run.warnings.map((warning) => `${prefix}${warning}`).join("\n");
+}
+
 function summarizeRuns(runs: AgentRunDetails[]): string {
 	return runs
 		.map((run, index) => {
@@ -377,7 +382,8 @@ function summarizeRuns(runs: AgentRunDetails[]): string {
 			const refSuffix = refs ? ` · ${refs}` : "";
 			const status = run.status === "running" ? "running" : run.status;
 			const metadata = formatCompactAgentMetadata([{ model: formatModelLabel(run.model), thinking: run.thinking }]);
-			return `${branch} ${label} · ${status}${metadata ? ` · ${metadata}` : ""} · ${formatRunStats(run)}${refSuffix}\n${indent}⎿  ${formatToolActivity(run)}`;
+			const warnings = formatRunWarnings(run, indent);
+			return `${branch} ${label} · ${status}${metadata ? ` · ${metadata}` : ""} · ${formatRunStats(run)}${refSuffix}\n${indent}⎿  ${formatToolActivity(run)}${warnings ? `\n${warnings}` : ""}`;
 		})
 		.join("\n");
 }
@@ -394,6 +400,8 @@ function formatExpandedRun(run: AgentRunDetails, index: number): string {
 		);
 	if (run.sessionPath || run.sessionId) lines.push(`   session: ${run.sessionPath ?? run.sessionId}`);
 	if (run.outputPath) lines.push(`   output: ${run.outputPath}`);
+	const warnings = formatRunWarnings(run, "   ");
+	if (warnings) lines.push(warnings);
 	if (run.invokedSkills.count > 0)
 		lines.push(`   invoked skills: ${run.invokedSkills.names.join(", ")} (${run.invokedSkills.count})`);
 	if (run.loadedSkills.length > 0) lines.push(`   loaded skills: ${run.loadedSkills.join(", ")}`);

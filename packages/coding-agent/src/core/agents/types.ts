@@ -136,6 +136,7 @@ export interface AgentRunDetails {
 	context: ResolvedContextPolicy;
 	model?: { provider: string; id: string; name?: string };
 	thinking?: ThinkingLevel;
+	warnings?: string[];
 	effectiveTools: string[];
 	deniedTools: string[];
 	durationMs: number;
