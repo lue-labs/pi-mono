@@ -624,6 +624,12 @@ export interface ExtensionContext {
 	signal: AbortSignal | undefined;
 	/** Abort the current agent operation */
 	abort(): void;
+	/**
+	 * Request that the current agent run stop after the active turn finishes.
+	 * Unlike abort(), this preserves the completed assistant/tool messages and
+	 * lets normal turn_end hooks run before the run parks.
+	 */
+	requestStopAfterTurn(reason?: string): void;
 	/** Whether there are queued messages waiting */
 	hasPendingMessages(): boolean;
 	/** Gracefully shutdown pi and exit. Available in all contexts. */
@@ -2268,6 +2274,7 @@ export interface ExtensionContextActions {
 	isProjectTrusted: () => boolean;
 	getSignal: () => AbortSignal | undefined;
 	abort: () => void;
+	requestStopAfterTurn: (reason?: string) => void;
 	hasPendingMessages: () => boolean;
 	shutdown: () => void;
 	reload: () => Promise<void>;

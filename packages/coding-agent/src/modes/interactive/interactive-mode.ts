@@ -1789,6 +1789,7 @@ export class InteractiveMode {
 				abort: () => {
 					this.restoreQueuedMessagesToEditor({ abort: true });
 				},
+				requestStopAfterTurn: (reason) => runnerCtx.requestStopAfterTurn(reason),
 				hasPendingMessages: () => session.pendingMessageCount > 0,
 				shutdown: () => {
 					this.shutdownRequested = true;

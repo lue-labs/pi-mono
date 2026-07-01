@@ -89,6 +89,7 @@ describe("pi-agents tracer (issue 07)", () => {
 		isProjectTrusted: () => true,
 		getSignal: () => undefined,
 		abort: () => {},
+		requestStopAfterTurn: () => {},
 		hasPendingMessages: () => false,
 		shutdown: () => {},
 		reload: async () => {},
