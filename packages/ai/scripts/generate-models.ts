@@ -1801,17 +1801,6 @@ async function generateModels() {
 		});
 	}
 
-	// Add missing GitHub Copilot Claude Sonnet 5 until models.dev includes it.
-	const anthropicSonnet5 = allModels.find((m) => m.provider === "anthropic" && m.id === "claude-sonnet-5");
-	if (anthropicSonnet5 && !allModels.some((m) => m.provider === "github-copilot" && m.id === "claude-sonnet-5")) {
-		allModels.push({
-			...anthropicSonnet5,
-			provider: "github-copilot",
-			baseUrl: "https://api.individual.githubcopilot.com",
-			headers: { ...COPILOT_STATIC_HEADERS },
-		});
-	}
-
 	const deepseekCompat: OpenAICompletionsCompat = {
 		requiresReasoningContentOnAssistantMessages: true,
 		thinkingFormat: "deepseek",
