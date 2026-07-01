@@ -38,10 +38,11 @@
 		"prepublishOnly": "npm run build && npm run shrinkwrap"
 	},
 	"dependencies": {
+		"@pierre/diffs": "1.2.12",
+		"@silvia-odwyer/photon-node": "0.3.4",
 		"@valkyriweb/pi-agent-core": "0.80.6",
 		"@valkyriweb/pi-ai": "0.80.6",
 		"@valkyriweb/pi-tui": "0.80.6",
-		"@silvia-odwyer/photon-node": "0.3.4",
 		"chalk": "5.6.2",
 		"cross-spawn": "7.0.6",
 		"diff": "8.0.4",

@@ -66,6 +66,25 @@ async function waitForRenderedText(
 	throw new Error(`Timed out waiting for render to include "${expectedText}". Last render:\n${lastRender}`);
 }
 
+async function waitForRawRenderText(
+	getRender: () => string,
+	expectedText: string,
+	onRetry?: () => void,
+	timeoutMs = 2000,
+): Promise<string> {
+	const deadline = Date.now() + timeoutMs;
+	let lastRender = "";
+	while (Date.now() < deadline) {
+		onRetry?.();
+		await waitForRender();
+		lastRender = getRender();
+		if (lastRender.includes(expectedText)) {
+			return lastRender;
+		}
+	}
+	throw new Error(`Timed out waiting for raw render to include "${expectedText}". Last render:\n${lastRender}`);
+}
+
 function createLargeEdits(lines: string[]): Edit[] {
 	const targets = [50, 150, 250, 350, 450, 550, 650, 750, 850, 950];
 	return targets.map((lineNumber) => ({
@@ -205,6 +224,89 @@ describe("edit tool TUI rendering", () => {
 		const rendered = stripAnsi(component.render(80).join("\n"));
 		expect(rendered).toContain("line 50 changed");
 		expect(rendered).toContain("line 150 changed");
+	});
+
+	it("renders rich diff styling while edit arguments are still streaming", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "pi-edit-streaming-diff-"));
+		tempDirs.push(dir);
+		const filePath = join(dir, "streaming-edit.ts");
+		await writeFile(filePath, "const value = 'before';\nconsole.log(value);\n", "utf8");
+
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-streaming-diff",
+			{ path: filePath, edits: [{ oldText: "const value = 'before';", newText: "const value = 'after';" }] },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		tui.addChild(component);
+		tui.start();
+		await waitForRender();
+
+		const rendered = await waitForRenderedText(
+			() => stripAnsi(component.render(80).join("\n")),
+			"const value = 'after';",
+			() => tui.requestRender(true),
+		);
+		expect(rendered).toContain("const value = 'before';");
+		expect(rendered).toContain("const value = 'after';");
+		expect(rendered).not.toContain("Successfully replaced");
+	});
+
+	it("uses Pierre for the legacy no-hunks diff renderer when enabled", async () => {
+		const previousRenderer = process.env.PI_TUI_DIFF_RENDERER;
+		process.env.PI_TUI_DIFF_RENDERER = "pierre";
+		try {
+			const dir = await mkdtemp(join(tmpdir(), "pi-edit-pierre-legacy-"));
+			tempDirs.push(dir);
+			const filePath = join(dir, "legacy-edit.ts");
+			const patch = `--- a/${filePath}
++++ b/${filePath}
+@@ -1,2 +1,2 @@
+-const value = 'before';
++const value = 'after';
+ console.log(value);
+`;
+
+			const terminal = new FakeTerminal();
+			const tui = new TUI(terminal);
+			const component = new ToolExecutionComponent(
+				"edit",
+				"tool-call-pierre-legacy",
+				{ path: filePath, edits: [{ oldText: "before", newText: "after" }] },
+				{},
+				createEditToolDefinition(process.cwd()),
+				tui,
+				process.cwd(),
+			);
+			tui.addChild(component);
+			tui.start();
+			component.updateResult(
+				{
+					content: [{ type: "text", text: "done" }],
+					details: { diff: "-1 const value = 'before';\n+1 const value = 'after';", patch, hunks: [] },
+					isError: false,
+				},
+				false,
+			);
+
+			const rendered = await waitForRawRenderText(
+				() => component.render(120).join("\n"),
+				"+  1",
+				() => tui.requestRender(true),
+			);
+			expect(stripAnsi(rendered)).toContain("+  1 const value = 'after';");
+		} finally {
+			if (previousRenderer === undefined) {
+				delete process.env.PI_TUI_DIFF_RENDERER;
+			} else {
+				process.env.PI_TUI_DIFF_RENDERER = previousRenderer;
+			}
+		}
 	});
 
 	it("shows a preflight error without rendering a diff when the edits do not apply", async () => {
