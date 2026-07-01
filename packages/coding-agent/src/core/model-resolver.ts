@@ -56,8 +56,10 @@ export const mediumModelPerProvider: Record<string, string> = {
 	groq: "openai/gpt-oss-120b",
 	xai: "grok-4.20-0309-reasoning",
 	// Custom proxy provider (Luke's fork). Routes Anthropic models via a local
-	// bridge; sonnet-4-6 is the mid-tier on the other end.
-	"claude-bridge": "claude-sonnet-4-6",
+	// bridge; sonnet-5 is the mid-tier on the other end. (sonnet-4-6 was retired
+	// from the bridge registry; a dead id here makes the `medium` alias silently
+	// fall back to the parent's frontier model — the opposite of its purpose.)
+	"claude-bridge": "claude-sonnet-5",
 };
 
 /** Default model IDs for each known provider */
