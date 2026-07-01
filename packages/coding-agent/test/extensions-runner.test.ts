@@ -86,6 +86,7 @@ describe("ExtensionRunner", () => {
 		isProjectTrusted: () => true,
 		getSignal: () => undefined,
 		abort: () => {},
+		requestStopAfterTurn: () => {},
 		hasPendingMessages: () => false,
 		shutdown: () => {},
 		reload: async () => {},

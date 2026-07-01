@@ -566,6 +566,8 @@ export class AgentSession {
 	private _overflowRecoveryAttempted = false;
 	/** Set when the agent loop was stopped at a turn boundary by the mid-run compaction cap. */
 	private _midRunCompactionStop = false;
+	/** Set by extensions that need the current run to park after the active turn completes. */
+	private _extensionStopAfterTurnReason: string | undefined = undefined;
 	private _lastIdleCacheHintAssistantTimestamp: number | undefined = undefined;
 	private _cacheHeartbeatTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 	private _cacheHeartbeatAbortController: AbortController | undefined = undefined;
@@ -806,6 +808,11 @@ export class AgentSession {
 		// _handlePostAgentRun then compacts and resumes the interrupted run.
 		// Runs ending naturally (no more work) keep the defer semantics.
 		this.agent.shouldStopAfterTurn = ({ message, toolResults }) => {
+			if (this._extensionStopAfterTurnReason !== undefined) {
+				this._extensionStopAfterTurnReason = undefined;
+				return true;
+			}
+
 			if (toolResults.length === 0 && !this.agent.hasQueuedMessages()) return false;
 			const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
 			if (!settings.enabled) return false;
@@ -866,11 +873,18 @@ export class AgentSession {
 			}
 		}
 
+		if (event.type === "agent_start") {
+			this._extensionStopAfterTurnReason = undefined;
+		}
+
 		// Emit to extensions first
 		await this._emitExtensionEvent(event);
 
 		// Notify all listeners
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
+		if (event.type === "agent_end") {
+			this._extensionStopAfterTurnReason = undefined;
+		}
 
 		// Handle session persistence
 		if (event.type === "message_end") {
@@ -3743,6 +3757,10 @@ export class AgentSession {
 						return;
 					}
 					void this.abort();
+				},
+				requestStopAfterTurn: (reason) => {
+					if (!this.isStreaming) return;
+					this._extensionStopAfterTurnReason = reason?.trim() || "extension requested stop after turn";
 				},
 				hasPendingMessages: () => this.pendingMessageCount > 0,
 				shutdown: () => {

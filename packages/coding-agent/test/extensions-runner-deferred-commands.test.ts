@@ -68,6 +68,7 @@ describe("ExtensionRunner deferred extension commands", () => {
 		isProjectTrusted: () => true,
 		getSignal: () => undefined,
 		abort: () => {},
+		requestStopAfterTurn: () => {},
 		hasPendingMessages: () => false,
 		shutdown: () => {},
 		reload: async () => {},

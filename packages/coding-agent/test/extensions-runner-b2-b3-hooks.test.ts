@@ -75,6 +75,7 @@ describe("ExtensionRunner B2/B3 hooks", () => {
 		isProjectTrusted: () => true,
 		getSignal: () => undefined,
 		abort: () => {},
+		requestStopAfterTurn: () => {},
 		hasPendingMessages: () => false,
 		shutdown: () => {},
 		reload: async () => {},
