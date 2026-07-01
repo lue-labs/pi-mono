@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.8",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "4d24ec031185",
+  "strategy": "manual-commit",
+  "branch": "feat/improve-trigger-slash-only",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "extensions/skill-loader/src/skill-keyword.ts",
+    "extensions/skill-loader/test-skill-keyword.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4d/24ec031185/0/metadata.json",
+      "transcript": "/4d/24ec031185/0/full.jsonl",
+      "compact_transcript": "/4d/24ec031185/0/transcript.jsonl",
+      "content_hash": "/4d/24ec031185/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3077,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 517504,
+    "output_tokens": 721,
+    "api_call_count": 5
+  }
+}
