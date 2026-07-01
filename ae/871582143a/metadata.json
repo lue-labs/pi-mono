@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.7.8",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "ae871582143a",
+  "strategy": "manual-commit",
+  "branch": "wip/my-pi-closeout-20260630",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/references/tool-activation-affordance-pattern.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ae/871582143a/0/metadata.json",
+      "transcript": "/ae/871582143a/0/full.jsonl",
+      "content_hash": "/ae/871582143a/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
