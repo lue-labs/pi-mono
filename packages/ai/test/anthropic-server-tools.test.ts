@@ -174,6 +174,43 @@ describe("Anthropic server tools (web_search / web_fetch)", () => {
 		expect(result.content.some((b) => b.type === "toolCall")).toBe(false);
 	});
 
+	it("maps advisor_tool_result errors to the advisor tool name", async () => {
+		const { client } = createScriptedAnthropicClient(
+			createSseResponse([
+				MESSAGE_START,
+				sse("content_block_start", {
+					index: 0,
+					content_block: { type: "server_tool_use", id: "srvtoolu_adv", name: "advisor", input: {} },
+				}),
+				sse("content_block_stop", { index: 0 }),
+				sse("content_block_start", {
+					index: 1,
+					content_block: {
+						type: "advisor_tool_result",
+						tool_use_id: "srvtoolu_adv",
+						content: { type: "advisor_tool_result_error", error_code: "unavailable" },
+					},
+				}),
+				sse("content_block_stop", { index: 1 }),
+				...TEXT_TURN,
+			]),
+		);
+
+		const stream = streamAnthropic(model, baseContext, { client });
+		const events = await collectEvents(stream);
+		const result = await stream.result();
+
+		const use = events.find((e) => e.type === "server_tool_use");
+		expect(use).toMatchObject({ id: "srvtoolu_adv", toolName: "advisor" });
+
+		const toolResult = events.find((e) => e.type === "server_tool_result");
+		if (toolResult?.type !== "server_tool_result") throw new Error("expected server_tool_result");
+		expect(toolResult.toolName).toBe("advisor");
+		expect(toolResult.status).toBe("error");
+		expect(toolResult.errorCode).toBe("unavailable");
+		expect(result.content.some((b) => b.type === "toolCall")).toBe(false);
+	});
+
 	it("treats web_fetch_tool_result as a web_fetch activity", async () => {
 		const { client } = createScriptedAnthropicClient(
 			createSseResponse([
