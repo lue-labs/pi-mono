@@ -1502,16 +1502,26 @@ export interface SessionBeforeTreeResult {
 }
 
 // ============================================================================
-// Message Rendering
+// Message and Entry Rendering
 // ============================================================================
 
 export interface MessageRenderOptions {
 	expanded: boolean;
 }
 
+export interface EntryRenderOptions {
+	expanded: boolean;
+}
+
 export type MessageRenderer<T = unknown> = (
 	message: CustomMessage<T>,
 	options: MessageRenderOptions,
+	theme: Theme,
+) => Component | undefined;
+
+export type EntryRenderer<T = unknown> = (
+	entry: CustomEntry<T>,
+	options: EntryRenderOptions,
 	theme: Theme,
 ) => Component | undefined;
 
@@ -1804,6 +1814,9 @@ export interface ExtensionAPI {
 	 * replacement; `registerFooter` only adds focusable children.
 	 */
 	registerFooter(id: string, spec: ExtensionFooterSpec): void;
+
+	/** Register a custom renderer for CustomEntry. Custom entries do not participate in LLM context. */
+	registerEntryRenderer<T = unknown>(customType: string, renderer: EntryRenderer<T>): void;
 
 	// =========================================================================
 	// Actions
@@ -2338,6 +2351,7 @@ export interface Extension {
 	messageRenderers: Map<string, MessageRenderer>;
 	/** Default renderers consulted when no per-extension renderer matched. */
 	defaultMessageRenderers: Map<string, MessageRenderer>;
+	entryRenderers?: Map<string, EntryRenderer>;
 	commands: Map<string, RegisteredCommand>;
 	flags: Map<string, ExtensionFlag>;
 	shortcuts: Map<KeyId, ExtensionShortcut>;

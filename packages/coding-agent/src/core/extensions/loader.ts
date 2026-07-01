@@ -50,6 +50,7 @@ import {
 import type {
 	AgentTelemetry,
 	DeferredExtension,
+	EntryRenderer,
 	Extension,
 	ExtensionAPI,
 	ExtensionContextModePolicy,
@@ -523,6 +524,10 @@ function createExtensionAPI(
 		registerFooter(id: string, spec: ExtensionFooterSpec): void {
 			runtime.assertActive();
 			extension.registeredFooters.set(id, spec);
+		registerEntryRenderer<T>(customType: string, renderer: EntryRenderer<T>): void {
+			runtime.assertActive();
+			extension.entryRenderers ??= new Map();
+			extension.entryRenderers.set(customType, renderer as EntryRenderer);
 		},
 
 		// Flag access - checks extension registered it, reads from runtime
@@ -808,6 +813,7 @@ function createExtension(extensionPath: string, resolvedPath: string): Extension
 		tools: new Map(),
 		messageRenderers: new Map(),
 		defaultMessageRenderers: new Map(),
+		entryRenderers: new Map(),
 		commands: new Map(),
 		flags: new Map(),
 		shortcuts: new Map(),

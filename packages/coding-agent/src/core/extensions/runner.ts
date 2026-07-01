@@ -27,6 +27,7 @@ import type {
 	ContextEventResult,
 	ContextUsage,
 	DeferredExtension,
+	EntryRenderer,
 	Extension,
 	ExtensionActions,
 	ExtensionCommandContext,
@@ -683,6 +684,16 @@ export class ExtensionRunner {
 	getDefaultMessageRenderer(customType: string): MessageRenderer | undefined {
 		for (const ext of this.extensions) {
 			const renderer = ext.defaultMessageRenderers.get(customType);
+			if (renderer) {
+				return renderer;
+			}
+		}
+		return undefined;
+	}
+
+	getEntryRenderer(customType: string): EntryRenderer | undefined {
+		for (const ext of this.extensions) {
+			const renderer = ext.entryRenderers?.get(customType);
 			if (renderer) {
 				return renderer;
 			}
