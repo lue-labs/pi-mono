@@ -14,7 +14,7 @@ import {
 	type TextContent,
 } from "@valkyriweb/pi-ai";
 import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
@@ -289,6 +289,140 @@ describe("AgentSession concurrent prompt guard", () => {
 		await firstPrompt.catch(() => {});
 
 		expect(sawSteeringMessage).toBe(true);
+	});
+
+	it("queues prompt() when a run is active but not streaming (compaction/agent_end window)", async () => {
+		// Regression: auto-compaction and the agent_end listener phase leave
+		// agent.isProcessing true while isStreaming is false. prompt() only gated
+		// on isStreaming, fell through to agent.prompt(), and rejected with
+		// "Agent is already processing a prompt" — fatal for un-awaited callers
+		// (extension sendUserMessage), which crashed the whole TUI process.
+		createSession();
+
+		const firstPrompt = session.prompt("First message");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(session.agent.isProcessing).toBe(true);
+
+		// Simulate the busy-but-not-streaming window (compaction, agent_end phase).
+		(session.agent.state as { isStreaming: boolean }).isStreaming = false;
+		expect(session.isStreaming).toBe(false);
+
+		// Must queue (default steer), not race agent.prompt() and reject.
+		await expect(session.prompt("Second message")).resolves.toBeUndefined();
+		expect(session.getSteeringMessages()).toContain("Second message");
+
+		await session.abort();
+		await firstPrompt.catch(() => {});
+	});
+
+	it("queues sendUserMessage() when a run is active but not streaming", async () => {
+		// Same window as above via the extension-facing API — the caller that
+		// actually crashed sessions in the wild (idle-return, pi-goal,
+		// suggested-tasks all call pi.sendUserMessage un-awaited).
+		createSession();
+
+		const firstPrompt = session.prompt("First message");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		(session.agent.state as { isStreaming: boolean }).isStreaming = false;
+
+		await expect(session.sendUserMessage("Extension message")).resolves.toBeUndefined();
+		expect(session.getSteeringMessages()).toContain("Extension message");
+
+		await session.abort();
+		await firstPrompt.catch(() => {});
+	});
+
+	it("falls back to the steering queue when agent.prompt() loses a TOCTOU race", async () => {
+		// Regression: a run can start between prompt()'s busy gate and
+		// agent.prompt() (post-compaction resume, extension-triggered turn).
+		// The rejection must be absorbed by queueing, mirroring
+		// sendCustomMessage's fallback, instead of propagating to callers.
+		createSession();
+
+		const promptSpy = vi
+			.spyOn(session.agent, "prompt")
+			.mockRejectedValueOnce(
+				new Error(
+					"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
+				),
+			);
+		const steerSpy = vi.spyOn(session.agent, "steer");
+
+		await expect(session.prompt("Raced message")).resolves.toBeUndefined();
+		expect(promptSpy).toHaveBeenCalledTimes(1);
+		expect(steerSpy).toHaveBeenCalled();
+		expect(session.getSteeringMessages()).toContain("Raced message");
+
+		vi.restoreAllMocks();
+	});
+
+	it("delivers messages queued while manual compaction held the busy gate", async () => {
+		// Review finding on the busy-gate fix: compact() aborts any active run,
+		// so a message steered while isCompacting held the gate had no run to
+		// drain it — it sat queued until the next prompt (or was lost on exit).
+		// compact()'s finally now calls _drainQueuedMessagesPostCompaction().
+		const model = pickModel("anthropic");
+		const seenUserTexts: string[] = [];
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: {
+				model,
+				systemPrompt: "Test",
+				tools: [],
+			},
+			streamFn: (_model, context) => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					for (const message of context.messages) {
+						if (message.role !== "user" || typeof message.content === "string") continue;
+						for (const part of message.content) {
+							if (typeof part === "object" && part !== null && part.type === "text") {
+								seenUserTexts.push(part.text);
+							}
+						}
+					}
+					stream.push({ type: "start", partial: createAssistantMessage("") });
+					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Done") });
+				});
+				return stream;
+			},
+		});
+
+		const sessionManager = SessionManager.inMemory();
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		authStorage.setRuntimeApiKey("anthropic", "test-key");
+
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+
+		// Seed a completed turn so the session is idle with a trailing assistant
+		// message — the state compact() leaves behind.
+		await session.prompt("First message");
+		await session.agent.waitForIdle();
+		expect(session.agent.isProcessing).toBe(false);
+
+		// A message queued during compaction (the broadened gate steers it).
+		session.agent.steer({
+			role: "user",
+			content: [{ type: "text", text: "Queued during compact" }],
+			timestamp: Date.now(),
+		});
+		expect(session.agent.hasQueuedMessages()).toBe(true);
+
+		(session as unknown as { _drainQueuedMessagesPostCompaction: () => void })._drainQueuedMessagesPostCompaction();
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		await session.agent.waitForIdle();
+
+		expect(session.agent.hasQueuedMessages()).toBe(false);
+		expect(seenUserTexts).toContain("Queued during compact");
 	});
 
 	it("should allow prompt() after previous completes", async () => {

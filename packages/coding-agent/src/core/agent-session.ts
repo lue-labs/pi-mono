@@ -1933,6 +1933,31 @@ export class AgentSession {
 	}
 
 	/**
+	 * Deliver messages queued while manual compaction held the busy gate.
+	 * compact() aborts any active run first, so no run is in flight to drain
+	 * the queue and nothing else kicks one off — without this, a message
+	 * steered during /compact would sit undelivered until the next prompt
+	 * (or be lost on process exit). Fire-and-forget: failures leave the
+	 * message queued (pre-drain status quo) rather than crashing the caller.
+	 */
+	private _drainQueuedMessagesPostCompaction(): void {
+		if (this._disposed || !this.agent.hasQueuedMessages()) return;
+		if (this.isStreaming || this.isCompacting || this.agent.isProcessing) return;
+		void (async () => {
+			try {
+				await this.agent.continue();
+				while (await this._handlePostAgentRun()) {
+					await this.agent.continue();
+				}
+			} catch {
+				// Racing run started or continue() rejected the trailing message
+				// shape: an active run drains the queue itself; otherwise the
+				// message stays visibly queued for the next turn.
+			}
+		})();
+	}
+
+	/**
 	 * Send a prompt to the agent.
 	 * - Handles extension commands (registered via pi.registerCommand) immediately, even during streaming
 	 * - Expands file-based prompt templates by default
@@ -1985,14 +2010,25 @@ export class AgentSession {
 				expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 			}
 
-			// If streaming, queue via steer() or followUp() based on option
-			if (this.isStreaming) {
-				if (!options?.streamingBehavior) {
+			// If a run is in flight, queue via steer() or followUp() based on option.
+			// isStreaming alone is NOT a complete busy signal: compaction runs its
+			// LLM calls outside agent.runWithLifecycle() (isStreaming stays false),
+			// and agent.isProcessing covers the setup window inside prompt() and
+			// the agent_end listener phase. Prompts sent in those windows used to
+			// fall through and race agent.prompt(), rejecting with "Agent is
+			// already processing a prompt" — fatal for un-awaited callers
+			// (extension sendUserMessage). Same gate as sendCustomMessage.
+			if (this.isStreaming || this.isCompacting || this.agent.isProcessing) {
+				// Preserve the strict contract while visibly streaming; in the
+				// compaction/setup windows default to steer so the message is
+				// queued and delivered instead of racing or being dropped.
+				const behavior = options?.streamingBehavior ?? (this.isStreaming ? undefined : "steer");
+				if (!behavior) {
 					throw new Error(
 						"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
 					);
 				}
-				if (options.streamingBehavior === "followUp") {
+				if (behavior === "followUp") {
 					await this._queueFollowUp(expandedText, currentImages);
 				} else {
 					await this._queueSteer(expandedText, currentImages);
@@ -2110,7 +2146,42 @@ export class AgentSession {
 		}
 
 		preflightResult?.(true);
-		await this._runAgentPrompt(messages);
+		try {
+			await this._runAgentPrompt(messages);
+		} catch (err) {
+			// TOCTOU: a run can start between the busy gate above and
+			// agent.prompt() (post-compaction resume, extension-triggered turn).
+			// Route the built messages into the delivery queue instead of
+			// rejecting — the active run drains the queue, so the prompt is
+			// delivered instead of crashing the caller (an un-awaited
+			// session.prompt() rejection killed the process). Mirrors
+			// sendCustomMessage's fallback. Match ONLY agent.prompt()'s
+			// pre-delivery error — the post-run continue() throws a similar
+			// "already processing" error, but by then the messages were already
+			// delivered and re-queueing them would duplicate the prompt.
+			if (!(err instanceof Error) || !err.message.includes("already processing a prompt")) {
+				throw err;
+			}
+			const behavior = options?.streamingBehavior ?? "steer";
+			const mirror = behavior === "followUp" ? this._followUpMessages : this._steeringMessages;
+			for (const message of messages) {
+				if (message.role === "user" && Array.isArray(message.content)) {
+					// join("") matches _getUserMessageText so the queue-display
+					// mirror entry is removed when the message is delivered.
+					const text = message.content
+						.filter((part): part is TextContent => part.type === "text")
+						.map((part) => part.text)
+						.join("");
+					if (text) mirror.push(text);
+				}
+				if (behavior === "followUp") {
+					this.agent.followUp(message);
+				} else {
+					this.agent.steer(message);
+				}
+			}
+			this._emitQueueUpdate();
+		}
 	}
 
 	/**
@@ -3021,6 +3092,7 @@ export class AgentSession {
 		} finally {
 			this._compactionAbortController = undefined;
 			this._reconnectToAgent();
+			this._drainQueuedMessagesPostCompaction();
 		}
 	}
 
