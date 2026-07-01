@@ -356,6 +356,75 @@ describe("AgentSession concurrent prompt guard", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("delivers messages queued while manual compaction held the busy gate", async () => {
+		// Review finding on the busy-gate fix: compact() aborts any active run,
+		// so a message steered while isCompacting held the gate had no run to
+		// drain it — it sat queued until the next prompt (or was lost on exit).
+		// compact()'s finally now calls _drainQueuedMessagesPostCompaction().
+		const model = pickModel("anthropic");
+		const seenUserTexts: string[] = [];
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: {
+				model,
+				systemPrompt: "Test",
+				tools: [],
+			},
+			streamFn: (_model, context) => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					for (const message of context.messages) {
+						if (message.role !== "user" || typeof message.content === "string") continue;
+						for (const part of message.content) {
+							if (typeof part === "object" && part !== null && part.type === "text") {
+								seenUserTexts.push(part.text);
+							}
+						}
+					}
+					stream.push({ type: "start", partial: createAssistantMessage("") });
+					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Done") });
+				});
+				return stream;
+			},
+		});
+
+		const sessionManager = SessionManager.inMemory();
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		authStorage.setRuntimeApiKey("anthropic", "test-key");
+
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+
+		// Seed a completed turn so the session is idle with a trailing assistant
+		// message — the state compact() leaves behind.
+		await session.prompt("First message");
+		await session.agent.waitForIdle();
+		expect(session.agent.isProcessing).toBe(false);
+
+		// A message queued during compaction (the broadened gate steers it).
+		session.agent.steer({
+			role: "user",
+			content: [{ type: "text", text: "Queued during compact" }],
+			timestamp: Date.now(),
+		});
+		expect(session.agent.hasQueuedMessages()).toBe(true);
+
+		(session as unknown as { _drainQueuedMessagesPostCompaction: () => void })._drainQueuedMessagesPostCompaction();
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		await session.agent.waitForIdle();
+
+		expect(session.agent.hasQueuedMessages()).toBe(false);
+		expect(seenUserTexts).toContain("Queued during compact");
+	});
+
 	it("should allow prompt() after previous completes", async () => {
 		// Create session with a stream that completes immediately
 		const model = pickModel("anthropic");

@@ -1933,6 +1933,31 @@ export class AgentSession {
 	}
 
 	/**
+	 * Deliver messages queued while manual compaction held the busy gate.
+	 * compact() aborts any active run first, so no run is in flight to drain
+	 * the queue and nothing else kicks one off — without this, a message
+	 * steered during /compact would sit undelivered until the next prompt
+	 * (or be lost on process exit). Fire-and-forget: failures leave the
+	 * message queued (pre-drain status quo) rather than crashing the caller.
+	 */
+	private _drainQueuedMessagesPostCompaction(): void {
+		if (this._disposed || !this.agent.hasQueuedMessages()) return;
+		if (this.isStreaming || this.isCompacting || this.agent.isProcessing) return;
+		void (async () => {
+			try {
+				await this.agent.continue();
+				while (await this._handlePostAgentRun()) {
+					await this.agent.continue();
+				}
+			} catch {
+				// Racing run started or continue() rejected the trailing message
+				// shape: an active run drains the queue itself; otherwise the
+				// message stays visibly queued for the next turn.
+			}
+		})();
+	}
+
+	/**
 	 * Send a prompt to the agent.
 	 * - Handles extension commands (registered via pi.registerCommand) immediately, even during streaming
 	 * - Expands file-based prompt templates by default
@@ -2141,10 +2166,12 @@ export class AgentSession {
 			const mirror = behavior === "followUp" ? this._followUpMessages : this._steeringMessages;
 			for (const message of messages) {
 				if (message.role === "user" && Array.isArray(message.content)) {
+					// join("") matches _getUserMessageText so the queue-display
+					// mirror entry is removed when the message is delivered.
 					const text = message.content
 						.filter((part): part is TextContent => part.type === "text")
 						.map((part) => part.text)
-						.join("\n");
+						.join("");
 					if (text) mirror.push(text);
 				}
 				if (behavior === "followUp") {
@@ -3065,6 +3092,7 @@ export class AgentSession {
 		} finally {
 			this._compactionAbortController = undefined;
 			this._reconnectToAgent();
+			this._drainQueuedMessagesPostCompaction();
 		}
 	}
 
