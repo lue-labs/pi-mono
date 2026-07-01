@@ -106,7 +106,6 @@ interface RequestBody {
 	text?: { verbosity?: string };
 	include?: string[];
 	prompt_cache_key?: string;
-	prompt_cache_retention?: "24h";
 	max_output_tokens?: number;
 	[key: string]: unknown;
 }
@@ -242,7 +241,12 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				body = nextBody as RequestBody;
 			}
 			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
-			body.prompt_cache_retention = codexPromptCacheRetention(cacheRetention);
+			// ChatGPT Codex Responses rejects `prompt_cache_retention` ("Unsupported
+			// parameter: prompt_cache_retention") — same backend constraint as
+			// `store: true` / `max_output_tokens`. Server-side prefix caching is keyed on
+			// the `session-id` header + `prompt_cache_key` (set below), which we still
+			// send; the explicit retention window must never be forwarded or every
+			// request 400s. Was a fork-only addition; the backend now refuses it.
 			const cacheAffinitySessionId =
 				cacheRetention === "none"
 					? options?.sessionId
@@ -500,10 +504,6 @@ function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEn
 	return "long";
 }
 
-function codexPromptCacheRetention(cacheRetention: StreamOptions["cacheRetention"] | undefined): "24h" | undefined {
-	return cacheRetention === "long" ? "24h" : undefined;
-}
-
 function buildRequestBody(
 	model: Model<"openai-codex-responses">,
 	context: Context,
@@ -525,7 +525,8 @@ function buildRequestBody(
 		text: { verbosity: options?.textVerbosity || "low" },
 		include: ["reasoning.encrypted_content"],
 		prompt_cache_key: undefined,
-		prompt_cache_retention: codexPromptCacheRetention(cacheRetention),
+		// prompt_cache_retention intentionally omitted: the ChatGPT Codex backend
+		// rejects it (see stream()). Cache affinity is carried by prompt_cache_key.
 		tool_choice: "auto",
 		parallel_tool_calls: true,
 	};

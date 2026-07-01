@@ -215,7 +215,7 @@ describe("openai-codex streaming", () => {
 		expect(JSON.stringify(bodyB.tools)).toBe(JSON.stringify(bodyA.tools));
 	});
 
-	it("uses cache affinity and long-retention options for Codex requests", async () => {
+	it("uses cache affinity but never forwards prompt_cache_retention (ChatGPT backend rejects it)", async () => {
 		const { body, headers } = await captureCodexRequest(
 			{
 				systemPrompt: "Stable system prompt",
@@ -233,8 +233,11 @@ describe("openai-codex streaming", () => {
 		expect(headers.get("session-id")).toBe(promptCacheKey);
 		expect(headers.get("thread-id")).toBe("cache-stability-test-session");
 		expect(headers.get("x-client-request-id")).toBe("cache-stability-test-session");
-		expect(body.prompt_cache_retention).toBe("24h");
-		// Codex backend rejects max_output_tokens; the adapter must never forward it,
+		// ChatGPT Codex backend rejects `prompt_cache_retention` ("Unsupported
+		// parameter"); the adapter must never forward it even at cacheRetention:"long".
+		// Affinity is still carried by prompt_cache_key + the session-id header above.
+		expect(body.prompt_cache_retention).toBeUndefined();
+		// Codex backend also rejects max_output_tokens; never forward it either,
 		// even when the caller (e.g. compaction) sets maxTokens.
 		expect(body.max_output_tokens).toBeUndefined();
 	});

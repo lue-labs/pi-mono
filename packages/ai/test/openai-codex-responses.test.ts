@@ -27,7 +27,7 @@ function buildBodyWith(tools: Tool[]) {
 }
 
 describe("buildRequestBody — Codex prompt cache", () => {
-	it("defaults to long cache retention with session id fallback", () => {
+	it("keeps the session-id cache-key fallback but never sends prompt_cache_retention", () => {
 		const context: Context = {
 			systemPrompt: "",
 			messages: [],
@@ -37,7 +37,9 @@ describe("buildRequestBody — Codex prompt cache", () => {
 		});
 
 		expect(body.prompt_cache_key).toBe("codex-session");
-		expect(body.prompt_cache_retention).toBe("24h");
+		// ChatGPT Codex backend rejects prompt_cache_retention ("Unsupported
+		// parameter"); it must never be forwarded even when retention resolves long.
+		expect(body.prompt_cache_retention).toBeUndefined();
 	});
 
 	it("honors scoped PI_CACHE_RETENTION defaults", () => {
@@ -64,7 +66,9 @@ describe("buildRequestBody — Codex prompt cache", () => {
 		expect(shortBody.prompt_cache_key).toBe("codex-session");
 		expect(noneBody.prompt_cache_retention).toBeUndefined();
 		expect(noneBody.prompt_cache_key).toBeUndefined();
-		expect(explicitLongBody.prompt_cache_retention).toBe("24h");
+		// Codex never forwards prompt_cache_retention regardless of resolution; the
+		// prompt_cache_key affinity still tracks the retention mode (none => omit).
+		expect(explicitLongBody.prompt_cache_retention).toBeUndefined();
 		expect(explicitLongBody.prompt_cache_key).toBe("codex-session");
 	});
 
