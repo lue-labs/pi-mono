@@ -64,6 +64,7 @@ npm:pkg
 - Versioned specs are pinned and skipped by package updates (`pi update --extensions`, `pi update --all`).
 - User installs go under `~/.pi/agent/npm/`.
 - Project installs go under `.pi/npm/`.
+- Managed npm installs pass `--legacy-peer-deps --no-audit` so host-provided pi peers are not auto-solved and audit metadata cannot fail an extension refresh.
 - Set `npmCommand` in `settings.json` to pin npm package lookup and install operations to a specific wrapper command such as `mise` or `asdf`.
 
 Example:

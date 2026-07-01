@@ -748,6 +748,7 @@ Content`,
 					"--prefix",
 					join(agentDir, "npm"),
 					"--legacy-peer-deps",
+					"--no-audit",
 				],
 				undefined,
 			);
@@ -2162,7 +2163,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			);
 			expect(runCommandSpy).toHaveBeenCalledWith(
 				"npm",
-				["install", "example@^1.0.0", "--prefix", join(tempDir, ".pi", "npm"), "--legacy-peer-deps"],
+				["install", "example@^1.0.0", "--prefix", join(tempDir, ".pi", "npm"), "--legacy-peer-deps", "--no-audit"],
 				undefined,
 			);
 		});
@@ -2209,6 +2210,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 						"--prefix",
 						join(agentDir, "npm"),
 						"--legacy-peer-deps",
+						"--no-audit",
 					]);
 					mkdirSync(managedPath, { recursive: true });
 					writeFileSync(
@@ -2326,6 +2328,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 					"--prefix",
 					join(agentDir, "npm"),
 					"--legacy-peer-deps",
+					"--no-audit",
 				],
 				undefined,
 			);
@@ -2339,6 +2342,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 					"--prefix",
 					join(tempDir, ".pi", "npm"),
 					"--legacy-peer-deps",
+					"--no-audit",
 				],
 				undefined,
 			);
