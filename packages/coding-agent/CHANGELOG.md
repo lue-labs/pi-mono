@@ -9,6 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Skip npm audit during managed package installs by passing `--no-audit` alongside `--legacy-peer-deps`, avoiding Arborist audit/rollback failures during extension refreshes while leaving bun/pnpm install behavior unchanged.
 - Add `ctx.requestStopAfterTurn(reason?)` for extensions that need to park the current agent run at the next turn boundary without aborting and without changing mixed tool-batch `terminate` semantics. Covers mixed terminating/non-terminating tool batches with `test/suite/agent-session-extension-stop-after-turn.test.ts`.
 - Add `ForkAgentOptions.detachFromParent` (additive, default-off): a fork can opt out of the parent session's abort signal so a `AgentSession.dispose()`/`agent.abort()` on session replace/reload no longer cancels a best-effort background fork; the fork then runs on the caller's own signal, bounded by the caller's drain. Consumed by pi-memory turn-end extraction (drained on `session_shutdown`). Lifecycle flag only, not part of the cached prefix. Locks the drain-before-abort invariant with a regression test in `test/agent-session-runtime-events.test.ts`. Refs #151/#152.
 - Add cache-safe semantic auto model routing boundaries: `model:resolve` hooks can resolve `auto` / provider-scoped `*/auto` aliases at session, child-agent, or first-prompt interactive boundaries; unresolved aliases now fail clearly or remain pending instead of silently using a seed model, and parallel Agent child rows expose routed child task details.
