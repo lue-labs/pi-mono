@@ -1361,12 +1361,12 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				if (m.tool_call !== true) continue;
 				if (m.status === "deprecated") continue;
 
-				// Claude 4.x models route to Anthropic Messages API
-				const isCopilotClaude4 = /^claude-(haiku|sonnet|opus)-4([.\-]|$)/.test(modelId);
+				// Claude 4.x and 5.x models route to Anthropic Messages API
+				const isCopilotClaude = /^claude-(haiku|sonnet|opus)-[45]([.\-]|$)/.test(modelId);
 				// gpt-5 models require responses API, others use completions
 				const needsResponsesApi = modelId.startsWith("gpt-5") || modelId.startsWith("oswe");
 
-				const api: Api = isCopilotClaude4
+				const api: Api = isCopilotClaude
 					? "anthropic-messages"
 					: needsResponsesApi
 						? "openai-responses"
@@ -1897,6 +1897,17 @@ async function generateModels() {
 				name: "GPT-5.3 Codex",
 			});
 		}
+	}
+
+	// Add missing GitHub Copilot Claude Sonnet 5 until models.dev includes it.
+	const anthropicSonnet5 = allModels.find((m) => m.provider === "anthropic" && m.id === "claude-sonnet-5");
+	if (anthropicSonnet5 && !allModels.some((m) => m.provider === "github-copilot" && m.id === "claude-sonnet-5")) {
+		allModels.push({
+			...anthropicSonnet5,
+			provider: "github-copilot",
+			baseUrl: "https://api.individual.githubcopilot.com",
+			headers: { ...COPILOT_STATIC_HEADERS },
+		});
 	}
 
 	if (!allModels.some((m) => m.provider === "openai" && m.id === "gpt-5.4")) {
