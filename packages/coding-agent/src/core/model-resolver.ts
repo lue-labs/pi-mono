@@ -161,6 +161,7 @@ export function findExactModelReferenceMatch(
 				return undefined;
 			}
 		}
+		return undefined;
 	}
 
 	const idMatches = availableModels.filter((model) => model.id.toLowerCase() === normalizedReference);
@@ -175,6 +176,13 @@ function tryMatchModel(modelPattern: string, availableModels: Model<Api>[]): Mod
 	const exactMatch = findExactModelReferenceMatch(modelPattern, availableModels);
 	if (exactMatch) {
 		return exactMatch;
+	}
+
+	// Provider-qualified references are intentional. If `openai/gpt-...` or
+	// `openai-codex/gpt-...` is unavailable, do not fuzzy-match a proxy provider
+	// model whose id merely contains that string (e.g. `kilo/openai/gpt-...`).
+	if (modelPattern.includes("/")) {
+		return undefined;
 	}
 
 	// No exact match - fall back to partial matching

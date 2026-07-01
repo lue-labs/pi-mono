@@ -62,7 +62,7 @@ const BASE_DELAY_MS = 1000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 // Keep a bounded pre-header timeout so zero-event Codex SSE stalls fail instead of
 // leaving callers stuck on "Working..." indefinitely. See #4945.
-const DEFAULT_SSE_HEADER_TIMEOUT_MS = 20_000;
+const DEFAULT_SSE_HEADER_TIMEOUT_MS = Number(process.env.PI_CODEX_SSE_HEADER_TIMEOUT_MS || 90_000);
 const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 const CODEX_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
 const WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE = 1009;
