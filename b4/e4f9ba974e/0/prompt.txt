@@ -1,0 +1,4 @@
+what happened here:
+ - /goal continuations now have a Pi-side minimum tier of medium, not frontier.
+  - Oversized /goal prompts externalized to docs/goals/ now carry a bounded routing preview, so Semantic Router sees the actual objective
+    instead of only a file pointer.
