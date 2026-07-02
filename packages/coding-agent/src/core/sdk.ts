@@ -344,10 +344,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			!modelsAreEqual(before, nextModel) ||
 			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== thinkingLevel);
 		if (!hasRoutingDecision) {
-			throw new Error(`Auto model ${requestedModel} did not resolve to a semantic routing decision`);
+			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}Auto model ${requestedModel} could not be routed (no routing decision); continuing with ${before.provider}/${before.id}.`;
+		} else {
+			model = nextModel;
+			thinkingLevel = nextThinkingLevel;
 		}
-		model = nextModel;
-		thinkingLevel = nextThinkingLevel;
 		const reason = Array.isArray(resolved.metadata?.reason) ? resolved.metadata.reason.join(", ") : undefined;
 		const route = typeof resolved.metadata?.route === "string" ? resolved.metadata.route : requestedModel;
 		const unavailable = resolved.metadata?.llmRouterUnavailable as { message?: string } | undefined;

@@ -77,23 +77,29 @@ describe("model:resolve startup filter", () => {
 		expect(result.modelFallbackMessage).toContain("Auto model pi-fork/auto selected claude-bridge/claude-sonnet-4-6");
 	});
 
-	it("rejects a startup auto alias when no router resolves it", async () => {
+	it("keeps the startup fallback model when no router resolves an auto alias", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-startup-noop-"));
 		addFilter<any>("model:resolve", "test-model-resolve", (value) => value);
 
-		await expect(
-			createAgentSession({
-				cwd: tempDir,
-				agentDir: tempDir,
-				resourceLoader: createTestResourceLoader(),
-				sessionManager: SessionManager.inMemory(),
-				settingsManager: SettingsManager.create(tempDir, tempDir),
-				modelRegistry: fakeModelRegistry(),
-				model: baseModel,
-				thinkingLevel: "high",
-				requestedModel: "pi-fork/auto",
-			}),
-		).rejects.toThrow(/pi-fork\/auto did not resolve/);
+		const sessionManager = SessionManager.inMemory();
+		const result = await createAgentSession({
+			cwd: tempDir,
+			agentDir: tempDir,
+			resourceLoader: createTestResourceLoader(),
+			sessionManager,
+			settingsManager: SettingsManager.create(tempDir, tempDir),
+			modelRegistry: fakeModelRegistry(),
+			model: baseModel,
+			thinkingLevel: "high",
+			requestedModel: "pi-fork/auto",
+		});
+
+		expect(result.session.model?.id).toBe("claude-opus-4-8");
+		expect(result.session.thinkingLevel).toBe("high");
+		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-opus-4-8");
+		expect(result.modelFallbackMessage).toContain(
+			"Auto model pi-fork/auto could not be routed (no routing decision); continuing with claude-bridge/claude-opus-4-8",
+		);
 	});
 
 	it("defers an interactive auto alias until semantic prompt text exists", async () => {
@@ -170,15 +176,16 @@ describe("model:resolve startup filter", () => {
 		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-opus-4-8");
 	});
 
-	it("does not clear a deferred auto alias when no router resolves it", async () => {
+	it("clears a deferred auto alias and warns when no router resolves it", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-model-resolve-noop-"));
 		addFilter<any>("model:resolve", "test-model-resolve", (value) => value);
 
+		const sessionManager = SessionManager.inMemory();
 		const result = await createAgentSession({
 			cwd: tempDir,
 			agentDir: tempDir,
 			resourceLoader: createTestResourceLoader(),
-			sessionManager: SessionManager.inMemory(),
+			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
 			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
@@ -187,11 +194,21 @@ describe("model:resolve startup filter", () => {
 			deferRequestedModelResolution: true,
 		});
 
-		await expect((result.session as any)._resolvePendingAutoModelForPrompt("hello")).rejects.toThrow(
-			/pi-fork\/auto did not resolve/,
-		);
 		expect(result.session.pendingAutoModelAlias).toBe("pi-fork/auto");
+		await expect((result.session as any)._resolvePendingAutoModelForPrompt("hello")).resolves.toBeUndefined();
+
+		expect(result.session.pendingAutoModelAlias).toBeUndefined();
 		expect(result.session.model?.id).toBe("claude-opus-4-8");
+		expect(result.session.thinkingLevel).toBe("high");
+		expect(sessionManager.buildSessionContext().model).toBeNull();
+		const warning = sessionManager
+			.getBranch()
+			.find((entry) => entry.type === "custom_message" && entry.customType === "model-routing-warning");
+		expect(warning).toMatchObject({
+			content:
+				"Auto model pi-fork/auto could not be routed (no routing decision); continuing with claude-bridge/claude-opus-4-8.",
+			display: true,
+		});
 	});
 
 	it("passes initial routing metadata into the startup filter", async () => {

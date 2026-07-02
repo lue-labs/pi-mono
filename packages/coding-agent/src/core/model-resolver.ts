@@ -10,7 +10,7 @@ import { isValidThinkingLevel } from "../cli/args.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 
-export const AUTO_MODEL_ALIAS_PROVIDERS = new Set(["pi-fork", "claude-bridge", "openai-codex"]);
+export const AUTO_MODEL_ALIAS_PROVIDERS = new Set(["pi-fork", "claude-bridge", "openai-codex", "clawrouter"]);
 
 export function normalizeAutoAliasString(
 	provider: string | undefined,
