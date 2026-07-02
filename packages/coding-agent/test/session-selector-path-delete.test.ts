@@ -106,9 +106,9 @@ describe("session selector path/delete interactions", () => {
 		initTheme("dark");
 	});
 
-	it("defaults to named filter while keeping first-message sessions visible", async () => {
+	it("defaults to named filter and hides unnamed first-message sessions", async () => {
 		const sessions = [
-			makeSession({ id: "unnamed", firstMessage: "unnamed visible session" }),
+			makeSession({ id: "unnamed", firstMessage: "unnamed first-message session" }),
 			makeSession({ id: "named", name: "Named Session" }),
 			makeSession({ id: "empty", firstMessage: "(no messages)", allMessagesText: "", messageCount: 0 }),
 		];
@@ -126,14 +126,14 @@ describe("session selector path/delete interactions", () => {
 
 		const defaultOutput = stripAnsi(selector.render(120).join("\n"));
 		expect(defaultOutput).toContain("Name: Named");
-		expect(defaultOutput).toContain("unnamed visible session");
+		expect(defaultOutput).not.toContain("unnamed first-message session");
 		expect(defaultOutput).toContain("Named Session");
 		expect(defaultOutput).not.toContain("(no messages)");
 
 		selector.getSessionList().handleInput("\x0e"); // Ctrl+N: explicit all-sessions filter
 		const allOutput = stripAnsi(selector.render(120).join("\n"));
 		expect(allOutput).toContain("Name: All");
-		expect(allOutput).toContain("unnamed visible session");
+		expect(allOutput).toContain("unnamed first-message session");
 		expect(allOutput).toContain("Named Session");
 		expect(allOutput).toContain("(no messages)");
 	});
@@ -163,7 +163,7 @@ describe("session selector path/delete interactions", () => {
 	});
 
 	it("enters confirmation mode on Ctrl+D even with a non-empty search query", async () => {
-		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
+		const sessions = [makeSession({ id: "a", name: "Alpha" }), makeSession({ id: "b", name: "Beta" })];
 
 		const selector = new SessionSelectorComponent(
 			async () => sessions,
@@ -187,7 +187,7 @@ describe("session selector path/delete interactions", () => {
 	});
 
 	it("enters confirmation mode on Ctrl+Backspace when search query is empty", async () => {
-		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
+		const sessions = [makeSession({ id: "a", name: "Alpha" }), makeSession({ id: "b", name: "Beta" })];
 
 		const selector = new SessionSelectorComponent(
 			async () => sessions,
