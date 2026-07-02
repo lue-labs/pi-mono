@@ -4,7 +4,7 @@ import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { cwd } from "node:process";
 import { fileURLToPath } from "node:url";
-import type { RpcCommand, RpcExtensionUIResponse } from "@earendil-works/pi-coding-agent";
+import type { RpcCommand, RpcExtensionUIResponse } from "@valkyriweb/pi-coding-agent";
 import { getSocketPath } from "./config.ts";
 import { sendIpcRequest } from "./ipc/client.ts";
 import { encodeMessage } from "./ipc/protocol.ts";

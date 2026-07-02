@@ -1,5 +1,5 @@
 import { hostname, platform } from "node:os";
-import { AuthStorage, type OAuthCredential } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, type OAuthCredential } from "@valkyriweb/pi-coding-agent";
 import { getOrchestratorDir, getSocketPath, VERSION } from "./config.ts";
 import { loadMachine, saveMachine } from "./storage.ts";
 import type { InstanceRecord, MachineRecord, RadiusRegistration } from "./types.ts";
