@@ -10,6 +10,29 @@ import { isValidThinkingLevel } from "../cli/args.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 
+export const AUTO_MODEL_ALIAS_PROVIDERS = new Set(["pi-fork", "claude-bridge", "openai-codex"]);
+
+export function normalizeAutoAliasString(
+	provider: string | undefined,
+	modelId: string | undefined,
+): string | undefined {
+	const normalizedModelId = modelId?.trim().toLowerCase();
+	if (!normalizedModelId) return undefined;
+
+	const modelReferenceParts = normalizedModelId.split("/");
+	if (modelReferenceParts.length === 2) {
+		const [referenceProvider, referenceModelId] = modelReferenceParts;
+		return referenceModelId === "auto" && AUTO_MODEL_ALIAS_PROVIDERS.has(referenceProvider)
+			? `${referenceProvider}/auto`
+			: undefined;
+	}
+
+	const normalizedProvider = provider?.trim().toLowerCase();
+	return normalizedModelId === "auto" && normalizedProvider && AUTO_MODEL_ALIAS_PROVIDERS.has(normalizedProvider)
+		? `${normalizedProvider}/auto`
+		: undefined;
+}
+
 /**
  * Fast/cheap model id per provider, used to resolve the `"fast"` model alias
  * (e.g. for the read-only `explore` agent).

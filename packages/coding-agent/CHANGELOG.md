@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Route settings-persisted auto model defaults (`defaultProvider` + `defaultModel: "auto"`) through the same deferred `model:resolve` pending-auto request as `--model auto`, so a persisted `openai-codex/auto` default semantically routes at the first prompt boundary instead of silently landing on `findInitialModel`'s concrete fallback model. Concrete defaults, explicit `--model`, session restore, and scoped models are unaffected. Regressions in `test/sdk-settings-default-auto.test.ts`.
+
 - Keep the `/resume` / `--resume` session picker default on the Named filter, but treat sessions with a non-placeholder first user message as displayable named results so the default hides only empty stubs instead of normal unnamed sessions.
 
 - Fix a fatal race in `AgentSession.prompt()`: the busy gate now checks `isCompacting`/`agent.isProcessing` in addition to `isStreaming` (mirroring `sendCustomMessage`), so prompts and extension `sendUserMessage` calls sent during auto-compaction, the post-compaction resume, or the agent_end listener phase are queued (default steer) instead of racing `agent.prompt()` and rejecting with "Agent is already processing a prompt" — an un-awaited rejection there crashed the whole interactive process mid-"Auto-compacting…". A TOCTOU fallback at the `_runAgentPrompt` send chokepoint routes raced prompt messages into the steer/follow-up queue, and manual `compact()` now drains messages queued while it held the busy gate (it aborts any active run, so nothing else would deliver them). Regressions in `test/agent-session-concurrent.test.ts`.

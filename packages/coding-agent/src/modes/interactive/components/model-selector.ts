@@ -10,6 +10,7 @@ import {
 	type TUI,
 } from "@valkyriweb/pi-tui";
 import type { ModelRegistry } from "../../../core/model-registry.ts";
+import { AUTO_MODEL_ALIAS_PROVIDERS } from "../../../core/model-resolver.ts";
 import type { SettingsManager } from "../../../core/settings-manager.ts";
 import { getModelSelectorSearchText } from "../model-search.ts";
 import { theme } from "../theme/theme.ts";
@@ -21,8 +22,6 @@ interface ModelItem {
 	id: string;
 	model: Model<any>;
 }
-
-const AUTO_MODEL_ALIAS_PROVIDERS = new Set(["pi-fork", "claude-bridge", "openai-codex"]);
 
 export function isAutoModelAlias(model: Model<any> | undefined): boolean {
 	return !!model && model.id === "auto" && AUTO_MODEL_ALIAS_PROVIDERS.has(model.provider);

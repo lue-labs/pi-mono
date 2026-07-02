@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	defaultModelPerProvider,
 	findInitialModel,
+	normalizeAutoAliasString,
 	parseModelPattern,
 	resolveCliModel,
 } from "../src/core/model-resolver.ts";
@@ -532,6 +533,27 @@ describe("resolveCliModel", () => {
 			expect(result.model?.id).toBe("zai-org/GLM-5.1-FP8:high");
 			expect(result.thinkingLevel).toBeUndefined();
 		});
+	});
+});
+
+describe("auto alias normalization", () => {
+	test("normalizes settings-default auto aliases for supported providers", () => {
+		expect(normalizeAutoAliasString("pi-fork", "auto")).toBe("pi-fork/auto");
+		expect(normalizeAutoAliasString("claude-bridge", "auto")).toBe("claude-bridge/auto");
+		expect(normalizeAutoAliasString("openai-codex", "auto")).toBe("openai-codex/auto");
+	});
+
+	test("normalizes provider-prefixed auto aliases", () => {
+		expect(normalizeAutoAliasString("openai-codex", "openai-codex/auto")).toBe("openai-codex/auto");
+		expect(normalizeAutoAliasString(undefined, "claude-bridge/auto")).toBe("claude-bridge/auto");
+		expect(normalizeAutoAliasString("openai-codex", "claude-bridge/auto")).toBe("claude-bridge/auto");
+	});
+
+	test("rejects non-auto and unsupported auto aliases", () => {
+		expect(normalizeAutoAliasString("openai-codex", "gpt-5.5")).toBeUndefined();
+		expect(normalizeAutoAliasString("openai", "auto")).toBeUndefined();
+		expect(normalizeAutoAliasString(undefined, "auto")).toBeUndefined();
+		expect(normalizeAutoAliasString("openai-codex", "openai/gpt-5.5")).toBeUndefined();
 	});
 });
 
