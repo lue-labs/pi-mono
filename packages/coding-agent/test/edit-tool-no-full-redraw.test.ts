@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Container, type Terminal, Text, TUI } from "@valkyriweb/pi-tui";
+import { Container, type Terminal, Text, TUI, visibleWidth } from "@valkyriweb/pi-tui";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { computeEditsDiff, type Edit } from "../src/core/tools/edit-diff.ts";
@@ -342,5 +342,46 @@ describe("edit tool TUI rendering", () => {
 		);
 		expect(rendered).not.toContain("+1 ");
 		expect(rendered).not.toContain("-1 ");
+	});
+
+	it("wraps the final error text from failed edit execution", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "pi-edit-final-error-"));
+		tempDirs.push(dir);
+		const filePath = join(dir, "missing-edit.txt");
+		await writeFile(filePath, "line 0\nline 1\n", "utf8");
+
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-final-error",
+			{ path: filePath, edits: [{ oldText: "", newText: "replacement" }] },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		tui.addChild(component);
+		tui.start();
+
+		component.updateResult(
+			{
+				content: [
+					{
+						type: "text",
+						text: "Could not find edits[10] in /Users/luke/Projects/personal/babysitter/babysit. The oldText must match exactly including all whitespace and newlines. Re-read the current file and retry with the smallest unique oldText block copied exactly from the file (usually 1-3 lines). If copying from Read output, omit line numbers, tabs/colons, and separators. edits[10]: oldText not present in current file (1 line(s), 90 chars).",
+					},
+				],
+				isError: true,
+			},
+			false,
+		);
+
+		const width = 60;
+		const renderedLines = component.render(width);
+		expect(renderedLines.some((line) => stripAnsi(line).includes("Could not find edits[10]"))).toBe(true);
+		for (const line of renderedLines) {
+			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
 	});
 });

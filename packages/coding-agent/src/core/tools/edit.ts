@@ -611,8 +611,10 @@ export function createEditToolDefinition(
 				return component;
 			}
 			component.addChild(new Spacer(1));
-			// Use rich ColorDiff rendering when structured hunks are available
-			if (output === "__COLOR_DIFF__" && typedResult.details?.hunks?.length) {
+			if (context.isError) {
+				component.addChild(new Text(output, 0, 0));
+			} else if (output === "__COLOR_DIFF__" && typedResult.details?.hunks?.length) {
+				// Use rich ColorDiff rendering when structured hunks are available
 				const rawPath = str(
 					(context.args as RenderableEditArgs | undefined)?.file_path ??
 						(context.args as RenderableEditArgs | undefined)?.path,

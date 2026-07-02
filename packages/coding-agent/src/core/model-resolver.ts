@@ -212,14 +212,63 @@ export interface ParsedModelResult {
 	warning: string | undefined;
 }
 
+export function isAvoidedAutomaticModel(model: Pick<Model<Api>, "provider" | "id">): boolean {
+	return model.provider === "openai-codex" && model.id === "gpt-5.3-codex-spark";
+}
+
+function pickProviderAutomaticModel(provider: string, providerModels: Model<Api>[]): Model<Api> | undefined {
+	if (providerModels.length === 0) return undefined;
+
+	const defaultId = defaultModelPerProvider[provider as KnownProvider];
+	if (defaultId) {
+		const defaultModel = providerModels.find((m) => m.id === defaultId);
+		if (defaultModel) return defaultModel;
+	}
+
+	return providerModels.find((model) => !isAvoidedAutomaticModel(model)) ?? providerModels[0];
+}
+
+export function chooseAutomaticModel(
+	availableModels: Model<Api>[],
+	options: { preferredProvider?: string } = {},
+): Model<Api> | undefined {
+	const preferredProvider = options.preferredProvider?.trim();
+	if (preferredProvider) {
+		const preferred = pickProviderAutomaticModel(
+			preferredProvider,
+			availableModels.filter((model) => model.provider === preferredProvider),
+		);
+		if (preferred && !isAvoidedAutomaticModel(preferred)) return preferred;
+	}
+
+	for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
+		const selected = pickProviderAutomaticModel(
+			provider,
+			availableModels.filter((model) => model.provider === provider),
+		);
+		if (selected && !isAvoidedAutomaticModel(selected)) return selected;
+	}
+
+	return availableModels.find((model) => !isAvoidedAutomaticModel(model));
+}
+
+export function chooseAutomaticScopedModel(
+	scopedModels: ScopedModel[],
+	options: { preferredProvider?: string } = {},
+): ScopedModel | undefined {
+	const selected = chooseAutomaticModel(
+		scopedModels.map((scopedModel) => scopedModel.model),
+		options,
+	);
+	return scopedModels.find((scopedModel) => selected && modelsAreEqual(scopedModel.model, selected));
+}
+
 function buildFallbackModel(provider: string, modelId: string, availableModels: Model<Api>[]): Model<Api> | undefined {
 	const providerModels = availableModels.filter((m) => m.provider === provider);
 	if (providerModels.length === 0) return undefined;
 
-	const defaultId = defaultModelPerProvider[provider as KnownProvider];
-	const baseModel = defaultId
-		? (providerModels.find((m) => m.id === defaultId) ?? providerModels[0])
-		: providerModels[0];
+	const baseModel = pickProviderAutomaticModel(provider, providerModels);
+	if (!baseModel) return undefined;
 
 	return {
 		...baseModel,
@@ -576,7 +625,7 @@ export interface InitialModelResult {
 /**
  * Find the initial model to use based on priority:
  * 1. CLI args (provider + model)
- * 2. First model from scoped models (if not continuing/resuming)
+ * 2. Provider/default-aware scoped model (if not continuing/resuming)
  * 3. Restored from session (if continuing/resuming)
  * 4. Saved default from settings
  * 5. First available model with valid API key
@@ -621,20 +670,23 @@ export async function findInitialModel(options: {
 		}
 	}
 
-	// 2. Use first model from scoped models (skip if continuing/resuming)
+	// 2. Use provider/default-aware scoped model (skip if continuing/resuming)
 	if (scopedModels.length > 0 && !isContinuing) {
-		return {
-			model: scopedModels[0].model,
-			thinkingLevel: scopedModels[0].thinkingLevel ?? defaultThinkingLevel ?? DEFAULT_THINKING_LEVEL,
-			fallbackMessage: undefined,
-		};
+		const selected = chooseAutomaticScopedModel(scopedModels, { preferredProvider: defaultProvider });
+		if (selected) {
+			return {
+				model: selected.model,
+				thinkingLevel: selected.thinkingLevel ?? defaultThinkingLevel ?? DEFAULT_THINKING_LEVEL,
+				fallbackMessage: undefined,
+			};
+		}
 	}
 
 	// 3. Try saved default from settings
 	if (defaultProvider && defaultModelId) {
 		const normalizedDefaultModelId = stripProviderPrefix(defaultProvider, defaultModelId);
 		const found = modelRegistry.find(defaultProvider, normalizedDefaultModelId);
-		if (found) {
+		if (found && !isAvoidedAutomaticModel(found)) {
 			model = found;
 			if (defaultThinkingLevel) {
 				thinkingLevel = defaultThinkingLevel;
@@ -647,17 +699,10 @@ export async function findInitialModel(options: {
 	const availableModels = await modelRegistry.getAvailable();
 
 	if (availableModels.length > 0) {
-		// Try to find a default model from known providers
-		for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
-			const defaultId = defaultModelPerProvider[provider];
-			const match = availableModels.find((m) => m.provider === provider && m.id === defaultId);
-			if (match) {
-				return { model: match, thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
-			}
+		const automaticModel = chooseAutomaticModel(availableModels, { preferredProvider: defaultProvider });
+		if (automaticModel) {
+			return { model: automaticModel, thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
 		}
-
-		// If no default found, use first available
-		return { model: availableModels[0], thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
 	}
 
 	// 5. No model found
@@ -708,21 +753,8 @@ export async function restoreModelFromSession(
 	const availableModels = await modelRegistry.getAvailable();
 
 	if (availableModels.length > 0) {
-		// Try to find a default model from known providers
-		let fallbackModel: Model<Api> | undefined;
-		for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
-			const defaultId = defaultModelPerProvider[provider];
-			const match = availableModels.find((m) => m.provider === provider && m.id === defaultId);
-			if (match) {
-				fallbackModel = match;
-				break;
-			}
-		}
-
-		// If no default found, use first available
-		if (!fallbackModel) {
-			fallbackModel = availableModels[0];
-		}
+		const fallbackModel = chooseAutomaticModel(availableModels);
+		if (!fallbackModel) return { model: undefined, fallbackMessage: undefined };
 
 		if (shouldPrintMessages) {
 			console.log(chalk.dim(`Falling back to: ${fallbackModel.provider}/${fallbackModel.id}`));

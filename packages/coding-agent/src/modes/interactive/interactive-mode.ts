@@ -90,6 +90,7 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
+import { createCompactionSummaryMessage } from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
@@ -3273,13 +3274,19 @@ export class InteractiveMode {
 						this.showStatus("Auto-compaction cancelled");
 					}
 				} else if (event.result) {
-					// The compaction entry is persisted (appendCompaction) before compaction_end is
-					// emitted, so rebuildChatFromMessages() -> buildSessionContext() already renders the
-					// [compaction] summary at the head of the kept tail. Appending a second synthetic
-					// summary here rendered the marker twice, sandwiching the kept recent tail
-					// (regression: see interactive-mode-compaction.test.ts).
-					this.chatContainer.clear();
-					this.rebuildChatFromMessages();
+					// buildSessionContext() keeps the compaction summary at the head of the kept tail
+					// so resumed sessions send the LLM the right chronology. During a live compaction,
+					// that head-of-tail banner is usually above the bottom-anchored viewport, making the
+					// summary look like it disappeared. Render the rebuilt tail without that leading
+					// banner, then append exactly one visible summary at the bottom.
+					this.rebuildChatFromMessages({ skipLeadingCompactionSummary: true });
+					this.addMessageToChat(
+						createCompactionSummaryMessage(
+							event.result.summary,
+							event.result.tokensBefore,
+							new Date().toISOString(),
+						),
+					);
 					this.footer.invalidate();
 				} else if (event.errorMessage) {
 					if (event.reason === "manual") {
@@ -3497,10 +3504,11 @@ export class InteractiveMode {
 	 * @param sessionContext Session context to render
 	 * @param options.updateFooter Update footer state
 	 * @param options.populateHistory Add user messages to editor history
+	 * @param options.skipLeadingCompactionSummary Skip the persisted head-of-tail summary during live compaction redraws
 	 */
 	private renderSessionContext(
 		sessionContext: SessionContext,
-		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
+		options: { updateFooter?: boolean; populateHistory?: boolean; skipLeadingCompactionSummary?: boolean } = {},
 	): void {
 		this.pendingTools.clear();
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
@@ -3510,7 +3518,11 @@ export class InteractiveMode {
 			this.updateEditorBorderColor();
 		}
 
-		for (const message of sessionContext.messages) {
+		for (const [index, message] of sessionContext.messages.entries()) {
+			if (options.skipLeadingCompactionSummary && index === 0 && message.role === "compactionSummary") {
+				continue;
+			}
+
 			// Assistant messages need special handling for tool calls
 			if (message.role === "assistant") {
 				this.addMessageToChat(message);
@@ -3620,10 +3632,10 @@ export class InteractiveMode {
 		});
 	}
 
-	private rebuildChatFromMessages(): void {
+	private rebuildChatFromMessages(options?: { skipLeadingCompactionSummary?: boolean }): void {
 		this.chatContainer.clear();
 		const context = this.sessionManager.buildSessionContext();
-		this.renderSessionContext(context);
+		this.renderSessionContext(context, options);
 	}
 
 	// =========================================================================

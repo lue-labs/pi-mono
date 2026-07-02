@@ -9,7 +9,7 @@
  */
 
 import { basename, extname } from "node:path";
-import { visibleWidth } from "@valkyriweb/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@valkyriweb/pi-tui";
 import { diffArrays } from "diff";
 import hljs from "highlight.js/lib/index.js";
 
@@ -580,8 +580,15 @@ function applyBackground(h: Highlight, theme: Theme, ranges: Range[]): void {
 	}
 }
 
-function intoLines(h: Highlight, dim: boolean, skipBg: boolean, mode: ColorMode): string[] {
-	return h.lines.map((line) => asTerminalEscaped(line, mode, skipBg, dim));
+function fitRenderedLineToWidth(line: string, width: number): string[] {
+	if (visibleWidth(line) <= width) return [line];
+	return wrapTextWithAnsi(line, width).map((wrapped) =>
+		visibleWidth(wrapped) <= width ? wrapped : truncateToWidth(wrapped, width, "", false),
+	);
+}
+
+function intoLines(h: Highlight, dim: boolean, skipBg: boolean, mode: ColorMode, width: number): string[] {
+	return h.lines.flatMap((line) => fitRenderedLineToWidth(asTerminalEscaped(line, mode, skipBg, dim), width));
 }
 
 // ---------------------------------------------------------------------------
@@ -622,10 +629,8 @@ export function renderHunk(
 	const lang = detectLanguage(filePath, firstLine);
 	const hlState = { lang };
 
-	const maxDigits = String(maxLineNumber(hunk)).length;
 	let oldLine = hunk.oldStart;
 	let newLine = hunk.newStart;
-	const effectiveWidth = Math.max(1, width - maxDigits - 2 - 1);
 
 	type Entry = { lineNumber: number; marker: Marker; code: string };
 	const entries: Entry[] = hunk.lines.map((rawLine) => {
@@ -643,6 +648,10 @@ export function renderHunk(
 		}
 		return { lineNumber, marker, code };
 	});
+
+	const maxRenderedLineNumber = entries.reduce((max, entry) => Math.max(max, entry.lineNumber), maxLineNumber(hunk));
+	const maxDigits = String(maxRenderedLineNumber).length;
+	const effectiveWidth = Math.max(1, width - maxDigits - 2 - 1);
 
 	const ranges: Range[][] = entries.map(() => []);
 	if (!dim) {
@@ -665,7 +674,7 @@ export function renderHunk(
 		if (mode === "ansi" && marker === "-") dimContent(h);
 		addMarker(h, theme);
 		addLineNumber(h, theme, maxDigits, dim);
-		out.push(...intoLines(h, dim, false, mode));
+		out.push(...intoLines(h, dim, false, mode, width));
 	}
 	return out;
 }

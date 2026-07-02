@@ -29,7 +29,14 @@ import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
-import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
+import {
+	chooseAutomaticModel,
+	chooseAutomaticScopedModel,
+	isAvoidedAutomaticModel,
+	resolveCliModel,
+	resolveModelScope,
+	type ScopedModel,
+} from "./core/model-resolver.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import type { CreateAgentSessionOptions } from "./core/sdk.ts";
@@ -387,7 +394,7 @@ function providerScopedAutoProvider(requestedModel: string | undefined): string 
 function seedProviderScopedAutoModel(modelRegistry: ModelRegistry, requestedModel: string | undefined) {
 	const provider = providerScopedAutoProvider(requestedModel);
 	if (!provider) return undefined;
-	return modelRegistry.getAll().find((model) => model.provider === provider);
+	return chooseAutomaticModel(modelRegistry.getAll(), { preferredProvider: provider });
 }
 
 function buildSessionOptions(
@@ -439,23 +446,24 @@ function buildSessionOptions(
 	}
 
 	if (!options.model && scopedModels.length > 0 && !hasExistingSession) {
-		// Check if saved default is in scoped models - use it if so, otherwise first scoped model
+		// Check if saved default is in scoped models - use it if so, otherwise use
+		// provider/default-aware automatic selection. Broad scopes like
+		// `openai-codex/*` inherit provider registry order; the generated Codex list
+		// starts with gpt-5.3-codex-spark, which is a bad accidental default for
+		// serious agentic sessions.
 		const savedProvider = settingsManager.getDefaultProvider();
 		const savedModelId = settingsManager.getDefaultModel();
 		const savedModel = savedProvider && savedModelId ? modelRegistry.find(savedProvider, savedModelId) : undefined;
-		const savedInScope = savedModel ? scopedModels.find((sm) => modelsAreEqual(sm.model, savedModel)) : undefined;
+		const savedInScope = savedModel
+			? scopedModels.find((sm) => modelsAreEqual(sm.model, savedModel) && !isAvoidedAutomaticModel(sm.model))
+			: undefined;
+		const selected = savedInScope ?? chooseAutomaticScopedModel(scopedModels, { preferredProvider: savedProvider });
 
-		if (savedInScope) {
-			options.model = savedInScope.model;
+		if (selected) {
+			options.model = selected.model;
 			// Use thinking level from scoped model config if explicitly set
-			if (!parsed.thinking && savedInScope.thinkingLevel) {
-				options.thinkingLevel = savedInScope.thinkingLevel;
-			}
-		} else {
-			options.model = scopedModels[0].model;
-			// Use thinking level from first scoped model if explicitly set
-			if (!parsed.thinking && scopedModels[0].thinkingLevel) {
-				options.thinkingLevel = scopedModels[0].thinkingLevel;
+			if (!parsed.thinking && selected.thinkingLevel) {
+				options.thinkingLevel = selected.thinkingLevel;
 			}
 		}
 	}

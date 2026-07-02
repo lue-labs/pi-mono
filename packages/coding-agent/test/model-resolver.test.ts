@@ -1,6 +1,8 @@
 import type { Model } from "@valkyriweb/pi-ai";
 import { describe, expect, test } from "vitest";
 import {
+	chooseAutomaticModel,
+	chooseAutomaticScopedModel,
 	defaultModelPerProvider,
 	findInitialModel,
 	parseModelPattern,
@@ -64,6 +66,28 @@ const mockOpenRouterModels: Model<"anthropic-messages">[] = [
 ];
 
 const allModels = [...mockModels, ...mockOpenRouterModels];
+
+function createCodexModel(id: string, name = id): Model<"openai-codex-responses"> {
+	return {
+		id,
+		name,
+		api: "openai-codex-responses",
+		provider: "openai-codex",
+		baseUrl: "https://chatgpt.com/backend-api",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 1, output: 1, cacheRead: 0.1, cacheWrite: 0 },
+		contextWindow: 272000,
+		maxTokens: 128000,
+	};
+}
+
+const codexModelsInRegistryOrder = [
+	createCodexModel("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark"),
+	createCodexModel("gpt-5.4", "GPT-5.4"),
+	createCodexModel("gpt-5.4-mini", "GPT-5.4 mini"),
+	createCodexModel("gpt-5.5", "GPT-5.5"),
+];
 
 describe("parseModelPattern", () => {
 	describe("simple patterns without colons", () => {
@@ -568,6 +592,98 @@ describe("default model selection", () => {
 
 		expect(result.model?.provider).toBe("openrouter");
 		expect(result.model?.id).toBe("openai/ghost-model");
+	});
+
+	test("automatic model selection avoids Codex Spark when the registry lists it first", () => {
+		const selected = chooseAutomaticModel(codexModelsInRegistryOrder, { preferredProvider: "openai-codex" });
+		expect(selected?.provider).toBe("openai-codex");
+		expect(selected?.id).toBe("gpt-5.5");
+	});
+
+	test("scoped automatic model selection avoids Codex Spark for broad openai-codex scopes", () => {
+		const scopedModels = codexModelsInRegistryOrder.map((model) => ({ model }));
+		const selected = chooseAutomaticScopedModel(scopedModels, { preferredProvider: "openai-codex" });
+		expect(selected?.model.provider).toBe("openai-codex");
+		expect(selected?.model.id).toBe("gpt-5.5");
+	});
+
+	test("automatic model selection does not use Codex Spark when it is the only available automatic candidate", () => {
+		const selected = chooseAutomaticModel([codexModelsInRegistryOrder[0]], { preferredProvider: "openai-codex" });
+		expect(selected).toBeUndefined();
+	});
+
+	test("scoped automatic model selection does not use Codex Spark when it is the only scoped candidate", () => {
+		const selected = chooseAutomaticScopedModel([{ model: codexModelsInRegistryOrder[0] }], {
+			preferredProvider: "openai-codex",
+		});
+		expect(selected).toBeUndefined();
+	});
+
+	test("explicit Codex Spark selection still works", () => {
+		const registry = {
+			getAll: () => codexModelsInRegistryOrder,
+			find: (provider: string, modelId: string) =>
+				codexModelsInRegistryOrder.find((model) => model.provider === provider && model.id === modelId),
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+		const resolved = resolveCliModel({
+			cliProvider: "openai-codex",
+			cliModel: "gpt-5.3-codex-spark",
+			modelRegistry: registry,
+		});
+
+		expect(resolved.error).toBeUndefined();
+		expect(resolved.model?.provider).toBe("openai-codex");
+		expect(resolved.model?.id).toBe("gpt-5.3-codex-spark");
+	});
+
+	test("findInitialModel uses provider/default-aware scoped selection", async () => {
+		const result = await findInitialModel({
+			scopedModels: codexModelsInRegistryOrder.map((model) => ({ model })),
+			isContinuing: false,
+			defaultProvider: "openai-codex",
+			modelRegistry: {} as Parameters<typeof findInitialModel>[0]["modelRegistry"],
+		});
+
+		expect(result.model?.provider).toBe("openai-codex");
+		expect(result.model?.id).toBe("gpt-5.5");
+	});
+
+	test("findInitialModel prefers the OpenAI Codex default when saved provider/model are mismatched", async () => {
+		const registry = {
+			find: () => undefined,
+			getAvailable: async () => codexModelsInRegistryOrder,
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+
+		const result = await findInitialModel({
+			scopedModels: [],
+			isContinuing: false,
+			defaultProvider: "openai-codex",
+			defaultModelId: "claude-fable-5-200k",
+			modelRegistry: registry,
+		});
+
+		expect(result.model?.provider).toBe("openai-codex");
+		expect(result.model?.id).toBe("gpt-5.5");
+	});
+
+	test("findInitialModel does not reuse a persisted Codex Spark default when safer Codex models exist", async () => {
+		const registry = {
+			find: (provider: string, modelId: string) =>
+				codexModelsInRegistryOrder.find((model) => model.provider === provider && model.id === modelId),
+			getAvailable: async () => codexModelsInRegistryOrder,
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+
+		const result = await findInitialModel({
+			scopedModels: [],
+			isContinuing: false,
+			defaultProvider: "openai-codex",
+			defaultModelId: "gpt-5.3-codex-spark",
+			modelRegistry: registry,
+		});
+
+		expect(result.model?.provider).toBe("openai-codex");
+		expect(result.model?.id).toBe("gpt-5.5");
 	});
 
 	test("findInitialModel selects ai-gateway default when available", async () => {
