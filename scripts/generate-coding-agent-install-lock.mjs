@@ -128,11 +128,6 @@ function packageNameFromLockPath(lockPath) {
 	return parts[0];
 }
 
-function registryTarballUrl(packageName, version) {
-	const tarballName = packageName.startsWith("@") ? packageName.split("/")[1] : packageName;
-	return `https://registry.npmjs.org/${packageName}/-/${tarballName}-${version}.tgz`;
-}
-
 function isExactVersionSpec(spec) {
 	return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(spec);
 }
@@ -204,7 +199,9 @@ function addInternalWorkspace(installLockPackages, addedPaths, queue, name, work
 	const packageJson = workspace.packageJson;
 	const outputPath = `node_modules/${name}`;
 	const entry = copyPackageJsonEntry(packageJson, { includeName: false });
-	entry.resolved = registryTarballUrl(name, packageJson.version);
+	// Do not stamp internal fork packages with a public npm tarball URL. The
+	// installer runs with the fork's scoped registry config, so leaving `resolved`
+	// unset lets npm resolve @valkyriweb packages from GitHub Packages instead.
 
 	installLockPackages[outputPath] = sortedPackageEntry(entry);
 	addedPaths.add(outputPath);
