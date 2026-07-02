@@ -52,7 +52,7 @@ describe("agents UI", () => {
 				theme: { fg: (_color: string, value: string) => value } as never,
 				selected: true,
 			}),
-		).toContain("Agents: 1 running");
+		).toContain("Background: 1 running");
 
 		footer?.onActivate({ close: vi.fn() });
 		expect(fake.showMainPane).toHaveBeenCalledWith("agents-status");
