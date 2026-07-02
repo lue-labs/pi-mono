@@ -119,7 +119,7 @@ async function captureCodexRequest(
 	const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input.toString();
 		if (url === "https://chatgpt.com/backend-api/codex/responses") {
-			capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			capturedBody = decodeCodexRequestBody(init?.body) ?? undefined;
 			capturedHeaders = new Headers(init?.headers);
 			return new Response(
 				new ReadableStream<Uint8Array>({

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { streamSimple } from "../src/compat.ts";
-import { getModel, pickModel } from "./helpers/models.ts";
+import { clampMaxTokensToContext } from "../src/api/simple-options.ts";
+import { pickModel } from "./helpers/models.ts";
 
 // Empty tools arrays must NOT be serialized as `tools: []` — some OpenAI-compatible
 // backends (e.g. DashScope / Aliyun Qwen via compatible-mode) reject the request with
@@ -107,7 +108,9 @@ describe("openai-completions empty tools handling", () => {
 
 		const params = mockState.lastParams as { max_tokens?: number; max_completion_tokens?: number };
 		expect(params.max_tokens).toBeUndefined();
-		expect(params.max_completion_tokens).toBe(model.maxTokens);
+		expect(params.max_completion_tokens).toBe(clampMaxTokensToContext(model, {
+			messages: [{ role: "user", content: "hi", timestamp: 0 }],
+		}, model.maxTokens));
 	});
 
 	it("sends explicit maxTokens", async () => {
