@@ -124,6 +124,7 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ inputs.tag || github.event.inputs.tag || github.ref_name }}
+      SOURCE_REF: ${{ inputs.source_ref || github.event.inputs.source_ref || inputs.tag || github.event.inputs.tag || github.ref_name }}
     steps:
       - name: Download GitHub release payload
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -186,7 +187,7 @@ jobs:
           fi
 
           gh release create "${RELEASE_TAG}" \
-            --verify-tag \
+            --target "${SOURCE_REF}" \
             --draft \
             --title "${RELEASE_TAG}" \
             --notes-file RELEASE_NOTES.md \
