@@ -524,6 +524,8 @@ function createExtensionAPI(
 		registerFooter(id: string, spec: ExtensionFooterSpec): void {
 			runtime.assertActive();
 			extension.registeredFooters.set(id, spec);
+		},
+
 		registerEntryRenderer<T>(customType: string, renderer: EntryRenderer<T>): void {
 			runtime.assertActive();
 			extension.entryRenderers ??= new Map();
