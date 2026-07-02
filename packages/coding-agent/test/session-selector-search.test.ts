@@ -156,9 +156,22 @@ describe("session selector search", () => {
 			expect(result.map((session) => session.id)).toEqual(["named1", "named2", "other1", "other2"]);
 		});
 
-		it("returns only named sessions when nameFilter is 'named'", () => {
-			const result = filterAndSortSessions(sessions, "", "recent", "named");
-			expect(result.map((session) => session.id)).toEqual(["named1", "named2"]);
+		it("returns sessions with explicit names or first-message display titles when nameFilter is 'named'", () => {
+			const result = filterAndSortSessions(
+				[
+					...sessions,
+					makeSession({
+						id: "firstMessage",
+						firstMessage: "visible first user prompt",
+						modified: new Date("2026-01-05T00:00:00.000Z"),
+						allMessagesText: "blueberry",
+					}),
+				],
+				"",
+				"recent",
+				"named",
+			);
+			expect(result.map((session) => session.id)).toEqual(["named1", "named2", "firstMessage"]);
 		});
 
 		it("applies name filter before search query", () => {
@@ -166,17 +179,19 @@ describe("session selector search", () => {
 			expect(result.map((session) => session.id)).toEqual(["named1", "named2"]);
 		});
 
-		it("excludes whitespace-only names from named filter", () => {
+		it("excludes whitespace-only names and empty sessions from named filter", () => {
 			const sessionsWithWhitespace: SessionInfo[] = [
 				makeSession({
 					id: "whitespace",
 					name: "   ",
+					firstMessage: "(no messages)",
 					modified: new Date("2026-01-01T00:00:00.000Z"),
 					allMessagesText: "test",
 				}),
 				makeSession({
 					id: "empty",
 					name: "",
+					firstMessage: "(no messages)",
 					modified: new Date("2026-01-02T00:00:00.000Z"),
 					allMessagesText: "test",
 				}),

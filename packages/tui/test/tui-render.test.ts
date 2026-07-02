@@ -553,6 +553,33 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
+	it("clamps overwide text lines on full and differential renders", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 6);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		const fullRenderLine = `full ${"x".repeat(80)}`;
+		component.lines = [fullRenderLine];
+		tui.start();
+		await terminal.waitForRender();
+		assert.ok(!terminal.getWrites().includes(fullRenderLine), "full render should not emit the raw overwide line");
+		assert.ok(terminal.getViewport()[0]!.includes("…"), "full render should show a clipped line");
+
+		terminal.clearWrites();
+		const differentialRenderLine = `diff ${"y".repeat(80)}`;
+		component.lines = [differentialRenderLine];
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		assert.ok(
+			!terminal.getWrites().includes(differentialRenderLine),
+			"differential render should not emit the raw overwide line",
+		);
+		assert.ok(terminal.getViewport()[0]!.includes("…"), "differential render should show a clipped line");
+		tui.stop();
+	});
+
 	it("renders correctly when first line changes but rest stays same", async () => {
 		const terminal = new VirtualTerminal(40, 10);
 		const tui = new TUI(terminal);

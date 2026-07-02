@@ -28,7 +28,9 @@ function getSessionSearchText(session: SessionInfo): string {
 }
 
 export function hasSessionName(session: SessionInfo): boolean {
-	return Boolean(session.name?.trim());
+	if (session.name?.trim()) return true;
+	const firstMessage = session.firstMessage.trim();
+	return firstMessage.length > 0 && firstMessage !== "(no messages)";
 }
 
 function matchesNameFilter(session: SessionInfo, filter: NameFilter): boolean {

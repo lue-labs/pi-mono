@@ -16,7 +16,14 @@ import {
 	type TerminalColorScheme,
 } from "./terminal-colors.ts";
 import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.ts";
-import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.ts";
+import {
+	extractSegments,
+	normalizeTerminalOutput,
+	sliceByColumn,
+	sliceWithWidth,
+	truncateToWidth,
+	visibleWidth,
+} from "./utils.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
 
@@ -359,6 +366,30 @@ export class TUI extends Container {
 
 	getClearOnShrink(): boolean {
 		return this.clearOnShrink;
+	}
+
+	private writeOverwideLineLog(newLines: string[], lineIndex: number, width: number, line: string): void {
+		const crashLogPath = path.join(os.homedir(), ".pi", "agent", "pi-crash.log");
+		const lineWidth = visibleWidth(line);
+		const crashData = [
+			`Overwide line clamped at ${new Date().toISOString()}`,
+			`Terminal width: ${width}`,
+			`Line ${lineIndex} visible width: ${lineWidth}`,
+			"",
+			"=== All rendered lines ===",
+			...newLines.map(
+				(l, idx) => `[${idx}] (w=${visibleWidth(l)}) ${truncateToWidth(l, Math.max(0, width * 2), "…")}`,
+			),
+			"",
+		].join("\n");
+		fs.mkdirSync(path.dirname(crashLogPath), { recursive: true });
+		fs.writeFileSync(crashLogPath, crashData);
+	}
+
+	private clampOverwideTextLine(newLines: string[], lineIndex: number, width: number, line: string): string {
+		if (visibleWidth(line) <= width) return line;
+		this.writeOverwideLineLog(newLines, lineIndex, width, line);
+		return truncateToWidth(line, width, "…");
 	}
 
 	/**
@@ -1348,7 +1379,7 @@ export class TUI extends Container {
 					i += imageReservedRows - 1;
 					continue;
 				}
-				buffer += line;
+				buffer += isImage ? line : this.clampOverwideTextLine(newLines, i, width, line);
 			}
 			buffer += "\x1b[?2026l"; // End synchronized output
 			this.terminal.write(buffer);
@@ -1562,35 +1593,7 @@ export class TUI extends Container {
 			}
 
 			buffer += "\x1b[2K"; // Clear current line
-			if (!isImage && visibleWidth(line) > width) {
-				// Log all lines to crash file for debugging
-				const crashLogPath = path.join(os.homedir(), ".pi", "agent", "pi-crash.log");
-				const crashData = [
-					`Crash at ${new Date().toISOString()}`,
-					`Terminal width: ${width}`,
-					`Line ${i} visible width: ${visibleWidth(line)}`,
-					"",
-					"=== All rendered lines ===",
-					...newLines.map((l, idx) => `[${idx}] (w=${visibleWidth(l)}) ${l}`),
-					"",
-				].join("\n");
-				fs.mkdirSync(path.dirname(crashLogPath), { recursive: true });
-				fs.writeFileSync(crashLogPath, crashData);
-
-				// Clean up terminal state before throwing
-				this.stop();
-
-				const errorMsg = [
-					`Rendered line ${i} exceeds terminal width (${visibleWidth(line)} > ${width}).`,
-					"",
-					"This is likely caused by a custom TUI component not truncating its output.",
-					"Use visibleWidth() to measure and truncateToWidth() to truncate lines.",
-					"",
-					`Debug log written to: ${crashLogPath}`,
-				].join("\n");
-				throw new Error(errorMsg);
-			}
-			buffer += line;
+			buffer += isImage ? line : this.clampOverwideTextLine(newLines, i, width, line);
 		}
 
 		// Track where cursor ended up after rendering
