@@ -156,7 +156,7 @@ describe("session selector search", () => {
 			expect(result.map((session) => session.id)).toEqual(["named1", "named2", "other1", "other2"]);
 		});
 
-		it("returns sessions with explicit names or first-message display titles when nameFilter is 'named'", () => {
+		it("returns only sessions with explicit names when nameFilter is 'named'", () => {
 			const result = filterAndSortSessions(
 				[
 					...sessions,
@@ -171,7 +171,7 @@ describe("session selector search", () => {
 				"recent",
 				"named",
 			);
-			expect(result.map((session) => session.id)).toEqual(["named1", "named2", "firstMessage"]);
+			expect(result.map((session) => session.id)).toEqual(["named1", "named2"]);
 		});
 
 		it("applies name filter before search query", () => {
