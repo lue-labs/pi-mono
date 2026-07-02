@@ -434,14 +434,12 @@ export class FooterComponent implements Component {
 		if (statsLeftWidth > width) statsLeftWidth = visibleWidth(truncateToWidth(statsLeft, width, "..."));
 
 		// Right side: model (warm yellow) · thinking level (teal)
+		// While an auto alias is pending, show only the alias: the concrete model in
+		// state is just the unrouted compat seed, and rendering it reads as if
+		// routing already resolved. The alias clears on resolve, so the routed
+		// model shows here as soon as it actually exists.
 		const pendingAutoModelAlias = this.session.pendingAutoModelAlias;
-		const resolvedModelName = state.model?.id ?? "no-model";
-		const hasResolvedAutoModel = Boolean(
-			pendingAutoModelAlias && state.model && state.model.id !== pendingAutoModelAlias,
-		);
-		const modelName = hasResolvedAutoModel
-			? `${pendingAutoModelAlias} → ${resolvedModelName}`
-			: (pendingAutoModelAlias ?? resolvedModelName);
+		const modelName = pendingAutoModelAlias ?? state.model?.id ?? "no-model";
 		const rightParts: string[] = [];
 		rightParts.push(theme.fg("syntaxFunction", modelName));
 		if (state.model?.reasoning) {
@@ -451,8 +449,8 @@ export class FooterComponent implements Component {
 		let rightSide = rightParts.join(sep);
 
 		// Prepend provider if multiple providers and there's room. For deferred auto
-		// aliases, keep the alias visible but still expose the concrete provider/model
-		// currently backing the session.
+		// aliases this exposes the provider scope while the alias itself stays the
+		// visible model name until routing resolves.
 		const minPadding = 2;
 		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
 			const withProvider = theme.fg("dim", `(${state.model.provider}) `) + rightSide;

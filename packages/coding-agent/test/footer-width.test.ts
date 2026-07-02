@@ -246,20 +246,24 @@ describe("FooterComponent width handling", () => {
 		expect(rendered).not.toContain("25k/200k");
 	});
 
-	it("shows resolved provider and model for pending auto aliases", () => {
+	it("shows only the pending auto alias, never the unrouted seed model", () => {
+		// The concrete model behind a pending alias is just the compat seed —
+		// routing has not happened yet, so rendering it reads as a resolved model.
 		const session = createSession({
 			sessionName: "",
-			modelId: "gpt-5.5",
+			modelId: "gpt-5.3-codex-spark",
 			provider: "openai-codex",
 			reasoning: true,
 			thinkingLevel: "low",
-			pendingAutoModelAlias: "auto",
+			pendingAutoModelAlias: "openai-codex/auto",
 		});
 		const footer = new FooterComponent(session, createFooterData(2));
 
 		const rendered = stripAnsi(footer.render(160).join("\n"));
 
-		expect(rendered).toContain("(openai-codex) auto → gpt-5.5");
+		expect(rendered).toContain("(openai-codex) openai-codex/auto");
+		expect(rendered).not.toContain("gpt-5.3-codex-spark");
+		expect(rendered).not.toContain("→");
 		expect(rendered).toContain("low");
 	});
 
