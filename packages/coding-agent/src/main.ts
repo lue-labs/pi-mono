@@ -29,7 +29,12 @@ import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
-import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
+import {
+	normalizeAutoAliasString,
+	resolveCliModel,
+	resolveModelScope,
+	type ScopedModel,
+} from "./core/model-resolver.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import type { CreateAgentSessionOptions } from "./core/sdk.ts";
@@ -384,13 +389,22 @@ function providerScopedAutoProvider(requestedModel: string | undefined): string 
 	return parts[0] === "pi-fork" ? undefined : parts[0];
 }
 
-function seedProviderScopedAutoModel(modelRegistry: ModelRegistry, requestedModel: string | undefined) {
+function seedProviderScopedAutoModel(
+	modelRegistry: ModelRegistry,
+	requestedModel: string | undefined,
+	scopedModels: ScopedModel[] = [],
+) {
 	const provider = providerScopedAutoProvider(requestedModel);
 	if (!provider) return undefined;
-	return modelRegistry.getAll().find((model) => model.provider === provider);
+	// Prefer a model inside the user's enabledModels scope: the seed can become the
+	// session's actual model when routing resolves immediately (print mode, prompt
+	// args), and it must not silently escape an explicit provider/cost restriction.
+	const scopedSeed = scopedModels.find((scoped) => scoped.model.provider === provider)?.model;
+	return scopedSeed ?? modelRegistry.getAll().find((model) => model.provider === provider);
 }
 
-function buildSessionOptions(
+/** Exported for tests: keeps CLI-to-session option translation covered at its real seam. */
+export function buildSessionOptions(
 	parsed: Args,
 	scopedModels: ScopedModel[],
 	hasExistingSession: boolean,
@@ -412,7 +426,7 @@ function buildSessionOptions(
 		const isAutoRequest = isAutoModelRequest(parsed.model);
 		if (isAutoRequest) {
 			options.requestedModel = requestedAutoModelAlias(parsed.provider, parsed.model);
-			options.model = seedProviderScopedAutoModel(modelRegistry, options.requestedModel);
+			options.model = seedProviderScopedAutoModel(modelRegistry, options.requestedModel, scopedModels);
 		} else {
 			const resolved = resolveCliModel({
 				cliProvider: parsed.provider,
@@ -435,6 +449,21 @@ function buildSessionOptions(
 					cliThinkingFromModel = true;
 				}
 			}
+		}
+	}
+
+	// A settings-persisted auto default has no registry entry, so the scoped-models
+	// fallback below would discard the auto intent and silently land on the first
+	// scoped model without consulting `model:resolve`. Mirror the `--model auto`
+	// branch: surface the alias as requestedModel and seed a provider-scoped model.
+	if (!parsed.model && !hasExistingSession) {
+		const settingsAutoAlias = normalizeAutoAliasString(
+			settingsManager.getDefaultProvider(),
+			settingsManager.getDefaultModel(),
+		);
+		if (settingsAutoAlias) {
+			options.requestedModel = settingsAutoAlias;
+			options.model = seedProviderScopedAutoModel(modelRegistry, settingsAutoAlias, scopedModels);
 		}
 	}
 
