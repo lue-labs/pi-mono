@@ -1,4 +1,12 @@
-import type { AssistantMessage, Context, ImageContent, Message, TextContent, Usage } from "../types.ts";
+import type {
+	AssistantMessage,
+	Context,
+	ImageContent,
+	Message,
+	TextContent,
+	ToolReferenceContent,
+	Usage,
+} from "../types.ts";
 
 export interface ContextUsageEstimate {
 	/** Estimated total context tokens. */
@@ -26,11 +34,17 @@ function safeJsonStringify(value: unknown): string {
 	}
 }
 
-function estimateTextAndImageContentChars(content: string | Array<TextContent | ImageContent>): number {
+function estimateTextAndImageContentChars(
+	content: string | Array<TextContent | ImageContent | ToolReferenceContent>,
+): number {
 	if (typeof content === "string") return content.length;
 
 	let chars = 0;
-	for (const block of content) chars += block.type === "text" ? block.text.length : ESTIMATED_IMAGE_CHARS;
+	for (const block of content) {
+		if (block.type === "text") chars += block.text.length;
+		else if (block.type === "tool_reference") chars += block.name.length;
+		else chars += ESTIMATED_IMAGE_CHARS;
+	}
 	return chars;
 }
 
@@ -38,7 +52,9 @@ export function estimateTextTokens(text: string): number {
 	return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-export function estimateTextAndImageContentTokens(content: string | Array<TextContent | ImageContent>): number {
+export function estimateTextAndImageContentTokens(
+	content: string | Array<TextContent | ImageContent | ToolReferenceContent>,
+): number {
 	return Math.ceil(estimateTextAndImageContentChars(content) / CHARS_PER_TOKEN);
 }
 
@@ -53,6 +69,8 @@ export function estimateMessageTokens(message: Message): number {
 			chars += block.text.length;
 		} else if (block.type === "thinking") {
 			chars += block.thinking.length;
+		} else if (block.type === "tool_reference") {
+			chars += block.name.length;
 		} else {
 			chars += block.name.length + safeJsonStringify(block.arguments).length;
 		}

@@ -49,15 +49,8 @@ describe("Fireworks models", () => {
 		expect(model?.input).toEqual(["text", "image"]);
 	});
 
-	it("aligns GLM 5.2 Fast with GLM 5.2's OpenAI-compatible config", () => {
-		const base = getModel("fireworks", "accounts/fireworks/models/glm-5p2");
-		const fast = getModel("fireworks", "accounts/fireworks/routers/glm-5p2-fast");
-
-		expect(fast.api).toBe(base.api);
-		expect(fast.baseUrl).toBe(base.baseUrl);
-		expect(fast.compat).toEqual(base.compat);
-		expect(fast.thinkingLevelMap).toEqual(base.thinkingLevelMap);
-	});
+	// NOTE: upstream's "aligns GLM 5.2 Fast with GLM 5.2" test is omitted — the fork's
+	// curated models.generated.ts (merge=ours) does not carry the fireworks GLM 5.2 ids.
 
 	it("resolves FIREWORKS_API_KEY from the environment", () => {
 		process.env.FIREWORKS_API_KEY = "test-fireworks-key";

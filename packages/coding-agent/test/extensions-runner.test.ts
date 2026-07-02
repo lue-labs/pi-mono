@@ -709,7 +709,15 @@ describe("ExtensionRunner", () => {
 			fs.writeFileSync(path.join(extensionsDir, "entry-renderer.ts"), extCode);
 
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
-			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const runner = new ExtensionRunner(
+				result.extensions,
+				result.deferredExtensions,
+				result.runtime,
+				result.eventBus,
+				tempDir,
+				sessionManager,
+				modelRegistry,
+			);
 
 			expect(runner.getEntryRenderer("my-entry")).toBeDefined();
 			expect(runner.getEntryRenderer("not-exists")).toBeUndefined();

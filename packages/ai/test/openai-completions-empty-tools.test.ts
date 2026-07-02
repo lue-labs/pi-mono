@@ -94,7 +94,7 @@ describe("openai-completions empty tools handling", () => {
 	});
 
 	it("sends default maxTokens", async () => {
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
+		const { compat: _compat, ...baseModel } = pickModel("openai");
 		const model = { ...baseModel, api: "openai-completions" } as const;
 
 		await streamSimple(
@@ -128,7 +128,7 @@ describe("openai-completions empty tools handling", () => {
 	});
 
 	it("clamps default maxTokens to remaining context", async () => {
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
+		const { compat: _compat, ...baseModel } = pickModel("openai");
 		const model = { ...baseModel, api: "openai-completions", contextWindow: 10000, maxTokens: 8000 } as const;
 
 		await streamSimple(
@@ -145,7 +145,7 @@ describe("openai-completions empty tools handling", () => {
 	});
 
 	it("clamps explicit maxTokens to remaining context", async () => {
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
+		const { compat: _compat, ...baseModel } = pickModel("openai");
 		const model = { ...baseModel, api: "openai-completions", contextWindow: 10000, maxTokens: 8000 } as const;
 
 		await streamSimple(
