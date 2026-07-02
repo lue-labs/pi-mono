@@ -263,7 +263,11 @@ function getSessionHydrationOptions(settingsManager: SettingsManager): SessionHy
 	return { residentPrune: settingsManager.getCompactionResidentPruneEnabled() };
 }
 
-function openSessionOrExit(path: string, sessionDir?: string, hydrationOptions?: SessionHydrationOptions): SessionManager {
+function openSessionOrExit(
+	path: string,
+	sessionDir?: string,
+	hydrationOptions?: SessionHydrationOptions,
+): SessionManager {
 	try {
 		return SessionManager.open(path, sessionDir, undefined, hydrationOptions);
 	} catch (error: unknown) {

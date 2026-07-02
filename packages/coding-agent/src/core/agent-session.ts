@@ -24,7 +24,15 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@valkyriweb/pi-agent-core";
-import type { AssistantMessage, Context, ImageContent, Message, Model, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
+import type {
+	AssistantMessage,
+	Context,
+	ImageContent,
+	Message,
+	Model,
+	TextContent,
+	ToolReferenceContent,
+} from "@valkyriweb/pi-ai";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
