@@ -2709,7 +2709,23 @@ export class AgentSession {
 			!modelsAreEqual(currentModel, nextModel) ||
 			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== this.thinkingLevel);
 		if (!hasRoutingDecision) {
-			throw new Error(`Auto model ${pending.requestedModel} did not resolve to a semantic routing decision`);
+			this._pendingAutoModelRequest = undefined;
+			const message = `Auto model ${pending.requestedModel} could not be routed (no routing decision); continuing with ${currentModel.provider}/${currentModel.id}.`;
+			await this.sendCustomMessage(
+				{
+					customType: "model-routing-warning",
+					content: message,
+					display: true,
+					details: {
+						requestedModel: pending.requestedModel,
+						provider: currentModel.provider,
+						modelId: currentModel.id,
+						reason: "no_routing_decision",
+					},
+				},
+				{ triggerTurn: false },
+			);
+			return;
 		}
 		if (!this._modelRegistry.hasConfiguredAuth(nextModel)) {
 			throw new Error(`No API key for ${nextModel.provider}/${nextModel.id}`);

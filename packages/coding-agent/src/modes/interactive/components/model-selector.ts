@@ -53,6 +53,11 @@ function autoAliasItems(): ModelItem[] {
 			id: "auto",
 			model: makeAutoAliasModel("openai-codex", "Auto (semantic OpenAI Codex)"),
 		},
+		{
+			provider: "clawrouter",
+			id: "auto",
+			model: makeAutoAliasModel("clawrouter", "Auto (semantic ClawRouter)"),
+		},
 	];
 }
 
