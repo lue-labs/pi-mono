@@ -19,7 +19,7 @@ import type {
 } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
-import { findInitialModel } from "./model-resolver.ts";
+import { findInitialModel, normalizeAutoAliasString } from "./model-resolver.ts";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
 import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
@@ -298,9 +298,20 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	}
 
 	const sessionSource = options.source ?? "interactive";
-	const requestedModel = options.requestedModel?.trim();
+	// A settings-persisted auto default (defaultProvider + defaultModel "auto") has no registry
+	// entry, so findInitialModel above landed on a concrete fallback model and discarded the auto
+	// intent. Synthesize the same deferred pending-auto request `--model auto` uses so the
+	// `model:resolve` filter routes it at the first prompt boundary instead.
+	const settingsDefaultAutoAlias =
+		!options.requestedModel && !options.model && !hasExistingSession && !options.scopedModels?.length
+			? normalizeAutoAliasString(settingsManager.getDefaultProvider(), settingsManager.getDefaultModel())
+			: undefined;
+	const deferSettingsDefaultAuto = settingsDefaultAutoAlias !== undefined;
+	const requestedModel = options.requestedModel?.trim() ?? settingsDefaultAutoAlias;
 	const pendingRequestedModel =
-		requestedModel && options.deferRequestedModelResolution && !hasExistingSession ? requestedModel : undefined;
+		requestedModel && (options.deferRequestedModelResolution || deferSettingsDefaultAuto) && !hasExistingSession
+			? requestedModel
+			: undefined;
 	if (requestedModel && model && !hasExistingSession && !pendingRequestedModel) {
 		const before = model;
 		const resolved = await applyFilters(

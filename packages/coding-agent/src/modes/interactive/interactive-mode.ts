@@ -90,7 +90,12 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
-import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
+import {
+	defaultModelPerProvider,
+	findExactModelReferenceMatch,
+	normalizeAutoAliasString,
+	resolveModelScope,
+} from "../../core/model-resolver.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
@@ -4616,11 +4621,7 @@ export class InteractiveMode {
 	}
 
 	private findAutoModelAlias(searchTerm: string): string | undefined {
-		const normalized = searchTerm.trim().toLowerCase();
-		if (normalized === "auto" || normalized === "pi-fork/auto") return "pi-fork/auto";
-		if (normalized === "claude-bridge/auto") return "claude-bridge/auto";
-		if (normalized === "openai-codex/auto") return "openai-codex/auto";
-		return undefined;
+		return normalizeAutoAliasString("pi-fork", searchTerm);
 	}
 
 	private async findExactModelMatch(searchTerm: string): Promise<Model<any> | undefined> {
