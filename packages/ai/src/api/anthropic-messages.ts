@@ -1159,12 +1159,14 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 	const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
 
 	// A tiny output cap (e.g. a cheap single-task fork with maxOutputTokens ~1500)
-	// drives the computed thinking budget below Anthropic's hard floor
-	// (budget_tokens must be >= 1024). Anthropic DROPS such a request as an empty
-	// completion instead of erroring loudly, silently breaking the fork for no good
-	// reason. When there is no room for a valid budget, disable thinking for this
-	// request rather than send an invalid sub-floor budget.
-	if (adjusted.thinkingBudget < MIN_THINKING_BUDGET) {
+	// or a near-full context can drive the computed thinking budget below
+	// Anthropic's hard floor (budget_tokens must be >= 1024 and strictly below
+	// max_tokens). Anthropic DROPS such a request as an empty completion instead
+	// of erroring loudly, silently breaking the fork for no good reason. When
+	// there is no room for a valid final budget, disable thinking for this request
+	// rather than send an invalid sub-floor budget.
+	const thinkingBudget = Math.min(adjusted.thinkingBudget, Math.max(0, maxTokens - MIN_THINKING_BUDGET));
+	if (thinkingBudget < MIN_THINKING_BUDGET) {
 		return stream(model, context, {
 			...base,
 			maxTokens,
@@ -1176,7 +1178,7 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 		...base,
 		maxTokens,
 		thinkingEnabled: true,
-		thinkingBudgetTokens: Math.min(adjusted.thinkingBudget, Math.max(0, maxTokens - 1024)),
+		thinkingBudgetTokens: thinkingBudget,
 	} satisfies AnthropicOptions);
 };
 

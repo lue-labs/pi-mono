@@ -18,6 +18,7 @@ const xhighEffortReasoningModel = allOf(
 import type { Context, Model, SimpleStreamOptions } from "../src/types.ts";
 
 interface AnthropicThinkingPayload {
+	max_tokens?: number;
 	thinking?: { type: string; budget_tokens?: number; display?: string };
 	output_config?: { effort?: string };
 }
@@ -38,6 +39,7 @@ function makePayloadCaptureContext(): Context {
 async function capturePayload(
 	model: Model<"anthropic-messages">,
 	options?: SimpleStreamOptions,
+	context: Context = makePayloadCaptureContext(),
 ): Promise<AnthropicThinkingPayload> {
 	let capturedPayload: AnthropicThinkingPayload | undefined;
 	const payloadCaptureModel: Model<"anthropic-messages"> = {
@@ -45,7 +47,7 @@ async function capturePayload(
 		baseUrl: "http://127.0.0.1:9",
 	};
 
-	const s = streamSimple(payloadCaptureModel, makePayloadCaptureContext(), {
+	const s = streamSimple(payloadCaptureModel, context, {
 		...options,
 		apiKey: "fake-key",
 		onPayload: (payload) => {
@@ -150,6 +152,17 @@ describe("Anthropic thinking disable payload", () => {
 		const payload = await capturePayload(getModel("anthropic", "claude-fable-5"));
 
 		expect(payload.thinking).toBeUndefined();
+		expect(payload.output_config).toBeUndefined();
+	});
+
+	it("disables budget-based thinking when context clamp leaves no valid budget", async () => {
+		const payload = await capturePayload(
+			{ ...pickModel("anthropic", budgetBasedReasoningModel), contextWindow: 2048 },
+			{ reasoning: "high", maxTokens: 4096 },
+		);
+
+		expect(payload.max_tokens).toBe(1);
+		expect(payload.thinking).toEqual({ type: "disabled" });
 		expect(payload.output_config).toBeUndefined();
 	});
 
