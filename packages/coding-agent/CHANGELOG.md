@@ -9,7 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
-- Default the `/resume` / `--resume` session picker to the Named filter; the existing named-filter toggle keybinding still switches back to All, and the empty-state hint explains the filter when no named sessions exist.
+- Keep the `/resume` / `--resume` session picker default on the Named filter, but treat sessions with a non-placeholder first user message as displayable named results so the default hides only empty stubs instead of normal unnamed sessions.
 
 - Fix a fatal race in `AgentSession.prompt()`: the busy gate now checks `isCompacting`/`agent.isProcessing` in addition to `isStreaming` (mirroring `sendCustomMessage`), so prompts and extension `sendUserMessage` calls sent during auto-compaction, the post-compaction resume, or the agent_end listener phase are queued (default steer) instead of racing `agent.prompt()` and rejecting with "Agent is already processing a prompt" — an un-awaited rejection there crashed the whole interactive process mid-"Auto-compacting…". A TOCTOU fallback at the `_runAgentPrompt` send chokepoint routes raced prompt messages into the steer/follow-up queue, and manual `compact()` now drains messages queued while it held the busy gate (it aborts any active run, so nothing else would deliver them). Regressions in `test/agent-session-concurrent.test.ts`.
 - Fix `fast`/`medium` child-agent model aliases for `clawrouter`, warn when `fast` falls back to a parent/frontier model, and clamp unsupported `thinking: "off"` to the lowest supported model thinking level.
