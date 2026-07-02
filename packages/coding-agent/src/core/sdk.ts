@@ -344,7 +344,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			!modelsAreEqual(before, nextModel) ||
 			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== thinkingLevel);
 		if (!hasRoutingDecision) {
-			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}Auto model ${requestedModel} could not be routed (no routing decision); continuing with ${before.provider}/${before.id}`;
+			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}Auto model ${requestedModel} could not be routed (no routing decision); continuing with ${before.provider}/${before.id}.`;
 		} else {
 			model = nextModel;
 			thinkingLevel = nextThinkingLevel;
