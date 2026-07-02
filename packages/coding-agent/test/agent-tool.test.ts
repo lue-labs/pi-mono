@@ -197,6 +197,9 @@ describe("agent tool", () => {
 					messageCount: 3,
 					recentToolCalls: [{ name: "grep", argsPreview: "AgentProgressLine", startedAt: 1 }],
 					recentOutputSnippets: [],
+					warnings: [
+						"Warning: explore running on frontier model clawrouter/claude-fable-5-200k for fast alias — add a fast-tier mapping for this provider or pass an explicit cheap model",
+					],
 					loadedSkills: [],
 					invokedSkills: { count: 0, names: [] },
 				},
@@ -212,6 +215,7 @@ describe("agent tool", () => {
 		expect(text).toContain("└─");
 		expect(text).toContain("explore");
 		expect(text).toContain("⎿  grep: AgentProgressLine");
+		expect(text).toContain("Warning: explore running on frontier model clawrouter/claude-fable-5-200k");
 	});
 
 	test("project agent confirmation cannot be bypassed by tool arguments", async () => {

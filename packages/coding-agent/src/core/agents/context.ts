@@ -1,5 +1,5 @@
 import type { AgentMessage, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model, ToolResultMessage } from "@valkyriweb/pi-ai";
+import { type Api, clampThinkingLevel, type Model, type ToolResultMessage } from "@valkyriweb/pi-ai";
 import type { DefaultResourceLoaderOptions } from "../resource-loader.ts";
 import { buildSessionContext, type ReadonlySessionManager } from "../session-manager.ts";
 import type { AgentDefinition, AgentTaskConfig, ContextMode, ResolvedContextPolicy } from "./types.ts";
@@ -231,5 +231,6 @@ export function formatModelForDetails(
 }
 
 export function clampThinkingForModel(model: Model<Api> | undefined, thinkingLevel: ThinkingLevel): ThinkingLevel {
-	return model?.reasoning ? thinkingLevel : "off";
+	if (!model) return "off";
+	return clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
 }

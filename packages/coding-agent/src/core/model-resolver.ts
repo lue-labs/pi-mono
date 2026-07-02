@@ -29,9 +29,10 @@ export const fastModelPerProvider: Record<string, string> = {
 	"google-vertex": "gemini-3.1-flash-lite",
 	groq: "openai/gpt-oss-20b",
 	xai: "grok-4-fast",
-	// Custom proxy provider (Luke's fork). Routes Anthropic models via a local
-	// bridge; haiku-4-5 is the cheap variant on the other end.
+	// Custom proxy providers (Luke's fork). Route Anthropic models through local
+	// bridges; haiku-4-5 is the cheap variant on the other end.
 	"claude-bridge": "claude-haiku-4-5",
+	clawrouter: "claude-haiku-4-5",
 };
 
 /**
@@ -55,11 +56,12 @@ export const mediumModelPerProvider: Record<string, string> = {
 	"google-vertex": "gemini-3.1-flash",
 	groq: "openai/gpt-oss-120b",
 	xai: "grok-4.20-0309-reasoning",
-	// Custom proxy provider (Luke's fork). Routes Anthropic models via a local
-	// bridge; sonnet-5 is the mid-tier on the other end. (sonnet-4-6 was retired
+	// Custom proxy providers (Luke's fork). Route Anthropic models through local
+	// bridges; sonnet-5 is the mid-tier on the other end. (sonnet-4-6 was retired
 	// from the bridge registry; a dead id here makes the `medium` alias silently
 	// fall back to the parent's frontier model — the opposite of its purpose.)
 	"claude-bridge": "claude-sonnet-5",
+	clawrouter: "claude-sonnet-5",
 };
 
 /** Default model IDs for each known provider */
