@@ -622,8 +622,8 @@ export interface ExtensionContext {
 	isProjectTrusted(): boolean;
 	/** The current abort signal, or undefined when the agent is not streaming. */
 	signal: AbortSignal | undefined;
-	/** Abort the current agent operation */
-	abort(): void;
+	/** Abort the current agent operation. Optional reason is surfaced on the aborted assistant message. */
+	abort(reason?: unknown): void;
 	/**
 	 * Request that the current agent run stop after the active turn finishes.
 	 * Unlike abort(), this preserves the completed assistant/tool messages and
@@ -2295,7 +2295,7 @@ export interface ExtensionContextActions {
 	isIdle: () => boolean;
 	isProjectTrusted: () => boolean;
 	getSignal: () => AbortSignal | undefined;
-	abort: () => void;
+	abort: (reason?: unknown) => void;
 	requestStopAfterTurn: (reason?: string) => void;
 	hasPendingMessages: () => boolean;
 	shutdown: () => void;

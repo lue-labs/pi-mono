@@ -338,7 +338,7 @@ export interface ExtensionBindings {
 	uiContext?: ExtensionUIContext;
 	mode?: ExtensionMode;
 	commandContextActions?: ExtensionCommandContextActions;
-	abortHandler?: () => void;
+	abortHandler?: (reason?: unknown) => void;
 	shutdownHandler?: ShutdownHandler;
 	onError?: ExtensionErrorListener;
 	/**
@@ -618,7 +618,7 @@ export class AgentSession {
 	private _extensionUIContext?: ExtensionUIContext;
 	private _extensionMode: ExtensionMode = "print";
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
-	private _extensionAbortHandler?: () => void;
+	private _extensionAbortHandler?: (reason?: unknown) => void;
 	private _extensionShutdownHandler?: ShutdownHandler;
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
@@ -3873,12 +3873,12 @@ export class AgentSession {
 				isIdle: () => !this.isStreaming,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				getSignal: () => this.agent.signal,
-				abort: () => {
+				abort: (reason?: unknown) => {
 					if (this._extensionAbortHandler) {
-						this._extensionAbortHandler();
+						this._extensionAbortHandler(reason);
 						return;
 					}
-					void this.abort();
+					this.agent.abort(reason);
 				},
 				requestStopAfterTurn: (reason) => {
 					if (!this.isStreaming) return;

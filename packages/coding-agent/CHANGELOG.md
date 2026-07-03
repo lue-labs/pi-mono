@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Suppress only the known benign pi-goal stale queued-continuation abort (`pi-goal:stale-queued-continuation-cancelled`) in interactive rendering while preserving visible text for normal aborts and errors.
+
 - Footer: while an auto-model alias is pending, show only the alias (e.g. `openai-codex/auto`) instead of `alias → seed-model`. The concrete model behind a pending alias is just the unrouted compat seed, so the old arrow display read as if routing had already resolved (to the seed, typically `gpt-5.3-codex-spark`); the alias clears on resolve, so the routed model appears as soon as it exists. Regression in `test/footer-width.test.ts`.
 
 - Route settings-persisted auto model defaults (`defaultProvider` + `defaultModel: "auto"`) through the same deferred `model:resolve` pending-auto request as `--model auto`, so a persisted `openai-codex/auto` default semantically routes at the first prompt boundary instead of silently landing on `findInitialModel`'s concrete fallback model. Also fixed for configs with `enabledModels` (scoped models): `buildSessionOptions`' scoped-model fallback previously discarded the auto intent before the SDK seam could see it, and auto placeholder seeding now prefers in-scope models over the full registry. Concrete defaults, explicit `--model`, and session restore are unaffected. Regressions in `test/sdk-settings-default-auto.test.ts` and `test/main-session-options-settings-auto.test.ts`.

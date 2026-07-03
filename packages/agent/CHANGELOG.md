@@ -9,3 +9,7 @@ This package's release notes are split:
 
 This file is fork-owned (`.gitattributes` `merge=ours`) so upstream syncs no
 longer append their full changelog here.
+
+## Unreleased
+
+- Preserve abort reasons when `Agent.abort(reason)` cancels the active run, allowing extension-owned cleanup aborts to be distinguished from generic user/provider aborts.

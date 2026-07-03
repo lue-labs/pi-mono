@@ -215,6 +215,11 @@ function isCustomSessionEntry(item: RenderSessionItem): item is Extract<SessionE
 }
 
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
+const PI_GOAL_STALE_CONTINUATION_ABORT = "pi-goal:stale-queued-continuation-cancelled";
+
+function isSilentAbortMessage(message: AssistantMessage): boolean {
+	return message.stopReason === "aborted" && message.errorMessage === PI_GOAL_STALE_CONTINUATION_ABORT;
+}
 
 function isDeadTerminalError(error: unknown): boolean {
 	if (!error || typeof error !== "object" || !("code" in error)) {
@@ -1645,7 +1650,8 @@ export class InteractiveMode {
 		await this.session.bindExtensions({
 			uiContext,
 			mode: "tui",
-			abortHandler: () => {
+			abortHandler: (reason?: unknown) => {
+				this.session.agent.abort(reason);
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
 			commandContextActions: {
@@ -3163,7 +3169,7 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
-					if (this.streamingMessage.stopReason === "aborted") {
+					if (this.streamingMessage.stopReason === "aborted" && !isSilentAbortMessage(this.streamingMessage)) {
 						const retryAttempt = this.session.retryAttempt;
 						errorMessage =
 							retryAttempt > 0
@@ -3174,16 +3180,20 @@ export class InteractiveMode {
 					this.streamingComponent.updateContent(this.streamingMessage);
 
 					if (this.streamingMessage.stopReason === "aborted" || this.streamingMessage.stopReason === "error") {
-						if (!errorMessage) {
-							errorMessage = this.streamingMessage.errorMessage || "Error";
+						if (isSilentAbortMessage(this.streamingMessage)) {
+							this.pendingTools.clear();
+						} else {
+							if (!errorMessage) {
+								errorMessage = this.streamingMessage.errorMessage || "Error";
+							}
+							for (const [, component] of this.pendingTools.entries()) {
+								component.updateResult({
+									content: [{ type: "text", text: errorMessage }],
+									isError: true,
+								});
+							}
+							this.pendingTools.clear();
 						}
-						for (const [, component] of this.pendingTools.entries()) {
-							component.updateResult({
-								content: [{ type: "text", text: errorMessage }],
-								isError: true,
-							});
-						}
-						this.pendingTools.clear();
 					} else {
 						// Args are now complete - trigger diff computation for edit tools
 						for (const [, component] of this.pendingTools.entries()) {
@@ -3548,6 +3558,9 @@ export class InteractiveMode {
 						this.chatContainer.addChild(component);
 
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
+							if (isSilentAbortMessage(message)) {
+								continue;
+							}
 							let errorMessage: string;
 							if (message.stopReason === "aborted") {
 								const retryAttempt = this.session.retryAttempt;

@@ -347,8 +347,8 @@ export class Agent {
 	}
 
 	/** Abort the current run, if one is active. */
-	abort(): void {
-		this.activeRun?.abortController.abort();
+	abort(reason?: unknown): void {
+		this.activeRun?.abortController.abort(reason);
 	}
 
 	/**
