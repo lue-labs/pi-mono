@@ -144,14 +144,21 @@ interface BeforeAgentStartCombinedResult {
 	systemPrompt?: string;
 }
 
+function abortErrorFromSignal(signal: AbortSignal): Error {
+	const reason = signal.reason;
+	if (reason instanceof Error) return reason;
+	if (reason !== undefined) return new Error(String(reason));
+	return new Error("Agent run aborted");
+}
+
 async function callContextHandlerAbortable<T>(fn: () => Promise<T> | T, signal: AbortSignal): Promise<T> {
 	if (signal.aborted) {
-		throw new Error("Agent run aborted");
+		throw abortErrorFromSignal(signal);
 	}
 
 	let cleanup = () => {};
 	const abortPromise = new Promise<never>((_resolve, reject) => {
-		const onAbort = () => reject(new Error("Agent run aborted"));
+		const onAbort = () => reject(abortErrorFromSignal(signal));
 		signal.addEventListener("abort", onAbort, { once: true });
 		cleanup = () => signal.removeEventListener("abort", onAbort);
 	});
@@ -327,7 +334,7 @@ export class ExtensionRunner {
 	private isProjectTrustedFn: () => boolean = () => true;
 	private getSignalFn: () => AbortSignal | undefined = () => undefined;
 	private waitForIdleFn: () => Promise<void> = async () => {};
-	private abortFn: () => void = () => {};
+	private abortFn: (reason?: unknown) => void = () => {};
 	private requestStopAfterTurnFn: (reason?: string) => void = () => {};
 	private hasPendingMessagesFn: () => boolean = () => false;
 	private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
@@ -964,9 +971,9 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.getSignalFn();
 			},
-			abort: () => {
+			abort: (reason?: unknown) => {
 				runner.assertActive();
-				runner.abortFn();
+				runner.abortFn(reason);
 			},
 			requestStopAfterTurn: (reason) => {
 				runner.assertActive();

@@ -5,6 +5,11 @@ import { getMarkdownTheme, theme } from "../theme/theme.ts";
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
+const PI_GOAL_STALE_CONTINUATION_ABORT = "pi-goal:stale-queued-continuation-cancelled";
+
+function isSilentAbortMessage(message: AssistantMessage): boolean {
+	return message.stopReason === "aborted" && message.errorMessage === PI_GOAL_STALE_CONTINUATION_ABORT;
+}
 
 /**
  * Component that renders a complete assistant message
@@ -150,6 +155,7 @@ export class AssistantMessageComponent extends Container {
 			);
 		} else if (!hasToolCalls) {
 			if (message.stopReason === "aborted") {
+				if (isSilentAbortMessage(message)) return;
 				const abortMessage =
 					message.errorMessage && message.errorMessage !== "Request was aborted"
 						? message.errorMessage
