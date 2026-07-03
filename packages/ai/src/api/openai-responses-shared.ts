@@ -93,6 +93,57 @@ export interface ConvertResponsesToolsOptions {
 	emitDeferLoading?: boolean;
 }
 
+type ResponsesUsageLike = {
+	input_tokens?: number;
+	output_tokens?: number;
+	total_tokens?: number;
+	input_tokens_details?: {
+		cached_tokens?: number;
+		cache_write_tokens?: number;
+	};
+	output_tokens_details?: {
+		reasoning_tokens?: number;
+	};
+	cache_creation_input_tokens?: number;
+	cache_creation?: {
+		ephemeral_5m_input_tokens?: number;
+		ephemeral_1h_input_tokens?: number;
+	};
+	cache_creation_ephemeral_5m_input_tokens?: number;
+	cache_creation_ephemeral_1h_input_tokens?: number;
+};
+
+function positiveNumber(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export function parseOpenAIResponsesUsage(usage: ResponsesUsageLike): Usage {
+	const cacheRead = positiveNumber(usage.input_tokens_details?.cached_tokens);
+	const nestedCacheWrite5m = positiveNumber(usage.cache_creation?.ephemeral_5m_input_tokens);
+	const nestedCacheWrite1h = positiveNumber(usage.cache_creation?.ephemeral_1h_input_tokens);
+	const flatCacheWrite5m = positiveNumber(usage.cache_creation_ephemeral_5m_input_tokens);
+	const flatCacheWrite1h = positiveNumber(usage.cache_creation_ephemeral_1h_input_tokens);
+	const cacheWriteBreakdown = nestedCacheWrite5m + nestedCacheWrite1h || flatCacheWrite5m + flatCacheWrite1h;
+	const cacheWrite =
+		positiveNumber(usage.input_tokens_details?.cache_write_tokens) ||
+		positiveNumber(usage.cache_creation_input_tokens) ||
+		cacheWriteBreakdown;
+	const cacheWrite1h = cacheWrite > 0 ? nestedCacheWrite1h || flatCacheWrite1h || undefined : undefined;
+	const inputTokens = positiveNumber(usage.input_tokens);
+	return {
+		// OpenAI includes cached tokens in input_tokens; provider-compatible cache
+		// write fields are also prompt-side tokens, so subtract both buckets.
+		input: Math.max(0, inputTokens - cacheRead - cacheWrite),
+		output: positiveNumber(usage.output_tokens),
+		cacheRead,
+		cacheWrite,
+		...(cacheWrite1h ? { cacheWrite1h } : {}),
+		reasoning: positiveNumber(usage.output_tokens_details?.reasoning_tokens),
+		totalTokens: positiveNumber(usage.total_tokens),
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 // =============================================================================
 // Message conversion
 // =============================================================================
@@ -395,17 +446,7 @@ export async function processResponsesStream<TApi extends Api>(
 			output.responseId = response.id;
 		}
 		if (response?.usage) {
-			const cachedTokens = response.usage.input_tokens_details?.cached_tokens || 0;
-			output.usage = {
-				// OpenAI includes cached tokens in input_tokens, so subtract to get non-cached input
-				input: (response.usage.input_tokens || 0) - cachedTokens,
-				output: response.usage.output_tokens || 0,
-				cacheRead: cachedTokens,
-				cacheWrite: 0,
-				reasoning: response.usage.output_tokens_details?.reasoning_tokens || 0,
-				totalTokens: response.usage.total_tokens || 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			};
+			output.usage = parseOpenAIResponsesUsage(response.usage);
 		}
 		calculateCost(model, output.usage);
 		if (options?.applyServiceTierPricing) {
