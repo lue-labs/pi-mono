@@ -171,6 +171,10 @@ jobs:
     if: needs.release.outputs.published == 'true' && needs.release.outputs.version != ''
     permissions:
       contents: write
+      # download-artifact@v4 in the called workflow's stage-github-release job
+      # needs actions:read. A reusable workflow can't request a scope above the
+      # caller's grant, so omitting it fails the whole run at startup.
+      actions: read
     uses: ./.github/workflows/build-binaries.yml
     with:
       tag: v${{ needs.release.outputs.version }}
