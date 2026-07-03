@@ -10,6 +10,7 @@ import type {
 	StreamFunction,
 	StreamOptions,
 } from "../types.ts";
+import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
@@ -44,19 +45,7 @@ function resolveDeploymentName(model: Model<"azure-openai-responses">, options?:
 }
 
 function formatAzureOpenAIError(error: unknown): string {
-	if (error instanceof Error) {
-		const status = (error as Error & { status?: unknown }).status;
-		const statusCode = typeof status === "number" ? status : undefined;
-		if (statusCode !== undefined) {
-			return `Azure OpenAI API error (${statusCode}): ${error.message}`;
-		}
-		return error.message;
-	}
-	try {
-		return JSON.stringify(error);
-	} catch {
-		return String(error);
-	}
+	return formatProviderError(normalizeProviderError(error), "Azure OpenAI API error");
 }
 
 // Azure OpenAI Responses-specific options
@@ -160,7 +149,7 @@ export const streamSimple: StreamFunction<"azure-openai-responses", SimpleStream
 		throw new Error(`No API key for provider: ${model.provider}`);
 	}
 
-	const base = buildBaseOptions(model, options, apiKey);
+	const base = buildBaseOptions(model, context, options, apiKey);
 	const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
 	// "adaptive" is Anthropic-only; Azure OpenAI Responses has no equivalent. Drop it here.
 	const reasoningEffort = clampedReasoning === "off" || clampedReasoning === "adaptive" ? undefined : clampedReasoning;
@@ -181,12 +170,20 @@ function normalizeAzureBaseUrl(baseUrl: string): string {
 	}
 
 	const isAzureHost =
-		url.hostname.endsWith(".openai.azure.com") || url.hostname.endsWith(".cognitiveservices.azure.com");
+		url.hostname.endsWith(".openai.azure.com") ||
+		url.hostname.endsWith(".cognitiveservices.azure.com") ||
+		url.hostname.endsWith(".ai.azure.com");
 	const normalizedPath = url.pathname.replace(/\/+$/, "");
 
 	// Ensure Azure hosts have /openai/v1 as base path so the AzureOpenAI SDK
 	// can append /deployments/<model>/... and ?api-version=v1 correctly.
-	if (isAzureHost && (normalizedPath === "" || normalizedPath === "/" || normalizedPath === "/openai")) {
+	if (
+		isAzureHost &&
+		(normalizedPath === "" ||
+			normalizedPath === "/" ||
+			normalizedPath === "/openai" ||
+			normalizedPath === "/openai/v1/responses")
+	) {
 		url.pathname = "/openai/v1";
 		url.search = "";
 	}

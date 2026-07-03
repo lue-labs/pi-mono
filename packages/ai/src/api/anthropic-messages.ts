@@ -38,7 +38,12 @@ import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
-import { adjustMaxTokensForThinking, buildBaseOptions, MIN_THINKING_BUDGET } from "./simple-options.ts";
+import {
+	adjustMaxTokensForThinking,
+	buildBaseOptions,
+	clampMaxTokensToContext,
+	MIN_THINKING_BUDGET,
+} from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 /**
@@ -978,6 +983,14 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						if (event.usage.cache_creation_input_tokens != null) {
 							output.usage.cacheWrite = carryOverUsage.cacheWrite + event.usage.cache_creation_input_tokens;
 						}
+						// Anthropic reports reasoning tokens in `output_tokens_details.thinking_tokens` on the
+						// final message_delta usage (a subset of output_tokens). SDK 0.91.1 omits the field from
+						// its Usage type, so read it through a narrow cast. Verified against the live API.
+						const thinkingTokens = (event.usage as { output_tokens_details?: { thinking_tokens?: number } })
+							.output_tokens_details?.thinking_tokens;
+						if (thinkingTokens != null) {
+							output.usage.reasoning = thinkingTokens;
+						}
 						// Anthropic doesn't provide total_tokens, compute from components
 						output.usage.totalTokens =
 							output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
@@ -1110,7 +1123,7 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 ): AssistantMessageEventStream => {
 	assertRequestAuth(model.provider, options?.apiKey, options?.headers);
 
-	const base = buildBaseOptions(model, options, options?.apiKey);
+	const base = buildBaseOptions(model, context, options, options?.apiKey);
 	if (!options?.reasoning) {
 		return stream(model, context, { ...base, thinkingEnabled: false } satisfies AnthropicOptions);
 	}
@@ -1143,25 +1156,29 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 		options.thinkingBudgets,
 	);
 
+	const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
+
 	// A tiny output cap (e.g. a cheap single-task fork with maxOutputTokens ~1500)
-	// drives the computed thinking budget below Anthropic's hard floor
-	// (budget_tokens must be >= 1024). Anthropic DROPS such a request as an empty
-	// completion instead of erroring loudly, silently breaking the fork for no good
-	// reason. When there is no room for a valid budget, disable thinking for this
-	// request rather than send an invalid sub-floor budget.
-	if (adjusted.thinkingBudget < MIN_THINKING_BUDGET) {
+	// or a near-full context can drive the computed thinking budget below
+	// Anthropic's hard floor (budget_tokens must be >= 1024 and strictly below
+	// max_tokens). Anthropic DROPS such a request as an empty completion instead
+	// of erroring loudly, silently breaking the fork for no good reason. When
+	// there is no room for a valid final budget, disable thinking for this request
+	// rather than send an invalid sub-floor budget.
+	const thinkingBudget = Math.min(adjusted.thinkingBudget, Math.max(0, maxTokens - MIN_THINKING_BUDGET));
+	if (thinkingBudget < MIN_THINKING_BUDGET) {
 		return stream(model, context, {
 			...base,
-			maxTokens: adjusted.maxTokens,
+			maxTokens,
 			thinkingEnabled: false,
 		} satisfies AnthropicOptions);
 	}
 
 	return stream(model, context, {
 		...base,
-		maxTokens: adjusted.maxTokens,
+		maxTokens,
 		thinkingEnabled: true,
-		thinkingBudgetTokens: adjusted.thinkingBudget,
+		thinkingBudgetTokens: thinkingBudget,
 	} satisfies AnthropicOptions);
 };
 

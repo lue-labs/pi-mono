@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { clampMaxTokensToContext } from "../src/api/simple-options.ts";
 import { streamSimple } from "../src/compat.ts";
 import { pickModel } from "./helpers/models.ts";
 
@@ -93,7 +94,7 @@ describe("openai-completions empty tools handling", () => {
 		expect("tools" in (params as object)).toBe(false);
 	});
 
-	it("does not send default max token fields", async () => {
+	it("sends default maxTokens", async () => {
 		const { compat: _compat, ...baseModel } = pickModel("openai");
 		const model = { ...baseModel, api: "openai-completions" } as const;
 
@@ -107,7 +108,15 @@ describe("openai-completions empty tools handling", () => {
 
 		const params = mockState.lastParams as { max_tokens?: number; max_completion_tokens?: number };
 		expect(params.max_tokens).toBeUndefined();
-		expect(params.max_completion_tokens).toBeUndefined();
+		expect(params.max_completion_tokens).toBe(
+			clampMaxTokensToContext(
+				model,
+				{
+					messages: [{ role: "user", content: "hi", timestamp: 0 }],
+				},
+				model.maxTokens,
+			),
+		);
 	});
 
 	it("sends explicit maxTokens", async () => {
@@ -125,6 +134,40 @@ describe("openai-completions empty tools handling", () => {
 		const params = mockState.lastParams as { max_tokens?: number; max_completion_tokens?: number };
 		expect(params.max_tokens).toBeUndefined();
 		expect(params.max_completion_tokens).toBe(1234);
+	});
+
+	it("clamps default maxTokens to remaining context", async () => {
+		const { compat: _compat, ...baseModel } = pickModel("openai");
+		const model = { ...baseModel, api: "openai-completions", contextWindow: 10000, maxTokens: 8000 } as const;
+
+		await streamSimple(
+			model,
+			{
+				messages: [{ role: "user", content: "x".repeat(8000), timestamp: Date.now() }],
+			},
+			{ apiKey: "test" },
+		).result();
+
+		const params = mockState.lastParams as { max_tokens?: number; max_completion_tokens?: number };
+		expect(params.max_tokens).toBeUndefined();
+		expect(params.max_completion_tokens).toBe(3904);
+	});
+
+	it("clamps explicit maxTokens to remaining context", async () => {
+		const { compat: _compat, ...baseModel } = pickModel("openai");
+		const model = { ...baseModel, api: "openai-completions", contextWindow: 10000, maxTokens: 8000 } as const;
+
+		await streamSimple(
+			model,
+			{
+				messages: [{ role: "user", content: "x".repeat(8000), timestamp: Date.now() }],
+			},
+			{ apiKey: "test", maxTokens: 7000 },
+		).result();
+
+		const params = mockState.lastParams as { max_tokens?: number; max_completion_tokens?: number };
+		expect(params.max_tokens).toBeUndefined();
+		expect(params.max_completion_tokens).toBe(3904);
 	});
 
 	it("uses conservative OpenAI-compatible fields for Cloudflare AI Gateway /compat models", async () => {

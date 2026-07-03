@@ -10,9 +10,7 @@ type InteractiveModePrototype = {
 };
 
 type ImportCommandContext = {
-	loadingAnimation?: { stop: () => void };
-	statusContainer: { clear: () => void };
-	stopWorkingLoader: () => void;
+	clearStatusIndicator: () => void;
 	runtimeHost: { importFromJsonl: (inputPath: string, cwdOverride?: string) => Promise<{ cancelled: boolean }> };
 	showError: (message: string) => void;
 	showStatus: (message: string) => void;
@@ -59,7 +57,7 @@ describe("InteractiveMode /import parsing", () => {
 		const showError = vi.fn();
 
 		const context: ImportCommandContext = {
-			statusContainer: { clear: vi.fn() },
+			clearStatusIndicator: vi.fn(),
 			runtimeHost: { importFromJsonl },
 			showError,
 			showStatus,
@@ -71,7 +69,6 @@ describe("InteractiveMode /import parsing", () => {
 			}),
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
-			stopWorkingLoader: vi.fn(),
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, '/import "path/to/session.jsonl"');
@@ -92,7 +89,7 @@ describe("InteractiveMode /import parsing", () => {
 		const showError = vi.fn();
 
 		const context: ImportCommandContext = {
-			statusContainer: { clear: vi.fn() },
+			clearStatusIndicator: vi.fn(),
 			runtimeHost: { importFromJsonl },
 			showError,
 			showStatus,
@@ -104,7 +101,6 @@ describe("InteractiveMode /import parsing", () => {
 			}),
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
-			stopWorkingLoader: vi.fn(),
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, "/import john's/session.jsonl");
@@ -126,7 +122,7 @@ describe("InteractiveMode /import parsing", () => {
 		});
 
 		const context: ImportCommandContext = {
-			statusContainer: { clear: vi.fn() },
+			clearStatusIndicator: vi.fn(),
 			runtimeHost: { importFromJsonl },
 			showError,
 			showStatus,
@@ -136,7 +132,6 @@ describe("InteractiveMode /import parsing", () => {
 			handleFatalRuntimeError,
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
-			stopWorkingLoader: vi.fn(),
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, "/import /tmp/missing-session.jsonl");

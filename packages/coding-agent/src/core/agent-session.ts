@@ -15,7 +15,15 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
-import type { Agent, AgentEvent, AgentMessage, AgentState, AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
+import type {
+	Agent,
+	AgentEvent,
+	AgentMessage,
+	AgentState,
+	AgentTool,
+	PrepareNextTurnContext,
+	ThinkingLevel,
+} from "@valkyriweb/pi-agent-core";
 import type {
 	AssistantMessage,
 	Context,
@@ -30,6 +38,7 @@ import {
 	cleanupSessionResources,
 	getSupportedThinkingLevels,
 	isContextOverflow,
+	isRetryableAssistantError,
 	modelsAreEqual,
 	resetApiProviders,
 	SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
@@ -110,6 +119,7 @@ import type {
 	CompactionEntry,
 	CustomEntry,
 	ResidentPruneResult,
+	SessionEntry,
 	SessionManager,
 } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
@@ -220,6 +230,7 @@ export type AgentSessionEvent =
 			reason: "manual" | "threshold" | "overflow";
 			result: ResidentPruneResult;
 	  }
+	| { type: "entry_appended"; entry: SessionEntry }
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
@@ -645,6 +656,7 @@ export class AgentSession {
 	// `systemPrompt:build` filters before sending so cache-stabilising transforms
 	// (date strip, base-boundary relocation) are not lost — see _rebuildSystemPrompt.
 	private _systemPromptNeedsRefilter = false;
+	private _systemPromptOverride?: string;
 	private _source: InputSource = "interactive";
 	private _pendingAutoModelRequest?: PendingAutoModelRequest;
 
@@ -672,6 +684,7 @@ export class AgentSession {
 		// (session persistence, extensions, auto-compaction, retry logic)
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
+		this._installAgentNextTurnRefresh();
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
@@ -820,6 +833,29 @@ export class AgentSession {
 			if (!shouldCompact(calculateContextTokens(message.usage), contextWindow, settings)) return false;
 			this._midRunCompactionStop = true;
 			return true;
+		};
+	}
+
+	private _installAgentNextTurnRefresh(): void {
+		const previousPrepareNextTurnWithContext =
+			this.agent.prepareNextTurnWithContext ??
+			(this.agent.prepareNextTurn
+				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
+				: undefined);
+		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
+			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
+			const previousContext = previousSnapshot?.context ?? turn.context;
+
+			return {
+				...previousSnapshot,
+				context: {
+					...previousContext,
+					systemPrompt: this._systemPromptOverride ?? this._baseSystemPrompt,
+					tools: this.agent.state.tools.slice(),
+				},
+				model: this.agent.state.model,
+				thinkingLevel: this.agent.state.thinkingLevel,
+			};
 		};
 	}
 
@@ -1597,7 +1633,7 @@ export class AgentSession {
 		// Rebuild base system prompt with new tool set. The rebuild is UNFILTERED
 		// (skips systemPrompt:build); mark for re-filtering before the next send.
 		this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
-		this.agent.state.systemPrompt = this._baseSystemPrompt;
+		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
 		this._systemPromptNeedsRefilter = true;
 	}
 
@@ -1886,6 +1922,7 @@ export class AgentSession {
 				await this.agent.continue();
 			}
 		} finally {
+			this._systemPromptOverride = undefined;
 			this._flushPendingBashMessages();
 		}
 	}
@@ -2060,19 +2097,11 @@ export class AgentSession {
 			}
 
 			// Check if we should warn or compact before sending (catches aborted responses).
+			// The user's new prompt is sent below, so do not call agent.continue() here.
 			const lastAssistant = this._findLastAssistantMessage();
 			if (lastAssistant) {
 				this._emitIdleCacheHintIfNeeded(lastAssistant);
-				if (await this._checkCompaction(lastAssistant, false)) {
-					try {
-						await this.agent.continue();
-						while (await this._handlePostAgentRun()) {
-							await this.agent.continue();
-						}
-					} finally {
-						this._flushPendingBashMessages();
-					}
-				}
+				await this._checkCompaction(lastAssistant, false);
 			}
 
 			// Build messages array (custom message if any, then user message)
@@ -2123,16 +2152,17 @@ export class AgentSession {
 			// extensions would double-inject goal/recall context that is already
 			// present in the parent's prompt, producing different bytes every turn.
 			if (!this._systemPromptFrozen) {
-				if (result?.systemPrompt) {
+				if (result?.systemPrompt !== undefined) {
 					// Promote to _baseSystemPrompt so subsequent turns that return no
 					// systemPrompt reset to this extended prompt, not the pre-injection
-					// base. Without this, turn-1 memory injection is silently stripped
-					// on turn 2, busting cache on every subsequent turn.
+					// base. Preserve it as an override during tool refresh as well.
 					this._baseSystemPrompt = result.systemPrompt;
+					this._systemPromptOverride = result.systemPrompt;
 					this.agent.state.systemPrompt = result.systemPrompt;
 				} else {
 					// Reset to stable base (covers pre-modification turns and all
 					// turns after a one-shot extension injection has promoted the base).
+					this._systemPromptOverride = undefined;
 					this.agent.state.systemPrompt = this._baseSystemPrompt;
 				}
 			}
@@ -3803,7 +3833,11 @@ export class AgentSession {
 					});
 				},
 				appendEntry: (customType, data) => {
-					this.sessionManager.appendCustomEntry(customType, data);
+					const entryId = this.sessionManager.appendCustomEntry(customType, data);
+					const entry = this.sessionManager.getEntry(entryId);
+					if (entry) {
+						this._emit({ type: "entry_appended", entry });
+					}
 				},
 				setSessionName: (name) => {
 					this.setSessionName(name);
@@ -4166,29 +4200,14 @@ export class AgentSession {
 	// Auto-Retry
 	// =========================================================================
 
-	private _isNonRetryableProviderLimitError(errorMessage: string): boolean {
-		return /GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing/i.test(
-			errorMessage,
-		);
-	}
-
 	/**
 	 * Check if an error is retryable (overloaded, rate limit, server errors).
 	 * Context overflow errors are NOT retryable (handled by compaction instead).
 	 */
 	private _isRetryableError(message: AssistantMessage): boolean {
-		if (message.stopReason !== "error" || !message.errorMessage) return false;
-
-		// Context overflow is handled by compaction, not retry
-		const contextWindow = this.model?.contextWindow ?? 0;
-		if (isContextOverflow(message, contextWindow)) return false;
-
-		const err = message.errorMessage;
-		if (this._isNonRetryableProviderLimitError(err)) return false;
-		// Match: overloaded_error, provider returned error, rate limit, 429, 500, 502, 503, 504, service unavailable, network/connection errors (including connection lost), WebSocket transport closes/errors, fetch failed, premature stream endings, HTTP/2 closed before response, terminated, retry delay exceeded
-		return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(
-			err,
-		);
+		// Context overflow is handled by compaction, not retry.
+		if (isContextOverflow(message, this.model?.contextWindow ?? 0)) return false;
+		return isRetryableAssistantError(message);
 	}
 
 	/**
@@ -4387,7 +4406,9 @@ export class AgentSession {
 	 */
 	setSessionName(name: string): void {
 		this.sessionManager.appendSessionInfo(name);
-		this._emit({ type: "session_info_changed", name: this.sessionManager.getSessionName() });
+		const event = { type: "session_info_changed", name: this.sessionManager.getSessionName() } as const;
+		this._emit(event);
+		void this._extensionRunner.emit(event);
 	}
 
 	// =========================================================================
