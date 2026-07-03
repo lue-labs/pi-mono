@@ -111,6 +111,10 @@ jobs:
 
       - name: Install pi-mono dependencies
         working-directory: pi-mono-fork
+        # packages/orchestrator depends on the published @valkyriweb/pi-coding-agent
+        # (registry, not workspace), so npm ci must authenticate to GitHub Packages.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build packages
