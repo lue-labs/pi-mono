@@ -13,11 +13,6 @@ permissions:
   contents: write
   pull-requests: write
   packages: write
-  # Required so the reusable build-binaries.yml `stage-github-release` job
-  # (which requests `actions: read`) does not exceed the caller's grant.
-  # A called workflow can only request permissions the caller already holds;
-  # without this the whole Release run fails at startup validation.
-  actions: read
 
 env:
   HAS_CLAWSWEEPER_APP_PRIVATE_KEY: ${{ secrets.CLAWSWEEPER_APP_PRIVATE_KEY != '' }}
@@ -180,6 +175,12 @@ jobs:
     if: needs.release.outputs.published == 'true' && needs.release.outputs.version != ''
     permissions:
       contents: write
+      # The reusable build-binaries.yml `stage-github-release` job requests
+      # `actions: read`. A called workflow can only request permissions the
+      # CALLER JOB holds; job-level permissions here replace the workflow-level
+      # block, so without `actions: read` on THIS job the whole Release run
+      # fails at startup validation (`actions: read` > the job's implicit `none`).
+      actions: read
     uses: ./.github/workflows/build-binaries.yml
     with:
       tag: v${{ needs.release.outputs.version }}
