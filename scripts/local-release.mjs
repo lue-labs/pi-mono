@@ -10,6 +10,7 @@ const packages = [
 	{ directory: "packages/tui", name: "@valkyriweb/pi-tui" },
 	{ directory: "packages/agent", name: "@valkyriweb/pi-agent-core" },
 	{ directory: "packages/coding-agent", name: "@valkyriweb/pi-coding-agent" },
+	{ directory: "packages/orchestrator", name: "@valkyriweb/pi-orchestrator" },
 ];
 
 function printUsage() {
