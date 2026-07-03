@@ -1,6 +1,6 @@
 {
 	"name": "@valkyriweb/pi-orchestrator",
-	"version": "0.80.6",
+	"version": "0.80.7",
 	"description": "experimental orchestrator package for pi",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -40,9 +40,13 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@valkyriweb/pi-coding-agent": "0.80.6"
+		"@valkyriweb/pi-coding-agent": "0.80.7"
 	},
 	"devDependencies": {
 		"shx": "0.4.0"
+	},
+	"publishConfig": {
+		"registry": "https://npm.pkg.github.com",
+		"access": "restricted"
 	}
 }
