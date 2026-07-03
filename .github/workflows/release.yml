@@ -13,6 +13,9 @@ permissions:
   contents: write
   pull-requests: write
   packages: write
+  # Reusable build-binaries.yml requests actions:read; grant here too so any
+  # caller job inheriting top-level perms is covered (see binaries job below).
+  actions: read
 
 env:
   HAS_CLAWSWEEPER_APP_PRIVATE_KEY: ${{ secrets.CLAWSWEEPER_APP_PRIVATE_KEY != '' }}
