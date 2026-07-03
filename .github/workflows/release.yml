@@ -106,6 +106,10 @@ jobs:
 
       - name: Install pi-mono dependencies
         working-directory: pi-mono-fork
+        # packages/orchestrator depends on the published @valkyriweb/pi-coding-agent
+        # (registry, not workspace), so npm ci must authenticate to GitHub Packages.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build packages
@@ -171,6 +175,12 @@ jobs:
     if: needs.release.outputs.published == 'true' && needs.release.outputs.version != ''
     permissions:
       contents: write
+      # The reusable build-binaries.yml `stage-github-release` job requests
+      # `actions: read`. A called workflow can only request permissions the
+      # CALLER JOB holds; job-level permissions here replace the workflow-level
+      # block, so without `actions: read` on THIS job the whole Release run
+      # fails at startup validation (`actions: read` > the job's implicit `none`).
+      actions: read
     uses: ./.github/workflows/build-binaries.yml
     with:
       tag: v${{ needs.release.outputs.version }}

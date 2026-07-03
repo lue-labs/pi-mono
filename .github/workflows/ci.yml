@@ -12,6 +12,9 @@ concurrency:
 jobs:
   fork-safety-check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read   # read published @valkyriweb/* deps (orchestrator) from GitHub Packages
     env:
       ANTHROPIC_API_KEY: ""
       ANTHROPIC_OAUTH_TOKEN: ""
@@ -58,6 +61,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
           cache: npm
 
       - name: Install system dependencies
@@ -67,6 +71,10 @@ jobs:
           sudo ln -s "$(which fdfind)" /usr/local/bin/fd
 
       - name: Install dependencies
+        # packages/orchestrator depends on the published @valkyriweb/pi-coding-agent
+        # (registry, not workspace); authenticate npm to GitHub Packages.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build workspace declarations
