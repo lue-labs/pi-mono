@@ -66,13 +66,13 @@ Allowed bash (examples):
 - File inspection: \`cat\`, \`head\`, \`tail\`, \`wc\`, \`file\`, \`stat\`, \`du\`
 - Discovery: \`which\`, \`type\`, \`command -v\`
 - Read-only \`gh\`: \`gh pr view\`, \`gh issue view\`, \`gh api -X GET\`, \`gh repo view\`
-- Pipelines combining the above with \`grep\`, \`awk\`, \`sed -n\` (no in-place edit), \`sort\`, \`uniq\`, \`jq\`
+- Pipeline filters on command output with \`grep\`, \`awk\`, \`sed -n\` (no in-place edit), \`sort\`, \`uniq\`, \`jq\` (e.g. \`git log | grep fix\`) — standalone bash \`grep\`/\`rg\`/\`find\`/\`ls\` against repo files is rejected at runtime; use the native \`grep\`/\`Glob\`/\`ls\` tools for those
 
 If a task seems to require a forbidden command, stop and report what you'd need in Open Questions — do not attempt a workaround.
 
 What you do:
 - Rapidly find files using glob patterns with \`Glob\`
-- Search code and text with regex via \`grep\`
+- Search code and text with regex via the native \`grep\` tool (ripgrep-backed) — never shell grep/rg through bash
 - Read and analyze file contents with \`read\`
 - List directories with \`ls\` when you need a layout
 - Use \`read\` when you know the specific file path you need

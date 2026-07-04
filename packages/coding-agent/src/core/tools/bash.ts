@@ -939,6 +939,47 @@ export function checkBashPolicy(command: string, policy: BashPolicy): string | u
 	return undefined;
 }
 
+/** Standalone bash commands rejected in favor of native tools (name → native tool). */
+const NATIVE_TOOL_REPLACEMENTS: Record<string, string> = {
+	grep: "Grep",
+	egrep: "Grep",
+	fgrep: "Grep",
+	rg: "Grep",
+	find: "Glob",
+	ls: "Ls",
+};
+
+/** Env assignments and benign wrappers that may precede the real command. */
+const COMMAND_WRAPPERS = new Set(["command", "builtin", "sudo", "nice", "time", "env"]);
+
+/**
+ * Reject standalone `grep`/`rg`/`find`/`ls` invocations. When one of them is
+ * the FIRST stage of a pipeline it is repo exploration that belongs to the
+ * native Grep/Glob/Ls tools (ripgrep-backed, .gitignore-aware, output shaped
+ * for context). Later pipeline stages are allowed — filtering non-repo
+ * command output (`kubectl ... | grep Ready`) is legitimate bash work.
+ * Keeps the Bash/system-prompt "rejected at runtime" claim true.
+ */
+export function checkNativeToolGuard(command: string): string | undefined {
+	const statements = command.split(/(?:;|&&|\|\||\n)/g);
+	for (const statement of statements) {
+		const firstStage = statement.split("|")[0] ?? "";
+		const tokens = firstStage
+			.replace(/^[!\s]+/, "")
+			.trim()
+			.split(/\s+/)
+			.filter(Boolean);
+		let head = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t) && !COMMAND_WRAPPERS.has(t));
+		if (!head) continue;
+		head = head.replace(/^.*\//, "");
+		const replacement = NATIVE_TOOL_REPLACEMENTS[head];
+		if (replacement) {
+			return `Blocked: bash command starts with standalone \`${head}\` — use the native ${replacement} tool instead. Pipeline filters on command output (e.g. \`kubectl get pods | grep Ready\`) are fine.`;
+		}
+	}
+	return undefined;
+}
+
 const BASH_PREVIEW_LINES = 5;
 const BASH_UPDATE_THROTTLE_MS = 100;
 const DEFAULT_BASH_TIMEOUT_SECONDS = 300;
@@ -1367,7 +1408,7 @@ export function createBashToolDefinition(
 			"A backgrounded bash job notifies you with a task_notification when it finishes (carrying the bgId + output log path). Do NOT poll it with sleep loops or re-run the command to check — continue other work and the harness re-invokes you on completion. Call bash_output(bgId) only to peek before it finishes, or use monitor_start to be woken on every output batch.",
 			"Always stop background jobs you started but no longer need with bash_kill(bgId).",
 			// Worded identically to system-prompt.ts so addGuideline deduplicates shared rules.
-			"Prefer native file tools for repo exploration: Glob/Ls for paths, Grep for known text/regex, SemanticGrep for conceptual searches. Standalone `grep`/`rg`/`find`/`ls` in Bash is discouraged, but pipeline filters on command output (e.g. `kubectl ... | grep Ready`) are fine.",
+			"Prefer native file tools for repo exploration: Glob/Ls for paths, Grep for known text/regex, SemanticGrep for conceptual searches. Standalone `grep`/`rg`/`find`/`ls` in Bash is rejected at runtime; pipeline filters on command output (e.g. `kubectl ... | grep Ready`) are fine.",
 			"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.",
 			"Use Read/Edit/Write for files instead of shelling out to view or modify file contents.",
 		],
@@ -1408,6 +1449,14 @@ export function createBashToolDefinition(
 						details: undefined,
 					};
 				}
+			}
+			const nativeGuard = checkNativeToolGuard(command);
+			if (nativeGuard) {
+				return {
+					isError: true,
+					content: [{ type: "text", text: nativeGuard }],
+					details: undefined,
+				};
 			}
 			if (redundantCdToCurrentWorkingDirectory(command, effectiveCwd)) {
 				return {
