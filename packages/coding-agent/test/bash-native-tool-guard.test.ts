@@ -28,6 +28,10 @@ describe("bash native tool guard (hard, runtime-enforced)", () => {
 			"sudo grep foo /etc/hosts",
 			"/usr/bin/grep foo README.md",
 			"grep foo README.md | head -5",
+			"(grep foo README.md)",
+			"env -i grep foo README.md",
+			"nice -n 5 rg foo src",
+			"sudo -u root grep foo /etc/hosts",
 		]) {
 			expect(checkNativeToolGuard(command), command).toContain("use the native");
 		}
@@ -41,6 +45,8 @@ describe("bash native tool guard (hard, runtime-enforced)", () => {
 			"git grep foo",
 			"ps aux | grep node | awk '{print $2}'",
 			"jq -r '.id' file.json | sort | uniq",
+			"if grep -q foo README.md; then echo yes; fi",
+			"cat <<'EOF' > /tmp/x.sh\nls -la\ngrep foo bar\nEOF",
 		]) {
 			expect(checkNativeToolGuard(command), command).toBeUndefined();
 		}

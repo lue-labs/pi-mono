@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Bash: enforce the long-documented native-tool guard at runtime — commands whose first pipeline stage is standalone `grep`/`egrep`/`fgrep`/`rg`/`find`/`ls` (including behind env assignments, wrappers like `sudo`/`env`/`nice`, subshell parens, and absolute paths) are rejected with steering to the native Grep/Glob/Ls tools; pipeline filters on command output (`kubectl ... | grep Ready`) remain allowed and heredoc bodies are ignored. Grep tool description gains Claude-Code-parity ripgrep steering (ALWAYS Grep / NEVER bash grep, brace escaping, outputMode, multiline), the explore agent prompt no longer suggests bash `grep` pipelines for repo files, and Bash promptGuidelines wording now matches the enforced behavior. Regressions in `test/bash-native-tool-guard.test.ts`.
+
 - Suppress only the known benign pi-goal stale queued-continuation abort (`pi-goal:stale-queued-continuation-cancelled`) in interactive rendering while preserving visible text for normal aborts and errors.
 
 - Footer: while an auto-model alias is pending, show only the alias (e.g. `openai-codex/auto`) instead of `alias → seed-model`. The concrete model behind a pending alias is just the unrouted compat seed, so the old arrow display read as if routing had already resolved (to the seed, typically `gpt-5.3-codex-spark`); the alias clears on resolve, so the routed model appears as soon as it exists. Regression in `test/footer-width.test.ts`.

@@ -950,7 +950,15 @@ const NATIVE_TOOL_REPLACEMENTS: Record<string, string> = {
 };
 
 /** Env assignments and benign wrappers that may precede the real command. */
-const COMMAND_WRAPPERS = new Set(["command", "builtin", "sudo", "nice", "time", "env"]);
+const COMMAND_WRAPPERS = new Set(["command", "builtin", "sudo", "nice", "time", "env", "nohup", "stdbuf"]);
+
+/**
+ * Remove heredoc bodies (`<<WORD` / `<<-WORD` ... WORD) so their content is
+ * never parsed as executable statements. Here-strings (`<<<`) carry no body.
+ */
+function stripHeredocBodies(command: string): string {
+	return command.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\n|$)/g, "<<$2");
+}
 
 /**
  * Reject standalone `grep`/`rg`/`find`/`ls` invocations. When one of them is
@@ -959,17 +967,41 @@ const COMMAND_WRAPPERS = new Set(["command", "builtin", "sudo", "nice", "time", 
  * for context). Later pipeline stages are allowed — filtering non-repo
  * command output (`kubectl ... | grep Ready`) is legitimate bash work.
  * Keeps the Bash/system-prompt "rejected at runtime" claim true.
+ *
+ * Steering, not a security boundary: deliberate indirection (`sh -c`,
+ * `xargs grep`, control-flow like `if grep -q ...; then`, scripting loops)
+ * is out of scope — `if grep -q` style conditionals are legitimate shell
+ * logic, and a model reaching for indirection has already read the message.
  */
 export function checkNativeToolGuard(command: string): string | undefined {
-	const statements = command.split(/(?:;|&&|\|\||\n)/g);
+	const statements = stripHeredocBodies(command).split(/(?:;|&&|\|\||\n)/g);
 	for (const statement of statements) {
 		const firstStage = statement.split("|")[0] ?? "";
 		const tokens = firstStage
-			.replace(/^[!\s]+/, "")
+			.replace(/^[!\s({$]+/, "")
 			.trim()
 			.split(/\s+/)
 			.filter(Boolean);
-		let head = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t) && !COMMAND_WRAPPERS.has(t));
+		let head: string | undefined;
+		let afterWrapper = false;
+		for (const token of tokens) {
+			if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue; // env assignment
+			if (COMMAND_WRAPPERS.has(token)) {
+				afterWrapper = true;
+				continue;
+			}
+			if (afterWrapper) {
+				// Wrapper flags/values (`sudo -u root`, `nice -n 5`) are opaque; the
+				// first token matching a guarded name is the real command.
+				if (NATIVE_TOOL_REPLACEMENTS[token.replace(/^.*\//, "")]) {
+					head = token;
+					break;
+				}
+				continue;
+			}
+			head = token;
+			break;
+		}
 		if (!head) continue;
 		head = head.replace(/^.*\//, "");
 		const replacement = NATIVE_TOOL_REPLACEMENTS[head];
