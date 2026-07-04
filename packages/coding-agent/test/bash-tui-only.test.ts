@@ -45,12 +45,12 @@ describe("bash tui_only", () => {
 		).rejects.toThrow(/\[tui_only\].*exited 7/);
 	});
 
-	it("preserves semantic exit codes (e.g. grep no-match) as success under tui_only", async () => {
+	it("preserves semantic exit codes (e.g. test condition false) as success under tui_only", async () => {
 		const bash = createBashToolDefinition(process.cwd());
 
 		const result = await bash.execute(
 			"t1",
-			{ command: "grep nomatch /dev/null", tui_only: true },
+			{ command: "test -f /nonexistent-tui-only-check", tui_only: true },
 			undefined,
 			undefined,
 			ctx,

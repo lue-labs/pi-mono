@@ -939,6 +939,79 @@ export function checkBashPolicy(command: string, policy: BashPolicy): string | u
 	return undefined;
 }
 
+/** Standalone bash commands rejected in favor of native tools (name → native tool). */
+const NATIVE_TOOL_REPLACEMENTS: Record<string, string> = {
+	grep: "Grep",
+	egrep: "Grep",
+	fgrep: "Grep",
+	rg: "Grep",
+	find: "Glob",
+	ls: "Ls",
+};
+
+/** Env assignments and benign wrappers that may precede the real command. */
+const COMMAND_WRAPPERS = new Set(["command", "builtin", "sudo", "nice", "time", "env", "nohup", "stdbuf"]);
+
+/**
+ * Remove heredoc bodies (`<<WORD` / `<<-WORD` ... WORD) so their content is
+ * never parsed as executable statements. Here-strings (`<<<`) carry no body.
+ */
+function stripHeredocBodies(command: string): string {
+	return command.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\n|$)/g, "<<$2");
+}
+
+/**
+ * Reject standalone `grep`/`rg`/`find`/`ls` invocations. When one of them is
+ * the FIRST stage of a pipeline it is repo exploration that belongs to the
+ * native Grep/Glob/Ls tools (ripgrep-backed, .gitignore-aware, output shaped
+ * for context). Later pipeline stages are allowed — filtering non-repo
+ * command output (`kubectl ... | grep Ready`) is legitimate bash work.
+ * Keeps the Bash/system-prompt "rejected at runtime" claim true.
+ *
+ * Steering, not a security boundary: deliberate indirection (`sh -c`,
+ * `xargs grep`, control-flow like `if grep -q ...; then`, scripting loops)
+ * is out of scope — `if grep -q` style conditionals are legitimate shell
+ * logic, and a model reaching for indirection has already read the message.
+ */
+export function checkNativeToolGuard(command: string): string | undefined {
+	const statements = stripHeredocBodies(command).split(/(?:;|&&|\|\||\n)/g);
+	for (const statement of statements) {
+		const firstStage = statement.split("|")[0] ?? "";
+		const tokens = firstStage
+			.replace(/^[!\s({$]+/, "")
+			.trim()
+			.split(/\s+/)
+			.filter(Boolean);
+		let head: string | undefined;
+		let afterWrapper = false;
+		for (const token of tokens) {
+			if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue; // env assignment
+			if (COMMAND_WRAPPERS.has(token)) {
+				afterWrapper = true;
+				continue;
+			}
+			if (afterWrapper) {
+				// Wrapper flags/values (`sudo -u root`, `nice -n 5`) are opaque; the
+				// first token matching a guarded name is the real command.
+				if (NATIVE_TOOL_REPLACEMENTS[token.replace(/^.*\//, "")]) {
+					head = token;
+					break;
+				}
+				continue;
+			}
+			head = token;
+			break;
+		}
+		if (!head) continue;
+		head = head.replace(/^.*\//, "");
+		const replacement = NATIVE_TOOL_REPLACEMENTS[head];
+		if (replacement) {
+			return `Blocked: bash command starts with standalone \`${head}\` — use the native ${replacement} tool instead. Pipeline filters on command output (e.g. \`kubectl get pods | grep Ready\`) are fine.`;
+		}
+	}
+	return undefined;
+}
+
 const BASH_PREVIEW_LINES = 5;
 const BASH_UPDATE_THROTTLE_MS = 100;
 const DEFAULT_BASH_TIMEOUT_SECONDS = 300;
@@ -1367,7 +1440,7 @@ export function createBashToolDefinition(
 			"A backgrounded bash job notifies you with a task_notification when it finishes (carrying the bgId + output log path). Do NOT poll it with sleep loops or re-run the command to check — continue other work and the harness re-invokes you on completion. Call bash_output(bgId) only to peek before it finishes, or use monitor_start to be woken on every output batch.",
 			"Always stop background jobs you started but no longer need with bash_kill(bgId).",
 			// Worded identically to system-prompt.ts so addGuideline deduplicates shared rules.
-			"Prefer native file tools for repo exploration: Glob/Ls for paths, Grep for known text/regex, SemanticGrep for conceptual searches. Standalone `grep`/`rg`/`find`/`ls` in Bash is discouraged, but pipeline filters on command output (e.g. `kubectl ... | grep Ready`) are fine.",
+			"Prefer native file tools for repo exploration: Glob/Ls for paths, Grep for known text/regex, SemanticGrep for conceptual searches. Standalone `grep`/`rg`/`find`/`ls` in Bash is rejected at runtime; pipeline filters on command output (e.g. `kubectl ... | grep Ready`) are fine.",
 			"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.",
 			"Use Read/Edit/Write for files instead of shelling out to view or modify file contents.",
 		],
@@ -1408,6 +1481,14 @@ export function createBashToolDefinition(
 						details: undefined,
 					};
 				}
+			}
+			const nativeGuard = checkNativeToolGuard(command);
+			if (nativeGuard) {
+				return {
+					isError: true,
+					content: [{ type: "text", text: nativeGuard }],
+					details: undefined,
+				};
 			}
 			if (redundantCdToCurrentWorkingDirectory(command, effectiveCwd)) {
 				return {

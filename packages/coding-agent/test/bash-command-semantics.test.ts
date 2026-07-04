@@ -51,13 +51,11 @@ describe("bash command exit semantics", () => {
 	});
 
 	it.each([
-		["egrep needle file.txt", "egrep found no matches"],
 		["git grep needle", "git grep found no matches"],
 		["diff a.txt b.txt", "diff found differences"],
 		["git diff -- README.md", "git diff found differences"],
 		["test -f missing", "test condition was false"],
 		["[ -f missing ]", "[ condition was false"],
-		["FOO=1 find . -name nope", "find completed with partial results or inaccessible paths"],
 	])("returns non-error result for %s exit 1", async (command, summary) => {
 		const bash = createBashToolDefinition(process.cwd(), { operations: operationsWithExit(1) });
 		const result = await bash.execute("t1", { command }, undefined, undefined, ctx);
@@ -90,11 +88,11 @@ describe("bash command exit semantics", () => {
 		);
 	});
 
-	it("no longer hard-blocks direct native grep (guidance is instruction-only)", async () => {
+	it("hard-blocks standalone grep with native-tool steering", async () => {
 		const bash = createBashToolDefinition(process.cwd(), { operations: operationsWithExit(1) });
 		const result = await bash.execute("t1", { command: "grep needle README.md" }, undefined, undefined, ctx);
 
-		// grep exit code 1 = no matches; surfaced via semantic-exit, not the old block message.
-		expect(getText(result)).not.toContain("Blocked: bash command contains");
+		expect(isError(result)).toBe(true);
+		expect(getText(result)).toContain("use the native Grep tool");
 	});
 });
