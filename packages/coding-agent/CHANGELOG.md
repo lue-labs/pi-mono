@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Footer pills: pressing up past the first pill (or up with nothing selected) now deselects back to the editor instead of wrapping around to the last pill, and the selected pill renders with a highlighted background instead of blending into the dim `·`-joined footer text. Regressions in `test/interactive-mode-footer-nav.test.ts`.
+
 - System prompt: extracted the guideline strings shared between the default prompt and Bash `promptGuidelines` into `core/prompt-guidelines.ts` constants. The hand-copied Bash variant had drifted ("Prefer native file tools…" vs "File/dir exploration uses native tools…"), defeating `addGuideline`'s exact-string dedupe — sessions carried both near-duplicate bullets. Prompts now collapse to the single canonical rule; regression in `test/system-prompt.test.ts` asserts byte-identity and single occurrence.
 
 - Agents runs selector: pressing Enter on a running agent row now enters the zoomed session view for that row (row-scoped zoom entry); non-running rows keep the existing detail view. Regression in `test/interactive-mode-agents-command.test.ts`.
