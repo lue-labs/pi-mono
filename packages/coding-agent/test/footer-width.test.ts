@@ -135,6 +135,25 @@ describe("FooterComponent width handling", () => {
 
 	beforeEach(() => clearAgentRecentRunsForTests());
 
+	it("memoizes rendered lines when nothing that affects the footer changed", () => {
+		// Regression for perf/BASELINE.md fix #1: render(width) used to rebuild
+		// the full string set (theme.fg/padding/truncation) unconditionally on
+		// every call. Fails on the pre-fix baseline (each call returns a fresh
+		// array), passes once render() returns the memoized array for an
+		// unchanged cache key.
+		const session = createSession({ sessionName: "same-session" });
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const first = footer.render(100);
+		const second = footer.render(100);
+		expect(second).toBe(first);
+
+		footer.setAutoCompactEnabled(false);
+		const third = footer.render(100);
+		expect(third).not.toBe(first);
+		expect(third).toEqual(expect.arrayContaining([expect.stringContaining("200k")]));
+	});
+
 	it("keeps all lines within width for wide session names", () => {
 		const width = 93;
 		const session = createSession({ sessionName: "한글".repeat(30) });

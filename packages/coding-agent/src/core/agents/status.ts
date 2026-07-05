@@ -170,11 +170,39 @@ function updateRunTimestamps(run: AgentRecentRun, terminal: boolean): void {
 	run.durationMs = Math.max(0, Date.parse(run.endedAt) - Date.parse(run.startedAt));
 }
 
+// Tracks the last user-visible content signature notified per run so that
+// no-op progress ticks (e.g. a heartbeat where only updatedAt moved) can skip
+// the render-triggering notify. Keyed by run identity — WeakMap avoids a
+// manual cleanup path when a run is evicted from recentRuns.
+const runContentSignatures = new WeakMap<AgentRecentRun, string>();
+
+function computeRunContentSignature(run: AgentRecentRun): string {
+	return JSON.stringify({
+		status: run.status,
+		error: run.error,
+		needsAttention: run.needsAttention,
+		attentionMessage: run.attentionMessage,
+		resumable: run.resumable,
+		outputPaths: run.outputPaths,
+		sessionRefs: run.sessionRefs,
+		runs: run.runs.map((r) => ({
+			status: r.status,
+			effectiveTools: r.effectiveTools,
+			deniedTools: r.deniedTools,
+			recentToolCalls: r.recentToolCalls,
+			recentOutputSnippets: r.recentOutputSnippets,
+			loadedSkills: r.loadedSkills,
+			invokedSkills: r.invokedSkills,
+		})),
+	});
+}
+
 function applyRunDetails(
 	run: AgentRecentRun,
 	details: AgentToolDetails | AgentExecutionProgress,
 	terminal = isTerminalStatus(details.status),
 	expectedGeneration?: number,
+	guardUnchanged = false,
 ): void {
 	if (!isExpectedGeneration(run, expectedGeneration)) return;
 	run.status = details.status;
@@ -187,6 +215,17 @@ function applyRunDetails(
 	}
 	if (run.status === "completed" || run.status === "cancelled" || run.status === "failed") {
 		liveRunControllers.delete(run.id);
+	}
+	if (guardUnchanged) {
+		const nextSignature = computeRunContentSignature(run);
+		const unchanged = runContentSignatures.get(run) === nextSignature;
+		runContentSignatures.set(run, nextSignature);
+		if (unchanged) {
+			maybeFireTerminal(run);
+			return;
+		}
+	} else {
+		runContentSignatures.set(run, computeRunContentSignature(run));
 	}
 	notifyAgentRecentRunsChanged();
 	maybeFireTerminal(run);
@@ -256,7 +295,10 @@ export function updateAgentRecentRunProgress(
 	details: AgentExecutionProgress,
 	expectedGeneration?: number,
 ): void {
-	applyRunDetails(run, details, details.status !== "running", expectedGeneration);
+	// Progress ticks fire far more often than terminal transitions (finish/fail);
+	// guard against re-rendering when nothing user-visible actually changed —
+	// see perf/BASELINE.md fix #2 (global requestRender() on every agent tick).
+	applyRunDetails(run, details, details.status !== "running", expectedGeneration, /* guardUnchanged */ true);
 }
 
 export function finishAgentRecentRun(

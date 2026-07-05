@@ -106,6 +106,8 @@ export class FooterComponent implements Component {
 		postCompactionTurn: false,
 	};
 	private selectedExtensionFooterId: string | undefined = undefined;
+	private renderCacheKey = "";
+	private renderCache: string[] = [];
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -334,6 +336,57 @@ export class FooterComponent implements Component {
 		const branch = this.footerData.getGitBranch();
 		const sessionName = this.session.sessionManager.getSessionName();
 
+		// Cheap change-guard: gather every input that can affect the rendered
+		// lines *before* doing any of the theme.fg()/padding/truncation work
+		// below, and skip straight to the memoized lines if nothing changed.
+		// Same pattern as usageCacheKey above, extended to the whole footer
+		// output (see perf/BASELINE.md fix #1).
+		const extensionStatuses = this.footerData.getExtensionStatuses();
+		const extensionStatusesKey = Array.from(extensionStatuses.entries())
+			.map(([id, text]) => `${id}=${text}`)
+			.join("\u0001");
+		const pendingAutoModelAlias = this.session.pendingAutoModelAlias;
+		const thinkingLevel = state.thinkingLevel || "off";
+		const providerCount = this.footerData.getAvailableProviderCount();
+		const renderKey = [
+			width,
+			basePwd,
+			branch ?? "",
+			sessionName ?? "",
+			extensionStatusesKey,
+			this.autoCompactEnabled,
+			contextWindow,
+			displayContextTokens,
+			contextPercent,
+			deferredToolTokens,
+			totalInput,
+			totalOutput,
+			totalCacheRead,
+			totalCacheWrite,
+			totalCost,
+			assistantTurns,
+			lastUsage
+				? `${lastUsage.input}:${lastUsage.output}:${lastUsage.cacheRead}:${lastUsage.cacheWrite}:${lastUsage.cost.total}`
+				: "",
+			lastTimestamp ?? "",
+			lastModel ?? "",
+			previousUsage ? `${previousUsage.input}:${previousUsage.cacheRead}:${previousUsage.cacheWrite}` : "",
+			previousTimestamp ?? "",
+			previousModel ?? "",
+			cacheHealthExemptions.join(","),
+			postCompactionTurn,
+			pendingAutoModelAlias ?? "",
+			state.model?.id ?? "",
+			state.model?.reasoning ? "1" : "0",
+			thinkingLevel,
+			providerCount,
+			state.model?.provider ?? "",
+		].join("|");
+
+		if (renderKey === this.renderCacheKey) {
+			return this.renderCache;
+		}
+
 		// Dim middle-dot separator
 		const sep = theme.fg("dim", " · ");
 
@@ -345,7 +398,6 @@ export class FooterComponent implements Component {
 		if (sessionName) {
 			pwdContent += sep + theme.fg("accent", sessionName);
 		}
-		const extensionStatuses = this.footerData.getExtensionStatuses();
 		const sortedStatusParts = Array.from(extensionStatuses.entries())
 			.sort(([a], [b]) => a.localeCompare(b))
 			.map(([, text]) => splitTopRightStatus(text));
@@ -441,12 +493,10 @@ export class FooterComponent implements Component {
 		// state is just the unrouted compat seed, and rendering it reads as if
 		// routing already resolved. The alias clears on resolve, so the routed
 		// model shows here as soon as it actually exists.
-		const pendingAutoModelAlias = this.session.pendingAutoModelAlias;
 		const modelName = pendingAutoModelAlias ?? state.model?.id ?? "no-model";
 		const rightParts: string[] = [];
 		rightParts.push(theme.fg("syntaxFunction", modelName));
 		if (state.model?.reasoning) {
-			const thinkingLevel = state.thinkingLevel || "off";
 			rightParts.push(thinkingLevel === "off" ? theme.fg("dim", "thinking off") : theme.fg("accent", thinkingLevel));
 		}
 		let rightSide = rightParts.join(sep);
@@ -455,7 +505,7 @@ export class FooterComponent implements Component {
 		// aliases this exposes the provider scope while the alias itself stays the
 		// visible model name until routing resolves.
 		const minPadding = 2;
-		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
+		if (providerCount > 1 && state.model) {
 			const withProvider = theme.fg("dim", `(${state.model.provider}) `) + rightSide;
 			if (statsLeftWidth + minPadding + visibleWidth(withProvider) <= width) {
 				rightSide = withProvider;
@@ -495,6 +545,8 @@ export class FooterComponent implements Component {
 			lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
 		}
 
+		this.renderCacheKey = renderKey;
+		this.renderCache = lines;
 		return lines;
 	}
 }
