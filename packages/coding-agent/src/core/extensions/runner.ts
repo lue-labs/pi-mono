@@ -89,6 +89,7 @@ import type {
 export interface ExtensionSlotUIActions {
 	showMainPane: (id: string, payload: unknown) => void;
 	hideMainPane: (id: string) => void;
+	hasMainPane?: (id: string) => boolean;
 	showOverlay: (id: string, payload: unknown) => void;
 	hideOverlay: (id: string) => void;
 }
@@ -817,6 +818,7 @@ export class ExtensionRunner {
 	bindSlotUI(actions: ExtensionSlotUIActions): void {
 		this.runtime.showMainPaneFn = actions.showMainPane;
 		this.runtime.hideMainPaneFn = actions.hideMainPane;
+		this.runtime.hasMainPaneFn = actions.hasMainPane ?? ((id) => this.getRegisteredMainPane(id) !== undefined);
 		this.runtime.showOverlayFn = actions.showOverlay;
 		this.runtime.hideOverlayFn = actions.hideOverlay;
 	}

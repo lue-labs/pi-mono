@@ -69,6 +69,11 @@ describe("agent runs selector formatting", () => {
 		expect(formatAgentRunRow(run({ depth: 0 }), false)).not.toContain("\u21b3L");
 	});
 
+	test("row inlines the pending question text for a needs-attention run", () => {
+		const blocked = run({ needsAttention: true, attentionMessage: "Should I proceed?" });
+		expect(formatAgentRunRow(blocked, false)).toContain("needs attention: Should I proceed?");
+	});
+
 	// B4: fan-out done/total appears once a run has more than one requested task.
 	test("row shows fan-out done/total across child runs", () => {
 		const fanned = run({

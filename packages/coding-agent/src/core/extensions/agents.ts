@@ -1,5 +1,9 @@
 import { getKeybindings, truncateToWidth } from "@valkyriweb/pi-tui";
-import { formatAgentRunDetailView, formatAgentRunRow } from "../../modes/interactive/components/agent-runs-selector.ts";
+import {
+	formatAgentRunDetailView,
+	formatAgentRunRow,
+	shouldZoomAgentRunRow,
+} from "../../modes/interactive/components/agent-runs-selector.ts";
 import { keyHint, rawKeyHint } from "../../modes/interactive/components/keybinding-hints.ts";
 import { theme } from "../../modes/interactive/theme/theme.ts";
 import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine } from "../agents/engine.ts";
@@ -13,9 +17,36 @@ import {
 	createUppercaseAgentToolDefinition,
 } from "../tools/agent.ts";
 import { addAction, load } from "./extension-hooks.ts";
-import type { ExtensionAPI, ExtensionMainPaneComponent, ExtensionMainPaneFactory } from "./types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionFooterRenderCtx,
+	ExtensionMainPaneComponent,
+	ExtensionMainPaneFactory,
+} from "./types.ts";
 
 const AGENTS_PANE_ID = "agents-status";
+
+function footerNeedsAttention(): boolean {
+	return listTasks().some((task) => {
+		if (task.status === "interrupted" || task.status === "failed") return true;
+		if (task.status !== "running" || task.type !== "local_agent") return false;
+		return listAgentRecentRuns().find((run) => run.id === task.id)?.needsAttention ?? false;
+	});
+}
+
+/**
+ * Color the footer pill by state (agents-ux-parity color/attention ask):
+ * loud `warning` when something needs attention or an agent failed/
+ * interrupted, quiet `dim` while merely running. Previously every state
+ * rendered identically (plain, or accent-only-when-selected), so "agents
+ * are active" never read distinctly from "an agent needs you".
+ */
+function renderFooterText(ctx: ExtensionFooterRenderCtx): string {
+	const text = formatTaskFooterStatus() ?? "";
+	if (!text) return text;
+	if (ctx.selected) return ctx.theme.fg("accent", text);
+	return ctx.theme.fg(footerNeedsAttention() ? "warning" : "dim", text);
+}
 
 function getAgentEngine(pi: ExtensionAPI): AgentEngine | undefined {
 	return pi.harness.use<AgentEngine>(AGENTS_ENGINE_SERVICE_ID);
@@ -53,15 +84,12 @@ export function hookAgentsTools(pi: ExtensionAPI): void {
  * underlying `agent`/`Agent`/`Task` capabilities.
  */
 export function hookAgentsUI(pi: ExtensionAPI): void {
-	pi.registerMainPane(AGENTS_PANE_ID, agentsPaneFactory);
+	pi.registerMainPane(AGENTS_PANE_ID, createAgentsPaneFactory(pi));
 
 	// Background-runtime status pill (agents + bash jobs). Reactive visibility:
 	// the pill appears only while runtime tasks need attention.
 	pi.registerFooter(AGENTS_PANE_ID, {
-		render: (ctx) => {
-			const text = formatTaskFooterStatus() ?? "";
-			return ctx.selected ? ctx.theme.fg("accent", text) : text;
-		},
+		render: (ctx) => renderFooterText(ctx),
 		visible: () => formatTaskFooterStatus() !== undefined,
 		onActivate: () => pi.showMainPane(AGENTS_PANE_ID),
 	});
@@ -117,15 +145,17 @@ class AgentsPane implements ExtensionMainPaneComponent {
 	private readonly tui: { requestRender(): void };
 	private readonly theme: any;
 	private readonly requestHide: () => void;
+	private readonly pi: ExtensionAPI;
 	private readonly unsubscribe: () => void;
 	private tickTimer: ReturnType<typeof setInterval> | undefined;
 	private selectedIndex = 0;
 	private showDetail = false;
 
-	constructor(tui: { requestRender(): void }, theme: any, requestHide: () => void) {
+	constructor(tui: { requestRender(): void }, theme: any, requestHide: () => void, pi: ExtensionAPI) {
 		this.tui = tui;
 		this.theme = theme;
 		this.requestHide = requestHide;
+		this.pi = pi;
 		this.unsubscribe = subscribeTasks(() => {
 			this.refreshTickTimer();
 			this.tui.requestRender();
@@ -198,10 +228,26 @@ class AgentsPane implements ExtensionMainPaneComponent {
 			return;
 		}
 		if (kb.matches(data, "tui.select.confirm")) {
-			if (this.selectedTask()) {
-				this.showDetail = true;
-				this.tui.requestRender();
+			const task = this.selectedTask();
+			if (!task) return;
+			// Regression fix (agents-ux-parity footer round): a running background
+			// local_agent row should zoom straight into its live transcript, the
+			// same behavior `/agents runs` already gets from
+			// `handleAgentRunSelectorAction` — not the static status-text detail
+			// this pane previously always showed on Enter regardless of task
+			// state. `hasMainPane` makes this a safe, generic fallback: when no
+			// extension has registered the "zoom" pane (e.g. a lean profile
+			// without `pi-agent-ui` loaded), fall through to the static detail
+			// view exactly as before.
+			if (task.type === "local_agent") {
+				const run = listAgentRecentRuns().find((candidate) => candidate.id === task.id);
+				if (run && shouldZoomAgentRunRow(run) && this.pi.hasMainPane?.("zoom")) {
+					this.pi.showMainPane("zoom", { taskId: run.id, sessionConfig: { cwd: this.pi.cwd } });
+					return;
+				}
 			}
+			this.showDetail = true;
+			this.tui.requestRender();
 			return;
 		}
 		if (data === "x") {
@@ -239,7 +285,9 @@ class AgentsPane implements ExtensionMainPaneComponent {
 	}
 }
 
-const agentsPaneFactory: ExtensionMainPaneFactory = (tui, theme, api) => new AgentsPane(tui, theme, api.requestHide);
+function createAgentsPaneFactory(pi: ExtensionAPI): ExtensionMainPaneFactory {
+	return (tui, theme, api) => new AgentsPane(tui, theme, api.requestHide, pi);
+}
 
 addAction(load, "agentsTools", hookAgentsTools);
 addAction(load, "agentsUI", hookAgentsUI);
