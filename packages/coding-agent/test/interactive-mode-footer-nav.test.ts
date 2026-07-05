@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 describe("interactive-mode footer navigation", () => {
-	function createFakeMode(onActivate = vi.fn(), editorText = "", options?: { includeEmptyFooter?: boolean }) {
+	function createFakeMode(
+		onActivate = vi.fn(),
+		editorText = "",
+		options?: { includeEmptyFooter?: boolean; extraFooterIds?: string[] },
+	) {
 		const footerEntries = [
 			...(options?.includeEmptyFooter
 				? [
@@ -24,6 +28,14 @@ describe("interactive-mode footer navigation", () => {
 					onActivate,
 				},
 			},
+			...(options?.extraFooterIds ?? []).map((id) => ({
+				id,
+				spec: {
+					visible: () => true,
+					render: () => `● ${id}`,
+					onActivate: vi.fn(),
+				},
+			})),
 		];
 		const fakeMode = {
 			defaultEditor: {
@@ -172,5 +184,68 @@ describe("interactive-mode footer navigation", () => {
 
 		expect(paneEscape).toHaveBeenCalledTimes(1);
 		expect(fakeMode.footer.setSelectedExtensionFooterId).not.toHaveBeenCalled();
+	});
+
+	// Regression: b25bca256 — before this fix, pressing down/up on an empty
+	// editor mutated `selectedExtensionFooterId` internally but the footer's
+	// rendered selection never visibly changed for pills whose extension
+	// didn't implement its own highlight, and moving past the first/last pill
+	// silently wrapped instead of clearing the selection. These tests exercise
+	// the actual multi-pill cycling/deselect state machine, not just enter/escape.
+	describe("up/down cycling across multiple pills", () => {
+		function fakeModeWithTwoPills() {
+			return createFakeMode(vi.fn(), "", { extraFooterIds: ["second-pill"] });
+		}
+
+		it("selects the first pill on down when nothing is selected", () => {
+			const fakeMode = fakeModeWithTwoPills();
+
+			const handled = fakeMode.handleExtensionFooterNavInput?.("\x1b[B");
+
+			expect(handled).toBe(true);
+			expect(fakeMode.selectedExtensionFooterId).toBe("runtime-tasks");
+			expect(fakeMode.footer.setSelectedExtensionFooterId).toHaveBeenCalledWith("runtime-tasks");
+		});
+
+		it("selects the last pill on up when nothing is selected", () => {
+			const fakeMode = fakeModeWithTwoPills();
+
+			const handled = fakeMode.handleExtensionFooterNavInput?.("\x1b[A");
+
+			expect(handled).toBe(true);
+			expect(fakeMode.selectedExtensionFooterId).toBeUndefined();
+		});
+
+		it("advances selection forward on repeated down presses", () => {
+			const fakeMode = fakeModeWithTwoPills();
+
+			fakeMode.handleExtensionFooterNavInput?.("\x1b[B");
+			expect(fakeMode.selectedExtensionFooterId).toBe("runtime-tasks");
+
+			fakeMode.handleExtensionFooterNavInput?.("\x1b[B");
+			expect(fakeMode.selectedExtensionFooterId).toBe("second-pill");
+		});
+
+		it("clears the selection instead of wrapping past the last pill", () => {
+			const fakeMode = fakeModeWithTwoPills();
+			fakeMode.selectedExtensionFooterId = "second-pill";
+
+			const handled = fakeMode.handleExtensionFooterNavInput?.("\x1b[B");
+
+			expect(handled).toBe(true);
+			// Stays on the last pill rather than wrapping to the first.
+			expect(fakeMode.footer.setSelectedExtensionFooterId).not.toHaveBeenCalled();
+		});
+
+		it("clears the selection instead of wrapping past the first pill on up", () => {
+			const fakeMode = fakeModeWithTwoPills();
+			fakeMode.selectedExtensionFooterId = "runtime-tasks";
+
+			const handled = fakeMode.handleExtensionFooterNavInput?.("\x1b[A");
+
+			expect(handled).toBe(true);
+			expect(fakeMode.selectedExtensionFooterId).toBeUndefined();
+			expect(fakeMode.footer.setSelectedExtensionFooterId).toHaveBeenCalledWith(undefined);
+		});
 	});
 });
