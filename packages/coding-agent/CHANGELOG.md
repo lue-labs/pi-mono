@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Keybindings: add `app.agentView.back` (default: `left`), a new additive `AppKeybindings` entry for consumer extensions that need a user-remappable "go back" binding (e.g. `my-pi`'s agent-view dashboard returning from an attached session). Purely additive — no existing binding, dispatch, or interactive-mode wiring is touched; consumption is entirely the extension's own responsibility via `KeybindingsManager.matches()`.
+
 - Tasks: `TaskSnapshot` gains an additive `controlId?: string` field, set on `LocalAgentTask`'s per-child snapshots (the leaf rows under `children` for an Agent-tool batch) to the owning run's real id. A child's own `id` (e.g. `"agent-5:1"`) is a display-only label minted per sub-run — there is no independent adapter, live session, or message buffer registered under it, only under the top-level run's id — so a consumer that flattens `children` into rows (e.g. an extension's task panel) and threads a child's bare `id` into a control/zoom operation gets a silent "not found" even though the run is live and controllable. `controlId` gives such consumers the id that IS registered. Regression in `test/tasks-registry.test.ts`.
 
 - Agents footer pill: `render()` now honors the pill-nav `selected` context and highlights (accent color) when the agents-status pill has focus. Previously `render()` ignored its `ctx` argument entirely, so Down/pill-focus cycling never produced any visible highlight for this pill even though the underlying pill-nav selection state machine tracked focus correctly (`onActivate`/`showMainPane` worked; only the visual indicator was missing). Regression in `test/agents-ui.test.ts`.

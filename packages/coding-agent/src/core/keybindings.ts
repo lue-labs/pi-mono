@@ -55,6 +55,7 @@ export interface AppKeybindings {
 	"app.tree.filter.all": true;
 	"app.tree.filter.cycleForward": true;
 	"app.tree.filter.cycleBackward": true;
+	"app.agentView.back": true;
 }
 
 export type AppKeybinding = keyof AppKeybindings;
@@ -204,6 +205,10 @@ export const KEYBINDINGS = {
 	"app.tree.filter.cycleBackward": {
 		defaultKeys: "shift+ctrl+o",
 		description: "Tree filter: cycle backward",
+	},
+	"app.agentView.back": {
+		defaultKeys: "left",
+		description: "Return to the Agent View dashboard (only when the editor is empty)",
 	},
 } as const satisfies KeybindingDefinitions;
 
