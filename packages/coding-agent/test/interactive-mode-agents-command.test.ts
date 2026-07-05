@@ -4,7 +4,10 @@ import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { clearAgentRecentRunsForTests, startAgentRecentRun } from "../src/core/agents/status.ts";
 import type { AgentDefinition } from "../src/core/agents/types.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
-import { AgentRunsSelectorComponent } from "../src/modes/interactive/components/agent-runs-selector.ts";
+import {
+	AgentRunsSelectorComponent,
+	shouldZoomAgentRunRow,
+} from "../src/modes/interactive/components/agent-runs-selector.ts";
 import { AgentsSelectorComponent } from "../src/modes/interactive/components/agents-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -73,5 +76,16 @@ describe("/agents selector", () => {
 
 		selector.handleInput("i");
 		expect(onAction).toHaveBeenCalledWith("interrupt", run);
+	});
+
+	test("shouldZoomAgentRunRow: only running background rows zoom (Slice B, row 3)", () => {
+		const runningBg = startAgentRecentRun("single", [{ agent: "worker", task: "Sleep" }], { background: true });
+		expect(shouldZoomAgentRunRow(runningBg)).toBe(true);
+
+		const runningFg = startAgentRecentRun("single", [{ agent: "worker", task: "Sleep" }], { background: false });
+		expect(shouldZoomAgentRunRow(runningFg)).toBe(false);
+
+		const completedBg = { ...runningBg, status: "completed" as const };
+		expect(shouldZoomAgentRunRow(completedBg)).toBe(false);
 	});
 });

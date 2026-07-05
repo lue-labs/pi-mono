@@ -116,7 +116,11 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
-import { type AgentRunsSelectorAction, AgentRunsSelectorComponent } from "./components/agent-runs-selector.ts";
+import {
+	type AgentRunsSelectorAction,
+	AgentRunsSelectorComponent,
+	shouldZoomAgentRunRow,
+} from "./components/agent-runs-selector.ts";
 import { AgentsSelectorComponent } from "./components/agents-selector.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
@@ -4816,7 +4820,7 @@ export class InteractiveMode {
 			const selector = new AgentRunsSelectorComponent(
 				() => listAgentRecentRuns(),
 				(action, run) => {
-					void this.handleAgentRunSelectorAction(action, run, selector);
+					void this.handleAgentRunSelectorAction(action, run, selector, done);
 				},
 				() => {
 					done();
@@ -4826,12 +4830,33 @@ export class InteractiveMode {
 		});
 	}
 
+	/**
+	 * Row-scoped zoom entry (agents-ux-parity Slice B, row 3): pressing Enter on
+	 * a *running background* row jumps straight into that row's live transcript
+	 * via the already-registered `pi-agent-ui` "zoom" main pane, instead of only
+	 * ever showing a text status summary. Falls back to the pre-existing status
+	 * detail for non-running rows or when no extension has registered the
+	 * "zoom" pane (e.g. a lean profile without `pi-agent-ui` loaded) — this is a
+	 * generic, already-public core seam (`getRegisteredMainPane`/`showMainPane`
+	 * by string id), not a new coupling to a specific extension.
+	 */
 	private async handleAgentRunSelectorAction(
 		action: AgentRunsSelectorAction,
 		run: AgentRecentRun,
 		selector: AgentRunsSelectorComponent,
+		done: () => void,
 	): Promise<void> {
 		if (action === "detail") {
+			const canZoom =
+				shouldZoomAgentRunRow(run) && this.session.extensionRunner.getRegisteredMainPane("zoom") !== undefined;
+			if (canZoom) {
+				done();
+				this.showExtensionMainPane("zoom", {
+					taskId: run.id,
+					sessionConfig: { cwd: this.sessionManager.getCwd() },
+				});
+				return;
+			}
 			this.showStatus(formatAgentStatus(undefined, run.id));
 			return;
 		}
