@@ -59,6 +59,22 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 			prompt += appendSection;
 		}
 
+		// Tool-provided guidelines travel with the tools, even under a custom prompt.
+		// They are stable for a given tools[] set, so they stay in the cached prefix
+		// (before the dynamic boundary). Deduped + trimmed like the default path.
+		const customGuidelines: string[] = [];
+		const customGuidelinesSeen = new Set<string>();
+		for (const guideline of promptGuidelines ?? []) {
+			const normalized = guideline.trim();
+			if (normalized.length > 0 && !customGuidelinesSeen.has(normalized)) {
+				customGuidelinesSeen.add(normalized);
+				customGuidelines.push(normalized);
+			}
+		}
+		if (customGuidelines.length > 0) {
+			prompt += `\n\nTool guidelines:\n${customGuidelines.map((g) => `- ${g}`).join("\n")}`;
+		}
+
 		prompt += `\n\n${SYSTEM_PROMPT_DYNAMIC_BOUNDARY}`;
 
 		// Append project context files

@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- System prompt: tool-provided `promptGuidelines` are no longer silently dropped when a custom system prompt is set — they render as a `Tool guidelines:` section before the dynamic boundary (cached prefix; byte-identical output when no guidelines are provided). Regressions in `test/system-prompt.test.ts`.
+
 - Bash: enforce the long-documented native-tool guard at runtime — commands whose first pipeline stage is standalone `grep`/`egrep`/`fgrep`/`rg`/`find`/`ls` (including behind env assignments, wrappers like `sudo`/`env`/`nice`, subshell parens, and absolute paths) are rejected with steering to the native Grep/Glob/Ls tools; pipeline filters on command output (`kubectl ... | grep Ready`) remain allowed and heredoc bodies are ignored. Grep tool description gains Claude-Code-parity ripgrep steering (ALWAYS Grep / NEVER bash grep, brace escaping, outputMode, multiline), the explore agent prompt no longer suggests bash `grep` pipelines for repo files, and Bash promptGuidelines wording now matches the enforced behavior. Regressions in `test/bash-native-tool-guard.test.ts`.
 
 - Suppress only the known benign pi-goal stale queued-continuation abort (`pi-goal:stale-queued-continuation-cancelled`) in interactive rendering while preserving visible text for normal aborts and errors.
