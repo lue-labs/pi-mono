@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import { createJiti } from "jiti";
 import { getAgentDir } from "../config.ts";
+import { getExtensionJitiResolutionOptions } from "../core/extensions/loader.ts";
 import { DefaultPackageManager } from "../core/package-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 
@@ -64,7 +65,20 @@ async function loadAgentViewModule(cwd: string, agentDir: string): Promise<Agent
 
 async function importAgentViewModule(specifier: string): Promise<AgentViewModule | undefined> {
 	try {
-		const jiti = createJiti(import.meta.url, { fsCache: false, interopDefault: false });
+		// Reuse the exact same virtualModules/alias config the main extension
+		// loader uses (getExtensionJitiResolutionOptions()) — without it, this
+		// jiti instance can resolve the entrypoint file itself but not that
+		// file's own `@valkyriweb/pi-coding-agent` / `@valkyriweb/pi-tui` etc.
+		// imports (plain Node resolution has no guarantee a package literally
+		// named e.g. `@valkyriweb/pi-coding-agent` sits in `node_modules` — npm
+		// peer-conflict dedup can rename it), so `pi agents` found the package
+		// but then silently failed to actually load its module graph and fell
+		// all the way through to the "requires the pi-agent-view package" error.
+		const jiti = createJiti(import.meta.url, {
+			fsCache: false,
+			interopDefault: false,
+			...getExtensionJitiResolutionOptions(),
+		});
 		const mod = (await jiti.import(specifier)) as Partial<AgentViewModule> & { default?: Partial<AgentViewModule> };
 		const candidate = mod.runAgentViewCli ? mod : mod.default;
 		return typeof candidate?.runAgentViewCli === "function" ? (candidate as AgentViewModule) : undefined;
