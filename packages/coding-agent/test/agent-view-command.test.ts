@@ -23,4 +23,17 @@ describe("agent view command", () => {
 		expect(__test.findPackageRoot(entrypoint)).toBe(packageRoot);
 		expect(__test.packageName(packageRoot)).toBe("pi-agent-view");
 	});
+
+	test("matches scoped package names ending in pi-agent-view", () => {
+		// Bundles (e.g. my-pi-full) ship the extension published under an npm
+		// org scope, not the bare package name — the resolver must still find
+		// it or `pi agents` reports "requires the pi-agent-view package" even
+		// though it's installed and enabled.
+		expect(__test.isAgentViewPackageName("pi-agent-view")).toBe(true);
+		expect(__test.isAgentViewPackageName("@valkyriweb/pi-agent-view")).toBe(true);
+		expect(__test.isAgentViewPackageName("@other-org/pi-agent-view")).toBe(true);
+		expect(__test.isAgentViewPackageName("pi-agent-view-extra")).toBe(false);
+		expect(__test.isAgentViewPackageName("@valkyriweb/not-pi-agent-view")).toBe(false);
+		expect(__test.isAgentViewPackageName(undefined)).toBe(false);
+	});
 });

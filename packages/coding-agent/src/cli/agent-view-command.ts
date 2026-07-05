@@ -90,10 +90,23 @@ async function findConfiguredAgentViewEntrypoint(cwd: string, agentDir: string):
 		if (!resource.enabled) continue;
 		const packageRoot = findPackageRoot(resource.path);
 		if (!packageRoot) continue;
-		if (packageName(packageRoot) === AGENT_VIEW_PACKAGE_NAME) return resource.path;
+		if (isAgentViewPackageName(packageName(packageRoot))) return resource.path;
 	}
 
 	return undefined;
+}
+
+// Matches both the unscoped package name ("pi-agent-view") and any scoped
+// variant published under an npm org ("@valkyriweb/pi-agent-view", etc.) —
+// bundles like my-pi-full ship the extension under the publisher's scope, so
+// an exact unscoped match alone silently failed to find it here (`pi agents`
+// reported "requires the pi-agent-view package" even though it was installed
+// and enabled).
+function isAgentViewPackageName(name: string | undefined): boolean {
+	if (!name) return false;
+	if (name === AGENT_VIEW_PACKAGE_NAME) return true;
+	const slashIndex = name.lastIndexOf("/");
+	return slashIndex !== -1 && name.slice(slashIndex + 1) === AGENT_VIEW_PACKAGE_NAME;
 }
 
 function findPackageRoot(startPath: string): string | undefined {
@@ -118,4 +131,5 @@ function packageName(packageRoot: string): string | undefined {
 export const __test = {
 	findPackageRoot,
 	packageName,
+	isAgentViewPackageName,
 };
