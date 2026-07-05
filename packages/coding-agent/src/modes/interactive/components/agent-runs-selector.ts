@@ -33,6 +33,16 @@ function countSettledChildren(run: AgentRecentRun): number {
 	return run.runs.filter((child) => child.status !== "running").length;
 }
 
+/**
+ * True when the row is a running background agent — Enter should zoom straight
+ * into its live transcript instead of showing the static status detail
+ * (agents-ux-parity Slice B, row 3: row-scoped zoom entry). Pure so it's
+ * unit-testable without the `InteractiveMode` harness.
+ */
+export function shouldZoomAgentRunRow(run: AgentRecentRun): boolean {
+	return run.execution === "background" && run.status === "running";
+}
+
 /** Compact list row for the agent-runs selector. Pure (depends only on `run`). */
 export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): string {
 	const prefix = selected ? `${theme.fg("accent", "→ ")}` : "  ";
