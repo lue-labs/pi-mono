@@ -2618,6 +2618,19 @@ export class InteractiveMode {
 				if (!customEditor.onExtensionShortcut) {
 					customEditor.onExtensionShortcut = (data: string) => this.defaultEditor.onExtensionShortcut?.(data);
 				}
+				// Footer pill nav (Down/Up cycling, incl. the agents-status pill's
+				// selected-highlight) and queued-message recall both run through
+				// `onPreInput`, wired onto `defaultEditor` in `setupKeyHandlers()`
+				// before any extension has a chance to install a custom editor. Every
+				// other app-level handler here is forwarded to a replacement editor;
+				// `onPreInput` was the one omission, so any extension that calls
+				// `ctx.ui.setEditorComponent` (pi-syntax-input, monitor/idle-return-style
+				// wrappers, etc.) silently broke Up/Down footer nav for the rest of the
+				// session even though Enter kept working (it runs through `onSubmit`,
+				// which *is* forwarded, not `onPreInput`).
+				if (!customEditor.onPreInput) {
+					customEditor.onPreInput = (data: string) => this.defaultEditor.onPreInput?.(data) ?? false;
+				}
 				// Copy action handlers (clear, suspend, model switching, etc.)
 				for (const [action, handler] of this.defaultEditor.actionHandlers) {
 					(customEditor.actionHandlers as Map<string, () => void>).set(action, handler);

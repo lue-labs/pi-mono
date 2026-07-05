@@ -171,6 +171,52 @@ describe("interactive-mode footer navigation", () => {
 		expect(typeof fakeMode.defaultEditor.onPreInput).toBe("function");
 	});
 
+	// Regression (agents-ux-parity round 3): setCustomEditorComponent forwards
+	// onEscape/onCtrlD/onPasteImage/onExtensionShortcut/actionHandlers from
+	// defaultEditor onto a replacement editor installed via
+	// `ctx.ui.setEditorComponent` (e.g. pi-syntax-input, or any extension that
+	// wraps the editor), but it never forwarded `onPreInput` — the seam that
+	// drives footer pill Up/Down nav (and queued-message recall). Any session
+	// running such an extension silently lost footer pill highlight/nav for
+	// the rest of the session (Enter still worked because onSubmit *is*
+	// forwarded and routes through handleExtensionFooterNavInput directly).
+	it("forwards onPreInput to a replacement editor installed via setEditorComponent", () => {
+		const defaultOnPreInput = vi.fn((_data: string) => true);
+		const fakeMode = {
+			editor: { getText: () => "" },
+			editorContainer: { clear: vi.fn(), addChild: vi.fn() },
+			ui: { setFocus: vi.fn(), requestRender: vi.fn() },
+			keybindings: {},
+			autocompleteProvider: undefined,
+			defaultEditor: {
+				onSubmit: vi.fn(),
+				onChange: vi.fn(),
+				onPreInput: defaultOnPreInput,
+				onEscape: undefined,
+				onCtrlD: undefined,
+				onPasteImage: undefined,
+				onExtensionShortcut: undefined,
+				borderColor: undefined,
+				getPaddingX: () => 0,
+				actionHandlers: new Map(),
+			},
+		};
+		const newEditor: Record<string, unknown> = {
+			setText: vi.fn(),
+			getText: () => "",
+			actionHandlers: new Map(),
+		};
+
+		(
+			InteractiveMode.prototype as unknown as { setCustomEditorComponent: (factory: unknown) => void }
+		).setCustomEditorComponent.call(fakeMode, () => newEditor);
+
+		expect(typeof newEditor.onPreInput).toBe("function");
+		const result = (newEditor.onPreInput as (data: string) => boolean)("\x1b[B");
+		expect(defaultOnPreInput).toHaveBeenCalledWith("\x1b[B");
+		expect(result).toBe(true);
+	});
+
 	it("closes an active pane before clearing selected footer on escape", () => {
 		const fakeMode = createFakeMode();
 		const paneEscape = vi.fn(() => true);
