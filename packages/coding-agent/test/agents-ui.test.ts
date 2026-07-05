@@ -59,6 +59,28 @@ describe("agents UI", () => {
 		expect(fake.showMainPane).toHaveBeenCalledWith("agents-status");
 	});
 
+	// Regression: the footer pill's render() previously ignored the `selected`
+	// arg entirely (`render: () => formatTaskFooterStatus() ?? ""`), so
+	// Down/pill-focus never produced any visible highlight for this pill even
+	// though the pill-nav state machine correctly tracked and passed selection
+	// through. Assert the rendered text actually differs between selected and
+	// unselected using a theme stub that makes styling observable.
+	test("styles the footer pill differently when selected vs unselected", () => {
+		const fake = createFakePi();
+		hookAgents(fake.pi as never);
+		startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
+
+		const footer = fake.footers.get("agents-status");
+		expect(footer).toBeDefined();
+
+		const theme = { fg: (color: string, value: string) => `[${color}]${value}[/${color}]` } as never;
+		const unselected = footer?.render({ width: 120, theme, selected: false });
+		const selected = footer?.render({ width: 120, theme, selected: true });
+
+		expect(selected).not.toEqual(unselected);
+		expect(selected).toContain("[accent]");
+	});
+
 	// Regression: agents.ts used to bundle tool-schema registration and the
 	// interactive footer pill/pane into a single "agents" load action. A
 	// downstream consumer that needs to override the native agent/Agent/Task

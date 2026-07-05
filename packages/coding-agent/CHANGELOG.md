@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Agents footer pill: `render()` now honors the pill-nav `selected` context and highlights (accent color) when the agents-status pill has focus. Previously `render()` ignored its `ctx` argument entirely, so Down/pill-focus cycling never produced any visible highlight for this pill even though the underlying pill-nav selection state machine tracked focus correctly (`onActivate`/`showMainPane` worked; only the visual indicator was missing). Regression in `test/agents-ui.test.ts`.
+
 - Agents: split the "agents" load action into `agentsTools` (native `agent`/`Agent`/`Task` tool schemas) and `agentsUI` (agents-status footer pill + main pane), registered as independent load actions. A consumer overriding the native tool schemas (e.g. to avoid duplicate/conflicting definitions) previously had to remove the entire bundled action to do so, which silently deleted the interactive footer pill and pane with no equivalent replacement — the reported "footer pill nav dead" defect. Removing only `agentsTools` now leaves the interactive surface intact. `hookAgents` remains available as a combined convenience wrapper. Regression in `test/agents-ui.test.ts`.
 
 - Agents pane: the static background-agents pane now has real keyboard controls — up/down row selection, Enter to open the selected run's detail, and `x` to stop the selected running task — reusing the `/agents runs` selector row formatting instead of a read-only list.
