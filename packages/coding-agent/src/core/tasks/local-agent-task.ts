@@ -68,6 +68,10 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 		endedAt: status === "running" || status === "interrupted" ? undefined : startedAt + detail.durationMs,
 		resumable: false,
 		error: detail.error,
+		// This leaf id is display-only — there is no per-child adapter, live
+		// session, or message buffer, only one per top-level run. See
+		// `TaskSnapshot.controlId`'s docstring for why this must be set.
+		controlId: run.id,
 	};
 }
 

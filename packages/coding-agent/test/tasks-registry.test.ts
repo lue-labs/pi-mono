@@ -87,6 +87,32 @@ describe("tasks registry — LocalAgentTask adapter", () => {
 		expect(snap?.startedAt).toBeGreaterThan(0);
 	});
 
+	// Regression: `listTasks()`'s TaskSnapshot.children (each `${run.id}:${n}`)
+	// are display-only leaf rows with no independent adapter/live-session/
+	// message-buffer registration — every control primitive is keyed by the
+	// top-level run id only. A consumer (e.g. pi-agent-panel's row flattening,
+	// which always drills into `children` the moment a run has any sub-runs —
+	// i.e. every real Agent-tool run, not just parallel batches) that threads
+	// a child's bare `id` into zoom/interrupt/cancel/kill-all/resume gets a
+	// silent "not found" even though the run is alive and controllable under
+	// its own id. `controlId` on each child snapshot must resolve to the owning
+	// run's real id so those consumers have a correct id to dispatch on.
+	test("child snapshots carry controlId pointing at the owning run's real id", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [makeRunDetails("running")],
+		});
+
+		const snap = LocalAgentTask.snapshot(run.id);
+		expect(snap?.children).toHaveLength(1);
+		const child = snap?.children?.[0];
+		expect(child?.id).toBe(`${run.id}:1`);
+		expect(child?.id).not.toBe(run.id);
+		expect(child?.controlId).toBe(run.id);
+	});
+
 	test("listTasks enumerates registered agent runs", () => {
 		const a = startAgentRecentRun("single", [{ agent: "scout", task: "A" }], { background: true });
 		const b = startAgentRecentRun("single", [{ agent: "scout", task: "B" }], { background: true });
