@@ -1,7 +1,12 @@
-import { truncateToWidth } from "@valkyriweb/pi-tui";
+import { getKeybindings, truncateToWidth } from "@valkyriweb/pi-tui";
+import { formatAgentRunDetailView, formatAgentRunRow } from "../../modes/interactive/components/agent-runs-selector.ts";
+import { keyHint, rawKeyHint } from "../../modes/interactive/components/keybinding-hints.ts";
+import { theme } from "../../modes/interactive/theme/theme.ts";
 import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine } from "../agents/engine.ts";
-import { listTasks, subscribeTasks } from "../tasks/registry.ts";
+import { listAgentRecentRuns } from "../agents/status.ts";
+import { findTaskAdapter, listTasks, subscribeTasks } from "../tasks/registry.ts";
 import { formatTaskFooterStatus, formatTaskStatus } from "../tasks/status.ts";
+import type { TaskSnapshot } from "../tasks/types.ts";
 import {
 	createAgentToolDefinition,
 	createTaskToolDefinition,
@@ -37,12 +42,52 @@ export function hookAgents(pi: ExtensionAPI): void {
 	});
 }
 
+// Sort running/interrupted/failed tasks first (newest of those), then the
+// rest newest-first — keeps the row a user is most likely to act on at the
+// top without reshuffling completed history underneath it every tick.
+function isPaneRelevant(task: TaskSnapshot): boolean {
+	return task.status === "running" || task.status === "interrupted" || task.status === "failed";
+}
+
+function sortPaneTasks(tasks: TaskSnapshot[]): TaskSnapshot[] {
+	return [...tasks].sort((a, b) => {
+		const relevance = Number(isPaneRelevant(b)) - Number(isPaneRelevant(a));
+		return relevance || b.startedAt - a.startedAt;
+	});
+}
+
+/** Render a single row, reusing `agent-runs-selector.ts`'s formatter for native
+ * agent runs (same row shape as `/agents runs`) and a compact fallback for
+ * other task types (e.g. background bash jobs) that formatter doesn't cover. */
+function formatPaneRow(task: TaskSnapshot, selected: boolean): string {
+	if (task.type === "local_agent") {
+		const run = listAgentRecentRuns().find((candidate) => candidate.id === task.id);
+		if (run) return formatAgentRunRow(run, selected);
+	}
+	const prefix = selected ? `${theme.fg("accent", "→ ")}` : "  ";
+	const id = selected ? theme.fg("accent", task.id) : theme.fg("text", task.id);
+	const resumable = task.resumable ? theme.fg("warning", " resumable") : "";
+	const error = task.error ? theme.fg("error", ` error: ${task.error}`) : "";
+	return `${prefix}${id} [${task.type}] ${task.status}${resumable} ${task.description}${error}`;
+}
+
+function formatPaneDetail(task: TaskSnapshot | undefined): string {
+	if (!task) return theme.fg("muted", "No background runtime tasks");
+	if (task.type === "local_agent") {
+		const run = listAgentRecentRuns().find((candidate) => candidate.id === task.id);
+		if (run) return formatAgentRunDetailView(run);
+	}
+	return formatTaskStatus([task], task.id);
+}
+
 class AgentsPane implements ExtensionMainPaneComponent {
 	private readonly tui: { requestRender(): void };
 	private readonly theme: any;
 	private readonly requestHide: () => void;
 	private readonly unsubscribe: () => void;
 	private tickTimer: ReturnType<typeof setInterval> | undefined;
+	private selectedIndex = 0;
+	private showDetail = false;
 
 	constructor(tui: { requestRender(): void }, theme: any, requestHide: () => void) {
 		this.tui = tui;
@@ -78,7 +123,23 @@ class AgentsPane implements ExtensionMainPaneComponent {
 		this.tickTimer = undefined;
 	}
 
+	private sortedTasks(): TaskSnapshot[] {
+		return sortPaneTasks(listTasks());
+	}
+
+	private selectedTask(): TaskSnapshot | undefined {
+		const tasks = this.sortedTasks();
+		if (tasks.length === 0) return undefined;
+		this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, tasks.length - 1));
+		return tasks[this.selectedIndex];
+	}
+
 	onEscape(): boolean {
+		if (this.showDetail) {
+			this.showDetail = false;
+			this.tui.requestRender();
+			return true;
+		}
 		this.requestHide();
 		return true;
 	}
@@ -86,16 +147,62 @@ class AgentsPane implements ExtensionMainPaneComponent {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		if (data === "\u001b") this.requestHide();
+		const kb = getKeybindings();
+		if (kb.matches(data, "tui.select.cancel") || data === "\u001b") {
+			this.onEscape();
+			return;
+		}
+		if (this.showDetail) return;
+		const tasks = this.sortedTasks();
+		if (kb.matches(data, "tui.select.up")) {
+			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+			this.tui.requestRender();
+			return;
+		}
+		if (kb.matches(data, "tui.select.down")) {
+			this.selectedIndex = Math.min(Math.max(0, tasks.length - 1), this.selectedIndex + 1);
+			this.tui.requestRender();
+			return;
+		}
+		if (kb.matches(data, "tui.select.confirm")) {
+			if (this.selectedTask()) {
+				this.showDetail = true;
+				this.tui.requestRender();
+			}
+			return;
+		}
+		if (data === "x") {
+			const task = this.selectedTask();
+			if (!task) return;
+			const adapter = findTaskAdapter(task.id);
+			void (adapter?.kill?.(task.id) ?? adapter?.requestShutdown?.(task.id))?.then(() => this.tui.requestRender());
+		}
 	}
 
 	render(width: number): string[] {
-		const lines = formatTaskStatus().split("\n");
-		lines.splice(2, 0, this.theme.fg("dim", "esc close"));
-		return lines.slice(0, 28).map((line, index) => {
-			const styled = index === 0 ? this.theme.fg("accent", this.theme.bold(line)) : line;
-			return truncateToWidth(styled, width, this.theme.fg("dim", "…"));
-		});
+		const tasks = this.sortedTasks();
+		const selected = this.selectedTask();
+		const lines: string[] = [this.theme.fg("accent", this.theme.bold("Background task status"))];
+		if (this.showDetail) {
+			lines.push("", ...formatPaneDetail(selected).split("\n"));
+			lines.push("", rawKeyHint("esc", "back"));
+		} else if (tasks.length === 0) {
+			lines.push("", this.theme.fg("muted", "No background runtime tasks."));
+		} else {
+			lines.push("");
+			for (const [index, task] of tasks.entries()) lines.push(formatPaneRow(task, index === this.selectedIndex));
+			lines.push(
+				"",
+				rawKeyHint("↑↓", "navigate") +
+					"  " +
+					keyHint("tui.select.confirm", "details") +
+					"  " +
+					rawKeyHint("x", "stop") +
+					"  " +
+					keyHint("tui.select.cancel", "close"),
+			);
+		}
+		return lines.slice(0, 28).map((line) => truncateToWidth(line, width, this.theme.fg("dim", "…")));
 	}
 }
 
