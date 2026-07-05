@@ -1,7 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
-import { createJiti } from "jiti";
+// MUST be "jiti/static", not "jiti": the dynamic "jiti" entry lazy-requires its
+// babel transform via a relative path ("../dist/babel.cjs") at call time, which
+// doesn't exist inside the compiled Bun binary (only statically-declared
+// imports get bundled) and fails with "Cannot find module '../dist/babel.cjs'".
+// The main extension loader (core/extensions/loader.ts) already uses the
+// static entry for exactly this reason; this loader silently swallowed the
+// failure and reported it as "requires the pi-agent-view package" instead.
+import { createJiti } from "jiti/static";
 import { getAgentDir } from "../config.ts";
 import { getExtensionJitiResolutionOptions } from "../core/extensions/loader.ts";
 import { DefaultPackageManager } from "../core/package-manager.ts";
