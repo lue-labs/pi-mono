@@ -1,16 +1,23 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import { clearAgentRecentRunsForTests, startAgentRecentRun } from "../src/core/agents/status.ts";
+import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+	clearAgentRecentRunsForTests,
+	markAgentRecentRunNeedsAttention,
+	startAgentRecentRun,
+} from "../src/core/agents/status.ts";
 import { hookAgents, hookAgentsTools, hookAgentsUI } from "../src/core/extensions/agents.ts";
 import { addAction, getActions, load, removeAction } from "../src/core/extensions/extension-hooks.ts";
 import type { ExtensionFooterSpec, ExtensionMainPaneFactory } from "../src/core/extensions/types.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
-function createFakePi() {
+function createFakePi(options?: { hasMainPane?: (id: string) => boolean; cwd?: string }) {
 	const tools: string[] = [];
 	const footers = new Map<string, ExtensionFooterSpec>();
 	const panes = new Map<string, ExtensionMainPaneFactory>();
 	const showMainPane = vi.fn();
+	const hasMainPane = vi.fn(options?.hasMainPane ?? (() => false));
 	return {
 		pi: {
+			cwd: options?.cwd ?? "/repo",
 			harness: { use: () => undefined },
 			registerTool(tool: { name: string }) {
 				tools.push(tool.name);
@@ -19,6 +26,7 @@ function createFakePi() {
 				panes.set(id, factory);
 			},
 			showMainPane,
+			hasMainPane,
 			registerFooter(id: string, spec: ExtensionFooterSpec) {
 				footers.set(id, spec);
 			},
@@ -27,10 +35,12 @@ function createFakePi() {
 		footers,
 		panes,
 		showMainPane,
+		hasMainPane,
 	};
 }
 
 describe("agents UI", () => {
+	beforeAll(() => initTheme(undefined, false));
 	beforeEach(() => clearAgentRecentRunsForTests());
 
 	test("registers an activatable background agent status footer", () => {
@@ -116,6 +126,53 @@ describe("agents UI", () => {
 			// Restore global hook-registry state for other tests in this process.
 			addAction(load, "agentsTools", hookAgentsTools);
 		}
+	});
+
+	test("Enter zooms into the live transcript for a running background agent row when the zoom pane is registered", () => {
+		const fake = createFakePi({ hasMainPane: () => true, cwd: "/work/proj" });
+		hookAgents(fake.pi as never);
+		const run = startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
+
+		const factory = fake.panes.get("agents-status");
+		const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
+		const pane = factory!({ requestRender: vi.fn() } as never, theme as never, { requestHide: vi.fn() } as never);
+
+		pane.handleInput?.("\r");
+
+		expect(fake.hasMainPane).toHaveBeenCalledWith("zoom");
+		expect(fake.showMainPane).toHaveBeenCalledWith("zoom", { taskId: run.id, sessionConfig: { cwd: "/work/proj" } });
+	});
+
+	test("Enter falls back to static detail when no extension has registered the zoom pane", () => {
+		const fake = createFakePi({ hasMainPane: () => false });
+		hookAgents(fake.pi as never);
+		startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
+
+		const factory = fake.panes.get("agents-status");
+		const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
+		const pane = factory!({ requestRender: vi.fn() } as never, theme as never, { requestHide: vi.fn() } as never);
+
+		pane.handleInput?.("\r");
+
+		expect(fake.showMainPane).not.toHaveBeenCalledWith("zoom", expect.anything());
+		expect(pane.render(120).join("\n")).toContain("single");
+	});
+
+	test("footer pill uses a distinct color for needs-attention vs plain running", () => {
+		const fake = createFakePi();
+		hookAgents(fake.pi as never);
+		const run = startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
+
+		const theme = { fg: (color: string, value: string) => `[${color}]${value}[/${color}]`, bold: (v: string) => v };
+		const footer = fake.footers.get("agents-status");
+
+		const running = footer?.render({ width: 120, theme: theme as never, selected: false });
+		expect(running).toContain("[dim]");
+
+		markAgentRecentRunNeedsAttention(run, "Should I proceed?");
+		const attention = footer?.render({ width: 120, theme: theme as never, selected: false });
+		expect(attention).toContain("[warning]");
+		expect(attention).not.toContain("[dim]");
 	});
 
 	test("pane ticks a live elapsed counter while a run is in progress and stops on dispose", () => {

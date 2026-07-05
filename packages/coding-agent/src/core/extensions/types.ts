@@ -1553,6 +1553,9 @@ export type ExtensionHandler<E, R = undefined> = (event: E, ctx: ExtensionContex
  * ExtensionAPI passed to extension factory functions.
  */
 export interface ExtensionAPI {
+	/** Working directory this extension instance was loaded for. */
+	cwd: string;
+
 	// =========================================================================
 	// Event Subscription
 	// =========================================================================
@@ -1792,6 +1795,15 @@ export interface ExtensionAPI {
 
 	/** Hide the main pane with the given id. No-op when no UI or not shown. */
 	hideMainPane(id: string): void;
+
+	/**
+	 * True when some extension has registered a main pane with this id via
+	 * `registerMainPane` (irrespective of whether it is currently shown).
+	 * Always `false` in non-UI modes. Use this to choose between routing into
+	 * a richer, optionally-loaded pane and a built-in fallback, instead of
+	 * calling `showMainPane` blind and having no signal it silently no-opped.
+	 */
+	hasMainPane(id: string): boolean;
 
 	/**
 	 * Register an overlay component. Distinct from the existing one-shot
@@ -2258,6 +2270,16 @@ export interface ExtensionRuntimeState {
 	hideMainPaneFn: (id: string) => void;
 	showOverlayFn: (id: string, payload: unknown) => void;
 	hideOverlayFn: (id: string) => void;
+	/**
+	 * Existence check for a registered main pane, independent of show/hide.
+	 * Defaults to a stub returning `false` in non-UI modes; interactive mode
+	 * binds the real lookup via `ExtensionRunner.bindSlotUI()`. Lets a caller
+	 * (e.g. the footer agents pane) decide whether to route into a richer
+	 * extension-registered pane (like `pi-agent-ui`'s "zoom" transcript view)
+	 * before attempting `showMainPaneFn`, instead of guessing from a silent
+	 * no-op.
+	 */
+	hasMainPaneFn: (id: string) => boolean;
 	services: Map<string, unknown>;
 }
 

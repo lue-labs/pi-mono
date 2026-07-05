@@ -322,6 +322,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		hideMainPaneFn: slotNoOp,
 		showOverlayFn: slotNoOp,
 		hideOverlayFn: slotNoOp,
+		hasMainPaneFn: () => false,
 		services: new Map(),
 	};
 
@@ -398,6 +399,8 @@ function createExtensionAPI(
 	};
 
 	const api = {
+		cwd,
+
 		// Registration methods - write to extension
 		on(event: string, handler: HandlerFn): void {
 			runtime.assertActive();
@@ -519,6 +522,11 @@ function createExtensionAPI(
 		showMainPane(id: string, payload?: unknown): void {
 			runtime.assertActive();
 			runtime.showMainPaneFn(id, payload);
+		},
+
+		hasMainPane(id: string): boolean {
+			runtime.assertActive();
+			return runtime.hasMainPaneFn(id);
 		},
 
 		hideMainPane(id: string): void {
