@@ -32,6 +32,7 @@ import type {
 	Model,
 	TextContent,
 	ToolReferenceContent,
+	ToolResultMessage,
 } from "@valkyriweb/pi-ai";
 import {
 	clampThinkingLevel,
@@ -1555,6 +1556,55 @@ export class AgentSession {
 
 	getToolDefinitions(): ToolDefinition[] {
 		return Array.from(this._toolDefinitions.values()).map(({ definition }) => definition);
+	}
+
+	/**
+	 * Resumability seam for interactive (UI-only) tools - see ToolDefinition.resumePendingCall.
+	 *
+	 * If the transcript's last message is an assistant turn with exactly one
+	 * unresolved tool call, and that tool opted in via resumePendingCall,
+	 * re-execute it now (e.g. AskUserQuestion re-presents its dialog after a
+	 * killed/resumed session) and feed the real result back into the agent loop
+	 * via agent.prompt() - the same path a live tool result takes, so session
+	 * persistence and extension events stay consistent.
+	 *
+	 * No-ops (returns false) when there is no pending call, more than one
+	 * pending call, or the tool doesn't opt in - every other tool keeps today's
+	 * behavior (a stale call is left for the generic orphaned-tool-call
+	 * synthetic-error fallback, so a resumed session never silently re-runs e.g.
+	 * a pending bash/edit call). All pending-question state lives in the
+	 * transcript's already-persisted tool call - nothing here touches the
+	 * cached system prefix (prompt-cache golden rule).
+	 */
+	async resumePendingInteractiveToolCall(): Promise<boolean> {
+		const messages = this.agent.state.messages;
+		const last = messages[messages.length - 1];
+		if (!last || last.role !== "assistant") return false;
+
+		const toolCalls = (last as AssistantMessage).content.filter((block) => block.type === "toolCall");
+		if (toolCalls.length !== 1) return false;
+		const toolCall = toolCalls[0] as { id: string; name: string; arguments: Record<string, unknown> };
+
+		const definition = this.getToolDefinition(toolCall.name);
+		if (!definition?.resumePendingCall) return false;
+
+		const tool = this.agent.state.tools.find((candidate) => candidate.name === toolCall.name);
+		if (!tool) return false;
+
+		if (this.agent.state.isStreaming) return false;
+
+		const result = await tool.execute(toolCall.id, toolCall.arguments, undefined, undefined);
+		const toolResultMessage: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			content: result.content,
+			details: result.details,
+			isError: false,
+			timestamp: Date.now(),
+		};
+		await this.agent.prompt(toolResultMessage);
+		return true;
 	}
 
 	/**

@@ -188,6 +188,10 @@ export class AgentSessionRuntime {
 		if (withSession) {
 			await withSession(this.session.createReplacedSessionContext());
 		}
+		// Fire-and-forget: this can re-present a UI dialog (e.g. AskUserQuestion)
+		// that blocks on user input; it must not delay session-switch completion,
+		// and no-ops for the vast majority of sessions.
+		void this.session.resumePendingInteractiveToolCall();
 	}
 
 	async switchSession(
@@ -414,6 +418,10 @@ export async function createAgentSessionRuntime(
 ): Promise<AgentSessionRuntime> {
 	assertSessionCwdExists(options.sessionManager, options.cwd);
 	const result = await createRuntime(options);
+	// Cold boot (e.g. `pi --resume <id>` reattaching directly, or auto-attach to
+	// the most recent session for cwd) never goes through switchSession, so it
+	// needs its own trigger for the same resumability seam.
+	void result.session.resumePendingInteractiveToolCall();
 	return new AgentSessionRuntime(
 		result.session,
 		result.services,

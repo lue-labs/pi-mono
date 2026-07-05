@@ -785,6 +785,24 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	/** Keep this tool eagerly loaded even when other tools are deferred. */
 	alwaysLoad?: boolean;
 	/**
+	 * Opt in to resumability for interactive (side-effect-free, UI-only) tools.
+	 *
+	 * When a session's transcript ends on an assistant message with exactly one
+	 * unresolved tool call for a tool that sets this to `true`, the runtime
+	 * re-executes that call as soon as the session is loaded/resumed (e.g. after
+	 * `pi --resume` following a killed process), instead of leaving it to the
+	 * generic orphaned-tool-call synthetic-error fallback. This lets a UI dialog
+	 * (like AskUserQuestion) genuinely re-present itself and resolve normally.
+	 *
+	 * Defaults to `false`/unset, which preserves today's behavior (and its
+	 * safety property: a stale `bash`/`edit` call is never silently re-run on
+	 * resume). Only set this for tools whose `execute()` is safe to invoke again
+	 * with the same arguments and that do not perform side effects before
+	 * awaiting user/UI input — pending state must live entirely in the
+	 * transcript's persisted tool call, not in extension-local memory.
+	 */
+	resumePendingCall?: boolean;
+	/**
 	 * Names of core base builtins (e.g. "read", "edit", "bash_output") that this
 	 * tool fully supersedes. When the tool is registered, the listed base builtins
 	 * are dropped from the tool registry so the override is the single tool for that
