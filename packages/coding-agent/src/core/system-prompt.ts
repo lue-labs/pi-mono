@@ -5,6 +5,11 @@
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@valkyriweb/pi-ai";
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import type { ContextFile } from "./context-file-imports.ts";
+import {
+	GUIDELINE_BASH_SHELL_WORK,
+	GUIDELINE_NATIVE_FILE_TOOLS,
+	GUIDELINE_READ_EDIT_WRITE,
+} from "./prompt-guidelines.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
 
 export interface BuildSystemPromptOptions {
@@ -133,14 +138,11 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	if (hasBash && !hasGrep && !hasGlob && !hasLs) {
 		addGuideline("Use Bash for file operations like ls, rg, find");
 	} else if (hasBash && (hasGrep || hasGlob || hasLs)) {
-		// Worded to match bash.ts promptGuidelines so addGuideline deduplicates shared rules.
-		addGuideline(
-			"File/dir exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Ls = directory listing; Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Bash calls containing `ls`/`grep`/`rg`/`find` are rejected in full — split into separate native-tool calls, do not combine with other shell work in one bash invocation.",
-		);
-		addGuideline(
-			"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.",
-		);
-		addGuideline("Use Read/Edit/Write for files instead of shelling out to view or modify file contents.");
+		// Shared with bash.ts promptGuidelines via prompt-guidelines.ts so
+		// addGuideline deduplicates by exact string match.
+		addGuideline(GUIDELINE_NATIVE_FILE_TOOLS);
+		addGuideline(GUIDELINE_BASH_SHELL_WORK);
+		addGuideline(GUIDELINE_READ_EDIT_WRITE);
 	}
 
 	if (hasRead || hasGrep || hasGlob || hasLs) {

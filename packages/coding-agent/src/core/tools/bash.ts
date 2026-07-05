@@ -31,6 +31,11 @@ import {
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
+import {
+	GUIDELINE_BASH_SHELL_WORK,
+	GUIDELINE_NATIVE_FILE_TOOLS,
+	GUIDELINE_READ_EDIT_WRITE,
+} from "../prompt-guidelines.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -1439,10 +1444,12 @@ export function createBashToolDefinition(
 			"Use run_in_background:true for any command likely to exceed ~30s when you don't need the output immediately (builds, installers, kubectl rollouts, long test suites, dev servers).",
 			"A backgrounded bash job notifies you with a task_notification when it finishes (carrying the bgId + output log path). Do NOT poll it with sleep loops or re-run the command to check — continue other work and the harness re-invokes you on completion. Call bash_output(bgId) only to peek before it finishes, or use monitor_start to be woken on every output batch.",
 			"Always stop background jobs you started but no longer need with bash_kill(bgId).",
-			// Worded identically to system-prompt.ts so addGuideline deduplicates shared rules.
-			"Prefer native file tools for repo exploration: Glob/Ls for paths, Grep for known text/regex, SemanticGrep for conceptual searches. Standalone `grep`/`rg`/`find`/`ls` in Bash is rejected at runtime; pipeline filters on command output (e.g. `kubectl ... | grep Ready`) are fine.",
-			"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.",
-			"Use Read/Edit/Write for files instead of shelling out to view or modify file contents.",
+			// Shared with system-prompt.ts via prompt-guidelines.ts so addGuideline
+			// deduplicates by exact string match (a hand-copied variant drifted once
+			// and sessions carried both near-duplicate bullets).
+			GUIDELINE_NATIVE_FILE_TOOLS,
+			GUIDELINE_BASH_SHELL_WORK,
+			GUIDELINE_READ_EDIT_WRITE,
 		],
 		parameters: bashSchema,
 		async execute(

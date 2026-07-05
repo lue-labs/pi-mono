@@ -241,4 +241,35 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).not.toContain("Tool guidelines:");
 		});
 	});
+
+	describe("shared guideline strings", () => {
+		test("bash tool promptGuidelines dedupe against the default guidelines (byte-identical shared rules)", async () => {
+			const { createBashToolDefinition } = await import("../src/core/tools/bash.ts");
+			const { GUIDELINE_NATIVE_FILE_TOOLS, GUIDELINE_BASH_SHELL_WORK, GUIDELINE_READ_EDIT_WRITE } = await import(
+				"../src/core/prompt-guidelines.ts"
+			);
+			const bashGuidelines = createBashToolDefinition("/repo").promptGuidelines ?? [];
+
+			// The shared rules must be the exact constants — a hand-copied variant
+			// silently defeats addGuideline's exact-string dedupe.
+			for (const shared of [GUIDELINE_NATIVE_FILE_TOOLS, GUIDELINE_BASH_SHELL_WORK, GUIDELINE_READ_EDIT_WRITE]) {
+				expect(bashGuidelines).toContain(shared);
+			}
+
+			// End-to-end: feeding bash's guidelines into the default prompt must not
+			// produce duplicate bullets.
+			const prompt = buildSystemPrompt({
+				selectedTools: ["bash", "grep", "Glob", "ls", "read"],
+				promptGuidelines: bashGuidelines,
+				contextFiles: [],
+				skills: [],
+				cwd: "/repo",
+			});
+			for (const shared of [GUIDELINE_NATIVE_FILE_TOOLS, GUIDELINE_BASH_SHELL_WORK, GUIDELINE_READ_EDIT_WRITE]) {
+				expect(prompt.split(shared).length - 1).toBe(1);
+			}
+			// No leftover drifted variant of the native-tools rule.
+			expect(prompt).not.toContain("Prefer native file tools for repo exploration");
+		});
+	});
 });
