@@ -4851,7 +4851,10 @@ export class InteractiveMode {
 				shouldZoomAgentRunRow(run) && this.session.extensionRunner.getRegisteredMainPane("zoom") !== undefined;
 			if (canZoom) {
 				done();
-				this.showExtensionMainPane("zoom", { taskId: run.id, sessionConfig: { cwd: this.sessionManager.getCwd() } });
+				this.showExtensionMainPane("zoom", {
+					taskId: run.id,
+					sessionConfig: { cwd: this.sessionManager.getCwd() },
+				});
 				return;
 			}
 			this.showStatus(formatAgentStatus(undefined, run.id));
