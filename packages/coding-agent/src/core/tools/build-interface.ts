@@ -34,6 +34,7 @@ import type { TextContent } from "@valkyriweb/pi-ai";
 import { LayoutRenderer, type LayoutResponse } from "@valkyriweb/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { clearSessionAwaitingInput, markSessionAwaitingInput } from "../session-awaiting-input.ts";
 import type { LayoutGraph } from "./layout-graph.ts";
 import type { UIHarness, UIHarnessOptions } from "./ui-harness.ts";
 
@@ -174,14 +175,29 @@ export async function executeBuildInterface(
 	const graph = await harness(params, { signal });
 	if (signal?.aborted) throw new Error("Operation aborted");
 
-	const outcome = await ctx.ui.custom<RenderOutcome>(
-		(_tui, _theme, _keybindings, done) =>
-			new LayoutRenderer(graph, {
-				onSubmit: (response) => done({ status: "submitted", response }),
-				onCancel: () => done({ status: "cancelled" }),
-			}),
-		{ overlay: true },
-	);
+	// This is the one call site where a tool call blocks the turn on an
+	// interactive prompt: the session sits here — genuinely idle from the
+	// model's perspective, waiting on the user — until `ctx.ui.custom`
+	// resolves. Advertise that cross-process via the session's
+	// awaiting-input sidecar marker so readers (e.g. the agent-view
+	// dashboard) can classify this session precisely instead of guessing
+	// from transcript regex. Always cleared in `finally`, regardless of how
+	// the prompt resolves.
+	const sessionPath = ctx.sessionManager?.getSessionFile();
+	if (sessionPath) markSessionAwaitingInput(sessionPath, params.intent);
+	let outcome: RenderOutcome;
+	try {
+		outcome = await ctx.ui.custom<RenderOutcome>(
+			(_tui, _theme, _keybindings, done) =>
+				new LayoutRenderer(graph, {
+					onSubmit: (response) => done({ status: "submitted", response }),
+					onCancel: () => done({ status: "cancelled" }),
+				}),
+			{ overlay: true },
+		);
+	} finally {
+		if (sessionPath) clearSessionAwaitingInput(sessionPath);
+	}
 
 	return {
 		content: [{ type: "text", text: formatOutcomeForModel(outcome) }],

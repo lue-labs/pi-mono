@@ -49,12 +49,25 @@ export async function runAgentViewCommand(
 
 async function loadAgentViewModule(cwd: string, agentDir: string): Promise<AgentViewModule | undefined> {
 	const configuredModule = process.env.PI_AGENT_VIEW_MODULE;
+	// Try the configured override and the bare unscoped name first — cheap,
+	// synchronous-ish candidates that don't require walking the package
+	// manager's resolved resource list.
 	const directCandidates = [configuredModule, AGENT_VIEW_PACKAGE_NAME].filter((candidate): candidate is string =>
 		Boolean(candidate),
 	);
 
 	for (const candidate of directCandidates) {
 		const loaded = await importAgentViewModule(candidate);
+		if (loaded) return loaded;
+	}
+
+	// The bare specifier never resolves for a scoped-only publish (e.g.
+	// `@valkyriweb/pi-agent-view`) — resolve the actual configured package name
+	// (scoped or not) via the package manager and try importing that directly
+	// too, before falling back to the resource-path-based entrypoint lookup.
+	const resolvedName = await findConfiguredAgentViewPackageName(cwd, agentDir);
+	if (resolvedName && !directCandidates.includes(resolvedName)) {
+		const loaded = await importAgentViewModule(resolvedName);
 		if (loaded) return loaded;
 	}
 
@@ -81,6 +94,18 @@ async function importAgentViewModule(specifier: string): Promise<AgentViewModule
 	}
 }
 
+/**
+ * A resolved package matches the agent-view package when its name is exactly
+ * `AGENT_VIEW_PACKAGE_NAME` (unscoped, e.g. a local dev checkout) or is any
+ * npm-scoped publish of it (`@<scope>/pi-agent-view`, e.g. this fork's own
+ * `@valkyriweb/pi-agent-view`). A literal unscoped-only comparison always
+ * fails once the package is published under an npm scope.
+ */
+function matchesAgentViewPackageName(name: string | undefined): boolean {
+	if (!name) return false;
+	return name === AGENT_VIEW_PACKAGE_NAME || name.endsWith(`/${AGENT_VIEW_PACKAGE_NAME}`);
+}
+
 async function findConfiguredAgentViewEntrypoint(cwd: string, agentDir: string): Promise<string | undefined> {
 	const settingsManager = SettingsManager.create(cwd, agentDir);
 	const packageManager = new DefaultPackageManager({ cwd, agentDir, settingsManager });
@@ -90,7 +115,28 @@ async function findConfiguredAgentViewEntrypoint(cwd: string, agentDir: string):
 		if (!resource.enabled) continue;
 		const packageRoot = findPackageRoot(resource.path);
 		if (!packageRoot) continue;
-		if (packageName(packageRoot) === AGENT_VIEW_PACKAGE_NAME) return resource.path;
+		if (matchesAgentViewPackageName(packageName(packageRoot))) return resource.path;
+	}
+
+	return undefined;
+}
+
+/**
+ * Resolve the actual (possibly scoped) package name of whichever enabled
+ * extension resource matches the agent-view package shape, so callers can try
+ * importing it by its real specifier instead of only the bare literal.
+ */
+async function findConfiguredAgentViewPackageName(cwd: string, agentDir: string): Promise<string | undefined> {
+	const settingsManager = SettingsManager.create(cwd, agentDir);
+	const packageManager = new DefaultPackageManager({ cwd, agentDir, settingsManager });
+	const resolved = await packageManager.resolve(async () => "skip");
+
+	for (const resource of resolved.extensions) {
+		if (!resource.enabled) continue;
+		const packageRoot = findPackageRoot(resource.path);
+		if (!packageRoot) continue;
+		const name = packageName(packageRoot);
+		if (matchesAgentViewPackageName(name)) return name;
 	}
 
 	return undefined;
@@ -118,4 +164,6 @@ function packageName(packageRoot: string): string | undefined {
 export const __test = {
 	findPackageRoot,
 	packageName,
+	matchesAgentViewPackageName,
+	loadAgentViewModule,
 };

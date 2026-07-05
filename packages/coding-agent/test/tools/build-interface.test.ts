@@ -1,7 +1,11 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Component } from "@valkyriweb/pi-tui";
 import { Check } from "typebox/value";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionContext } from "../../src/core/extensions/types.ts";
+import { readSessionAwaitingInput } from "../../src/core/session-awaiting-input.ts";
 import {
 	type BuildInterfaceInput,
 	buildInterfaceSchema,
@@ -279,6 +283,86 @@ describe("executeBuildInterface", () => {
 		await expect(executeBuildInterface(questionsInput, exampleQuestionsHarness, ctx, signal)).rejects.toThrow(
 			/aborted/i,
 		);
+	});
+});
+
+describe("executeBuildInterface awaiting-input marker", () => {
+	const tempDirs: string[] = [];
+	afterEach(() => {
+		for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+	});
+
+	function mockUIContextWithSession(
+		sessionPath: string,
+		drive: (component: Component, markerDuringPrompt: unknown) => void,
+	): ExtensionContext {
+		const ui = {
+			async custom<T>(
+				factory: (
+					tui: unknown,
+					theme: unknown,
+					kb: unknown,
+					done: (result: T) => void,
+				) => Component | Promise<Component>,
+			): Promise<T> {
+				return new Promise<T>((resolve) => {
+					const component = factory(null, null, null, resolve);
+					Promise.resolve(component).then((c) => drive(c, readSessionAwaitingInput(sessionPath)));
+				});
+			},
+		} as any;
+		return {
+			hasUI: true,
+			ui,
+			sessionManager: { getSessionFile: () => sessionPath },
+		} as unknown as ExtensionContext;
+	}
+
+	const questionsInput: BuildInterfaceInput = {
+		intent: "ask retry strategy",
+		data: {
+			questions: [
+				{
+					header: "Strategy",
+					question: "Which retry strategy?",
+					multiSelect: false,
+					options: [
+						{ label: "Exponential backoff", description: "2^n" },
+						{ label: "Fixed interval", description: "every 5s" },
+					],
+				},
+			],
+		},
+	};
+
+	it("marks the session awaiting-input while the prompt is open, clears it once resolved", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-build-interface-awaiting-"));
+		tempDirs.push(dir);
+		const sessionPath = join(dir, "session.jsonl");
+
+		let markerDuringPrompt: unknown;
+		const ctx = mockUIContextWithSession(sessionPath, (component, marker) => {
+			markerDuringPrompt = marker;
+			component.handleInput?.("\r");
+		});
+
+		await executeBuildInterface(questionsInput, exampleQuestionsHarness, ctx);
+
+		expect(markerDuringPrompt).toMatchObject({ reason: "ask retry strategy" });
+		expect(readSessionAwaitingInput(sessionPath)).toBeUndefined();
+	});
+
+	it("clears the marker even when the prompt is cancelled", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-build-interface-awaiting-"));
+		tempDirs.push(dir);
+		const sessionPath = join(dir, "session.jsonl");
+
+		const ctx = mockUIContextWithSession(sessionPath, (component) => {
+			component.handleInput?.("\x1b");
+		});
+
+		await executeBuildInterface(questionsInput, exampleQuestionsHarness, ctx);
+		expect(readSessionAwaitingInput(sessionPath)).toBeUndefined();
 	});
 });
 

@@ -24,6 +24,13 @@ export {
 	type SessionStats,
 } from "./core/agent-session.ts";
 export { getLiveSession } from "./core/agents/live-sessions.ts";
+export { listActiveSessionPaths } from "./core/session-liveness.ts";
+export {
+	type AwaitingInputMarker,
+	clearSessionAwaitingInput,
+	markSessionAwaitingInput,
+	readSessionAwaitingInput,
+} from "./core/session-awaiting-input.ts";
 export {
 	type AgentRecentRun,
 	cancelAgentRecentRun,
