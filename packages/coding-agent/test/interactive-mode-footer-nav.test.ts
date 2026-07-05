@@ -294,4 +294,52 @@ describe("interactive-mode footer navigation", () => {
 			expect(fakeMode.footer.setSelectedExtensionFooterId).toHaveBeenCalledWith(undefined);
 		});
 	});
+
+	// Regression (agents-ux-parity footer round, live-verified via tmux): opening
+	// an extension main pane (e.g. the footer agents-status pill's Enter) mounted
+	// the pane component into chatContainer but never gave it keyboard focus, so
+	// no keystroke ever reached its handleInput -- up/down navigate, enter
+	// details/zoom, and x stop were all silently dead once the pane was open
+	// (only Escape worked, via the separate onEscape passthrough). Every other
+	// editor-replacing surface in this file calls `ui.setFocus(component)`; this
+	// one didn't.
+	describe("extension main pane focus wiring", () => {
+		function fakeModeWithMainPane(component: Record<string, unknown>) {
+			const factory = vi.fn(() => component);
+			const fakeMode = {
+				activeMainPane: undefined as unknown,
+				chatContainer: { children: [] as unknown[], clear: vi.fn(), addChild: vi.fn() },
+				editor: { id: "editor" },
+				ui: { setFocus: vi.fn(), requestRender: vi.fn() },
+				session: { extensionRunner: { getRegisteredMainPane: vi.fn(() => factory) } },
+			};
+			return fakeMode;
+		}
+
+		it("focuses the pane component when it is shown, so its handleInput actually receives keystrokes", () => {
+			const component = { render: vi.fn(() => []), handleInput: vi.fn(), dispose: vi.fn() };
+			const fakeMode = fakeModeWithMainPane(component);
+
+			(
+				InteractiveMode.prototype as unknown as { showExtensionMainPane: (id: string, payload: unknown) => void }
+			).showExtensionMainPane.call(fakeMode, "agents-status", {});
+
+			expect(fakeMode.ui.setFocus).toHaveBeenCalledWith(component);
+		});
+
+		it("restores focus to the editor when the pane is hidden", () => {
+			const component = { render: vi.fn(() => []), handleInput: vi.fn(), dispose: vi.fn() };
+			const fakeMode = fakeModeWithMainPane(component);
+			(
+				InteractiveMode.prototype as unknown as { showExtensionMainPane: (id: string, payload: unknown) => void }
+			).showExtensionMainPane.call(fakeMode, "agents-status", {});
+			fakeMode.ui.setFocus.mockClear();
+
+			(
+				InteractiveMode.prototype as unknown as { hideExtensionMainPane: (id: string) => void }
+			).hideExtensionMainPane.call(fakeMode, "agents-status");
+
+			expect(fakeMode.ui.setFocus).toHaveBeenCalledWith(fakeMode.editor);
+		});
+	});
 });
