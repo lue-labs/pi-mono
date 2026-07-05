@@ -35,6 +35,24 @@ export interface TaskSnapshot {
 	error?: string;
 	/** Optional leaf tasks for aggregate/group tasks such as a parallel Agent call. */
 	children?: TaskSnapshot[];
+	/**
+	 * Id to use for control-plane operations (kill/requestShutdown/injectMessage,
+	 * and any other API that dispatches on a task id — including consumers that
+	 * bypass the adapter and call an underlying registry like
+	 * `findAgentRecentRun`/`getLiveSession`/`subscribeTaskMessages` directly)
+	 * when it differs from `id`. Defaults to `id` when absent.
+	 *
+	 * Exists because a `children` entry's `id` (e.g. "agent-5:1") is a purely
+	 * informational leaf label for an aggregate/group task such as a parallel
+	 * Agent call — there is no independent adapter or live-session/message-buffer
+	 * registration per child, only per top-level run. A caller that threads a
+	 * child's `id` into a control/zoom operation gets a silent "not found"
+	 * because nothing is ever registered under that exact string. `controlId`
+	 * is the id that IS registered (the owning run/task's own `id`), so
+	 * consumers building rows from flattened `children` can still resolve real
+	 * control/zoom operations without reverse-engineering the leaf id format.
+	 */
+	controlId?: string;
 }
 
 export interface TaskControlResult {
