@@ -50,7 +50,8 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("- Write:");
 			expect(prompt).toContain("- Grep:");
 			expect(prompt).toContain("- Glob:");
-			expect(prompt).toContain("- Ls:");
+			// CC 2.x / Codex parity: Ls is no longer a default tool.
+			expect(prompt).not.toContain("- Ls:");
 		});
 
 		test("instructs models to resolve pi docs and examples under absolute base paths", () => {
@@ -137,12 +138,11 @@ describe("buildSystemPrompt", () => {
 	describe("prompt guidelines", () => {
 		test("routes repo exploration to native tools and shell output to Bash", () => {
 			const prompt = buildSystemPrompt({
-				selectedTools: ["bash", "grep", "Glob", "ls"],
+				selectedTools: ["bash", "grep", "Glob"],
 				toolSnippets: {
 					bash: "Execute bash commands",
 					grep: "Search file contents",
 					Glob: "Match files by glob pattern",
-					ls: "List directory contents",
 				},
 				contextFiles: [],
 				skills: [],
@@ -150,7 +150,7 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt).toContain(
-				"File/dir exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Ls = directory listing; Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Bash calls containing `ls`/`grep`/`rg`/`find` are rejected in full — split into separate native-tool calls, do not combine with other shell work in one bash invocation.",
+				"File exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Bash calls whose command is standalone `grep`/`rg`/`find` are rejected — split into separate native-tool calls, do not combine with other shell work in one bash invocation. Directory listing via Bash `ls` is fine.",
 			);
 			expect(prompt).toContain(
 				"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.",

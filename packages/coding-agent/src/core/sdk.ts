@@ -70,14 +70,14 @@ export interface CreateAgentSessionOptions {
 	 * Optional default tool suppression mode when no explicit allowlist is provided.
 	 *
 	 * - "all": start with no tools enabled
-	 * - "builtin": disable the default built-in tools (Read, Bash, Edit, Write, Agent, Task, Grep, Glob, Ls)
+	 * - "builtin": disable the default built-in tools (Read, Bash, Edit, Write, Agent, Task, Grep, Glob)
 	 *   but keep extension/custom tools enabled
 	 */
 	noTools?: "all" | "builtin";
 	/**
 	 * Optional allowlist of tool names.
 	 *
-	 * When omitted, pi enables the default built-in tools (Read, Bash, Edit, Write, Agent, Task, Grep, Glob, Ls)
+	 * When omitted, pi enables the default built-in tools (Read, Bash, Edit, Write, Agent, Task, Grep, Glob)
 	 * and leaves extension/custom tools enabled unless `noTools` changes that default.
 	 * When provided, only the listed tool names are enabled.
 	 */
@@ -372,7 +372,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// Sessions without pi-tool-search (which would re-add them via alwaysActive)
 	// previously got `Bash` without them, making run_in_background:true unusable.
 	//
-	// `Read`/`Edit`/`Write`/`Grep`/`Glob`/`Ls` are now provided by the
+	// `Read`/`Edit`/`Write`/`Grep`/`Glob` are now provided by the
 	// my-pi/extensions/native-tool-overrides extension (not core), so they are
 	// referenced as plain strings rather than ToolName values.
 	const defaultActiveToolNames: string[] = [
@@ -386,7 +386,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		"Task",
 		"Grep",
 		"Glob",
-		"Ls",
 	];
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;

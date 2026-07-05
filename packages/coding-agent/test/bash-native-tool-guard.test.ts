@@ -16,12 +16,11 @@ function isError(result: any): boolean {
 const ctx: any = {};
 
 describe("bash native tool guard (hard, runtime-enforced)", () => {
-	it("blocks standalone grep/rg/find/ls as the head of a pipeline", () => {
+	it("blocks standalone grep/rg/find as the head of a pipeline", () => {
 		for (const command of [
 			"grep foo README.md",
 			"rg foo src",
 			"find . -name '*.ts'",
-			"ls -la",
 			"egrep foo README.md",
 			"cd /tmp && grep -rn foo .",
 			"FOO=bar grep foo README.md",
@@ -47,13 +46,16 @@ describe("bash native tool guard (hard, runtime-enforced)", () => {
 			"jq -r '.id' file.json | sort | uniq",
 			"if grep -q foo README.md; then echo yes; fi",
 			"cat <<'EOF' > /tmp/x.sh\nls -la\ngrep foo bar\nEOF",
+			// CC 2.x / Codex parity: `ls` is not guarded — no native Ls tool exists.
+			"ls -la",
+			"echo a && ls src",
+			"kube-exec ns pod ctr -- sh -c 'cd /work && git log --oneline -5; ls pipelines scripts'",
 		]) {
 			expect(checkNativeToolGuard(command), command).toBeUndefined();
 		}
 	});
 
 	it("blocks guarded heads in later `&&`/`;`/`||` statements", () => {
-		expect(checkNativeToolGuard("echo a && ls src")).toContain("use the native");
 		expect(checkNativeToolGuard("true; find . -name x")).toContain("use the native");
 		expect(checkNativeToolGuard("test -f x || grep foo x")).toContain("use the native");
 	});

@@ -59,7 +59,8 @@ describe("cache-break Fix #3 — builtin preservation across setActiveToolsByNam
 		expect(before).toContain("Write");
 		expect(before).toContain("Grep");
 		expect(before).toContain("Glob");
-		expect(before).toContain("Ls");
+		// CC 2.x / Codex parity: Ls is no longer a default builtin.
+		expect(before).not.toContain("Ls");
 
 		// Caller (simulating an extension) sets active to extension-only list.
 		// Pre-Fix-#3: builtins would silently drop, breaking the cache prefix.
@@ -73,7 +74,6 @@ describe("cache-break Fix #3 — builtin preservation across setActiveToolsByNam
 		expect(after).toContain("Write");
 		expect(after).toContain("Grep");
 		expect(after).toContain("Glob");
-		expect(after).toContain("Ls");
 	});
 
 	it("preserves alwaysLoad-tagged extension tools across setActiveToolsByName", async () => {

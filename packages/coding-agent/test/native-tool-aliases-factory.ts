@@ -1,7 +1,7 @@
 /**
  * Test mirror of `my-pi/extensions/native-tool-overrides`.
  *
- * Registers production-style names for Read/Edit/Write/Grep/Glob/Ls so tests that
+ * Registers production-style names for Read/Edit/Write/Grep/Glob so tests that
  * depend on these tools as builtins (the production reality, via my-pi-full)
  * can run without the on-disk extension being installed.
  *
@@ -13,7 +13,6 @@ import {
 	createEditToolDefinition,
 	createGlobToolDefinition,
 	createGrepToolDefinition,
-	createLsToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
 } from "../src/core/tools/index.ts";
@@ -24,7 +23,7 @@ const factories = [
 	{ name: "Write", make: createWriteToolDefinition },
 	{ name: "Grep", make: createGrepToolDefinition },
 	{ name: "Glob", make: createGlobToolDefinition },
-	{ name: "Ls", make: createLsToolDefinition },
+	// No Ls: CC 2.x / Codex parity — directory listing goes through Bash `ls`.
 ] as const;
 
 export const nativeToolAliasesFactory: ExtensionFactory = (pi) => {

@@ -951,7 +951,8 @@ const NATIVE_TOOL_REPLACEMENTS: Record<string, string> = {
 	fgrep: "Grep",
 	rg: "Grep",
 	find: "Glob",
-	ls: "Ls",
+	// `ls` is deliberately NOT guarded: Claude Code 2.x and Codex have no Ls
+	// tool and list directories via shell `ls`; we match that (no native Ls).
 };
 
 /** Env assignments and benign wrappers that may precede the real command. */
@@ -966,9 +967,9 @@ function stripHeredocBodies(command: string): string {
 }
 
 /**
- * Reject standalone `grep`/`rg`/`find`/`ls` invocations. When one of them is
+ * Reject standalone `grep`/`rg`/`find` invocations. When one of them is
  * the FIRST stage of a pipeline it is repo exploration that belongs to the
- * native Grep/Glob/Ls tools (ripgrep-backed, .gitignore-aware, output shaped
+ * native Grep/Glob tools (ripgrep-backed, .gitignore-aware, output shaped
  * for context). Later pipeline stages are allowed — filtering non-repo
  * command output (`kubectl ... | grep Ready`) is legitimate bash work.
  * Keeps the Bash/system-prompt "rejected at runtime" claim true.
@@ -1436,7 +1437,7 @@ export function createBashToolDefinition(
 	return {
 		name: toolName,
 		label,
-		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first); if truncated, full output is saved to a temp file (or pass full:true to return the complete output inline when you truly need all of it). Optionally provide a timeout in seconds. IMPORTANT: prefer native file tools for repo exploration (Glob/Ls for paths, Grep for content, Read/Edit/Write for files); standalone \`grep\`/\`rg\`/\`find\`/\`ls\` in Bash is rejected, though pipeline filters on command output (e.g. \`kubectl ... | grep Ready\`) are fine. Pass run_in_background:true to run detached and return immediately with a bgId — a task_notification fires on completion (do not poll); read with bash_output(bgId), stop with bash_kill(bgId). Pass tui_only:true to stream output to the TUI but return only an exit/size summary to context (incompatible with run_in_background).`,
+		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first); if truncated, full output is saved to a temp file (or pass full:true to return the complete output inline when you truly need all of it). Optionally provide a timeout in seconds. IMPORTANT: prefer native file tools for repo exploration (Glob for paths, Grep for content, Read/Edit/Write for files); standalone \`grep\`/\`rg\`/\`find\` in Bash is rejected, though pipeline filters on command output (e.g. \`kubectl ... | grep Ready\`) are fine. Pass run_in_background:true to run detached and return immediately with a bgId — a task_notification fires on completion (do not poll); read with bash_output(bgId), stop with bash_kill(bgId). Pass tui_only:true to stream output to the TUI but return only an exit/size summary to context (incompatible with run_in_background).`,
 		promptSnippet:
 			"Execute bash commands; set run_in_background:true for long-running work and read later with bash_output",
 		executionMode: "sequential",
