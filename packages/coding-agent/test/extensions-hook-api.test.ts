@@ -114,7 +114,7 @@ describe("extension hooks API", () => {
 
 	it("exposes built-in load actions with stable ids", () => {
 		expect(getActions(load).map((action) => action.id)).toEqual(
-			expect.arrayContaining(["agents", "bashBgJobs", "deferredTools"]),
+			expect.arrayContaining(["agentsTools", "agentsUI", "bashBgJobs", "deferredTools"]),
 		);
 	});
 
