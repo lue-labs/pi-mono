@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- `pi agents` CLI: the dashboard-package resolver now also matches scoped `pi-agent-view` publishes (e.g. `@valkyriweb/pi-agent-view`), not only the bare unscoped name. Bundles that publish the extension under an npm org scope previously hit `Error: \`pi agents\` requires the pi-agent-view package` even though it was installed and enabled, because the resolver's exact-string match against enabled extensions' nearest `package.json` `name` never matched a scoped name. Regression in `test/agent-view-command.test.ts`.
+
 - Keybindings: add `app.agentView.back` (default: `left`), a new additive `AppKeybindings` entry for consumer extensions that need a user-remappable "go back" binding (e.g. `my-pi`'s agent-view dashboard returning from an attached session). Purely additive — no existing binding, dispatch, or interactive-mode wiring is touched; consumption is entirely the extension's own responsibility via `KeybindingsManager.matches()`.
 
 - Tasks: `TaskSnapshot` gains an additive `controlId?: string` field, set on `LocalAgentTask`'s per-child snapshots (the leaf rows under `children` for an Agent-tool batch) to the owning run's real id. A child's own `id` (e.g. `"agent-5:1"`) is a display-only label minted per sub-run — there is no independent adapter, live session, or message buffer registered under it, only under the top-level run's id — so a consumer that flattens `children` into rows (e.g. an extension's task panel) and threads a child's bare `id` into a control/zoom operation gets a silent "not found" even though the run is live and controllable. `controlId` gives such consumers the id that IS registered. Regression in `test/tasks-registry.test.ts`.
