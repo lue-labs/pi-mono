@@ -2158,6 +2158,14 @@ export class InteractiveMode {
 		this.chatContainer.clear();
 		this.chatContainer.addChild(component);
 		this.activeMainPane = { id, component, preChildren };
+		// Regression fix (agents-ux-parity footer round): mounting the pane into
+		// chatContainer alone never gave it keyboard focus, so no keystroke ever
+		// reached its handleInput (up/down navigate, enter details/zoom, x stop) --
+		// only Escape worked, via the separate onEscape passthrough in
+		// handleEscapeKey. Every other editor-replacing surface in this file
+		// (extensionSelector, extensionInput, dialogs, session-selector, ...)
+		// calls `ui.setFocus(component)`; this one silently didn't.
+		this.ui.setFocus(component);
 		this.ui.requestRender();
 	}
 
@@ -2168,6 +2176,7 @@ export class InteractiveMode {
 		this.activeMainPane = undefined;
 		this.chatContainer.clear();
 		for (const child of preChildren) this.chatContainer.addChild(child);
+		this.ui.setFocus(this.editor);
 		this.ui.requestRender();
 	}
 
