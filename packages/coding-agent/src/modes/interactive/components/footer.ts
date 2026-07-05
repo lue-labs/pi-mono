@@ -146,18 +146,21 @@ export class FooterComponent implements Component {
 			.getRegisteredFooters()
 			.filter(({ spec }) => spec.visible?.() ?? true)
 			.sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0))
-			.map(({ id, spec }) =>
-				sanitizeStatusText(
+			.map(({ id, spec }) => {
+				const selected = id === this.selectedExtensionFooterId;
+				const text = sanitizeStatusText(
 					spec.render({
 						width,
 						theme,
-						selected: id === this.selectedExtensionFooterId,
+						selected,
 					}),
-				),
-			)
+				);
+				if (!text) return "";
+				return selected ? theme.bg("selectedBg", theme.fg("text", ` ${text} `)) : theme.fg("dim", text);
+			})
 			.filter((part) => part.length > 0);
 		if (parts.length === 0) return undefined;
-		return truncateToWidth(theme.fg("dim", parts.join(" · ")), width, theme.fg("dim", "..."));
+		return truncateToWidth(parts.join(theme.fg("dim", " · ")), width, theme.fg("dim", "..."));
 	}
 
 	private getUsageEntries() {
