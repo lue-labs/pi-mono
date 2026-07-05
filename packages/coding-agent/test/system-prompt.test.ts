@@ -197,4 +197,48 @@ describe("buildSystemPrompt", () => {
 			expect(prompt.match(/- Use dynamic_tool for summaries\./g)).toHaveLength(1);
 		});
 	});
+
+	describe("custom prompt guidelines", () => {
+		test("includes tool promptGuidelines under a custom prompt, inside the cached prefix", () => {
+			const prompt = buildSystemPrompt({
+				customPrompt: "You are a child agent.",
+				selectedTools: ["read", "dynamic_tool"],
+				promptGuidelines: ["Use dynamic_tool for project summaries."],
+				contextFiles: [],
+				skills: [],
+				cwd: "/repo",
+			});
+
+			const boundary = prompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
+			const guidelineIdx = prompt.indexOf("- Use dynamic_tool for project summaries.");
+			expect(guidelineIdx).toBeGreaterThan(0);
+			expect(guidelineIdx).toBeLessThan(boundary);
+			expect(prompt).toContain("Tool guidelines:");
+		});
+
+		test("deduplicates and trims promptGuidelines under a custom prompt", () => {
+			const prompt = buildSystemPrompt({
+				customPrompt: "You are a child agent.",
+				selectedTools: ["read"],
+				promptGuidelines: ["Use dynamic_tool for summaries.", "  Use dynamic_tool for summaries.  ", "   "],
+				contextFiles: [],
+				skills: [],
+				cwd: "/repo",
+			});
+
+			expect(prompt.match(/- Use dynamic_tool for summaries\./g)).toHaveLength(1);
+		});
+
+		test("emits no Tool guidelines section when none are provided (byte-parity)", () => {
+			const prompt = buildSystemPrompt({
+				customPrompt: "You are a child agent.",
+				selectedTools: ["read"],
+				contextFiles: [],
+				skills: [],
+				cwd: "/repo",
+			});
+
+			expect(prompt).not.toContain("Tool guidelines:");
+		});
+	});
 });
