@@ -21,29 +21,18 @@ function agent(partial: Partial<AgentDefinition>): AgentDefinition {
 
 // Built-in agent definitions declare canonical core tool names (read/grep/Glob/bash).
 // A profile may register the same capabilities under aliased names — e.g. Luke's
-// native-tool-overrides exposes Read/Grep/Bash and deferred Glob/Ls. Resolution
+// native-tool-overrides exposes Read/Grep/Bash and deferred Glob. Resolution
 // must match by capability, not exact string, or every built-in agent runs with
 // ZERO tools and the model emits tool calls as literal text (0 tool uses).
 describe("resolveEffectiveTools capability matching", () => {
-	const capitalizedParent = [
-		"Read",
-		"Bash",
-		"Edit",
-		"Write",
-		"Agent",
-		"Grep",
-		"Glob",
-		"Ls",
-		"BashOutput",
-		"KillShell",
-	];
+	const capitalizedParent = ["Read", "Bash", "Edit", "Write", "Agent", "Grep", "Glob", "BashOutput", "KillShell"];
 
 	it("resolves a lowercase allow-list against capitalized active aliases", () => {
 		const { effectiveTools } = resolveEffectiveTools({
 			parentActiveTools: capitalizedParent,
-			agent: agent({ tools: ["read", "grep", "Glob", "ls", "bash"], denyTools: ["agent", "edit", "write"] }),
+			agent: agent({ tools: ["read", "grep", "Glob", "bash"], denyTools: ["agent", "edit", "write"] }),
 		});
-		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Glob", "Ls", "Bash"]));
+		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Glob", "Bash"]));
 		expect(effectiveTools).not.toContain("Edit");
 		expect(effectiveTools).not.toContain("Write");
 		expect(effectiveTools).not.toContain("Agent");
@@ -62,9 +51,9 @@ describe("resolveEffectiveTools capability matching", () => {
 	it("excludes bash for a read-only agent", () => {
 		const { effectiveTools } = resolveEffectiveTools({
 			parentActiveTools: capitalizedParent,
-			agent: agent({ tools: ["read", "grep", "Glob", "ls"], denyTools: ["edit", "write", "bash", "agent"] }),
+			agent: agent({ tools: ["read", "grep", "Glob"], denyTools: ["edit", "write", "bash", "agent"] }),
 		});
-		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Glob", "Ls"]));
+		expect(effectiveTools).toEqual(expect.arrayContaining(["Read", "Grep", "Glob"]));
 		expect(effectiveTools).not.toContain("Bash");
 	});
 

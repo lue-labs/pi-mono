@@ -7,7 +7,7 @@
  */
 
 export const GUIDELINE_NATIVE_FILE_TOOLS =
-	"File/dir exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Ls = directory listing; Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Bash calls containing `ls`/`grep`/`rg`/`find` are rejected in full — split into separate native-tool calls, do not combine with other shell work in one bash invocation.";
+	"File exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Bash calls whose command is standalone `grep`/`rg`/`find` are rejected — split into separate native-tool calls, do not combine with other shell work in one bash invocation. Directory listing via Bash `ls` is fine.";
 
 export const GUIDELINE_BASH_SHELL_WORK =
 	"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.";

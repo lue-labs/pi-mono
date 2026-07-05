@@ -38,8 +38,8 @@ Do not delegate. Do not broaden scope. Report changes, validation, and blockers.
 	{
 		id: "explore",
 		description:
-			'Fast read-only search agent. PREFER over `general` for any task whose every step is read/grep/Glob/ls or read-only bash (git log/status/diff/show/blame, cat/head/tail, wc, stat, `gh pr view`/`gh issue view`) — "search for X", "find where Y", "where is Z defined", "how does W work", "which files use V", "explore/investigate/audit the codebase", "map out", "trace", "who changed X", "when was Y introduced". Use it to find files by pattern (eg. `src/components/**/*.tsx`), grep for symbols or keywords, answer "where is X defined / which files reference Y", or inspect git history. Specify breadth in `extraContext`: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. Runs on a cheap model with no transcript, project context, or skills — brief the agent in `task` and `extraContext` like a smart colleague who just walked in. NOT for: code review (use `reviewer`), design-doc auditing or cross-file consistency analysis (use `plan`), or anything that mutates state (use `general`/`worker`) — mutating bash commands are blocked at the executor.',
-		tools: ["read", "grep", "Glob", "ls", "bash"],
+			'Fast read-only search agent. PREFER over `general` for any task whose every step is read/grep/Glob or read-only bash (git log/status/diff/show/blame, cat/head/tail, wc, stat, `gh pr view`/`gh issue view`) — "search for X", "find where Y", "where is Z defined", "how does W work", "which files use V", "explore/investigate/audit the codebase", "map out", "trace", "who changed X", "when was Y introduced". Use it to find files by pattern (eg. `src/components/**/*.tsx`), grep for symbols or keywords, answer "where is X defined / which files reference Y", or inspect git history. Specify breadth in `extraContext`: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. Runs on a cheap model with no transcript, project context, or skills — brief the agent in `task` and `extraContext` like a smart colleague who just walked in. NOT for: code review (use `reviewer`), design-doc auditing or cross-file consistency analysis (use `plan`), or anything that mutates state (use `general`/`worker`) — mutating bash commands are blocked at the executor.',
+		tools: ["read", "grep", "Glob", "bash"],
 		denyTools: ["agent", "edit", "write"],
 		model: "fast",
 		thinking: "off",
@@ -66,7 +66,8 @@ Allowed bash (examples):
 - File inspection: \`cat\`, \`head\`, \`tail\`, \`wc\`, \`file\`, \`stat\`, \`du\`
 - Discovery: \`which\`, \`type\`, \`command -v\`
 - Read-only \`gh\`: \`gh pr view\`, \`gh issue view\`, \`gh api -X GET\`, \`gh repo view\`
-- Pipeline filters on command output with \`grep\`, \`awk\`, \`sed -n\` (no in-place edit), \`sort\`, \`uniq\`, \`jq\` (e.g. \`git log | grep fix\`) — standalone bash \`grep\`/\`rg\`/\`find\`/\`ls\` against repo files is rejected at runtime; use the native \`grep\`/\`Glob\`/\`ls\` tools for those
+- Directory listing: \`ls\`
+- Pipeline filters on command output with \`grep\`, \`awk\`, \`sed -n\` (no in-place edit), \`sort\`, \`uniq\`, \`jq\` (e.g. \`git log | grep fix\`) — standalone bash \`grep\`/\`rg\`/\`find\` against repo files is rejected at runtime; use the native \`grep\`/\`Glob\` tools for those
 
 If a task seems to require a forbidden command, stop and report what you'd need in Open Questions — do not attempt a workaround.
 
@@ -74,7 +75,7 @@ What you do:
 - Rapidly find files using glob patterns with \`Glob\`
 - Search code and text with regex via the native \`grep\` tool (ripgrep-backed) — never shell grep/rg through bash
 - Read and analyze file contents with \`read\`
-- List directories with \`ls\` when you need a layout
+- List directories with bash \`ls\` when you need a layout
 - Use \`read\` when you know the specific file path you need
 - Use \`bash\` for git history, file metadata, or read-only \`gh\` queries when those answer the question faster than re-reading files
 - For conceptual questions, search likely terms first, then read the smallest useful files
@@ -96,7 +97,7 @@ Return exactly:
 		id: "decompose",
 		description:
 			"Fast read-only decomposition for broad or token-heavy work. Turns one large ask into narrow single/parallel tasks with evidence requirements and cheap-model routing.",
-		tools: ["read", "grep", "Glob", "ls"],
+		tools: ["read", "grep", "Glob"],
 		denyTools: ["agent", "edit", "write", "bash"],
 		model: "fast",
 		thinking: "inherit",
@@ -126,7 +127,7 @@ Return exactly:
 	{
 		id: "plan",
 		description: "Read-only planning agent for implementation strategy and risks.",
-		tools: ["read", "grep", "Glob", "ls"],
+		tools: ["read", "grep", "Glob"],
 		denyTools: ["agent", "edit", "write", "bash"],
 		model: "inherit",
 		thinking: "inherit",
@@ -145,7 +146,7 @@ List 3-5 files with one sentence each explaining why they are load-bearing.`,
 	{
 		id: "reviewer",
 		description: "Read-only reviewer for correctness, regressions, and missing validation.",
-		tools: ["read", "grep", "Glob", "ls"],
+		tools: ["read", "grep", "Glob"],
 		denyTools: ["agent", "edit", "write", "bash"],
 		model: "inherit",
 		thinking: "inherit",
