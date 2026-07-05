@@ -79,10 +79,10 @@ describe("/agents selector", () => {
 	});
 
 	test("shouldZoomAgentRunRow: only running background rows zoom (Slice B, row 3)", () => {
-		const runningBg = startAgentRecentRun("z1", [{ agent: "worker", task: "Sleep" }], { background: true });
+		const runningBg = startAgentRecentRun("single", [{ agent: "worker", task: "Sleep" }], { background: true });
 		expect(shouldZoomAgentRunRow(runningBg)).toBe(true);
 
-		const runningFg = startAgentRecentRun("z2", [{ agent: "worker", task: "Sleep" }], { background: false });
+		const runningFg = startAgentRecentRun("single", [{ agent: "worker", task: "Sleep" }], { background: false });
 		expect(shouldZoomAgentRunRow(runningFg)).toBe(false);
 
 		const completedBg = { ...runningBg, status: "completed" as const };
