@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- System prompt: extracted the guideline strings shared between the default prompt and Bash `promptGuidelines` into `core/prompt-guidelines.ts` constants. The hand-copied Bash variant had drifted ("Prefer native file tools…" vs "File/dir exploration uses native tools…"), defeating `addGuideline`'s exact-string dedupe — sessions carried both near-duplicate bullets. Prompts now collapse to the single canonical rule; regression in `test/system-prompt.test.ts` asserts byte-identity and single occurrence.
+
 - Agents runs selector: pressing Enter on a running agent row now enters the zoomed session view for that row (row-scoped zoom entry); non-running rows keep the existing detail view. Regression in `test/interactive-mode-agents-command.test.ts`.
 
 - System prompt: tool-provided `promptGuidelines` are no longer silently dropped when a custom system prompt is set — they render as a `Tool guidelines:` section before the dynamic boundary (cached prefix; byte-identical output when no guidelines are provided). Regressions in `test/system-prompt.test.ts`.
