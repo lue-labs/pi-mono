@@ -58,7 +58,10 @@ export function hookAgentsUI(pi: ExtensionAPI): void {
 	// Background-runtime status pill (agents + bash jobs). Reactive visibility:
 	// the pill appears only while runtime tasks need attention.
 	pi.registerFooter(AGENTS_PANE_ID, {
-		render: () => formatTaskFooterStatus() ?? "",
+		render: (ctx) => {
+			const text = formatTaskFooterStatus() ?? "";
+			return ctx.selected ? ctx.theme.fg("accent", text) : text;
+		},
 		visible: () => formatTaskFooterStatus() !== undefined,
 		onActivate: () => pi.showMainPane(AGENTS_PANE_ID),
 	});
