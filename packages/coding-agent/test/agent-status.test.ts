@@ -103,6 +103,39 @@ describe("native agent status", () => {
 		expect(formatAgentStatus(undefined, "agent-1")).toContain("session:");
 	});
 
+	test("skips notifying subscribers when a progress tick has no user-visible content change", () => {
+		// Regression for perf/BASELINE.md fix #2: every background-agent progress
+		// tick used to force notifyAgentRecentRunsChanged() unconditionally, even
+		// when nothing rendered would actually differ (e.g. a heartbeat re-send of
+		// the same tool state). Fails on the pre-fix baseline (listener count 3),
+		// passes after the change-guard (listener count 2).
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		const listener = vi.fn();
+		const unsubscribe = subscribeAgentRecentRuns(listener);
+
+		const details = {
+			mode: "single" as const,
+			status: "running" as const,
+			runs: [makeRunDetailsWithTools(["read"])],
+		};
+		updateAgentRecentRunProgress(run, details);
+		expect(listener).toHaveBeenCalledTimes(1);
+
+		// Identical content again (only updatedAt would move under the hood) — must not renotify.
+		updateAgentRecentRunProgress(run, details);
+		expect(listener).toHaveBeenCalledTimes(1);
+
+		// A real content change (new tool call) must still notify.
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [makeRunDetailsWithTools(["read", "grep"])],
+		});
+		expect(listener).toHaveBeenCalledTimes(2);
+
+		unsubscribe();
+	});
+
 	test("tracks startup failures", () => {
 		const run = startAgentRecentRun("chain", [{ agent: "missing", task: "Do it" }]);
 		failAgentRecentRun(run, new Error("boom"));
