@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Agents: split the "agents" load action into `agentsTools` (native `agent`/`Agent`/`Task` tool schemas) and `agentsUI` (agents-status footer pill + main pane), registered as independent load actions. A consumer overriding the native tool schemas (e.g. to avoid duplicate/conflicting definitions) previously had to remove the entire bundled action to do so, which silently deleted the interactive footer pill and pane with no equivalent replacement — the reported "footer pill nav dead" defect. Removing only `agentsTools` now leaves the interactive surface intact. `hookAgents` remains available as a combined convenience wrapper. Regression in `test/agents-ui.test.ts`.
+
 - Agents pane: the static background-agents pane now has real keyboard controls — up/down row selection, Enter to open the selected run's detail, and `x` to stop the selected running task — reusing the `/agents runs` selector row formatting instead of a read-only list.
 
 - Footer pills: pressing up past the first pill (or up with nothing selected) now deselects back to the editor instead of wrapping around to the last pill, and the selected pill renders with a highlighted background instead of blending into the dim `·`-joined footer text. Regressions in `test/interactive-mode-footer-nav.test.ts`.

@@ -21,7 +21,21 @@ function getAgentEngine(pi: ExtensionAPI): AgentEngine | undefined {
 	return pi.harness.use<AgentEngine>(AGENTS_ENGINE_SERVICE_ID);
 }
 
-export function hookAgents(pi: ExtensionAPI): void {
+/**
+ * Registers the native `agent`/`Agent`/`Task` tool schemas. Split out from
+ * the UI wiring (`hookAgentsUI`) as its own load action so a profile that
+ * overrides these tool schemas with its own native aliases (to avoid
+ * duplicate/conflicting tool definitions under the same name) can remove
+ * *only* this action and keep the interactive footer pill + main pane
+ * intact. Before this split both concerns lived in one "agents" load
+ * action, so any consumer that needed to swap the tool schemas had no way
+ * to do so without also silently deleting the entire interactive surface —
+ * that's exactly what happened downstream (a profile removing "agents" to
+ * de-duplicate tool schemas also removed the agents-status footer pill and
+ * pane with no equivalent replacement, leaving Down/Enter/Escape on that
+ * pill dead).
+ */
+export function hookAgentsTools(pi: ExtensionAPI): void {
 	const options = {
 		getEngine: () => getAgentEngine(pi),
 		getParentModel: () => getAgentEngine(pi)?.snapshot().model,
@@ -30,7 +44,15 @@ export function hookAgents(pi: ExtensionAPI): void {
 	pi.registerTool(createAgentToolDefinition("", options));
 	pi.registerTool(createUppercaseAgentToolDefinition("", options));
 	pi.registerTool(createTaskToolDefinition("", options));
+}
 
+/**
+ * Registers the interactive agents-status main pane and its footer pill.
+ * Split out from `hookAgentsTools` (see its docstring) so this UI can be
+ * kept registered independently of which tool schemas provide the
+ * underlying `agent`/`Agent`/`Task` capabilities.
+ */
+export function hookAgentsUI(pi: ExtensionAPI): void {
 	pi.registerMainPane(AGENTS_PANE_ID, agentsPaneFactory);
 
 	// Background-runtime status pill (agents + bash jobs). Reactive visibility:
@@ -40,6 +62,14 @@ export function hookAgents(pi: ExtensionAPI): void {
 		visible: () => formatTaskFooterStatus() !== undefined,
 		onActivate: () => pi.showMainPane(AGENTS_PANE_ID),
 	});
+}
+
+/** Combined registration (tools + UI), kept for callers that want the full
+ * default surface in one call. The default load actions register the two
+ * halves separately (see bottom of file) so they can be removed independently. */
+export function hookAgents(pi: ExtensionAPI): void {
+	hookAgentsTools(pi);
+	hookAgentsUI(pi);
 }
 
 // Sort running/interrupted/failed tasks first (newest of those), then the
@@ -208,4 +238,5 @@ class AgentsPane implements ExtensionMainPaneComponent {
 
 const agentsPaneFactory: ExtensionMainPaneFactory = (tui, theme, api) => new AgentsPane(tui, theme, api.requestHide);
 
-addAction(load, "agents", hookAgents);
+addAction(load, "agentsTools", hookAgentsTools);
+addAction(load, "agentsUI", hookAgentsUI);
