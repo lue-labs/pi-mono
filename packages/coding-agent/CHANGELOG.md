@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- `pi agents` CLI: the standalone jiti loader used only by this CLI dispatch path now shares the main extension loader's `virtualModules`/`alias` resolution config (`getExtensionJitiResolutionOptions()`), so it can actually load the agent-view module's own `@valkyriweb/pi-coding-agent`/`@valkyriweb/pi-tui` imports instead of only resolving the entrypoint file and then silently failing on those inner imports. This is the second half of the `pi agents` "requires the pi-agent-view package" fix (see #205 below) — the resolver alone found the package but loading it still failed. Regression coverage extends `test/agent-view-command.test.ts`.
+
 - `pi agents` CLI: the dashboard-package resolver now also matches scoped `pi-agent-view` publishes (e.g. `@valkyriweb/pi-agent-view`), not only the bare unscoped name. Bundles that publish the extension under an npm org scope previously hit `Error: \`pi agents\` requires the pi-agent-view package` even though it was installed and enabled, because the resolver's exact-string match against enabled extensions' nearest `package.json` `name` never matched a scoped name. Regression in `test/agent-view-command.test.ts`.
 
 - Keybindings: add `app.agentView.back` (default: `left`), a new additive `AppKeybindings` entry for consumer extensions that need a user-remappable "go back" binding (e.g. `my-pi`'s agent-view dashboard returning from an attached session). Purely additive — no existing binding, dispatch, or interactive-mode wiring is touched; consumption is entirely the extension's own responsibility via `KeybindingsManager.matches()`.

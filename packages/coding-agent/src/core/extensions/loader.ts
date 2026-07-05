@@ -207,6 +207,26 @@ export function getExtensionModuleSpecifiersForTests(): {
 	};
 }
 
+/**
+ * The jiti resolution options (`virtualModules`/`alias`) that make
+ * `@valkyriweb/pi-coding-agent`, `@valkyriweb/pi-tui`, etc. resolve to the
+ * running binary's own bundled modules instead of falling through to plain
+ * Node `node_modules` resolution — which frequently doesn't have those
+ * exact package names on disk (npm peer-conflict dedup renames, workspace
+ * layouts, etc.). Any OTHER jiti-based loader for extension-shaped code
+ * (e.g. `cli/agent-view-command.ts`'s standalone dashboard-package import,
+ * which used to build its own bare `createJiti()` with no alias/virtualModule
+ * config at all and could resolve the entrypoint file but not that file's
+ * own `@valkyriweb/*` imports) MUST reuse this, not reimplement it — a second
+ * copy is exactly the kind of drift `loader-module-alias-symmetry.test.ts`
+ * exists to catch for the two branches already in this module.
+ */
+export function getExtensionJitiResolutionOptions():
+	| { virtualModules: Record<string, unknown>; tryNative: false }
+	| { alias: Record<string, string> } {
+	return isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() };
+}
+
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
 
 let extensionCacheCwd: string | undefined;
@@ -783,7 +803,7 @@ async function loadExtensionModule(extensionPath: string, cacheToken?: Extension
 		// In Bun binary: use virtualModules for bundled packages (no filesystem resolution)
 		// Also disable tryNative so jiti handles ALL imports (not just the entry point)
 		// In Node.js/dev: use aliases to resolve to node_modules paths
-		...(isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() }),
+		...getExtensionJitiResolutionOptions(),
 	});
 
 	const module = await jiti.import(extensionPath, { default: true });
