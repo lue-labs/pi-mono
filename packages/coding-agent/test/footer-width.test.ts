@@ -154,6 +154,36 @@ describe("FooterComponent width handling", () => {
 		expect(third).toEqual(expect.arrayContaining([expect.stringContaining("200k")]));
 	});
 
+	it("invalidates memoized footer lines when extension footer selection changes", () => {
+		const selectedArgs: boolean[] = [];
+		const session = createSession({ sessionName: "same-session" });
+		(session as unknown as { extensionRunner: AgentSession["extensionRunner"] }).extensionRunner = {
+			getRegisteredFooters: () => [
+				{
+					id: "bg-test",
+					extensionPath: "/tmp/footer-test",
+					spec: {
+						visible: () => true,
+						render: ({ selected }: { selected: boolean }) => {
+							selectedArgs.push(selected);
+							return "bg ready";
+						},
+						onActivate: () => {},
+					},
+				},
+			],
+		} as unknown as AgentSession["extensionRunner"];
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const first = footer.render(100);
+		expect(selectedArgs).toEqual([false]);
+
+		footer.setSelectedExtensionFooterId("bg-test");
+		const second = footer.render(100);
+		expect(second).not.toBe(first);
+		expect(selectedArgs).toEqual([false, true]);
+	});
+
 	it("keeps all lines within width for wide session names", () => {
 		const width = 93;
 		const session = createSession({ sessionName: "한글".repeat(30) });

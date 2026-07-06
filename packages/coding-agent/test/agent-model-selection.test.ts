@@ -1,4 +1,4 @@
-import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
+import { type Api, type Model, registerFauxProvider } from "@valkyriweb/pi-ai/compat";
 import { afterEach, describe, expect, test } from "vitest";
 import { getBuiltinAgentDefinitions } from "../src/core/agents/definitions.ts";
 import { resolveAgentDefaults, resolveAgentModel, resolveAgentThinking } from "../src/core/agents/executor.ts";
@@ -13,27 +13,46 @@ afterEach(() => {
 });
 
 function createRegistry() {
-	const faux = registerFauxProvider({
-		provider: "anthropic",
-		models: [
-			{ id: "parent-model", name: "Parent", reasoning: true },
-			{ id: "child-model", name: "Child", reasoning: true },
-			{ id: "plain-model", name: "Plain", reasoning: false },
-			{ id: "provider-default-model", name: "Provider Default", reasoning: true },
-			// matches the anthropic entry in fastModelPerProvider so the `"fast"`
-			// alias has something to resolve to in this faux registry.
-			{ id: "claude-haiku-4-5", name: "Haiku", reasoning: true },
-		],
-	});
+	return createProviderRegistry("anthropic", [
+		{ id: "parent-model", name: "Parent", reasoning: true },
+		{ id: "child-model", name: "Child", reasoning: true },
+		{ id: "plain-model", name: "Plain", reasoning: false },
+		{ id: "provider-default-model", name: "Provider Default", reasoning: true },
+		// matches the anthropic entry in fastModelPerProvider so the `"fast"`
+		// alias has something to resolve to in this faux registry.
+		{ id: "claude-haiku-4-5", name: "Haiku", reasoning: true },
+	]);
+}
+
+function createStaticRegistry(provider: string, models: Array<{ id: string; name: string; reasoning: boolean }>) {
+	const available: Model<Api>[] = models.map((model) => ({
+		...model,
+		api: "faux" as Api,
+		provider,
+		baseUrl: "http://localhost:0",
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 16384,
+	}));
+	return {
+		registry: { getAvailable: () => available } as unknown as ModelRegistry,
+		parent: available[0],
+	};
+}
+
+function createProviderRegistry(provider: string, models: Array<{ id: string; name: string; reasoning: boolean }>) {
+	const faux = registerFauxProvider({ provider, models });
 	registrations.push(faux);
 	const auth = AuthStorage.inMemory();
-	auth.setRuntimeApiKey(faux.getModel().provider, "faux-key");
+	auth.setRuntimeApiKey(provider, "faux-key");
 	const registry = ModelRegistry.inMemory(auth);
-	registry.registerProvider(faux.getModel().provider, {
+	registry.registerProvider(provider, {
 		baseUrl: faux.getModel().baseUrl,
 		apiKey: "faux-key",
 		api: faux.api,
 		models: faux.models.map((model) => ({
+			provider,
 			id: model.id,
 			name: model.name,
 			api: model.api,
@@ -45,7 +64,7 @@ function createRegistry() {
 			baseUrl: model.baseUrl,
 		})),
 	});
-	return { registry, parent: registry.getAvailable().find((model) => model.id === "parent-model") };
+	return { registry, parent: registry.getAvailable().find((model) => model.id === models[0]?.id) };
 }
 
 describe("agent model and thinking selection", () => {
@@ -110,6 +129,19 @@ describe("agent model and thinking selection", () => {
 		const selected = resolveAgentModel({ agent: explore, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("clawrouter");
 		expect(selected?.id).toBe("claude-haiku-4-5");
+	});
+
+	test('"fast" alias keeps clawrouter GPT parents on gpt-5.4-mini', () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "claude-haiku-4-5", name: "Claude Haiku", reasoning: true },
+			{ id: "gpt-5.4-mini", name: "GPT 5.4 Mini", reasoning: true },
+		]);
+		const explore = getBuiltinAgentDefinitions().find((definition) => definition.id === "explore");
+		if (!explore) throw new Error("expected builtin explore agent");
+		const selected = resolveAgentModel({ agent: explore, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("gpt-5.4-mini");
 	});
 
 	test('"fast" alias resolves openai-codex explore workers to gpt-5.4-mini', () => {
@@ -180,6 +212,86 @@ describe("agent model and thinking selection", () => {
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("openai-codex");
 		expect(selected?.id).toBe("gpt-5.4");
+	});
+
+	test('"medium" alias keeps clawrouter GPT parents on gpt-5.4', () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
+			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+		]);
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
+		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("gpt-5.4");
+	});
+
+	test('"medium" alias falls back to claude-sonnet-4-6 when sonnet-5 is unavailable', () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "claude-opus-4-8-200k", name: "Claude Opus", reasoning: true },
+			{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", reasoning: true },
+			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+		]);
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
+		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("claude-sonnet-4-6");
+	});
+
+	test('"frontier" alias keeps clawrouter GPT parents on gpt-5.5', () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+			{ id: "claude-opus-4-8-200k", name: "Claude Opus", reasoning: true },
+			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+		]);
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "frontier" };
+		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("gpt-5.5");
+	});
+
+	test('"frontier" alias keeps clawrouter Claude parents on claude-opus-4-8-200k', () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
+			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "claude-opus-4-8-200k", name: "Claude Opus 200k", reasoning: true },
+		]);
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "frontier" };
+		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("claude-opus-4-8-200k");
+	});
+
+	test('"ultra" alias uses fable now and GPT-5.6 for GPT parents when available', () => {
+		const { registry: claudeRegistry, parent: claudeParent } = createStaticRegistry("clawrouter", [
+			{ id: "claude-opus-4-8-200k", name: "Claude Opus", reasoning: true },
+			{ id: "claude-fable-5-200k", name: "Claude Fable 200k", reasoning: true },
+		]);
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "ultra" };
+		const claudeSelected = resolveAgentModel({ agent, parentModel: claudeParent, modelRegistry: claudeRegistry });
+		expect(claudeSelected?.provider).toBe("clawrouter");
+		expect(claudeSelected?.id).toBe("claude-fable-5-200k");
+
+		const { registry: gptRegistry, parent: gptParent } = createStaticRegistry("clawrouter", [
+			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "claude-fable-5-200k", name: "Claude Fable 200k", reasoning: true },
+			{ id: "gpt-5.6", name: "GPT 5.6", reasoning: true },
+		]);
+		const gptSelected = resolveAgentModel({ agent, parentModel: gptParent, modelRegistry: gptRegistry });
+		expect(gptSelected?.provider).toBe("clawrouter");
+		expect(gptSelected?.id).toBe("gpt-5.6");
+	});
+
+	test("qualified tier aliases select from that provider", () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "claude-fable-5-200k", name: "Claude Fable 200k", reasoning: true },
+			{ id: "gpt-5.6", name: "GPT 5.6", reasoning: true },
+		]);
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "clawrouter/ultra" };
+		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("gpt-5.6");
 	});
 
 	test('"medium" alias resolves clawrouter workers to claude-sonnet-5', () => {
