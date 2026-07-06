@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.8",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "96a6c33a9f37",
+  "strategy": "manual-commit",
+  "branch": "lue/reforge-primitives-plan-wip",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "scripts/check-profiles.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/96/a6c33a9f37/0/metadata.json",
+      "transcript": "/96/a6c33a9f37/0/full.jsonl",
+      "compact_transcript": "/96/a6c33a9f37/0/transcript.jsonl",
+      "content_hash": "/96/a6c33a9f37/0/content_hash.txt",
+      "prompt": "/96/a6c33a9f37/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12440,
+    "cache_creation_tokens": 47507,
+    "cache_read_tokens": 81103,
+    "output_tokens": 476,
+    "api_call_count": 3
+  }
+}
