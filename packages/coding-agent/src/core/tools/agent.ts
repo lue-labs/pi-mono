@@ -126,7 +126,10 @@ export const agentToolSchema = Type.Object({
 	),
 	chainDir: Type.Optional(Type.String({ description: "Base directory for relative chain outputs" })),
 	background: Type.Optional(
-		Type.Boolean({ description: "Run in the background and return immediately with a run id" }),
+		Type.Boolean({
+			description:
+				"Run in the background and return immediately with a run id. Defaults to false (synchronous) — set true for long-running work you don't need the result from immediately.",
+		}),
 	),
 	run_in_background: Type.Optional(Type.Boolean({ description: "Claude Code-compatible alias for background" })),
 	agentScope: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")])),
@@ -563,21 +566,24 @@ export function createAgentToolDefinition(
 		label,
 		description:
 			options?.description ??
-			"Launch a built-in or configured Pi child agent. Supports single {subagent_type, prompt}, legacy {agent, task}, parallel {tasks: [{subagent_type, prompt, ...}]}, sequential {chain: [{subagent_type, prompt, ...}]}, background execution, and background run control actions. Pass `tasks` and `chain` as native JSON arrays of task objects; a stringified JSON array is also accepted and parsed.",
+			"Launch a built-in or configured Pi child agent. Supports single {subagent_type, prompt}, legacy {agent, task}, parallel {tasks: [{subagent_type, prompt, ...}]}, sequential {chain: [{subagent_type, prompt, ...}]}, background execution, and background run control actions. Pass `tasks` and `chain` as native JSON arrays of task objects; a stringified JSON array is also accepted and parsed. Forks share the parent's prompt cache, so context:\"fork\" delegation is cheap for research/implementation work you don't want cluttering your own context.",
 
 		promptSnippet: "Delegate a task to a child agent with bounded tools",
 		promptGuidelines: [
 			"Launch a child agent to handle complex, multi-step tasks. Each agent has specific tools and a tailored system prompt — specify it with `subagent_type` and `prompt`; legacy `agent`/`task` are accepted only for compatibility.",
 			"Reach for this when the task matches one of the available agent types, when you have independent work to run in parallel, or when answering would mean reading across several files — delegate it and you keep the conclusion, not the file dumps. For a single-fact lookup where you already know the file, symbol, or value, search directly with `read`/`grep`/`Glob`. Once you've delegated a search, don't also run it yourself — wait for the result.",
 			'Routing rule: **default to `explore`** for any read-only investigation (search, find, where/how/which, investigate, audit, map, trace). Choose `general` ONLY when the child itself must write files, run bash, or mix search+edit+verify in one run — "open-ended research" alone is not enough. If every step is read/grep/Glob/ls, it\'s `explore`.',
+			'Pass `context: "fork"` when you want the child to inherit your full conversation so far — forks share your prompt cache (cheap) and keep the child\'s tool output out of your own context, so reach for fork mode for research or multi-step work that would otherwise fill your context with output you won\'t need again. `context: "default"/"slim"/"none"` start the child with progressively less inherited context instead.',
 			"Available agents: `explore` — fast read-only search for files, symbols, and code paths (cheap model, no transcript/project context/skills; specify breadth in `extraContext`: quick | medium | very thorough). `decompose` — read-only splitter for broad/token-heavy work into bounded sub-tasks with evidence requirements. `plan` — read-only architect for implementation strategy and risks on a known requirement. `reviewer` — read-only correctness/regression review with VERDICT line. `worker` — implementation worker for scoped coding tasks with known file paths. `general` — delegated execution for children that must write files, run bash, or mix search+edit+verify in one run; not for pure read-only investigation (use `explore`).",
 			"Read-only agents (`explore`, `decompose`, `plan`, `reviewer`) cannot edit, write, or run bash — assign them research, search, planning, or review work only. Never assign them implementation.",
 			"Brief the agent like a smart colleague who just walked in: explain what you're trying to accomplish and why, describe what you've already ruled out, give enough context that the agent can make judgment calls rather than follow a narrow instruction. Terse command-style prompts produce shallow, generic work. Never delegate understanding — don't write 'based on your findings, fix the bug'; write prompts that prove you understood (file paths, line numbers, what specifically to change).",
 			"When parallel exploration or review is needed, send multiple `agent` tool-use blocks in one assistant message; Pi runs those calls concurrently. Use `tasks[]` only for explicit batched fan-out inside one agent call.",
+			"Up to 8 tasks may run in parallel via `tasks[]` (schema max). Quality over quantity — use the minimum number of agents necessary, usually 1; only fan out when the scope is genuinely uncertain or spans independent areas.",
 			'Pass `tasks` and `chain` as native JSON arrays of task objects, e.g. `{"tasks": [{"subagent_type": "explore", "prompt": "..."}]}`. A stringified JSON array (e.g. `"tasks": "[{...}]"`) is tolerated and auto-parsed, but native arrays are preferred. Each task object requires `subagent_type` and `prompt`; legacy `agent` and `task` are accepted for compatibility. Other fields (`context`, `description`, `extraContext`, `model`, `thinking`, ...) are optional.',
 			"Use `run_in_background:true` (or legacy `background:true`) for long-running delegated work that should continue while you report back; control it with `action`/`status`/`interrupt`/`cancel`/`resume` and `runId`.",
-			"When a background agent finishes you receive an automatic `agent_completion` message with runId, status, summary, result preview, outputPaths, and sessionPaths. Do NOT poll with `agent action=status/detail` while waiting — work on other things, sleep with goal_wait, or hand back to the user. Read sessionPaths or outputPaths on demand if you need the full transcript.",
+			"When a background agent finishes you receive an automatic `agent_completion` message with runId, status, summary, result preview, outputPaths, and sessionPaths. Do NOT poll with `agent action=status/detail` while waiting — work on other things, sleep with goal_wait, or hand back to the user. Read sessionPaths or outputPaths on demand if you need the full transcript. A full session transcript can be large; skim or grep it rather than reading it whole if the child ran many tool calls.",
 			"The agent's final message is returned as the tool result; it is not shown to the user — relay what matters in your own words.",
+			"Trust but verify: a child agent's summary describes what it intended to do, not necessarily what it did. Before reporting writer/worker/general output as done, check the actual file changes yourself.",
 			"Do not use agent recursively; child agents cannot call agent.",
 			"To run a child in another directory, pass `cwd` (absolute path) so its relative tool paths resolve there — e.g. exploring a different repo. Reads/greps with absolute paths already work from any cwd, so `cwd` is only needed when you want the child rooted elsewhere.",
 		],
