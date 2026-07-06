@@ -448,12 +448,12 @@ export class FooterComponent implements Component {
 			const markers: string[] = [];
 			if (postCompactionTurn) markers.push("⟳compact");
 			if (health.warnings.includes("fresh_tail_large")) markers.push("⚠fresh");
-			if (health.warnings.includes("prefix_cold_write")) markers.push("🔥prefix");
+			if (health.warnings.includes("cache_write_unhealthy")) markers.push("🔥write");
 			if (health.warnings.includes("ttl_expiry_likely")) markers.push("⌛ttl");
 			const label = [`cache ${health.coveragePct}%`, ...markers].join(" ");
 			let colored: string;
 			if (postCompactionTurn) colored = theme.fg("dim", label);
-			else if (health.warnings.includes("prefix_cold_write")) colored = theme.fg("error", theme.bold(label));
+			else if (health.warnings.includes("cache_write_unhealthy")) colored = theme.fg("error", theme.bold(label));
 			else if (health.warnings.includes("ttl_expiry_likely")) colored = theme.fg("warning", theme.bold(label));
 			else if (health.warnings.includes("fresh_tail_large")) colored = theme.fg("warning", label);
 			else if (health.warmthPct >= 80) colored = theme.fg("success", label);
