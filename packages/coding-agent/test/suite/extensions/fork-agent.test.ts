@@ -340,6 +340,8 @@ describe("ctx.forkAgent", () => {
 									};
 								},
 								async abort() {},
+								async resume() {},
+								async inject() {},
 							},
 						};
 					},
