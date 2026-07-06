@@ -6,6 +6,57 @@ import type { AgentMessage } from "@valkyriweb/pi-agent-core";
 import type { Message } from "@valkyriweb/pi-ai";
 
 // ============================================================================
+// Auto-compaction thrashing detector
+//
+// Ports the auto-compaction breaker behavior observed in Claude Code 2.1.201:
+// if auto-compaction keeps refilling the context back to the threshold within
+// a handful of turns, something structural (an oversized tool result, a huge
+// file read) is at fault, not the conversation itself - repeatedly compacting
+// is expensive and gives the user no signal. This module only implements the
+// pure rapid-refill streak calculation; the pi-native wiring, session state,
+// and message text live in AgentSession.
+// ============================================================================
+
+/** Turns-since-compaction window used to decide whether a refill was "rapid". */
+export const RAPID_REFILL_WINDOW = 3;
+
+/** Consecutive rapid refills required to trip the thrashing breaker. */
+export const RAPID_REFILL_TRIP_COUNT = 3;
+
+/** Consecutive compaction failures required to trip the failure breaker. */
+export const COMPACTION_FAILURE_TRIP_COUNT = 3;
+
+export interface RapidRefillInput {
+	/** Whether a compaction has already happened earlier in this session. */
+	hadPriorCompaction: boolean;
+	/** Assistant turns elapsed since the most recent compaction. */
+	turnsSinceCompaction: number;
+	/** Current consecutive-rapid-refill streak carried from prior evaluations. */
+	consecutiveRapidRefills: number;
+}
+
+export interface RapidRefillResult {
+	/** "trip" once the rapid-refill streak reaches RAPID_REFILL_TRIP_COUNT. */
+	action: "trip" | "proceed";
+	/** Updated streak to persist for the next evaluation. */
+	consecutiveRapidRefills: number;
+}
+
+/**
+ * Evaluate whether a new auto-compaction is part of a rapid-refill thrashing
+ * streak. A refill counts as "rapid" when a prior compaction is still active
+ * and fewer than RAPID_REFILL_WINDOW assistant turns have happened since it -
+ * i.e. context refilled to the compaction threshold almost immediately after
+ * being compacted. Any non-rapid refill resets the streak to zero.
+ */
+export function evaluateRapidRefill(input: RapidRefillInput): RapidRefillResult {
+	const isRapid = input.hadPriorCompaction && input.turnsSinceCompaction < RAPID_REFILL_WINDOW;
+	const consecutiveRapidRefills = isRapid ? input.consecutiveRapidRefills + 1 : 0;
+	const action: "trip" | "proceed" = consecutiveRapidRefills >= RAPID_REFILL_TRIP_COUNT ? "trip" : "proceed";
+	return { action, consecutiveRapidRefills };
+}
+
+// ============================================================================
 // File Operation Tracking
 // ============================================================================
 

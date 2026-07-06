@@ -762,8 +762,10 @@ describe("AgentSession compaction characterization", () => {
 			tools: [echoTool],
 			models: [{ id: "faux-1", contextWindow: 200_000 }],
 			// The faux provider simulates small usage numbers; pull the threshold
-			// down to ~10 tokens so the first turn is over it.
-			settings: { compaction: { reserveTokens: 199_990, keepRecentTokens: 1 } },
+			// down to ~1000 tokens (comfortably above the fixed system-prompt+tools
+			// prefix so the fixed-prefix-overflow guard does not treat this as a
+			// structural no-op) so the first turn's larger echoed payload is over it.
+			settings: { compaction: { reserveTokens: 199_000, keepRecentTokens: 1 } },
 			extensionFactories: [
 				(pi) => {
 					pi.on("session_before_compact", async (event) => ({
@@ -780,7 +782,7 @@ describe("AgentSession compaction characterization", () => {
 		harnesses.push(harness);
 
 		harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("echo", { text: "hi" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("echo", { text: "hi ".repeat(2000) }), { stopReason: "toolUse" }),
 			fauxAssistantMessage("done after compaction"),
 		]);
 
