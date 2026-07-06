@@ -4,7 +4,7 @@
   "checkpoint_id": "96a6c33a9f37",
   "strategy": "manual-commit",
   "branch": "lue/reforge-primitives-plan-wip",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "scripts/check-profiles.mjs"
   ],
@@ -15,13 +15,20 @@
       "compact_transcript": "/96/a6c33a9f37/0/transcript.jsonl",
       "content_hash": "/96/a6c33a9f37/0/content_hash.txt",
       "prompt": "/96/a6c33a9f37/0/prompt.txt"
+    },
+    {
+      "metadata": "/96/a6c33a9f37/1/metadata.json",
+      "transcript": "/96/a6c33a9f37/1/full.jsonl",
+      "compact_transcript": "/96/a6c33a9f37/1/transcript.jsonl",
+      "content_hash": "/96/a6c33a9f37/1/content_hash.txt",
+      "prompt": "/96/a6c33a9f37/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 12440,
-    "cache_creation_tokens": 47507,
+    "input_tokens": 24265,
+    "cache_creation_tokens": 83780,
     "cache_read_tokens": 81103,
-    "output_tokens": 476,
-    "api_call_count": 3
+    "output_tokens": 670,
+    "api_call_count": 4
   }
 }
