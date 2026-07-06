@@ -41,51 +41,138 @@ export function normalizeAutoAliasString(
  * provider has no entry here, `"fast"` falls back to the parent model.
  * Custom-provider users can override per-agent via an explicit `model:` value.
  */
-export const fastModelPerProvider: Record<string, string> = {
-	anthropic: "claude-haiku-4-5",
-	"amazon-bedrock": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-	openai: "gpt-5.4-mini",
-	"openai-codex": "gpt-5.4-mini",
-	"azure-openai-responses": "gpt-5.4-mini",
-	"github-copilot": "gpt-5.4-mini",
-	google: "gemini-3.1-flash-lite",
-	"google-vertex": "gemini-3.1-flash-lite",
-	groq: "openai/gpt-oss-20b",
-	xai: "grok-4-fast",
-	// Custom proxy providers (Luke's fork). Route Anthropic models through local
-	// bridges; haiku-4-5 is the cheap variant on the other end.
-	"claude-bridge": "claude-haiku-4-5",
-	clawrouter: "claude-haiku-4-5",
+type TierModelAlias = "fast" | "medium" | "frontier" | "ultra";
+
+type TierCandidateMap = Record<TierModelAlias, string[]>;
+
+export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = {
+	anthropic: {
+		fast: ["claude-haiku-4-5"],
+		medium: ["claude-sonnet-4-6"],
+		frontier: ["claude-opus-4-8"],
+		ultra: ["claude-fable-5-200k", "claude-fable-5"],
+	},
+	"amazon-bedrock": {
+		fast: ["us.anthropic.claude-haiku-4-5-20251001-v1:0"],
+		medium: ["us.anthropic.claude-sonnet-4-6-20251001-v1:0"],
+		frontier: ["us.anthropic.claude-opus-4-8-v1:0"],
+		ultra: [],
+	},
+	openai: {
+		fast: ["gpt-5.4-mini"],
+		medium: ["gpt-5.4"],
+		frontier: ["gpt-5.5"],
+		ultra: ["gpt-5.6"],
+	},
+	"openai-codex": {
+		fast: ["gpt-5.4-mini"],
+		medium: ["gpt-5.4"],
+		frontier: ["gpt-5.5"],
+		ultra: ["gpt-5.6"],
+	},
+	"azure-openai-responses": {
+		fast: ["gpt-5.4-mini"],
+		medium: ["gpt-5.4"],
+		frontier: ["gpt-5.5"],
+		ultra: ["gpt-5.6"],
+	},
+	"github-copilot": {
+		fast: ["gpt-5.4-mini"],
+		medium: ["gpt-5.4"],
+		frontier: ["gpt-5.5"],
+		ultra: ["gpt-5.6"],
+	},
+	google: {
+		fast: ["gemini-3.1-flash-lite"],
+		medium: ["gemini-3.1-flash"],
+		frontier: ["gemini-3.1-pro-preview"],
+		ultra: [],
+	},
+	"google-vertex": {
+		fast: ["gemini-3.1-flash-lite"],
+		medium: ["gemini-3.1-flash"],
+		frontier: ["gemini-3.1-pro-preview"],
+		ultra: [],
+	},
+	groq: {
+		fast: ["openai/gpt-oss-20b"],
+		medium: ["openai/gpt-oss-120b"],
+		frontier: [],
+		ultra: [],
+	},
+	xai: {
+		fast: ["grok-4-fast"],
+		medium: ["grok-4.20-0309-reasoning"],
+		frontier: ["grok-4.20-0309-reasoning"],
+		ultra: [],
+	},
+	// Custom proxy providers (Luke's fork). `clawrouter` fronts both Claude and
+	// OpenAI accounts, so the generic provider order is only the no-family fallback;
+	// parent model family gets first pick via modelFamilyTierCandidatesByProvider.
+	"claude-bridge": {
+		fast: ["claude-haiku-4-5"],
+		medium: ["claude-sonnet-5", "claude-sonnet-4-6"],
+		frontier: ["claude-opus-4-8-200k", "claude-opus-4-8"],
+		ultra: ["claude-fable-5-200k", "claude-fable-5"],
+	},
+	clawrouter: {
+		fast: ["claude-haiku-4-5", "gpt-5.4-mini"],
+		medium: ["claude-sonnet-5", "claude-sonnet-4-6", "gpt-5.4"],
+		frontier: ["claude-opus-4-8-200k", "gpt-5.5"],
+		ultra: ["claude-fable-5-200k", "gpt-5.6"],
+	},
 };
 
-/**
- * Mid-tier model id per provider, used to resolve the `"medium"` model alias.
- *
- * Use for tasks that need more reasoning than a `"fast"` model can offer but
- * don't justify the parent's flagship cost — e.g. structured extraction,
- * mid-complexity refactors, multi-step research where Haiku/Mini drift.
- *
- * Falls back to the parent model when the provider has no entry. Custom-provider
- * users can override per-agent via an explicit `model:` value.
- */
-export const mediumModelPerProvider: Record<string, string> = {
-	anthropic: "claude-sonnet-4-6",
-	"amazon-bedrock": "us.anthropic.claude-sonnet-4-6-20251001-v1:0",
-	openai: "gpt-5.4",
-	"openai-codex": "gpt-5.4",
-	"azure-openai-responses": "gpt-5.4",
-	"github-copilot": "gpt-5.4",
-	google: "gemini-3.1-flash",
-	"google-vertex": "gemini-3.1-flash",
-	groq: "openai/gpt-oss-120b",
-	xai: "grok-4.20-0309-reasoning",
-	// Custom proxy providers (Luke's fork). Route Anthropic models through local
-	// bridges; sonnet-5 is the mid-tier on the other end. (sonnet-4-6 was retired
-	// from the bridge registry; a dead id here makes the `medium` alias silently
-	// fall back to the parent's frontier model — the opposite of its purpose.)
-	"claude-bridge": "claude-sonnet-5",
-	clawrouter: "claude-sonnet-5",
+const modelFamilyTierCandidatesByProvider: Record<
+	string,
+	Array<{ prefix: string; candidates: Partial<TierCandidateMap> }>
+> = {
+	clawrouter: [
+		{
+			prefix: "gpt-",
+			candidates: {
+				fast: ["gpt-5.4-mini"],
+				medium: ["gpt-5.4"],
+				frontier: ["gpt-5.5"],
+				ultra: ["gpt-5.6"],
+			},
+		},
+		{
+			prefix: "claude-",
+			candidates: {
+				fast: ["claude-haiku-4-5"],
+				medium: ["claude-sonnet-5", "claude-sonnet-4-6"],
+				frontier: ["claude-opus-4-8-200k", "claude-opus-4-8"],
+				ultra: ["claude-fable-5-200k", "claude-fable-5"],
+			},
+		},
+	],
 };
+
+export function tierModelCandidatesForParent(options: {
+	reference: TierModelAlias;
+	parentProvider?: string;
+	parentModelId?: string;
+}): string[] {
+	if (!options.parentProvider) return [];
+	const providerCandidates = modelTierCandidatesPerProvider[options.parentProvider]?.[options.reference] ?? [];
+	const familyCandidates = modelFamilyTierCandidatesByProvider[options.parentProvider]?.find((family) =>
+		options.parentModelId?.toLowerCase().startsWith(family.prefix),
+	)?.candidates[options.reference];
+	return [...new Set([...(familyCandidates ?? []), ...providerCandidates])];
+}
+
+function firstCandidatePerProvider(reference: TierModelAlias): Record<string, string> {
+	return Object.fromEntries(
+		Object.entries(modelTierCandidatesPerProvider)
+			.map(([provider, tiers]) => [provider, tiers[reference][0]])
+			.filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+	);
+}
+
+/** Compatibility exports for callers/tests that only need the preferred single model. */
+export const fastModelPerProvider: Record<string, string> = firstCandidatePerProvider("fast");
+export const mediumModelPerProvider: Record<string, string> = firstCandidatePerProvider("medium");
 
 /** Default model IDs for each known provider */
 export const defaultModelPerProvider: Record<KnownProvider, string> = {

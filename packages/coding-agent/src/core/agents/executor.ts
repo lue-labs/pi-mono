@@ -8,7 +8,7 @@ import { createAgentSessionFromServices, createAgentSessionServices } from "../a
 import type { AuthStorage } from "../auth-storage.ts";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.ts";
 import type { ModelRegistry } from "../model-registry.ts";
-import { fastModelPerProvider, mediumModelPerProvider, parseModelPattern } from "../model-resolver.ts";
+import { parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
 import { type ReadonlySessionManager, SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import { appendTaskMessage } from "../tasks/messages.ts";
@@ -304,11 +304,29 @@ function isAutoModelAlias(reference: string | undefined): boolean {
 		normalized === "auto" ||
 		normalized === "pi-fork/auto" ||
 		normalized === "claude-bridge/auto" ||
+		normalized === "clawrouter/auto" ||
 		normalized === "openai-codex/auto"
 	);
 }
 
-const FRONTIER_MODEL_ID_PATTERN = /(?:opus|fable|-pro$|-max$)/i;
+type AgentTierAlias = "fast" | "medium" | "frontier" | "ultra";
+
+function parseTierAlias(reference: string): { tier: AgentTierAlias; provider?: string } | undefined {
+	const normalized = reference.trim().toLowerCase();
+	if (normalized === "fast" || normalized === "medium" || normalized === "frontier" || normalized === "ultra") {
+		return { tier: normalized };
+	}
+	const separator = normalized.indexOf("/");
+	if (separator === -1) return undefined;
+	const provider = normalized.slice(0, separator);
+	const tier = normalized.slice(separator + 1);
+	if (tier === "fast" || tier === "medium" || tier === "frontier" || tier === "ultra") {
+		return { tier, provider };
+	}
+	return undefined;
+}
+
+const FRONTIER_MODEL_ID_PATTERN = /(?:opus|fable|-pro$|-max$|gpt-5\.5|gpt-5\.6)/i;
 
 function warnIfFastAgentUsesExpensiveModel(options: {
 	reference: string;
@@ -345,22 +363,27 @@ export function resolveAgentModel(options: {
 	const reference = resolveAgentModelReference(options);
 	if (!reference || isAutoModelAlias(reference)) return options.parentModel;
 
-	// `"fast"` / `"medium"` aliases: resolve to the parent provider's mapped tier.
-	// `fast` is used by the read-only `explore` agent to avoid burning the parent's
-	// expensive model on grep/Glob/read workloads; `medium` is the mid-tier for
-	// extractors and structured workloads that need more than Haiku/Mini. Both
-	// fall back to the parent model when the provider has no mapping or the mapped
-	// id is not available — never throws.
-	if (reference === "fast" || reference === "medium") {
+	// Tier aliases resolve to the parent provider's mapped tier. `fast` is used by
+	// read-only `explore`; `medium` is for normal subagents; `frontier`/`ultra` are
+	// explicit opt-ins. Mixed proxy providers (e.g. `clawrouter`) prefer the
+	// parent model family before falling back to the provider's tier candidates.
+	const tierAlias = parseTierAlias(reference);
+	if (tierAlias) {
 		const parentProvider = options.parentModel?.provider;
-		const table = reference === "fast" ? fastModelPerProvider : mediumModelPerProvider;
-		const mappedId = parentProvider ? table[parentProvider] : undefined;
-		if (mappedId) {
+		const provider = tierAlias.provider ?? parentProvider;
+		const candidateIds = tierModelCandidatesForParent({
+			reference: tierAlias.tier,
+			parentProvider: provider,
+			parentModelId: provider === parentProvider ? options.parentModel?.id : undefined,
+		});
+		if (candidateIds.length > 0) {
 			const available = options.modelRegistry.getAvailable();
-			const hit = available.find((m) => m.provider === parentProvider && m.id === mappedId);
+			const hit = candidateIds
+				.map((id) => available.find((m) => m.provider === provider && m.id === id))
+				.find((model): model is Model<Api> => Boolean(model));
 			if (hit) {
 				warnIfFastAgentUsesExpensiveModel({
-					reference,
+					reference: tierAlias.tier,
 					agent: options.agent,
 					model: hit,
 					parentModel: options.parentModel,
@@ -371,7 +394,7 @@ export function resolveAgentModel(options: {
 			}
 		}
 		warnIfFastAgentUsesExpensiveModel({
-			reference,
+			reference: tierAlias.tier,
 			agent: options.agent,
 			model: options.parentModel,
 			parentModel: options.parentModel,
