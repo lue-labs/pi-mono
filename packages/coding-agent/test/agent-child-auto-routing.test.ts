@@ -89,6 +89,9 @@ describe("agent child auto model routing", () => {
 		expect(medium.runs[0]?.thinking).toBe("medium");
 		expect(frontier.runs[0]?.model?.id).toBe("frontier-child");
 		expect(frontier.runs[0]?.thinking).toBe("high");
+		for (const run of [cheap.runs[0], medium.runs[0], frontier.runs[0]]) {
+			expect(run?.warnings?.some((warning) => warning.includes("explicit model override"))).not.toBe(true);
+		}
 
 		expect(seen).toHaveLength(3);
 		expect(seen.map((entry) => entry.requestedModel)).toEqual(["auto", "auto", "auto"]);

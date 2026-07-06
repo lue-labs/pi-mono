@@ -122,8 +122,10 @@ export interface CreateAgentSessionResult {
 	session: AgentSession;
 	/** Extensions result (for UI context setup in interactive mode) */
 	extensionsResult: LoadExtensionsResult;
-	/** Warning if session was restored with a different model than saved */
+	/** Warning or informational note if startup model selection changed/fell back */
 	modelFallbackMessage?: string;
+	/** True when an auto model alias could not be routed and a fallback model is in use */
+	modelRoutingFailed?: boolean;
 }
 
 // Re-exports
@@ -253,6 +255,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;
+	let modelRoutingFailed = false;
 
 	// If session has data, try to restore model from it
 	if (!model && hasExistingSession && existingSession.model) {
@@ -344,6 +347,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			!modelsAreEqual(before, nextModel) ||
 			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== thinkingLevel);
 		if (!hasRoutingDecision) {
+			modelRoutingFailed = true;
 			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}Auto model ${requestedModel} could not be routed (no routing decision); continuing with ${before.provider}/${before.id}.`;
 		} else {
 			model = nextModel;
@@ -353,6 +357,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		const route = typeof resolved.metadata?.route === "string" ? resolved.metadata.route : requestedModel;
 		const unavailable = resolved.metadata?.llmRouterUnavailable as { message?: string } | undefined;
 		if (unavailable?.message) {
+			modelRoutingFailed = true;
 			modelFallbackMessage = `${modelFallbackMessage ? `${modelFallbackMessage}. ` : ""}${unavailable.message}`;
 		} else if (model && (before.provider !== model.provider || before.id !== model.id || resolved.thinkingLevel)) {
 			const thinkingSuffix = resolved.thinkingLevel ? ` · thinking ${thinkingLevel}` : "";
@@ -582,5 +587,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		session,
 		extensionsResult,
 		modelFallbackMessage,
+		modelRoutingFailed,
 	};
 }

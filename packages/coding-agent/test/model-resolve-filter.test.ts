@@ -75,6 +75,7 @@ describe("model:resolve startup filter", () => {
 		expect(result.session.thinkingLevel).toBe("medium");
 		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-sonnet-4-6");
 		expect(result.modelFallbackMessage).toContain("Auto model pi-fork/auto selected claude-bridge/claude-sonnet-4-6");
+		expect(result.modelRoutingFailed).toBe(false);
 	});
 
 	it("keeps the startup fallback model when no router resolves an auto alias", async () => {
@@ -100,6 +101,7 @@ describe("model:resolve startup filter", () => {
 		expect(result.modelFallbackMessage).toContain(
 			"Auto model pi-fork/auto could not be routed (no routing decision); continuing with claude-bridge/claude-opus-4-8",
 		);
+		expect(result.modelRoutingFailed).toBe(true);
 	});
 
 	it("defers an interactive auto alias until semantic prompt text exists", async () => {

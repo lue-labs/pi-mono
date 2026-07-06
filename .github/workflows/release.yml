@@ -175,6 +175,11 @@ jobs:
     if: needs.release.outputs.published == 'true' && needs.release.outputs.version != ''
     permissions:
       contents: write
+      packages: read
+      # The reusable build-binaries.yml `build` job requests `packages: read`
+      # to install private @valkyriweb packages; caller-job permissions must
+      # include every permission any called job requests.
+      #
       # The reusable build-binaries.yml `stage-github-release` job requests
       # `actions: read`. A called workflow can only request permissions the
       # CALLER JOB holds; job-level permissions here replace the workflow-level
