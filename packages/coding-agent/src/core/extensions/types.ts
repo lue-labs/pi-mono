@@ -427,6 +427,24 @@ export interface AgentHandle {
 	 * reaches a terminal status.
 	 */
 	abort(): Promise<void>;
+	/**
+	 * Feed a new prompt into the (possibly idle) background run. Waits for any
+	 * in-flight turn to finish, then relaunches the SAME session with `message`
+	 * as the next user turn — the run's conversation history is preserved, so a
+	 * long-lived fork accumulates context across successive resumes (unlike
+	 * `forkAgent`, which always starts a fresh session). Rejects if the run is
+	 * not resumable (id evicted, or a terminal state the controller can't
+	 * restart). Thin wrapper over the same `resumeAgentRecentRun` path the
+	 * `agent` control tool uses.
+	 */
+	resume(message: string): Promise<void>;
+	/**
+	 * Steer a message into the run's active child session mid-turn (queued after
+	 * the current tool calls, before the next model call). Rejects if the run
+	 * has no active session to receive it (idle or terminal) — use `resume` to
+	 * feed an idle run. Thin wrapper over `injectAgentRecentRun`.
+	 */
+	inject(message: string): Promise<void>;
 	/** Snapshot of the current run status. */
 	readonly status: AgentToolStatus;
 }
@@ -494,6 +512,18 @@ export interface ForkAgentOptions {
 	 * Additive and opt-in: default (unset/false) preserves prior behaviour.
 	 */
 	detachFromParent?: boolean;
+	/**
+	 * Keep the forked agent alive across turns as a long-lived, launcher-fed
+	 * background run. When true, the fork parks after each turn (retaining its
+	 * controller and a resumable, disk-persisted session) instead of terminating;
+	 * feed it the next turn with `handle.resume(message)`, which reloads the
+	 * persisted session so conversation history accumulates across turns. Retire
+	 * it with `handle.abort()`. Default (unset) terminates on completion as before.
+	 *
+	 * Use for stateful background helpers that observe/assist over many turns
+	 * (e.g. a paired observer agent fed per-turn activity digests).
+	 */
+	persistent?: boolean;
 	/** Short human label for logs/UI. */
 	description?: string;
 	/**
