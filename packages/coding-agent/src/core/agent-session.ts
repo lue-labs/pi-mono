@@ -2827,9 +2827,15 @@ export class AgentSession {
 			typeof resolvedMetadata?.tier === "string" ||
 			!modelsAreEqual(currentModel, nextModel) ||
 			(resolved.thinkingLevel !== undefined && resolved.thinkingLevel !== this.thinkingLevel);
-		if (!hasRoutingDecision) {
-			this._pendingAutoModelRequest = undefined;
-			const message = `Auto model ${pending.requestedModel} could not be routed (no routing decision); continuing with ${currentModel.provider}/${currentModel.id}.`;
+		// Router explicitly unavailable OR no routing decision at all: the session
+		// continues on the concrete fallback model, but say so as a custom message —
+		// for child agents the executor lifts this into the parent-facing run
+		// warnings so the caller can cancel and re-dispatch with an explicit model.
+		const routerUnavailable = resolvedMetadata?.llmRouterUnavailable !== undefined;
+		if (!hasRoutingDecision || routerUnavailable) {
+			const message = routerUnavailable
+				? `Auto model ${pending.requestedModel} could not be routed (semantic router unavailable); continuing with ${currentModel.provider}/${currentModel.id}.`
+				: `Auto model ${pending.requestedModel} could not be routed (no routing decision); continuing with ${currentModel.provider}/${currentModel.id}.`;
 			await this.sendCustomMessage(
 				{
 					customType: "model-routing-warning",
@@ -2839,12 +2845,18 @@ export class AgentSession {
 						requestedModel: pending.requestedModel,
 						provider: currentModel.provider,
 						modelId: currentModel.id,
-						reason: "no_routing_decision",
+						reason: routerUnavailable ? "router_unavailable" : "no_routing_decision",
 					},
 				},
 				{ triggerTurn: false },
 			);
-			return;
+			// Router-unavailable still resolved to a concrete decision (keep current
+			// model): fall through so the session records the model like any other
+			// resolution. Only a true no-decision aborts here.
+			if (!hasRoutingDecision) {
+				this._pendingAutoModelRequest = undefined;
+				return;
+			}
 		}
 		if (!this._modelRegistry.hasConfiguredAuth(nextModel)) {
 			throw new Error(`No API key for ${nextModel.provider}/${nextModel.id}`);

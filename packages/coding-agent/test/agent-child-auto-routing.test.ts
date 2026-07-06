@@ -100,6 +100,39 @@ describe("agent child auto model routing", () => {
 		expect(seen[2]?.routing.promptPreview).toContain("Design the architecture");
 	});
 
+	it("surfaces router-unavailable as a parent-facing run warning with re-dispatch advice", async () => {
+		const harness = await createRoutingHarness();
+		addFilter<any>("model:resolve", FILTER_ID, (value) => ({
+			...value,
+			metadata: {
+				...(value.metadata ?? {}),
+				llmRouterUnavailable: { message: "Semantic router is not running." },
+			},
+		}));
+		harness.setResponses([fauxAssistantMessage("done on fallback")]);
+
+		const result = await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "worker", task: "Implement the fix.", model: "auto" }] },
+			{
+				parentServices: {
+					cwd: harness.tempDir,
+					agentDir: harness.tempDir,
+					authStorage: harness.authStorage,
+					settingsManager: harness.settingsManager,
+					modelRegistry: harness.session.modelRegistry,
+				},
+				parentActiveTools: ["read", "grep", "bash", "edit", "write"],
+				parentSessionManager: harness.sessionManager,
+				parentModel: harness.getModel("parent-model"),
+				parentThinkingLevel: "medium",
+			},
+		);
+
+		const warnings = result.runs[0]?.warnings ?? [];
+		expect(warnings.some((warning) => warning.includes("Semantic router is not running."))).toBe(true);
+		expect(warnings.some((warning) => warning.includes("explicit model override"))).toBe(true);
+	});
+
 	it("does not call model:resolve for concrete child model ids", async () => {
 		const harness = await createRoutingHarness();
 		let called = false;

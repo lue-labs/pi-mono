@@ -473,6 +473,16 @@ export function resolveAgentDefaults(options: {
 	return { ...(settings.defaults ?? {}), ...(providerDefaults ?? {}) };
 }
 
+function extractModelRoutingWarnings(messages: readonly { role: string; content?: unknown }[]): string[] {
+	const warnings: string[] = [];
+	for (const message of messages) {
+		const custom = message as { role: string; customType?: string; content?: unknown };
+		if (custom.role !== "custom" || custom.customType !== "model-routing-warning") continue;
+		if (typeof custom.content === "string" && custom.content.length > 0) warnings.push(custom.content);
+	}
+	return warnings;
+}
+
 function extractFinalAssistantText(messages: readonly { role: string; content?: unknown }[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
@@ -732,6 +742,19 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		});
 		details.status = "completed";
 		refreshRunDetailsFromSession(details, session, startedAt);
+		// Lift child routing failures (auto alias, router unavailable / no decision)
+		// into the parent-facing run warnings so the caller can judge the fallback
+		// model and re-dispatch with an explicit provider/model override if wrong.
+		const routingWarnings = extractModelRoutingWarnings(session.messages);
+		if (routingWarnings.length > 0) {
+			details.warnings = [
+				...(details.warnings ?? []),
+				...routingWarnings.map(
+					(warning) =>
+						`${warning} If this fallback model is wrong for the task, re-run the task with an explicit model override.`,
+				),
+			];
+		}
 		details.outputPath = output.outputPath;
 		details.finalOutput = output.displayText;
 		details.rawOutput = output.rawContent;
@@ -898,7 +921,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	childSessionManager.newSession({ parentSession: options.parentSessionManager.getSessionFile() });
 	details.sessionId = childSessionManager.getSessionId();
 	details.sessionPath = childSessionManager.getSessionFile();
-	const { session } = await createAgentSessionFromServices({
+	const { session, modelFallbackMessage } = await createAgentSessionFromServices({
 		services: childServices,
 		sessionManager: childSessionManager,
 		model: effectiveModel,
@@ -937,6 +960,15 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	});
 	details.model = formatModelForDetails(session.model ?? effectiveModel);
 	details.thinking = session.thinkingLevel;
+	// Auto-alias routing failure at child session creation (semantic router
+	// unavailable / no routing decision): surface it in the parent-facing run
+	// warnings so the caller can cancel and re-dispatch with an explicit model.
+	if (requestedAutoModel && modelFallbackMessage) {
+		details.warnings = [
+			...(details.warnings ?? []),
+			`${modelFallbackMessage} If this fallback model is wrong for the task, re-run the task with an explicit model override.`,
+		];
+	}
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
