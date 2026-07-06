@@ -7,6 +7,7 @@ import { type AgentToolExecutionInput, type AgentToolParentServices, executeAgen
 import {
 	cancelAgentRecentRun,
 	findAgentRecentRun,
+	injectAgentRecentRun,
 	interruptAgentRecentRun,
 	resumeAgentRecentRun,
 	waitForAgentRecentRun,
@@ -120,6 +121,9 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 				{
 					mode: "single",
 					background: true,
+					// Keep the fork alive across turns: it parks (resumable) after each
+					// turn so the caller can feed the next one via handle.resume().
+					persistent: opts.persistent,
 					tasks: [
 						{
 							// Route through a named agent definition when the caller asks
@@ -219,6 +223,14 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 				},
 				async abort() {
 					await cancelAgentRecentRun(runId);
+				},
+				async resume(message: string) {
+					const result = await resumeAgentRecentRun(runId, message);
+					if (!result.ok) throw new Error(result.message);
+				},
+				async inject(message: string) {
+					const result = await injectAgentRecentRun(runId, message);
+					if (!result.ok) throw new Error(result.message);
 				},
 			};
 

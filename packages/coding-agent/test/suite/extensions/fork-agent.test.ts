@@ -92,6 +92,7 @@ function forkExtensionFactory(
 		metadata?: Record<string, unknown>;
 		cwd?: string;
 		agentType?: string;
+		persistent?: boolean;
 	} = {},
 ) {
 	const handles: AgentHandle[] = [];
@@ -108,6 +109,7 @@ function forkExtensionFactory(
 					...(options.allowedTools ? { allowedTools: options.allowedTools } : {}),
 					...(options.context ? { context: options.context } : {}),
 					...(options.agentType ? { agentType: options.agentType } : {}),
+					...(options.persistent ? { persistent: options.persistent } : {}),
 					...(options.metadata ? { metadata: options.metadata } : {}),
 					...(options.cwd ? { cwd: options.cwd } : {}),
 					...(controller ? { signal: controller.signal } : {}),
@@ -338,6 +340,8 @@ describe("ctx.forkAgent", () => {
 									};
 								},
 								async abort() {},
+								async resume() {},
+								async inject() {},
 							},
 						};
 					},
@@ -486,5 +490,89 @@ describe("ctx.forkAgent", () => {
 		// Non-fork: model + thinking come from the subagents pin, not the parent.
 		expect(details.runs[0]?.model?.id).toBe("pinned-cheap-model");
 		expect(details.runs[0]?.thinking).toBe("low");
+	});
+
+	// ── persistent forks (long-lived, launcher-fed) ──────────────────────────────
+
+	it("persistent fork parks as resumable (interrupted) after its turn instead of terminating", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured, { persistent: true });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+		const handle = captured.handle!;
+		const details = await handle.wait();
+		// Parked, not terminated: interrupted status keeps the controller alive and
+		// the session resumable so the launcher can feed the next turn.
+		expect(details.status).toBe("interrupted");
+		expect(details.resumable).toBe(true);
+		expect(handle.status).toBe("interrupted");
+	});
+
+	it("resume feeds a new turn into a persistent fork's SAME session, preserving history", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured, { persistent: true });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([
+			recordingFactory(record, "msg"),
+			recordingFactory(record, "msg"),
+			recordingFactory(record, "msg"),
+			recordingFactory(record, "msg"),
+		]);
+
+		await harness.session.prompt("kick off");
+		const handle = captured.handle!;
+		await handle.wait(); // turn 1 parked
+		const before = record.contexts.length;
+
+		await handle.resume("resumed-digest-42");
+		const details = await handle.wait(); // turn 2 parked again
+		expect(details.status).toBe("interrupted");
+		expect(record.contexts.length).toBeGreaterThan(before);
+		// The resumed turn ran in the SAME session: its context carries BOTH the
+		// original delegated task AND the resume prompt — history was preserved.
+		const resumed = record.contexts.find((ctx) => {
+			const text = JSON.stringify(ctx.messages);
+			return text.includes("resumed-digest-42") && text.includes("child task 1");
+		});
+		expect(resumed).toBeDefined();
+	});
+
+	it("inject rejects when a persistent fork is parked (no active child session)", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured, { persistent: true });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+		const handle = captured.handle!;
+		await handle.wait(); // parked — no active session to steer
+		await expect(handle.inject("late steer")).rejects.toThrow();
+	});
+
+	it("abort terminally retires a persistent fork", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured, { persistent: true });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+		const handle = captured.handle!;
+		await handle.wait(); // parked (interrupted, resumable)
+		await handle.abort();
+		expect(handle.status).toBe("cancelled");
 	});
 });

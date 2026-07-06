@@ -127,6 +127,26 @@ export interface AgentToolExecutionInput {
 	chainDir?: string;
 	agentScope?: AgentScope;
 	background?: boolean;
+	/**
+	 * Keep a single background run alive across turns. When set, the run parks
+	 * (status "interrupted", controller + resumable session retained) after each
+	 * turn instead of terminating, so the launcher can feed the next turn via
+	 * `handle.resume()`. The persisted child session is reloaded on resume, so
+	 * conversation history accumulates across turns. Only meaningful for
+	 * `mode:"single"` background runs; ignored otherwise. Default (unset) keeps
+	 * the prior terminate-on-completion behaviour.
+	 */
+	persistent?: boolean;
+}
+
+/**
+ * A persistent background fork parks between turns rather than terminating.
+ * "interrupted" is the only non-running status that preserves the run's live
+ * controller and marks it resumable (see status.ts `applyRunDetails` /
+ * `canResumeRun`), which is exactly what a long-lived launcher-fed agent needs.
+ */
+function isPersistentPark(input: AgentToolExecutionInput): boolean {
+	return input.persistent === true && input.background === true && input.mode === "single";
 }
 
 interface RunChildOptions extends AgentExecutorOptions {
@@ -1177,7 +1197,7 @@ async function resumeSingleBackgroundRun(
 
 	const completedDetails: AgentToolDetails = {
 		mode: input.mode,
-		status: "completed",
+		status: isPersistentPark(input) ? "interrupted" : "completed",
 		runs,
 		runId: recentRun.id,
 		background: true,
@@ -1187,6 +1207,7 @@ async function resumeSingleBackgroundRun(
 	return completedDetails;
 }
 
+// —— executeAgentToolToCompletion ——
 async function executeAgentToolToCompletion(
 	input: AgentToolExecutionInput,
 	options: AgentExecutorOptions,
@@ -1292,7 +1313,7 @@ async function executeAgentToolToCompletion(
 
 	const completedDetails: AgentToolDetails = {
 		mode: input.mode,
-		status: "completed",
+		status: isPersistentPark(input) ? "interrupted" : "completed",
 		runs,
 		runId: recentRun.id,
 		background: input.background === true,
@@ -1363,7 +1384,17 @@ export async function executeAgentTool(
 		abortStatus: () => abortStatus,
 		onProgress: (progress) => {
 			touchActivity();
-			updateAgentRecentRunProgress(recentRun, progress, generation);
+			// Persistent forks park (interrupted) after each turn instead of
+			// terminating. The child completing would otherwise emit a "completed"
+			// aggregate here, marking the run terminal and deleting its controller
+			// before the park runs — so the park's finishAgentRecentRun(interrupted)
+			// must be the ONLY terminal transition. Keep the run "running" through
+			// the completed progress; failures/cancels still flow normally.
+			const next =
+				isPersistentPark(input) && progress.status === "completed"
+					? { ...progress, status: "running" as const }
+					: progress;
+			updateAgentRecentRunProgress(recentRun, next, generation);
 		},
 		onChildSessionStart: (session, details) => {
 			touchActivity();
