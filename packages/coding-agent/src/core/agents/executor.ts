@@ -371,6 +371,24 @@ function warnIfFastAgentUsesExpensiveModel(options: {
 	);
 }
 
+function resolveTierAliasModel(
+	tierAlias: { tier: AgentTierAlias; provider?: string },
+	options: { parentModel: Model<Api> | undefined; modelRegistry: ModelRegistry },
+): Model<Api> | undefined {
+	const parentProvider = options.parentModel?.provider;
+	const provider = tierAlias.provider ?? parentProvider;
+	const candidateIds = tierModelCandidatesForParent({
+		reference: tierAlias.tier,
+		parentProvider: provider,
+		parentModelId: provider === parentProvider ? options.parentModel?.id : undefined,
+	});
+	if (candidateIds.length === 0) return undefined;
+	const available = options.modelRegistry.getAvailable();
+	return candidateIds
+		.map((id) => available.find((m) => m.provider === provider && m.id === id))
+		.find((model): model is Model<Api> => Boolean(model));
+}
+
 export function resolveAgentModel(options: {
 	modelReference?: string;
 	agent: AgentDefinition;
@@ -381,7 +399,16 @@ export function resolveAgentModel(options: {
 }): Model<Api> | undefined {
 	// Precedence: explicit task option > agent frontmatter > settings.subagents (provider override > defaults) > parent inheritance.
 	const reference = resolveAgentModelReference(options);
-	if (!reference || isAutoModelAlias(reference)) return options.parentModel;
+	if (!reference) return options.parentModel;
+
+	// Auto aliases are routed per-prompt by the `model:resolve` filter (semantic
+	// router): runChild forwards them as requestedModel + routingMetadata into the
+	// child session. The model returned here is only the concrete fallback used
+	// when the router is unavailable — prefer the family-aware medium tier over
+	// silently inheriting an expensive frontier parent.
+	if (isAutoModelAlias(reference)) {
+		return resolveTierAliasModel({ tier: "medium" }, options) ?? options.parentModel;
+	}
 
 	// Tier aliases resolve to the parent provider's mapped tier. `fast` is used by
 	// read-only `explore`; `medium` is for normal subagents; `frontier`/`ultra` are
@@ -389,39 +416,16 @@ export function resolveAgentModel(options: {
 	// parent model family before falling back to the provider's tier candidates.
 	const tierAlias = parseTierAlias(reference);
 	if (tierAlias) {
-		const parentProvider = options.parentModel?.provider;
-		const provider = tierAlias.provider ?? parentProvider;
-		const candidateIds = tierModelCandidatesForParent({
-			reference: tierAlias.tier,
-			parentProvider: provider,
-			parentModelId: provider === parentProvider ? options.parentModel?.id : undefined,
-		});
-		if (candidateIds.length > 0) {
-			const available = options.modelRegistry.getAvailable();
-			const hit = candidateIds
-				.map((id) => available.find((m) => m.provider === provider && m.id === id))
-				.find((model): model is Model<Api> => Boolean(model));
-			if (hit) {
-				warnIfFastAgentUsesExpensiveModel({
-					reference: tierAlias.tier,
-					agent: options.agent,
-					model: hit,
-					parentModel: options.parentModel,
-					fellBack: false,
-					onWarning: options.onWarning,
-				});
-				return hit;
-			}
-		}
+		const hit = resolveTierAliasModel(tierAlias, options);
 		warnIfFastAgentUsesExpensiveModel({
 			reference: tierAlias.tier,
 			agent: options.agent,
-			model: options.parentModel,
+			model: hit ?? options.parentModel,
 			parentModel: options.parentModel,
-			fellBack: true,
+			fellBack: !hit,
 			onWarning: options.onWarning,
 		});
-		return options.parentModel;
+		return hit ?? options.parentModel;
 	}
 
 	const result = parseModelPattern(reference, options.modelRegistry.getAvailable());

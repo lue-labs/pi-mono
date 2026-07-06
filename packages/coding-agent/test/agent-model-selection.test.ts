@@ -370,6 +370,35 @@ describe("agent model and thinking selection", () => {
 		]);
 	});
 
+	test('"clawrouter/auto" alias falls back to the family medium tier, not the parent', () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "claude-fable-5", name: "Claude Fable", reasoning: true },
+			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
+			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+		]);
+		const selected = resolveAgentModel({
+			agent: getBuiltinAgentDefinitions()[0],
+			defaults: { model: "clawrouter/auto" },
+			parentModel: parent,
+			modelRegistry: registry,
+		});
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("claude-sonnet-5");
+	});
+
+	test("auto alias falls back to the parent when no medium tier candidate exists", () => {
+		const { registry, parent } = createStaticRegistry("opencode", [
+			{ id: "parent-model", name: "Parent", reasoning: true },
+		]);
+		const selected = resolveAgentModel({
+			agent: getBuiltinAgentDefinitions()[0],
+			defaults: { model: "auto" },
+			parentModel: parent,
+			modelRegistry: registry,
+		});
+		expect(selected?.id).toBe("parent-model");
+	});
+
 	test("invalid model errors", () => {
 		const { registry, parent } = createRegistry();
 		expect(() =>
