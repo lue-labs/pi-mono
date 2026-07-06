@@ -4,14 +4,18 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+	COMPACTION_FAILURE_TRIP_COUNT,
 	type CompactionSettings,
 	calculateContextTokens,
 	compact,
 	DEFAULT_COMPACTION_SETTINGS,
 	estimateContextTokens,
+	evaluateRapidRefill,
 	findCutPoint,
 	getLastAssistantUsage,
 	prepareCompaction,
+	RAPID_REFILL_TRIP_COUNT,
+	RAPID_REFILL_WINDOW,
 	shouldCompact,
 } from "../src/core/compaction/index.ts";
 import {
@@ -588,4 +592,67 @@ describe.skipIf(!process.env.ANTHROPIC_OAUTH_TOKEN)("LLM summarization", () => {
 		console.log("Original messages:", loaded.messages.length);
 		console.log("After compaction:", reloaded.messages.length);
 	}, 60000);
+});
+
+describe("evaluateRapidRefill", () => {
+	it("trips on the 3rd rapid refill within the turn window, accumulating the streak", () => {
+		const first = evaluateRapidRefill({
+			hadPriorCompaction: false,
+			turnsSinceCompaction: 0,
+			consecutiveRapidRefills: 0,
+		});
+		expect(first).toEqual({ action: "proceed", consecutiveRapidRefills: 0 });
+
+		const second = evaluateRapidRefill({
+			hadPriorCompaction: true,
+			turnsSinceCompaction: 1,
+			consecutiveRapidRefills: first.consecutiveRapidRefills,
+		});
+		expect(second).toEqual({ action: "proceed", consecutiveRapidRefills: 1 });
+
+		const third = evaluateRapidRefill({
+			hadPriorCompaction: true,
+			turnsSinceCompaction: 2,
+			consecutiveRapidRefills: second.consecutiveRapidRefills,
+		});
+		expect(third).toEqual({ action: "proceed", consecutiveRapidRefills: 2 });
+
+		const fourth = evaluateRapidRefill({
+			hadPriorCompaction: true,
+			turnsSinceCompaction: 0,
+			consecutiveRapidRefills: third.consecutiveRapidRefills,
+		});
+		expect(fourth).toEqual({ action: "trip", consecutiveRapidRefills: RAPID_REFILL_TRIP_COUNT });
+	});
+
+	it("never trips and resets the streak when refills are spaced >= the turn window apart", () => {
+		let state = evaluateRapidRefill({
+			hadPriorCompaction: true,
+			turnsSinceCompaction: 1,
+			consecutiveRapidRefills: 1,
+		});
+		expect(state.consecutiveRapidRefills).toBe(2);
+
+		state = evaluateRapidRefill({
+			hadPriorCompaction: true,
+			turnsSinceCompaction: RAPID_REFILL_WINDOW,
+			consecutiveRapidRefills: state.consecutiveRapidRefills,
+		});
+		expect(state).toEqual({ action: "proceed", consecutiveRapidRefills: 0 });
+
+		for (let i = 0; i < 5; i++) {
+			state = evaluateRapidRefill({
+				hadPriorCompaction: true,
+				turnsSinceCompaction: RAPID_REFILL_WINDOW + i,
+				consecutiveRapidRefills: state.consecutiveRapidRefills,
+			});
+			expect(state).toEqual({ action: "proceed", consecutiveRapidRefills: 0 });
+		}
+	});
+
+	it("COMPACTION_FAILURE_TRIP_COUNT is a distinct constant from the rapid-refill window/trip count", () => {
+		expect(COMPACTION_FAILURE_TRIP_COUNT).toBe(3);
+		expect(RAPID_REFILL_TRIP_COUNT).toBe(3);
+		expect(RAPID_REFILL_WINDOW).toBe(3);
+	});
 });

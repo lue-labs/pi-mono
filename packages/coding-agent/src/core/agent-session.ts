@@ -62,12 +62,14 @@ import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { type CacheHealthMetrics, computeCacheHealth } from "./cache-health.ts";
 import {
+	COMPACTION_FAILURE_TRIP_COUNT,
 	type CompactionResult,
 	calculateContextTokens,
 	collectEntriesForBranchSummary,
 	compact,
 	estimateContextTokens,
 	estimateTokens,
+	evaluateRapidRefill,
 	generateBranchSummary,
 	prepareCompaction,
 	shouldCompact,
@@ -576,6 +578,16 @@ export class AgentSession {
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
+	/** Consecutive rapid-refill streak: incremented when a new auto-compaction fires within
+	 *  RAPID_REFILL_WINDOW turns of the previous one; trips the thrashing breaker at
+	 *  RAPID_REFILL_TRIP_COUNT (CC 2.1.201 autocompact-thrashing detector parity). */
+	private _consecutiveRapidRefills = 0;
+	/** Consecutive auto-compaction failures; trips the failure circuit breaker at
+	 *  COMPACTION_FAILURE_TRIP_COUNT and disables auto-compaction for the rest of the session. */
+	private _consecutiveCompactionFailures = 0;
+	/** Set once the failure circuit breaker trips; short-circuits all further auto-compaction
+	 *  attempts for the remainder of this session. */
+	private _autoCompactDisabledThisSession = false;
 	/** Set when the agent loop was stopped at a turn boundary by the mid-run compaction cap. */
 	private _midRunCompactionStop = false;
 	/** Set by extensions that need the current run to park after the active turn completes. */
@@ -969,16 +981,43 @@ export class AgentSession {
 		}
 	};
 
-	private _appendCacheHealthEntry(message: AssistantMessage): void {
-		const branch = this.sessionManager.getBranch();
+	/**
+	 * Estimate token count for the immovable prefix (system prompt + tool schemas)
+	 * that compaction cannot remove. Used by the fixed-prefix-overflow guard to
+	 * detect when compaction would be a structural no-op. Uses the same chars/4
+	 * heuristic as estimateSystemPromptTokens/estimateTokens elsewhere in this file.
+	 */
+	private _estimateFixedPrefixTokens(): number {
+		const systemPromptTokens = estimateSystemPromptTokens(this.systemPrompt);
+		const tools = this.agent.state.tools;
+		const toolsTokens = tools && tools.length > 0 ? Math.ceil(JSON.stringify(tools).length / 4) : 0;
+		return systemPromptTokens + toolsTokens;
+	}
+
+	/**
+	 * Count assistant turns since the most recent compaction (or total assistant
+	 * turns if there is no compaction yet). Shared by cache-health bookkeeping
+	 * and the auto-compaction rapid-refill breaker so both use one definition
+	 * of "turns since compaction".
+	 */
+	private _assistantTurnsAfterCompaction(branch: ReturnType<SessionManager["getBranch"]>): number {
 		const assistantEntries = branch.filter((entry) => entry.type === "message" && entry.message.role === "assistant");
 		const assistantTurn = assistantEntries.length;
 		const latestCompaction = getLatestCompactionEntry(branch);
-		const assistantTurnsAfterCompaction = latestCompaction
+		return latestCompaction
 			? branch
 					.slice(branch.findIndex((entry) => entry.id === latestCompaction.id) + 1)
 					.filter((entry) => entry.type === "message" && entry.message.role === "assistant").length
 			: assistantTurn;
+	}
+
+	private _appendCacheHealthEntry(message: AssistantMessage): void {
+		const branch = this.sessionManager.getBranch();
+		const assistantTurn = branch.filter(
+			(entry) => entry.type === "message" && entry.message.role === "assistant",
+		).length;
+		const latestCompaction = getLatestCompactionEntry(branch);
+		const assistantTurnsAfterCompaction = this._assistantTurnsAfterCompaction(branch);
 		const postCompactionTurn = latestCompaction !== null && assistantTurnsAfterCompaction <= 1;
 		const currentAssistantIndex = branch.length - 1;
 		let previousAssistantIndex = -1;
@@ -3319,11 +3358,65 @@ export class AgentSession {
 	 * Internal: Run auto-compaction with events.
 	 */
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
+		// Failure circuit breaker: checked before anything else, including the rapid-refill
+		// check below (CC 2.1.201 parity). Once tripped, auto-compaction is disabled for
+		// the rest of the session and this short-circuit must not emit repeatedly.
+		if (this._autoCompactDisabledThisSession) {
+			return false;
+		}
+
 		const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
 		let started = false;
 
 		try {
 			if (!this.model) {
+				return false;
+			}
+
+			// Fixed-prefix-overflow guard: if the immovable prefix (system prompt + tools,
+			// which compaction cannot remove) alone exceeds the compaction threshold,
+			// compaction is a structural no-op - skip instead of attempting-then-looping.
+			const compactionThreshold = this.model.contextWindow - settings.reserveTokens;
+			const fixedPrefixTokens = this._estimateFixedPrefixTokens();
+			// Scoped to the periodic "threshold" trigger only: an "overflow" recovery is a
+			// one-off reactive attempt (the provider already hard-stopped) and still deserves
+			// a real compaction attempt rather than a structural-no-op short-circuit.
+			if (reason === "threshold" && fixedPrefixTokens > compactionThreshold) {
+				this._emit({
+					type: "compaction_end",
+					reason,
+					result: undefined,
+					aborted: false,
+					willRetry: false,
+					errorMessage:
+						"Auto-compaction cannot help: the fixed prefix (system prompt + tools) alone exceeds the compaction threshold. Reduce pinned context or switch to a larger-context model.",
+				});
+				return false;
+			}
+
+			// Rapid-refill (thrashing) breaker: trips when context keeps refilling to the
+			// limit within RAPID_REFILL_WINDOW turns of the previous compaction, repeatedly.
+			const branchForRapidRefill = this.sessionManager.getBranch();
+			const hadPriorCompaction = getLatestCompactionEntry(branchForRapidRefill) !== null;
+			const turnsSinceCompaction = this._assistantTurnsAfterCompaction(branchForRapidRefill);
+			const rapidRefill = evaluateRapidRefill({
+				hadPriorCompaction,
+				turnsSinceCompaction,
+				consecutiveRapidRefills: this._consecutiveRapidRefills,
+			});
+			this._consecutiveRapidRefills = rapidRefill.consecutiveRapidRefills;
+			if (rapidRefill.action === "trip") {
+				// Reset so this does not re-emit on every subsequent compaction attempt.
+				this._consecutiveRapidRefills = 0;
+				this._emit({
+					type: "compaction_end",
+					reason,
+					result: undefined,
+					aborted: false,
+					willRetry: false,
+					errorMessage:
+						"Auto-compaction is thrashing: context refilled to the limit within 3 turns of the previous compaction, 3 times in a row. A file being read or a tool output is likely too large for the context window. Try reading in smaller chunks, or use /new to start fresh.",
+				});
 				return false;
 			}
 
@@ -3465,6 +3558,7 @@ export class AgentSession {
 				estimatedTokensAfter,
 				details,
 			};
+			this._consecutiveCompactionFailures = 0;
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });
 
 			if (willRetry) {
@@ -3481,7 +3575,19 @@ export class AgentSession {
 			return this.agent.hasQueuedMessages();
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : "compaction failed";
-			if (started) {
+			this._consecutiveCompactionFailures++;
+			if (this._consecutiveCompactionFailures >= COMPACTION_FAILURE_TRIP_COUNT) {
+				this._autoCompactDisabledThisSession = true;
+				this._emit({
+					type: "compaction_end",
+					reason,
+					result: undefined,
+					aborted: false,
+					willRetry: false,
+					errorMessage:
+						"Auto-compaction circuit breaker tripped after 3 consecutive failures — auto-compaction is disabled for the rest of this session. Try /new to start fresh or switch to a larger-context model.",
+				});
+			} else if (started) {
 				this._emit({
 					type: "compaction_end",
 					reason,
