@@ -596,6 +596,34 @@ function extractTextPreview(content: unknown, maxLength = 240): string | undefin
 	return previewValue(text, maxLength);
 }
 
+function appendRunActivitySnippet(details: AgentRunDetails, text: string, maxLength = 200): boolean {
+	const snippet = previewValue(text, maxLength);
+	if (!snippet || snippet === details.recentOutputSnippets[details.recentOutputSnippets.length - 1]) return false;
+	details.recentOutputSnippets.push(snippet);
+	details.recentOutputSnippets = details.recentOutputSnippets.slice(-5);
+	return true;
+}
+
+function isRateLimitRetryText(text: string): boolean {
+	return /\b429\b|rate.?limit|too many requests|overloaded/i.test(text);
+}
+
+function formatAutoRetryActivity(event: {
+	attempt: number;
+	maxAttempts: number;
+	delayMs: number;
+	errorMessage: string;
+}): string {
+	const kind = isRateLimitRetryText(event.errorMessage) ? "Rate limited/overloaded" : "Provider retry";
+	const error = previewValue(event.errorMessage, 120) ?? "unknown error";
+	return `${kind}; auto-retry ${event.attempt}/${event.maxAttempts} in ${formatAgentDurationMs(event.delayMs)}: ${error}`;
+}
+
+function formatAutoRetryFailure(event: { attempt: number; finalError?: string }): string {
+	const error = previewValue(event.finalError ?? "unknown error", 120) ?? "unknown error";
+	return `Provider retry failed after ${event.attempt} attempts: ${error}`;
+}
+
 function getLastCompletedAssistantMessage(messages: readonly AssistantMessage[]): AssistantMessage | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
@@ -676,9 +704,7 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		refreshRunDetailsFromSession(details, session, startedAt);
 		if (event.type === "message_update" && event.message.role === "assistant") {
 			const snippet = extractTextPreview(event.message.content, 200);
-			if (snippet && snippet !== details.recentOutputSnippets[details.recentOutputSnippets.length - 1]) {
-				details.recentOutputSnippets.push(snippet);
-				details.recentOutputSnippets = details.recentOutputSnippets.slice(-5);
+			if (snippet && appendRunActivitySnippet(details, snippet)) {
 				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: snippet });
 			}
 		}
@@ -722,6 +748,20 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 					isError: event.isError,
 					resultPreview: extractTextPreview(event.result.content, 200),
 				});
+		}
+		if (event.type === "auto_retry_start") {
+			const activity = formatAutoRetryActivity(event);
+			details.currentToolName = undefined;
+			details.currentToolArgsPreview = undefined;
+			if (appendRunActivitySnippet(details, activity)) {
+				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: activity });
+			}
+		}
+		if (event.type === "auto_retry_end" && !event.success) {
+			const activity = formatAutoRetryFailure(event);
+			if (appendRunActivitySnippet(details, activity)) {
+				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: activity });
+			}
 		}
 		emitProgress(options.progressInput, options.progressRuns, options.onProgress);
 	});

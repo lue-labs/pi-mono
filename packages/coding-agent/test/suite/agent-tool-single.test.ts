@@ -46,4 +46,42 @@ describe("agent tool suite: single", () => {
 		expect(details.runs[0]?.usage?.totalTokens).toBeGreaterThanOrEqual(0);
 		expect(seenChildContexts[0]?.tools?.map((tool) => tool.name)).not.toContain("agent");
 	});
+
+	it("surfaces child provider rate-limit retries in Agent progress", async () => {
+		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } } });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "429 rate limit from clawrouter" }),
+			fauxAssistantMessage("child complete"),
+		]);
+		const progressSnippets: string[] = [];
+
+		const details = await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "reviewer", task: "Review the diff" }] },
+			{
+				parentServices: {
+					cwd: harness.tempDir,
+					agentDir: harness.tempDir,
+					authStorage: harness.authStorage,
+					settingsManager: harness.settingsManager,
+					modelRegistry: harness.session.modelRegistry,
+				},
+				parentActiveTools: ["read", "grep"],
+				parentSessionManager: harness.sessionManager,
+				parentModel: harness.getModel(),
+				parentThinkingLevel: "off",
+				onProgress: (progress) => {
+					const snippets = progress.runs[0]?.recentOutputSnippets ?? [];
+					const latest = snippets[snippets.length - 1];
+					if (latest) progressSnippets.push(latest);
+				},
+			},
+		);
+
+		expect(details.status).toBe("completed");
+		expect(progressSnippets).toEqual(
+			expect.arrayContaining([expect.stringContaining("Rate limited/overloaded; auto-retry 1/2")]),
+		);
+		expect(progressSnippets.some((snippet) => snippet.includes("429 rate limit from clawrouter"))).toBe(true);
+	});
 });
