@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Container, type Terminal, Text, TUI } from "@valkyriweb/pi-tui";
+import { Container, type Terminal, Text, TUI, visibleWidth } from "@valkyriweb/pi-tui";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { computeEditsDiff, type Edit } from "../src/core/tools/edit-diff.ts";
@@ -342,5 +342,82 @@ describe("edit tool TUI rendering", () => {
 		);
 		expect(rendered).not.toContain("+1 ");
 		expect(rendered).not.toContain("-1 ");
+	});
+
+	it("wraps the final error text from failed edit execution", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "pi-edit-final-error-"));
+		tempDirs.push(dir);
+		const filePath = join(dir, "missing-edit.txt");
+		await writeFile(filePath, "line 0\nline 1\n", "utf8");
+
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-final-error",
+			{ path: filePath, edits: [{ oldText: "", newText: "replacement" }] },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		tui.addChild(component);
+		tui.start();
+
+		component.updateResult(
+			{
+				content: [
+					{
+						type: "text",
+						text: "Could not find edits[10] in /Users/luke/Projects/personal/babysitter/babysit. The oldText must match exactly including all whitespace and newlines. Re-read the current file and retry with the smallest unique oldText block copied exactly from the file (usually 1-3 lines). If copying from Read output, omit line numbers, tabs/colons, and separators. edits[10]: oldText not present in current file (1 line(s), 90 chars).",
+					},
+				],
+				isError: true,
+			},
+			false,
+		);
+
+		const width = 60;
+		const renderedLines = component.render(width);
+		expect(renderedLines.some((line) => stripAnsi(line).includes("Could not find edits[10]"))).toBe(true);
+		for (const line of renderedLines) {
+			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
+	});
+
+	it("wraps duplicate-match final edit errors from native-tool-overrides", async () => {
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const longPath =
+			"/Users/luke/Projects/work/paperclip-lane-subscription-budgets/server/src/__tests__/costs-service.test.ts";
+		const errorText = `Found 3 occurrences of edits[3] in ${longPath}. Each oldText must be unique. Please provide more context to make it unique. If you intend to replace every occurrence in this file, retry with replaceAll: true.`;
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-duplicate-final-error",
+			{ path: longPath, edits: [{ oldText: "repeated", newText: "replacement" }] },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		tui.addChild(component);
+		tui.start();
+		await waitForRender();
+
+		component.updateResult(
+			{
+				content: [{ type: "text", text: errorText }],
+				isError: true,
+			},
+			false,
+		);
+		await waitForRender();
+
+		const width = 80;
+		const renderedLines = component.render(width);
+		expect(stripAnsi(renderedLines.join("\n"))).toContain("Found 3 occurrences of edits[3]");
+		for (const line of renderedLines) {
+			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
 	});
 });
