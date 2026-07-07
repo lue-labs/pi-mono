@@ -87,5 +87,11 @@ describe("/agents selector", () => {
 
 		const completedBg = { ...runningBg, status: "completed" as const };
 		expect(shouldZoomAgentRunRow(completedBg)).toBe(false);
+
+		const observer = startAgentRecentRun("single", [{ agent: "general", task: "Observe" }], {
+			background: true,
+			kind: "observer",
+		});
+		expect(shouldZoomAgentRunRow(observer)).toBe(false);
 	});
 });

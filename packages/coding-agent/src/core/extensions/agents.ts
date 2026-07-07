@@ -9,7 +9,7 @@ import { theme } from "../../modes/interactive/theme/theme.ts";
 import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine } from "../agents/engine.ts";
 import { listAgentRecentRuns } from "../agents/status.ts";
 import { findTaskAdapter, listTasks, subscribeTasks } from "../tasks/registry.ts";
-import { formatTaskFooterStatus, formatTaskStatus } from "../tasks/status.ts";
+import { formatObserverFooterStatus, formatTaskFooterStatus, formatTaskStatus } from "../tasks/status.ts";
 import type { TaskSnapshot } from "../tasks/types.ts";
 import {
 	createAgentToolDefinition,
@@ -25,13 +25,23 @@ import type {
 } from "./types.ts";
 
 const AGENTS_PANE_ID = "agents-status";
+const OBSERVER_FOOTER_ID = "observer-status";
+
+function isObserverTask(task: TaskSnapshot): boolean {
+	return task.type === "local_agent" && task.kind === "observer";
+}
 
 function footerNeedsAttention(): boolean {
 	return listTasks().some((task) => {
+		if (isObserverTask(task)) return false;
 		if (task.status === "interrupted" || task.status === "failed") return true;
 		if (task.status !== "running" || task.type !== "local_agent") return false;
 		return listAgentRecentRuns().find((run) => run.id === task.id)?.needsAttention ?? false;
 	});
+}
+
+function observerFooterNeedsAttention(): boolean {
+	return listTasks().some((task) => isObserverTask(task) && (task.status === "failed" || Boolean(task.error)));
 }
 
 /**
@@ -46,6 +56,13 @@ function renderFooterText(ctx: ExtensionFooterRenderCtx): string {
 	if (!text) return text;
 	if (ctx.selected) return ctx.theme.fg("accent", text);
 	return ctx.theme.fg(footerNeedsAttention() ? "warning" : "dim", text);
+}
+
+function renderObserverFooterText(ctx: ExtensionFooterRenderCtx): string {
+	const text = formatObserverFooterStatus() ?? "";
+	if (!text) return text;
+	if (ctx.selected) return ctx.theme.fg("accent", text);
+	return ctx.theme.fg(observerFooterNeedsAttention() ? "warning" : "dim", text);
 }
 
 function getAgentEngine(pi: ExtensionAPI): AgentEngine | undefined {
@@ -91,6 +108,11 @@ export function hookAgentsUI(pi: ExtensionAPI): void {
 	pi.registerFooter(AGENTS_PANE_ID, {
 		render: (ctx) => renderFooterText(ctx),
 		visible: () => formatTaskFooterStatus() !== undefined,
+		onActivate: () => pi.showMainPane(AGENTS_PANE_ID),
+	});
+	pi.registerFooter(OBSERVER_FOOTER_ID, {
+		render: (ctx) => renderObserverFooterText(ctx),
+		visible: () => formatObserverFooterStatus() !== undefined,
 		onActivate: () => pi.showMainPane(AGENTS_PANE_ID),
 	});
 }

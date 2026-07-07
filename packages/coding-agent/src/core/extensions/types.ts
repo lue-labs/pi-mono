@@ -44,7 +44,7 @@ import type { Static, TSchema } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { AgentSession } from "../agent-session.ts";
 import type { AgentChainDefinition } from "../agents/chains.ts";
-import type { AgentDefinition, AgentToolDetails, AgentToolStatus } from "../agents/types.ts";
+import type { AgentDefinition, AgentRunKind, AgentToolDetails, AgentToolStatus } from "../agents/types.ts";
 import type { BashResult } from "../bash-executor.ts";
 import type { CompactionPreparation, CompactionResult } from "../compaction/index.ts";
 import type { EventBus } from "../event-bus.ts";
@@ -496,6 +496,12 @@ export interface ForkAgentOptions {
 	detachFromParent?: boolean;
 	/** Short human label for logs/UI. */
 	description?: string;
+	/**
+	 * Parent-visible run classification. Use `"observer"` for control-plane
+	 * watcher forks so generic task UI does not count them as ordinary background
+	 * agents. Defaults to `"agent"`.
+	 */
+	runKind?: AgentRunKind;
 	/**
 	 * When true (default), suppresses the `agent_completion` transcript
 	 * notification for this fork. Extension-initiated forks (e.g. pi-memory

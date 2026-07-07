@@ -68,13 +68,15 @@ describe("model:resolve startup filter", () => {
 			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
-			requestedModel: "pi-fork/auto",
+			requestedModel: "clawrouter/auto",
 		});
 
 		expect(result.session.model?.id).toBe("claude-sonnet-4-6");
 		expect(result.session.thinkingLevel).toBe("medium");
 		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-sonnet-4-6");
-		expect(result.modelFallbackMessage).toContain("Auto model pi-fork/auto selected claude-bridge/claude-sonnet-4-6");
+		expect(result.modelFallbackMessage).toContain(
+			"Auto model clawrouter/auto selected claude-bridge/claude-sonnet-4-6",
+		);
 	});
 
 	it("keeps the startup fallback model when no router resolves an auto alias", async () => {
@@ -91,14 +93,14 @@ describe("model:resolve startup filter", () => {
 			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
-			requestedModel: "pi-fork/auto",
+			requestedModel: "clawrouter/auto",
 		});
 
 		expect(result.session.model?.id).toBe("claude-opus-4-8");
 		expect(result.session.thinkingLevel).toBe("high");
 		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-opus-4-8");
 		expect(result.modelFallbackMessage).toContain(
-			"Auto model pi-fork/auto could not be routed (no routing decision); continuing with claude-bridge/claude-opus-4-8",
+			"Auto model clawrouter/auto could not be routed (no routing decision); continuing with claude-bridge/claude-opus-4-8",
 		);
 	});
 
@@ -164,11 +166,11 @@ describe("model:resolve startup filter", () => {
 			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
-			requestedModel: "pi-fork/auto",
+			requestedModel: "clawrouter/auto",
 			deferRequestedModelResolution: true,
 		});
 
-		expect(result.session.pendingAutoModelAlias).toBe("pi-fork/auto");
+		expect(result.session.pendingAutoModelAlias).toBe("clawrouter/auto");
 		await (result.session as any)._resolvePendingAutoModelForPrompt("hello");
 
 		expect(result.session.pendingAutoModelAlias).toBeUndefined();
@@ -190,11 +192,11 @@ describe("model:resolve startup filter", () => {
 			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
-			requestedModel: "pi-fork/auto",
+			requestedModel: "clawrouter/auto",
 			deferRequestedModelResolution: true,
 		});
 
-		expect(result.session.pendingAutoModelAlias).toBe("pi-fork/auto");
+		expect(result.session.pendingAutoModelAlias).toBe("clawrouter/auto");
 		await expect((result.session as any)._resolvePendingAutoModelForPrompt("hello")).resolves.toBeUndefined();
 
 		expect(result.session.pendingAutoModelAlias).toBeUndefined();
@@ -206,7 +208,7 @@ describe("model:resolve startup filter", () => {
 			.find((entry) => entry.type === "custom_message" && entry.customType === "model-routing-warning");
 		expect(warning).toMatchObject({
 			content:
-				"Auto model pi-fork/auto could not be routed (no routing decision); continuing with claude-bridge/claude-opus-4-8.",
+				"Auto model clawrouter/auto could not be routed (no routing decision); continuing with claude-bridge/claude-opus-4-8.",
 			display: true,
 		});
 	});
@@ -262,7 +264,7 @@ describe("model:resolve startup filter", () => {
 			settingsManager: SettingsManager.create(tempDir, tempDir),
 			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
-			requestedModel: "pi-fork/auto",
+			requestedModel: "clawrouter/auto",
 		});
 
 		expect(called).toBe(false);

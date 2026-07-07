@@ -1,6 +1,6 @@
 import type { Usage } from "@valkyriweb/pi-ai";
 
-export type CacheHealthWarning = "fresh_tail_large" | "prefix_cold_write" | "ttl_expiry_likely";
+export type CacheHealthWarning = "fresh_tail_large" | "cache_write_unhealthy" | "ttl_expiry_likely";
 export type CacheHealthExemption = "first_assistant_turn" | "post_compaction" | "model_change";
 
 export interface CacheHealthTurnContext {
@@ -31,7 +31,8 @@ export interface CacheHealthMetrics {
 }
 
 export const FRESH_TAIL_RATIO_WARNING_THRESHOLD = 0.8;
-export const PREFIX_COLD_WRITE_TOKEN_THRESHOLD = 5_000;
+export const CACHE_WRITE_WARNING_TOKEN_THRESHOLD = 5_000;
+export const CACHE_WRITE_WARNING_WARMTH_THRESHOLD = 80;
 export const TTL_EXPIRY_LIKELY_PROMPT_MIN = 30_000;
 export const TTL_EXPIRY_LIKELY_PREVIOUS_CACHE_READ_MIN = 30_000;
 export const TTL_EXPIRY_LIKELY_IDLE_MS = 4.5 * 60 * 1000;
@@ -86,8 +87,13 @@ export function computeCacheHealth(input: CacheHealthInput): CacheHealthMetrics 
 	if (cacheRead > 0 && freshInput > cacheRead * FRESH_TAIL_RATIO_WARNING_THRESHOLD) {
 		warnings.push("fresh_tail_large");
 	}
-	if (cacheWrite > PREFIX_COLD_WRITE_TOKEN_THRESHOLD && exemptions.length === 0) {
-		warnings.push("prefix_cold_write");
+	const warmthPct = percent(cacheRead, cacheActivity);
+	if (
+		cacheWrite > CACHE_WRITE_WARNING_TOKEN_THRESHOLD &&
+		warmthPct < CACHE_WRITE_WARNING_WARMTH_THRESHOLD &&
+		exemptions.length === 0
+	) {
+		warnings.push("cache_write_unhealthy");
 	}
 	if (
 		exemptions.length === 0 &&
@@ -108,7 +114,7 @@ export function computeCacheHealth(input: CacheHealthInput): CacheHealthMetrics 
 		cacheRead,
 		cacheWrite,
 		coveragePct: percent(cacheRead, totalInput),
-		warmthPct: percent(cacheRead, cacheActivity),
+		warmthPct,
 		freshTailRatio,
 		ttlGapMs,
 		previousCacheRead,

@@ -2290,6 +2290,9 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 					}
 				});
 
+			const progressEvents: ProgressEvent[] = [];
+			packageManager.setProgressCallback((event) => progressEvents.push(event));
+
 			let activeNpmUpdates = 0;
 			let maxConcurrentNpmUpdates = 0;
 			const runCommandSpy = vi
@@ -2347,6 +2350,18 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 				undefined,
 			);
 			expect(updateGitSpy).toHaveBeenCalledTimes(4);
+			expect(progressEvents).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "start",
+						message: "Updating user npm packages: npm:user-old, npm:user-unknown",
+					}),
+					expect.objectContaining({
+						type: "start",
+						message: "Updating project npm packages: npm:project-old, npm:project-missing",
+					}),
+				]),
+			);
 			expect(maxConcurrentNpmUpdates).toBeGreaterThan(1);
 			expect(maxConcurrentGitUpdates).toBeGreaterThan(1);
 		});

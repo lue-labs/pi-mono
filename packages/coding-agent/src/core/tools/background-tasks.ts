@@ -74,10 +74,19 @@ async function taskOutputPath(task: TaskSnapshot): Promise<string | undefined> {
 
 async function renderTaskRow(task: TaskSnapshot): Promise<string> {
 	const elapsed = ((task.endedAt ?? Date.now()) - task.startedAt) / 1000;
-	const flavor = task.type === "local_bash" ? "bash" : task.type === "local_agent" ? "agent" : task.type;
+	const flavor =
+		task.kind === "observer"
+			? "observer"
+			: task.type === "local_bash"
+				? "bash"
+				: task.type === "local_agent"
+					? "agent"
+					: task.type;
+	const status =
+		task.kind === "observer" && (task.status === "running" || task.status === "interrupted") ? "armed" : task.status;
 	const outputPath = await taskOutputPath(task);
 	const output = outputPath ? `  output=${outputPath}` : "";
-	return `${task.id}  [${flavor}]  ${task.status}  ${elapsed.toFixed(1)}s  ${task.description}${output}`;
+	return `${task.id}  [${flavor}]  ${status}  ${elapsed.toFixed(1)}s  ${task.description}${output}`;
 }
 
 export function createTaskBackgroundListToolDefinition(): ToolDefinition<

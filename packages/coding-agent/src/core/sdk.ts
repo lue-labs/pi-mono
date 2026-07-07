@@ -307,7 +307,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			? normalizeAutoAliasString(settingsManager.getDefaultProvider(), settingsManager.getDefaultModel())
 			: undefined;
 	const deferSettingsDefaultAuto = settingsDefaultAutoAlias !== undefined;
-	const requestedModel = options.requestedModel?.trim() ?? settingsDefaultAutoAlias;
+	const explicitRequestedModel = options.requestedModel?.trim();
+	const requestedModel = explicitRequestedModel
+		? (normalizeAutoAliasString("clawrouter", explicitRequestedModel) ?? explicitRequestedModel)
+		: settingsDefaultAutoAlias;
 	const pendingRequestedModel =
 		requestedModel && (options.deferRequestedModelResolution || deferSettingsDefaultAuto) && !hasExistingSession
 			? requestedModel

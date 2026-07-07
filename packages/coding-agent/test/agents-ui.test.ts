@@ -91,6 +91,31 @@ describe("agents UI", () => {
 		expect(selected).toContain("[accent]");
 	});
 
+	test("registers a separate observer footer that does not trip the Background pill", () => {
+		const fake = createFakePi();
+		hookAgents(fake.pi as never);
+		const backgroundFooter = fake.footers.get("agents-status");
+		const observerFooter = fake.footers.get("observer-status");
+		expect(backgroundFooter).toBeDefined();
+		expect(observerFooter).toBeDefined();
+
+		const observer = startAgentRecentRun(
+			"single",
+			[{ agent: "general", task: "You are now armed as a background observer." }],
+			{ background: true, kind: "observer" },
+		);
+
+		expect(backgroundFooter?.visible?.()).toBe(false);
+		expect(observerFooter?.visible?.()).toBe(true);
+		expect(
+			observerFooter?.render({
+				width: 120,
+				theme: { fg: (_color: string, value: string) => value } as never,
+				selected: false,
+			}),
+		).toContain(`Observer: 1 armed · ${observer.id}`);
+	});
+
 	// Regression: agents.ts used to bundle tool-schema registration and the
 	// interactive footer pill/pane into a single "agents" load action. A
 	// downstream consumer that needs to override the native agent/Agent/Task

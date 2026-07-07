@@ -1,3 +1,4 @@
+import type { Api, Model } from "@valkyriweb/pi-ai";
 import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
 import { afterEach, describe, expect, test } from "vitest";
 import { getBuiltinAgentDefinitions } from "../src/core/agents/definitions.ts";
@@ -25,7 +26,16 @@ function createRegistry() {
 }
 
 function createStaticRegistry(provider: string, models: Array<{ id: string; name: string; reasoning: boolean }>) {
-	const available = models.map((model) => ({ ...model, provider }));
+	const available: Model<Api>[] = models.map((model) => ({
+		...model,
+		provider,
+		api: "anthropic-messages",
+		baseUrl: `https://example.test/${provider}`,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200_000,
+		maxTokens: 8_192,
+	}));
 	return {
 		registry: { getAvailable: () => available } as unknown as ModelRegistry,
 		parent: available[0],
@@ -273,7 +283,7 @@ describe("agent model and thinking selection", () => {
 		expect(gptSelected?.id).toBe("gpt-5.6");
 	});
 
-	test('qualified tier aliases select from that provider', () => {
+	test("qualified tier aliases select from that provider", () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
 			{ id: "claude-fable-5-200k", name: "Claude Fable 200k", reasoning: true },

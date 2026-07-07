@@ -1,3 +1,5 @@
+import type { AgentRunKind } from "../agents/types.ts";
+
 /**
  * Unified Task abstraction.
  *
@@ -25,6 +27,8 @@ export function isTerminalTaskStatus(status: TaskStatus): boolean {
 export interface TaskSnapshot {
 	id: string;
 	type: TaskType;
+	/** Optional subtype/role for task types that multiplex control-plane helpers, e.g. local_agent observers. */
+	kind?: AgentRunKind;
 	status: TaskStatus;
 	description: string;
 	startedAt: number;

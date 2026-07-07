@@ -178,7 +178,7 @@ describe("settings-default auto routing", () => {
 		expect(result.session.pendingAutoModelAlias).toBeUndefined();
 	});
 
-	it("does not override an explicit requested auto alias", async () => {
+	it("canonicalizes a legacy explicit requested auto alias", async () => {
 		const cwd = createTempDir();
 		const sessionManager = SessionManager.inMemory();
 		const result = await createAgentSession({
@@ -196,7 +196,7 @@ describe("settings-default auto routing", () => {
 			noTools: "all",
 		});
 
-		expect(result.session.pendingAutoModelAlias).toBe("pi-fork/auto");
+		expect(result.session.pendingAutoModelAlias).toBe("clawrouter/auto");
 		expect(sessionManager.buildSessionContext().model).toBeNull();
 	});
 });

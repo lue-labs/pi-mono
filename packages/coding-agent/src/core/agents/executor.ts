@@ -8,7 +8,7 @@ import { createAgentSessionFromServices, createAgentSessionServices } from "../a
 import type { AuthStorage } from "../auth-storage.ts";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.ts";
 import type { ModelRegistry } from "../model-registry.ts";
-import { parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
+import { normalizeAutoAliasString, parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
 import { type ReadonlySessionManager, SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import { appendTaskMessage } from "../tasks/messages.ts";
@@ -33,6 +33,7 @@ import {
 	finishAgentRecentRun,
 	formatAgentDurationMs,
 	getAgentRecentRunGeneration,
+	markAgentRecentRunBackgrounded,
 	markAgentRecentRunNeedsAttention,
 	restartAgentRecentRun,
 	startAgentRecentRun,
@@ -46,6 +47,7 @@ import type {
 	AgentOutputMode,
 	AgentRegistry,
 	AgentRunDetails,
+	AgentRunKind,
 	AgentScope,
 	AgentTaskConfig,
 	AgentToolDetails,
@@ -103,6 +105,7 @@ export interface AgentExecutorOptions {
 	abortStatus?: () => AgentToolStatus | undefined;
 	onChildSessionStart?: (session: AgentSession, details: AgentRunDetails) => void;
 	onChildSessionEnd?: (session: AgentSession, details: AgentRunDetails) => void;
+	onChildProviderRetry?: (event: { details: AgentRunDetails; activity: string }) => void;
 	/**
 	 * Fired exactly once when a background run reaches a terminal status
 	 * (completed | failed | cancelled | interrupted). Only wired by the
@@ -163,6 +166,14 @@ export function resolveChildCwd(taskCwd: string | undefined, parentCwd: string):
 
 function normalizeOutputMode(mode: AgentOutputMode | undefined): AgentOutputMode {
 	return mode ?? "inline";
+}
+
+function hasObserverForkMetadata(task: AgentTaskConfig): boolean {
+	return typeof task.forkMetadata?.pairingId === "string";
+}
+
+function resolveRunKind(tasks: AgentTaskConfig[]): AgentRunKind {
+	return tasks.some((task) => task.runKind === "observer" || hasObserverForkMetadata(task)) ? "observer" : "agent";
 }
 
 function normalizeTask(
@@ -298,15 +309,12 @@ function resolveAgentModelReference(options: {
 	);
 }
 
+function normalizeAgentAutoModelAlias(reference: string | undefined): string | undefined {
+	return normalizeAutoAliasString("clawrouter", reference);
+}
+
 function isAutoModelAlias(reference: string | undefined): boolean {
-	const normalized = reference?.trim().toLowerCase();
-	return (
-		normalized === "auto" ||
-		normalized === "pi-fork/auto" ||
-		normalized === "claude-bridge/auto" ||
-		normalized === "clawrouter/auto" ||
-		normalized === "openai-codex/auto"
-	);
+	return normalizeAgentAutoModelAlias(reference) !== undefined;
 }
 
 type AgentTierAlias = "fast" | "medium" | "frontier" | "ultra";
@@ -562,6 +570,34 @@ function extractTextPreview(content: unknown, maxLength = 240): string | undefin
 	return previewValue(text, maxLength);
 }
 
+function appendRunActivitySnippet(details: AgentRunDetails, text: string, maxLength = 200): boolean {
+	const snippet = previewValue(text, maxLength);
+	if (!snippet || snippet === details.recentOutputSnippets[details.recentOutputSnippets.length - 1]) return false;
+	details.recentOutputSnippets.push(snippet);
+	details.recentOutputSnippets = details.recentOutputSnippets.slice(-5);
+	return true;
+}
+
+function isRateLimitRetryText(text: string): boolean {
+	return /\b429\b|rate.?limit|too many requests|overloaded/i.test(text);
+}
+
+function formatAutoRetryActivity(event: {
+	attempt: number;
+	maxAttempts: number;
+	delayMs: number;
+	errorMessage: string;
+}): string {
+	const kind = isRateLimitRetryText(event.errorMessage) ? "Rate limited/overloaded" : "Provider retry";
+	const error = previewValue(event.errorMessage, 120) ?? "unknown error";
+	return `${kind}; auto-retry ${event.attempt}/${event.maxAttempts} in ${formatAgentDurationMs(event.delayMs)}: ${error}`;
+}
+
+function formatAutoRetryFailure(event: { attempt: number; finalError?: string }): string {
+	const error = previewValue(event.finalError ?? "unknown error", 120) ?? "unknown error";
+	return `Provider retry failed after ${event.attempt} attempts: ${error}`;
+}
+
 function getLastAssistantUsage(
 	messages: readonly { role: string; usage?: Usage; stopReason?: string }[],
 ): Usage | undefined {
@@ -631,13 +667,12 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 	const taskId = options.taskId;
 	if (taskId) registerLiveSession(taskId, session);
 	const unsubscribe = session.subscribe((event) => {
+		let providerRetryActivity: string | undefined;
 		if (!options.progressRuns.includes(details)) options.progressRuns.push(details);
 		refreshRunDetailsFromSession(details, session, startedAt);
 		if (event.type === "message_update" && event.message.role === "assistant") {
 			const snippet = extractTextPreview(event.message.content, 200);
-			if (snippet && snippet !== details.recentOutputSnippets[details.recentOutputSnippets.length - 1]) {
-				details.recentOutputSnippets.push(snippet);
-				details.recentOutputSnippets = details.recentOutputSnippets.slice(-5);
+			if (snippet && appendRunActivitySnippet(details, snippet)) {
 				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: snippet });
 			}
 		}
@@ -682,7 +717,23 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 					resultPreview: extractTextPreview(event.result.content, 200),
 				});
 		}
+		if (event.type === "auto_retry_start") {
+			const activity = formatAutoRetryActivity(event);
+			providerRetryActivity = activity;
+			details.currentToolName = undefined;
+			details.currentToolArgsPreview = undefined;
+			if (appendRunActivitySnippet(details, activity)) {
+				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: activity });
+			}
+		}
+		if (event.type === "auto_retry_end" && !event.success) {
+			const activity = formatAutoRetryFailure(event);
+			if (appendRunActivitySnippet(details, activity)) {
+				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: activity });
+			}
+		}
 		emitProgress(options.progressInput, options.progressRuns, options.onProgress);
+		if (providerRetryActivity) options.onChildProviderRetry?.({ details, activity: providerRetryActivity });
 	});
 
 	try {
@@ -775,7 +826,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		agent,
 		defaults: agentDefaults,
 	});
-	const requestedAutoModel = isAutoModelAlias(selectedModelReference) ? selectedModelReference : undefined;
+	const requestedAutoModel = normalizeAgentAutoModelAlias(selectedModelReference);
 	const warnings: string[] = [];
 	const model = resolveAgentModel({
 		modelReference: options.task.model,
@@ -1326,35 +1377,45 @@ async function executeAgentToolToCompletion(
 	return completedDetails;
 }
 
-export async function executeAgentTool(
+function resolveExecutionConcurrency(input: AgentToolExecutionInput): number {
+	return Math.max(1, Math.min(input.concurrency ?? DEFAULT_CONCURRENCY, MAX_CONCURRENCY));
+}
+
+function runningBackgroundDetails(
+	input: AgentToolExecutionInput,
+	recentRun: AgentRecentRun,
+	message: string,
+): AgentToolDetails {
+	return {
+		mode: input.mode,
+		status: "running",
+		runs: recentRun.runs,
+		runId: recentRun.id,
+		background: true,
+		message,
+		concurrency: input.mode === "parallel" ? resolveExecutionConcurrency(input) : undefined,
+		chainDir: input.chainDir,
+	};
+}
+
+async function executeManagedAgentRun(
 	input: AgentToolExecutionInput,
 	options: AgentExecutorOptions,
+	recentRun: AgentRecentRun,
+	behavior: { returnImmediately: boolean; autoDetachOnProviderRetry?: boolean },
 ): Promise<AgentToolDetails> {
-	// Hard nested-delegation boundary. The caller's depth lives on its own agent-tool
-	// services; top-level = 0 (always allowed). This is mode-agnostic (covers fork
-	// children whose inherited tool list still carries the `agent` schema).
-	const callerDepth = options.parentServices.depth ?? 0;
-	const delegationCap = getMaxDelegationDepth(options.parentServices.settingsManager);
-	if (!canDelegateAtDepth(callerDepth, delegationCap)) {
-		throw new Error(
-			`Nested agent delegation is not permitted at depth ${callerDepth} ` +
-				`(subagents.maxDelegationDepth = ${delegationCap}). Complete this sub-task yourself and report back.`,
-		);
-	}
-	const recentRun = startAgentRecentRun(input.mode, input.tasks, {
-		background: input.background,
-		// callerDepth = depth of the session that invoked `agent`; the run inherits it
-		// so the agents view can mark nested delegations and link them to their parent.
-		depth: callerDepth,
-		parentRunId: options.parentServices.parentRunId,
-	});
-	if (!input.background) return executeAgentToolToCompletion(input, options, recentRun);
-
 	let abortController = new AbortController();
 	let abortStatus: AgentToolStatus | undefined;
 	let activeRunPromise: Promise<void> = Promise.resolve();
 	let lastActivityAt = Date.now();
 	let monitor: NodeJS.Timeout | undefined;
+	let detached = behavior.returnImmediately;
+	let parentAbortListener: (() => void) | undefined;
+	let terminalListenerAttached = false;
+	let resolveDetach!: (details: AgentToolDetails) => void;
+	const detachPromise = new Promise<AgentToolDetails>((resolve) => {
+		resolveDetach = resolve;
+	});
 	const activeSessions = new Set<AgentSession>();
 	const touchActivity = () => {
 		lastActivityAt = Date.now();
@@ -1380,6 +1441,33 @@ export async function executeAgentTool(
 			}
 		}, BACKGROUND_MONITOR_INTERVAL_MS);
 	};
+	const attachTerminalNotification = () => {
+		if (terminalListenerAttached || !options.onBackgroundTerminal) return;
+		terminalListenerAttached = true;
+		const notify = options.onBackgroundTerminal;
+		attachAgentRecentRunTerminalListener(recentRun.id, (run) => {
+			notify(buildBackgroundCompletion(run));
+		});
+	};
+	const detachFromParentAbort = () => {
+		if (!parentAbortListener || !options.signal) return;
+		options.signal.removeEventListener("abort", parentAbortListener);
+		parentAbortListener = undefined;
+	};
+	const detachToBackground = (activity: string) => {
+		if (detached || recentRun.status !== "running") return;
+		detached = true;
+		detachFromParentAbort();
+		markAgentRecentRunBackgrounded(recentRun);
+		attachTerminalNotification();
+		resolveDetach(
+			runningBackgroundDetails(
+				input,
+				recentRun,
+				`Agent run ${recentRun.id} auto-backgrounded after child provider retry/backoff: ${activity}. It will continue in the background and send agent_completion when it finishes.`,
+			),
+		);
+	};
 	const makeBackgroundOptions = (generation: number): AgentExecutorOptions => ({
 		...options,
 		signal: abortController.signal,
@@ -1387,6 +1475,12 @@ export async function executeAgentTool(
 		onProgress: (progress) => {
 			touchActivity();
 			updateAgentRecentRunProgress(recentRun, progress, generation);
+			if (!behavior.returnImmediately && !detached) options.onProgress?.(progress);
+		},
+		onChildProviderRetry: (event) => {
+			touchActivity();
+			options.onChildProviderRetry?.(event);
+			if (behavior.autoDetachOnProviderRetry) detachToBackground(event.activity);
 		},
 		onChildSessionStart: (session, details) => {
 			touchActivity();
@@ -1405,27 +1499,36 @@ export async function executeAgentTool(
 			void session.abort().catch(() => {});
 		}
 	};
-	const launch = (run: (generation: number) => Promise<AgentToolDetails>) => {
+	const launch = (run: (generation: number) => Promise<AgentToolDetails>): Promise<AgentToolDetails> => {
 		const generation = getAgentRecentRunGeneration(recentRun);
 		startMonitor(generation);
-		activeRunPromise = run(generation)
-			.then(
-				() => {},
-				(error) => {
-					failAgentRecentRun(recentRun, error, generation);
-				},
-			)
+		const completion = run(generation)
+			.catch((error) => {
+				failAgentRecentRun(recentRun, error, generation);
+				throw error;
+			})
 			.finally(() => {
 				if (getAgentRecentRunGeneration(recentRun) === generation) stopMonitor();
 			});
+		activeRunPromise = completion.then(
+			() => {},
+			() => {},
+		);
+		return completion;
 	};
 
-	if (options.onBackgroundTerminal) {
-		const notify = options.onBackgroundTerminal;
-		attachAgentRecentRunTerminalListener(recentRun.id, (run) => {
-			notify(buildBackgroundCompletion(run));
-		});
+	if (!behavior.returnImmediately && options.signal) {
+		parentAbortListener = () => {
+			if (detached) return;
+			abortStatus = options.abortStatus?.() ?? "cancelled";
+			abortActiveSessions();
+			abortController.abort();
+		};
+		if (options.signal.aborted) parentAbortListener();
+		else options.signal.addEventListener("abort", parentAbortListener, { once: true });
 	}
+
+	if (behavior.returnImmediately) attachTerminalNotification();
 
 	attachAgentRecentRunController(recentRun.id, {
 		interrupt: async () => {
@@ -1456,20 +1559,56 @@ export async function executeAgentTool(
 		},
 	});
 
-	launch((generation) =>
+	const completion = launch((generation) =>
 		executeAgentToolToCompletion(input, makeBackgroundOptions(generation), recentRun, generation),
 	);
-	return {
-		mode: input.mode,
-		status: "running",
-		runs: [],
-		runId: recentRun.id,
-		background: true,
-		message: `Background agent run ${recentRun.id} started. Use /agents-status ${recentRun.id} for details.`,
-		concurrency:
-			input.mode === "parallel"
-				? Math.max(1, Math.min(input.concurrency ?? DEFAULT_CONCURRENCY, MAX_CONCURRENCY))
-				: undefined,
-		chainDir: input.chainDir,
-	};
+	if (behavior.returnImmediately) {
+		void completion.catch(() => {});
+		return runningBackgroundDetails(
+			input,
+			recentRun,
+			`Background agent run ${recentRun.id} started. Use /agents-status ${recentRun.id} for details.`,
+		);
+	}
+
+	try {
+		return await Promise.race([completion, detachPromise]);
+	} finally {
+		if (!detached) detachFromParentAbort();
+	}
+}
+
+export async function executeAgentTool(
+	input: AgentToolExecutionInput,
+	options: AgentExecutorOptions,
+): Promise<AgentToolDetails> {
+	// Hard nested-delegation boundary. The caller's depth lives on its own agent-tool
+	// services; top-level = 0 (always allowed). This is mode-agnostic (covers fork
+	// children whose inherited tool list still carries the `agent` schema).
+	const callerDepth = options.parentServices.depth ?? 0;
+	const delegationCap = getMaxDelegationDepth(options.parentServices.settingsManager);
+	if (!canDelegateAtDepth(callerDepth, delegationCap)) {
+		throw new Error(
+			`Nested agent delegation is not permitted at depth ${callerDepth} ` +
+				`(subagents.maxDelegationDepth = ${delegationCap}). Complete this sub-task yourself and report back.`,
+		);
+	}
+	const recentRun = startAgentRecentRun(input.mode, input.tasks, {
+		background: input.background,
+		kind: resolveRunKind(input.tasks),
+		// callerDepth = depth of the session that invoked `agent`; the run inherits it
+		// so the agents view can mark nested delegations and link them to their parent.
+		depth: callerDepth,
+		parentRunId: options.parentServices.parentRunId,
+	});
+	if (input.background) {
+		return executeManagedAgentRun(input, options, recentRun, { returnImmediately: true });
+	}
+	return executeManagedAgentRun(input, options, recentRun, {
+		returnImmediately: false,
+		// Auto-detach only when the parent session has a completion sink. Without it
+		// (e.g. one-shot print/headless), foreground waiting is safer than returning a
+		// dangling in-process child the parent can never be notified about.
+		autoDetachOnProviderRetry: Boolean(options.onBackgroundTerminal),
+	});
 }

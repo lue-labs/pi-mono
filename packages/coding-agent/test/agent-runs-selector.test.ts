@@ -74,6 +74,18 @@ describe("agent runs selector formatting", () => {
 		expect(formatAgentRunRow(blocked, false)).toContain("needs attention: Should I proceed?");
 	});
 
+	test("observer rows are labeled as observers instead of ordinary general agents", () => {
+		const observer = run({ kind: "observer", execution: "background", agents: ["general"] });
+		const row = formatAgentRunRow(observer, false);
+		expect(row).toContain("bg observer");
+		expect(row).toContain("armed");
+		expect(row).not.toContain("general");
+
+		const detail = formatAgentRunDetailView(observer);
+		expect(detail).toContain("observer single background armed");
+		expect(detail).toContain("observer agent: general");
+	});
+
 	// B4: fan-out done/total appears once a run has more than one requested task.
 	test("row shows fan-out done/total across child runs", () => {
 		const fanned = run({

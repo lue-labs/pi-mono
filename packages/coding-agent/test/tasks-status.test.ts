@@ -8,7 +8,7 @@ import {
 	updateAgentRecentRunProgress,
 } from "../src/core/agents/status.ts";
 import type { AgentRunDetails } from "../src/core/agents/types.ts";
-import { formatTaskFooterStatus, formatTaskStatus } from "../src/core/tasks/status.ts";
+import { formatObserverFooterStatus, formatTaskFooterStatus, formatTaskStatus } from "../src/core/tasks/status.ts";
 import { killAllBashBgJobs, spawnBashBackground } from "../src/core/tools/bash.ts";
 
 function runningRunDetail(): AgentRunDetails {
@@ -72,5 +72,27 @@ describe("background task status formatting", () => {
 		expect(status).toContain(`${job.id} [bash] running`);
 		expect(status).toContain(`${run.id} [agent] running`);
 		expect(status).toContain("TaskStop { task_id }");
+	});
+
+	test("observer runs are excluded from Background footer and get a dedicated observer footer", () => {
+		const observer = startAgentRecentRun(
+			"single",
+			[{ agent: "general", task: "You are now armed as a background observer." }],
+			{ background: true, kind: "observer" },
+		);
+		const regular = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+
+		const backgroundFooter = formatTaskFooterStatus();
+		expect(backgroundFooter).toContain("Background: 1 running");
+		expect(backgroundFooter).toContain(regular.id);
+		expect(backgroundFooter).not.toContain(observer.id);
+
+		const observerFooter = formatObserverFooterStatus();
+		expect(observerFooter).toContain("Observer: 1 armed");
+		expect(observerFooter).toContain(observer.id);
+		expect(observerFooter).not.toContain("Background:");
+
+		const status = formatTaskStatus();
+		expect(status).toContain(`${observer.id} [observer] armed`);
 	});
 });

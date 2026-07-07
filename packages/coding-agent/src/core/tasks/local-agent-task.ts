@@ -45,9 +45,10 @@ function previewTask(task: string): string {
 }
 
 function describeRun(run: AgentRecentRun): string {
-	const agents = run.agents.length > 0 ? run.agents.join(", ") : "agent";
 	const first = run.tasks[0] ?? "";
 	const preview = previewTask(first);
+	if (run.kind === "observer") return preview ? `observer: ${preview}` : "observer";
+	const agents = run.agents.length > 0 ? run.agents.join(", ") : "agent";
 	return preview ? `${agents}: ${preview}` : agents;
 }
 
@@ -62,6 +63,7 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 	return {
 		id: `${run.id}:${index + 1}`,
 		type: "local_agent",
+		kind: run.kind,
 		status,
 		description: describeChildRun(detail),
 		startedAt,
@@ -79,6 +81,7 @@ function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 	return {
 		id: run.id,
 		type: "local_agent",
+		kind: run.kind,
 		status: mapStatus(run.status),
 		description: describeRun(run),
 		startedAt: Date.parse(run.startedAt),

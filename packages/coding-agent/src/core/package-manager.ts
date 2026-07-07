@@ -1191,7 +1191,9 @@ export class DefaultPackageManager implements PackageManager {
 		}
 
 		const sourceLabel = sources.length === 1 ? sources[0].source : `${scope} npm packages`;
-		const message = sources.length === 1 ? `Updating ${sources[0].source}...` : `Updating ${scope} npm packages...`;
+		const sourceNames = sources.map((entry) => entry.source).join(", ");
+		const message =
+			sources.length === 1 ? `Updating ${sources[0].source}...` : `Updating ${scope} npm packages: ${sourceNames}`;
 		const specs = sources.map((entry) => (entry.parsed.version ? entry.parsed.spec : `${entry.parsed.name}@latest`));
 
 		await this.withProgress("update", sourceLabel, message, async () => {

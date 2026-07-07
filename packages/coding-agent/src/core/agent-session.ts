@@ -233,6 +233,12 @@ export type AgentSessionEvent =
 	  }
 	| { type: "entry_appended"; entry: SessionEntry }
 	| { type: "session_info_changed"; name: string | undefined }
+	| {
+			type: "model_changed";
+			model: Model<any>;
+			previousModel: Model<any> | undefined;
+			source: "set" | "cycle" | "restore";
+	  }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
 			type: "compaction_end";
@@ -2721,14 +2727,18 @@ export class AgentSession {
 		nextModel: Model<any>,
 		previousModel: Model<any> | undefined,
 		source: "set" | "cycle" | "restore",
+		options?: { force?: boolean },
 	): Promise<void> {
-		if (modelsAreEqual(previousModel, nextModel)) return;
+		const modelChanged = !modelsAreEqual(previousModel, nextModel);
+		if (!modelChanged && !options?.force) return;
+		this._emit({ type: "model_changed", model: nextModel, previousModel, source });
 		await this._extensionRunner.emit({
 			type: "model_select",
 			model: nextModel,
 			previousModel,
 			source,
 		});
+		if (!modelChanged) return;
 		this._refreshToolRegistry({
 			activeToolNames: syncClaudeBridgeNativeTools(this.getActiveToolNames(), nextModel),
 			activateNewTools: false,
@@ -2818,7 +2828,7 @@ export class AgentSession {
 		this.setThinkingLevel((resolved.thinkingLevel ?? this.thinkingLevel) as ThinkingLevel);
 		this._pendingAutoModelRequest = undefined;
 
-		await this._emitModelSelect(nextModel, previousModel, "set");
+		await this._emitModelSelect(nextModel, previousModel, "set", { force: true });
 	}
 
 	/**

@@ -129,6 +129,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 							agent: opts.agentType ?? "general",
 							task: opts.prompt,
 							description: opts.description,
+							runKind: opts.runKind,
 							// Default "fork" preserves prior behaviour (inherit parent prefix).
 							// Extensions wanting cache-stable prefixes pass "slim" or "none".
 							context: opts.context ?? "fork",

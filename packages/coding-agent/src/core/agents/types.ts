@@ -4,6 +4,7 @@ import type { Api, Model, Usage } from "@valkyriweb/pi-ai";
 export type AgentSource = "builtin" | "user" | "project";
 export type ContextMode = "default" | "fork" | "slim" | "none";
 export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted";
+export type AgentRunKind = "agent" | "observer";
 export type AgentToolMode = "single" | "parallel" | "chain";
 export type AgentToolStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted";
 export type AgentOutputMode = "inline" | "file" | "both";
@@ -83,6 +84,12 @@ export interface AgentTaskConfig {
 	 * into the user `task` text instead.
 	 */
 	systemPrompt?: string;
+	/**
+	 * Classifies the parent-visible run row. Defaults to a normal agent; extension
+	 * forks such as pi-observer can mark their control-plane workers distinctly so
+	 * generic task UI does not mislabel them as user-launched background agents.
+	 */
+	runKind?: AgentRunKind;
 	/**
 	 * Verbatim metadata surfaced on the child's `session_start` event as
 	 * `forkMetadata`. Set by `ctx.forkAgent({ metadata })`; lets the launching

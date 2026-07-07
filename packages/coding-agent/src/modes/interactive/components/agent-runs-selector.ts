@@ -7,7 +7,12 @@ import { keyHint, rawKeyHint } from "./keybinding-hints.ts";
 
 export type AgentRunsSelectorAction = "detail" | "interrupt" | "cancel" | "resume";
 
-function agentRunStatusText(status: AgentToolStatus): string {
+function agentRunDisplayStatus(run: AgentRecentRun): AgentToolStatus | "armed" {
+	if (run.kind === "observer" && (run.status === "running" || run.status === "interrupted")) return "armed";
+	return run.status;
+}
+
+function agentRunStatusText(status: AgentToolStatus | "armed"): string {
 	switch (status) {
 		case "completed":
 			return theme.fg("success", status);
@@ -25,6 +30,13 @@ function agentRunDuration(run: AgentRecentRun): string {
 	return run.durationMs !== undefined ? formatAgentDurationMs(run.durationMs) : "running";
 }
 
+function agentRunElapsed(run: AgentRecentRun): string | undefined {
+	if (run.durationMs !== undefined) return formatAgentDurationMs(run.durationMs);
+	const startedAt = Date.parse(run.startedAt);
+	if (!Number.isFinite(startedAt)) return undefined;
+	return formatAgentDurationMs(Math.max(0, Date.now() - startedAt));
+}
+
 /**
  * Count of child runs that have left the running state — the "done" half of the
  * fan-out `done/total` indicator (CC 2.1.161).
@@ -40,7 +52,7 @@ function countSettledChildren(run: AgentRecentRun): number {
  * unit-testable without the `InteractiveMode` harness.
  */
 export function shouldZoomAgentRunRow(run: AgentRecentRun): boolean {
-	return run.execution === "background" && run.status === "running";
+	return run.kind !== "observer" && run.execution === "background" && run.status === "running";
 }
 
 /** Compact list row for the agent-runs selector. Pure (depends only on `run`). */
@@ -48,16 +60,20 @@ export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): strin
 	const prefix = selected ? `${theme.fg("accent", "→ ")}` : "  ";
 	const id = selected ? theme.fg("accent", run.id) : theme.fg("text", run.id);
 	const execution = run.execution === "background" ? "bg" : "fg";
+	const runLabel = run.kind === "observer" ? "observer" : run.agents.join(", ");
+	const displayStatus = agentRunDisplayStatus(run);
 	const resumable = run.resumable ? theme.fg("warning", " resumable") : "";
 	const attention = run.needsAttention
 		? theme.fg("warning", " needs attention: " + (run.attentionMessage || "check run"))
 		: "";
 	const nesting = run.depth > 0 ? theme.fg("muted", ` ↳L${run.depth}`) : "";
+	const elapsed = agentRunElapsed(run);
+	const elapsedText = elapsed ? theme.fg("muted", ` ${elapsed}`) : "";
 	// Total is the requested task count (`tasks`), not observed `runs`: children still
 	// queued (parallel beyond the concurrency limit, or later chain steps) have no
 	// `runs[]` entry yet, so `runs.length` understates the total mid-flight.
 	const fanout = run.tasks.length > 1 ? theme.fg("muted", ` [${countSettledChildren(run)}/${run.tasks.length}]`) : "";
-	return `${prefix}${id}${nesting} ${execution} ${agentRunStatusText(run.status)}${resumable}${attention}${fanout} ${theme.fg("muted", run.agents.join(", "))}`;
+	return `${prefix}${id}${nesting} ${execution} ${run.kind === "observer" ? "observer " : ""}${agentRunStatusText(displayStatus)}${resumable}${attention}${fanout} ${theme.fg("muted", runLabel)}${elapsedText}`;
 }
 
 /**
@@ -68,9 +84,12 @@ export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): strin
  */
 export function formatAgentRunDetailView(run: AgentRecentRun | undefined): string {
 	if (!run) return theme.fg("muted", "No native agent runs yet");
+	const displayStatus = agentRunDisplayStatus(run);
 	const lines = [
-		`${theme.fg("accent", run.id)} ${run.mode} ${run.execution} ${run.status} ${agentRunDuration(run)}`,
-		`agents: ${run.agents.join(", ") || "n/a"}`,
+		`${theme.fg("accent", run.id)} ${run.kind === "observer" ? "observer " : ""}${run.mode} ${run.execution} ${displayStatus} ${agentRunDuration(run)}`,
+		run.kind === "observer"
+			? `observer agent: ${run.agents.join(", ") || "n/a"}`
+			: `agents: ${run.agents.join(", ") || "n/a"}`,
 	];
 	if (run.depth > 0) lines.push(`nested: depth ${run.depth}${run.parentRunId ? ` (parent ${run.parentRunId})` : ""}`);
 	if (run.resumable) lines.push(`resumable: yes (${keyHint("app.agents.resume", "resume")})`);

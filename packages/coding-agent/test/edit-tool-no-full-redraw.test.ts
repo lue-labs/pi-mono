@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Container, type Terminal, Text, TUI } from "@valkyriweb/pi-tui";
+import { Container, type Terminal, Text, TUI, visibleWidth } from "@valkyriweb/pi-tui";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { computeEditsDiff, type Edit } from "../src/core/tools/edit-diff.ts";
@@ -307,6 +307,39 @@ describe("edit tool TUI rendering", () => {
 				process.env.PI_TUI_DIFF_RENDERER = previousRenderer;
 			}
 		}
+	});
+
+	it("wraps final edit errors instead of diff-rendering them", async () => {
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const longPath =
+			"/Users/luke/Projects/work/paperclip-lane-subscription-budgets/server/src/__tests__/costs-service.test.ts";
+		const errorText = `Found 3 occurrences of edits[3] in ${longPath}. Each oldText must be unique. Please provide more context to make it unique. If you intend to replace every occurrence in this file, retry with replaceAll: true.`;
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-final-error",
+			{ path: longPath, edits: [{ oldText: "repeated", newText: "replacement" }] },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		tui.addChild(component);
+		tui.start();
+		await waitForRender();
+
+		component.updateResult(
+			{
+				content: [{ type: "text", text: errorText }],
+				isError: true,
+			},
+			false,
+		);
+		await waitForRender();
+
+		const renderedLines = component.render(80);
+		expect(stripAnsi(renderedLines.join("\n"))).toContain("Found 3 occurrences of edits[3]");
+		expect(renderedLines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 
 	it("shows a preflight error without rendering a diff when the edits do not apply", async () => {

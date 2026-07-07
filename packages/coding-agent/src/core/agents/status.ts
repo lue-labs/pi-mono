@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import type {
 	AgentExecutionProgress,
 	AgentRunDetails,
+	AgentRunKind,
 	AgentToolDetails,
 	AgentToolMode,
 	AgentToolStatus,
@@ -16,6 +17,8 @@ export interface AgentRecentRun {
 	/** Run id that spawned the session which started this run (tree linkage). */
 	parentRunId?: string;
 	mode: AgentToolMode;
+	/** User-visible run classification. Observers are control-plane helpers, not ordinary background agents. */
+	kind?: AgentRunKind;
 	execution: AgentRunExecution;
 	status: AgentToolStatus;
 	agents: string[];
@@ -179,9 +182,11 @@ const runContentSignatures = new WeakMap<AgentRecentRun, string>();
 function computeRunContentSignature(run: AgentRecentRun): string {
 	return JSON.stringify({
 		status: run.status,
+		execution: run.execution,
 		error: run.error,
 		needsAttention: run.needsAttention,
 		attentionMessage: run.attentionMessage,
+		kind: run.kind,
 		resumable: run.resumable,
 		outputPaths: run.outputPaths,
 		sessionRefs: run.sessionRefs,
@@ -253,7 +258,7 @@ function findMutableRun(runId: string): AgentRecentRun | undefined {
 export function startAgentRecentRun(
 	mode: AgentToolMode,
 	tasks: Array<{ agent: string; task: string }>,
-	options?: { background?: boolean; depth?: number; parentRunId?: string },
+	options?: { background?: boolean; depth?: number; parentRunId?: string; kind?: AgentRunKind },
 ): AgentRecentRun {
 	const timestamp = nowIso();
 	const run: AgentRecentRun = {
@@ -261,6 +266,7 @@ export function startAgentRecentRun(
 		depth: options?.depth ?? 0,
 		parentRunId: options?.parentRunId,
 		mode,
+		kind: options?.kind ?? "agent",
 		execution: options?.background ? "background" : "foreground",
 		status: "running",
 		agents: tasks.map((task) => task.agent),
@@ -299,6 +305,15 @@ export function updateAgentRecentRunProgress(
 	// guard against re-rendering when nothing user-visible actually changed —
 	// see perf/BASELINE.md fix #2 (global requestRender() on every agent tick).
 	applyRunDetails(run, details, details.status !== "running", expectedGeneration, /* guardUnchanged */ true);
+}
+
+export function markAgentRecentRunBackgrounded(run: AgentRecentRun): void {
+	if (run.execution === "background") return;
+	run.execution = "background";
+	run.updatedAt = nowIso();
+	run.resumable = canResumeRun(run);
+	runContentSignatures.set(run, computeRunContentSignature(run));
+	notifyAgentRecentRunsChanged();
 }
 
 export function finishAgentRecentRun(

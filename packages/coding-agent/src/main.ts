@@ -390,16 +390,16 @@ function isAutoModelRequest(model: string | undefined): boolean {
 
 function requestedAutoModelAlias(cliProvider: string | undefined, cliModel: string): string {
 	const model = cliModel.trim();
-	if (model.toLowerCase() === "auto" && cliProvider?.trim()) {
-		return `${cliProvider.trim()}/auto`;
+	if (model.toLowerCase() === "auto") {
+		return normalizeAutoAliasString(cliProvider ?? "clawrouter", model) ?? model;
 	}
-	return model;
+	return normalizeAutoAliasString(undefined, model) ?? model;
 }
 
 function providerScopedAutoProvider(requestedModel: string | undefined): string | undefined {
-	const parts = requestedModel?.trim().split("/");
-	if (parts?.length !== 2 || parts[1].toLowerCase() !== "auto") return undefined;
-	return parts[0] === "pi-fork" ? undefined : parts[0];
+	const alias = normalizeAutoAliasString(undefined, requestedModel);
+	const parts = alias?.split("/");
+	return parts?.length === 2 && parts[1] === "auto" ? parts[0] : undefined;
 }
 
 function seedProviderScopedAutoModel(

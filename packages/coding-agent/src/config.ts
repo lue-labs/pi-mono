@@ -151,7 +151,6 @@ function getSelfUpdateCommandForMethod(
 	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	switch (method) {
 		case "bun-binary":
-			return undefined;
 		case "source-checkout":
 			return getSourceUpdateCommand(sourceUpdateCommand);
 		case "pnpm": {
@@ -359,7 +358,7 @@ export function getSelfUpdateCommand(
 		npmCommand,
 		sourceUpdateCommand,
 	);
-	if (method === "source-checkout") {
+	if (method === "source-checkout" || method === "bun-binary") {
 		return command;
 	}
 	if (!command || !isManagedByGlobalPackageManager(method, packageName, npmCommand) || !isSelfUpdatePathWritable()) {
@@ -377,6 +376,16 @@ export function getSelfUpdateUnavailableInstruction(
 	const method = detectInstallMethod();
 	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	if (method === "bun-binary") {
+		const command = getSelfUpdateCommandForMethod(
+			method,
+			packageName,
+			updatePackageTarget,
+			npmCommand,
+			sourceUpdateCommand,
+		);
+		if (command) {
+			return `This installation is managed by a configured update command: ${command.display}`;
+		}
 		return `Download from: https://github.com/earendil-works/pi-mono/releases/latest`;
 	}
 	if (method === "source-checkout") {
