@@ -15,7 +15,7 @@ import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
-import { timeExtension, timingsEnabled } from "../timings.ts";
+import { recordTiming, timingsEnabled } from "../timings.ts";
 import { applyFilters } from "./extension-hooks.ts";
 import { getExtensionProcessService, loadDeferredExtension } from "./loader.ts";
 import type {
@@ -1111,7 +1111,7 @@ export class ExtensionRunner {
 				}
 			}
 			if (timeHandlers) {
-				timeExtension(`session_start ${ext.path}`, performance.now() - startedAt);
+				recordTiming(`session_start ${ext.path}`, performance.now() - startedAt, "extensions");
 			}
 		}
 
