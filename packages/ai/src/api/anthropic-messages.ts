@@ -382,13 +382,16 @@ function mergeHeadersWithAnthropicBetas(
 ): Record<string, string | null> {
 	const merged = mergeHeaders(...headerSources);
 	const betaSet = new Set<string>();
-	const existing = merged["anthropic-beta"];
-	if (typeof existing === "string") {
-		for (const beta of existing
+	for (const [key, value] of Object.entries(merged)) {
+		if (key.toLowerCase() !== "anthropic-beta") continue;
+		if (typeof value !== "string") continue;
+		for (const beta of value
 			.split(",")
-			.map((value) => value.trim())
-			.filter(Boolean))
+			.map((entry) => entry.trim())
+			.filter(Boolean)) {
 			betaSet.add(beta);
+		}
+		if (key !== "anthropic-beta") delete merged[key];
 	}
 	for (const beta of requiredBetas) betaSet.add(beta);
 	if (betaSet.size > 0) merged["anthropic-beta"] = Array.from(betaSet).join(",");

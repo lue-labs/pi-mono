@@ -48,6 +48,7 @@ function writeEmptySseResponse(response: ServerResponse): void {
 async function captureAnthropicRequest(
 	cacheRetention: "long" | "short" | "none" | undefined,
 	compat?: Model<"anthropic-messages">["compat"],
+	headers?: Record<string, string>,
 ): Promise<CapturedRequest> {
 	let capturedRequest: CapturedRequest | undefined;
 
@@ -67,6 +68,7 @@ async function captureAnthropicRequest(
 		const stream = streamAnthropic(model, context, {
 			apiKey: "test-key",
 			...(cacheRetention ? { cacheRetention } : {}),
+			...(headers ? { headers } : {}),
 		});
 
 		for await (const event of stream) {
@@ -95,6 +97,15 @@ describe("Anthropic extended cache TTL beta header", () => {
 		expect(Array.isArray(system)).toBe(true);
 		expect((system as Array<Record<string, unknown>>)[0]?.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 		expect(getAnthropicBetaHeader(request.headers)).toContain(EXTENDED_CACHE_TTL_BETA);
+	});
+
+	it("preserves existing Anthropic betas case-insensitively", async () => {
+		const request = await captureAnthropicRequest(undefined, undefined, {
+			"Anthropic-Beta": "existing-beta-2026-01-01",
+		});
+		const betaHeader = getAnthropicBetaHeader(request.headers);
+		expect(betaHeader).toContain("existing-beta-2026-01-01");
+		expect(betaHeader).toContain(EXTENDED_CACHE_TTL_BETA);
 	});
 
 	it("does not send the extended-cache-ttl beta when retention is short", async () => {
