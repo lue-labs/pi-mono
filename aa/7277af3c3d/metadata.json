@@ -4,7 +4,7 @@
   "checkpoint_id": "aa7277af3c3d",
   "strategy": "manual-commit",
   "branch": "lue/reforge-primitives-plan-wip",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     ".changeset/live-workflow-meta.md",
     "docs/llm-router-auto-model/README.md",
@@ -30,6 +30,13 @@
       "compact_transcript": "/aa/7277af3c3d/0/transcript.jsonl",
       "content_hash": "/aa/7277af3c3d/0/content_hash.txt",
       "prompt": "/aa/7277af3c3d/0/prompt.txt"
+    },
+    {
+      "metadata": "/aa/7277af3c3d/1/metadata.json",
+      "transcript": "/aa/7277af3c3d/1/full.jsonl",
+      "compact_transcript": "/aa/7277af3c3d/1/transcript.jsonl",
+      "content_hash": "/aa/7277af3c3d/1/content_hash.txt",
+      "prompt": "/aa/7277af3c3d/1/prompt.txt"
     }
   ],
   "token_usage": {
@@ -37,6 +44,6 @@
     "cache_creation_tokens": 0,
     "cache_read_tokens": 0,
     "output_tokens": 0,
-    "api_call_count": 1
+    "api_call_count": 2
   }
 }

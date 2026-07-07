@@ -1,0 +1,2 @@
+{"v":1,"agent":"claude-code","cli_version":"0.7.8","type":"user","ts":"2026-07-07T20:55:50.791Z","content":[{"id":"058f6c0c-2202-4dba-aa2b-71332cdfbafb","text":"tong"}]}
+{"v":1,"agent":"claude-code","cli_version":"0.7.8","type":"assistant","ts":"2026-07-07T20:55:52.982Z","id":"d4962cf4-99fb-4945-b006-2cfd08eda92f","content":[{"text":"You've hit your weekly limit · resets 8am (Africa/Johannesburg)","type":"text"}]}
