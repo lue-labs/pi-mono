@@ -21,7 +21,7 @@
 - No `any` types unless absolutely necessary
 - Single-line helper functions with a single call site are forbidden; inline them instead.
 - Check node_modules for external API type definitions instead of guessing
-- **NEVER use inline imports** - no `await import("./foo.js")`, no `import("pkg").Type` in type positions, no dynamic imports for types. Always use standard top-level imports.
+- **NEVER use inline imports** - no `await import("./foo.js")`, no `import("pkg").Type` in type positions, no dynamic imports for types. Always use standard top-level imports. **Sole exception:** the lazy mode-dispatch imports in `packages/coding-agent/src/main.ts` (interactive/rpc/export/session-picker/startup-ui) are intentionally dynamic to keep the TUI tree out of the headless boot path — do not "clean up" these back to static imports (boot-perf regression).
 - NEVER remove or downgrade code to fix type errors from outdated dependencies; upgrade the dependency instead
 - Use only erasable TypeScript syntax compatible with Node strip-only mode in TypeScript checked by the root config (`packages/*/src`, `packages/*/test`, and `packages/coding-agent/examples`). Do not use constructor parameter properties, `enum`, `namespace`/`module`, `import =`, `export =`, or other TypeScript constructs that require JavaScript emit. Use explicit fields and constructor assignments instead of parameter properties.
 - Always ask before removing functionality or code that appears to be intentional

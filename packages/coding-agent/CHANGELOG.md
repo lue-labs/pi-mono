@@ -81,6 +81,8 @@ This package's release notes are split:
 - Expose `ctx.reload()` on extension event contexts so model-switch handlers can rebuild provider-specific runtime resources without queuing slash-command text.
 - Agents status pane now shows a live elapsed-seconds counter for in-progress runs (e.g. `running 12s`): `formatDuration` renders live elapsed for `running` runs, and `AgentsPane` repaints on a 1s ticker (duplicate-guarded, `unref`'d, cleared on dispose). Previously running rows showed a static `running` placeholder.
 - Remove the dormant, never-activated background-tasks pane (`background-tasks-ui.ts`). It was added but never imported into the runtime and is superseded by the agents status pane; the public `Task*` tool factories in `core/tools/background-tasks.ts` are unchanged.
+- Perf: `main.ts` dispatch now lazy-imports `InteractiveMode`, `runRpcMode`, export-html, session-picker, and startup-ui at their mode/flag branches, so headless invocations (`--help`, `-p`, `--mode json`/`rpc`) never parse interactive-mode. `runPrintMode` is imported directly from `modes/print-mode.ts` instead of the modes barrel. Behavior, error messages, and `--help` ordering unchanged.
+- Add per-extension boot timings to `PI_TIMING=1`: ranked report of each eager extension `import()` duration and each `session_start` handler duration (`timings.ts` `recordTiming`, wired in extension loader/runner). Zero overhead when unset.
 
 This file is fork-owned (`.gitattributes` `merge=ours`) so upstream syncs no
 longer append their full changelog here.
