@@ -4,6 +4,8 @@ import type { AgentRunDetails } from "../src/core/agents/types.ts";
 import {
 	formatAgentRunDetailView,
 	formatAgentRunRow,
+	getAgentRunResumePrompt,
+	normalizeAgentRunResumePrompt,
 } from "../src/modes/interactive/components/agent-runs-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -136,5 +138,13 @@ describe("agent runs selector formatting", () => {
 
 	test("empty selection renders a placeholder", () => {
 		expect(formatAgentRunDetailView(undefined)).toContain("No native agent runs yet");
+	});
+
+	test("resume action asks for an optional steering message", () => {
+		const prompt = getAgentRunResumePrompt(run({ id: "agent-7" }));
+		expect(prompt.title).toContain("agent-7");
+		expect(prompt.placeholder).toContain("Steering message");
+		expect(normalizeAgentRunResumePrompt("  continue with tests  ")).toBe("continue with tests");
+		expect(normalizeAgentRunResumePrompt("  ")).toBeUndefined();
 	});
 });

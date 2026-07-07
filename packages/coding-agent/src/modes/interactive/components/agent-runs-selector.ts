@@ -7,6 +7,23 @@ import { keyHint, rawKeyHint } from "./keybinding-hints.ts";
 
 export type AgentRunsSelectorAction = "detail" | "interrupt" | "cancel" | "resume";
 
+export interface AgentRunResumePrompt {
+	title: string;
+	placeholder: string;
+}
+
+export function getAgentRunResumePrompt(run: AgentRecentRun): AgentRunResumePrompt {
+	return {
+		title: `Resume ${run.id}`,
+		placeholder: "Steering message (Enter empty to resume without one)",
+	};
+}
+
+export function normalizeAgentRunResumePrompt(prompt: string): string | undefined {
+	const trimmed = prompt.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function agentRunStatusText(status: AgentToolStatus): string {
 	switch (status) {
 		case "completed":

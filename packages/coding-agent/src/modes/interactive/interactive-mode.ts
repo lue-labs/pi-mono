@@ -119,6 +119,8 @@ import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-
 import {
 	type AgentRunsSelectorAction,
 	AgentRunsSelectorComponent,
+	getAgentRunResumePrompt,
+	normalizeAgentRunResumePrompt,
 	shouldZoomAgentRunRow,
 } from "./components/agent-runs-selector.ts";
 import { AgentsSelectorComponent } from "./components/agents-selector.ts";
@@ -4889,12 +4891,18 @@ export class InteractiveMode {
 			this.showStatus(formatAgentStatus(undefined, run.id));
 			return;
 		}
-		const result =
-			action === "interrupt"
-				? await interruptAgentRecentRun(run.id)
-				: action === "cancel"
-					? await cancelAgentRecentRun(run.id)
-					: await resumeAgentRecentRun(run.id);
+		if (action === "resume") {
+			const prompt = getAgentRunResumePrompt(run);
+			done();
+			const message = await this.showExtensionInput(prompt.title, prompt.placeholder);
+			if (message === undefined) return;
+			const result = await resumeAgentRecentRun(run.id, normalizeAgentRunResumePrompt(message));
+			this.showStatus(`${result.message}\n\n${formatAgentStatus(undefined, run.id)}`);
+			this.ui.requestRender();
+			return;
+		}
+
+		const result = action === "interrupt" ? await interruptAgentRecentRun(run.id) : await cancelAgentRecentRun(run.id);
 		selector.invalidate();
 		this.showStatus(`${result.message}\n\n${formatAgentStatus(undefined, run.id)}`);
 		this.ui.requestRender();
