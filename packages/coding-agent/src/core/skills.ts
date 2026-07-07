@@ -431,8 +431,8 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 
 			const existing = skillMap.get(skill.name);
 			if (existing) {
+				realPathSet.add(realPath);
 				if (haveSameSkillFileContent(existing.filePath, skill.filePath)) {
-					realPathSet.add(realPath);
 					continue;
 				}
 				collisionDiagnostics.push({

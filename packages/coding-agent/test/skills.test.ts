@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import { describe, expect, it } from "vitest";
@@ -401,6 +403,27 @@ describe("skills", () => {
 
 			expect(skills.filter((skill) => skill.name === "linear-local-first-architecture")).toHaveLength(1);
 			expect(diagnostics.some((diagnostic) => diagnostic.type === "collision")).toBe(false);
+		});
+
+		it("should emit only one collision diagnostic for duplicate realpath aliases", () => {
+			const tempRoot = mkdtempSync(join(tmpdir(), "skill-realpath-collision-"));
+			try {
+				const firstPath = join(collisionFixturesDir, "first", "calendar", "SKILL.md");
+				const secondPath = join(collisionFixturesDir, "second", "calendar", "SKILL.md");
+				const aliasPath = join(tempRoot, "calendar-alias.md");
+				symlinkSync(secondPath, aliasPath);
+				const { skills, diagnostics } = loadSkills({
+					agentDir: resolve(__dirname, "fixtures/empty-agent"),
+					cwd: resolve(__dirname, "fixtures/empty-cwd"),
+					skillPaths: [firstPath, secondPath, aliasPath],
+					includeDefaults: false,
+				});
+
+				expect(skills.filter((skill) => skill.name === "calendar")).toHaveLength(1);
+				expect(diagnostics.filter((diagnostic) => diagnostic.type === "collision")).toHaveLength(1);
+			} finally {
+				rmSync(tempRoot, { recursive: true, force: true });
+			}
 		});
 
 		it("should detect name collisions and keep first skill", () => {
