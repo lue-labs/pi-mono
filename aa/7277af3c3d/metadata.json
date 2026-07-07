@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.7.8",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "aa7277af3c3d",
+  "strategy": "manual-commit",
+  "branch": "lue/reforge-primitives-plan-wip",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".changeset/live-workflow-meta.md",
+    "docs/llm-router-auto-model/README.md",
+    "docs/pi-fork-patch-inventory.md",
+    "docs/release-engineering.md",
+    "docs/runtime-loading.md",
+    "extensions/llm-router-auto-model/index.ts",
+    "extensions/llm-router-auto-model/src/route-graph.ts",
+    "extensions/llm-router-auto-model/src/types.ts",
+    "extensions/llm-router-auto-model/test-load.mjs",
+    "extensions/llm-router-auto-model/test-modules.mjs",
+    "extensions/pi-workflow/src/index.ts",
+    "extensions/pi-workflow/src/run-store.ts",
+    "extensions/pi-workflow/src/workflow-run.ts",
+    "extensions/pi-workflow/test/async.test.mjs",
+    "plans/015-medium-default-driver.md",
+    "scripts/update-pi-stable-release.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/aa/7277af3c3d/0/metadata.json",
+      "transcript": "/aa/7277af3c3d/0/full.jsonl",
+      "compact_transcript": "/aa/7277af3c3d/0/transcript.jsonl",
+      "content_hash": "/aa/7277af3c3d/0/content_hash.txt",
+      "prompt": "/aa/7277af3c3d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 1
+  }
+}
