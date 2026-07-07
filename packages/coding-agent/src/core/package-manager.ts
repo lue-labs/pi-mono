@@ -479,15 +479,26 @@ function findGitRepoRoot(startDir: string): string | null {
 	}
 }
 
+function findWorkspaceRoot(startDir: string): string | null {
+	const resolvedStartDir = resolve(startDir);
+	const homeDir = resolve(getHomeDir());
+	const workspaceRoot = join(homeDir, "Projects");
+	if (resolvedStartDir === workspaceRoot || resolvedStartDir.startsWith(`${workspaceRoot}${sep}`)) {
+		return workspaceRoot;
+	}
+	return null;
+}
+
 function collectAncestorAgentsSkillDirs(startDir: string): string[] {
 	const skillDirs: string[] = [];
 	const resolvedStartDir = resolve(startDir);
 	const gitRepoRoot = findGitRepoRoot(resolvedStartDir);
+	const stopDir = gitRepoRoot ?? findWorkspaceRoot(resolvedStartDir) ?? resolve(getHomeDir());
 
 	let dir = resolvedStartDir;
 	while (true) {
 		skillDirs.push(join(dir, ".agents", "skills"));
-		if (gitRepoRoot && dir === gitRepoRoot) {
+		if (dir === stopDir) {
 			break;
 		}
 		const parent = dirname(dir);

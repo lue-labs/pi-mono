@@ -447,28 +447,45 @@ Content`,
 			expect(result.skills.some((r) => r.path === aboveRepoSkill)).toBe(false);
 		});
 
-		it("should scan .agents/skills up to filesystem root when not in a git repo", async () => {
-			const nonRepoRoot = join(tempDir, "non-repo");
-			const nestedCwd = join(nonRepoRoot, "a", "b");
-			mkdirSync(nestedCwd, { recursive: true });
+		it("should stop .agents/skills discovery at the workspace root when not in a git repo", async () => {
+			const previousHome = process.env.HOME;
+			process.env.HOME = tempDir;
 
-			const rootSkill = join(nonRepoRoot, ".agents", "skills", "root", "SKILL.md");
-			mkdirSync(join(nonRepoRoot, ".agents", "skills", "root"), { recursive: true });
-			writeFileSync(rootSkill, "---\nname: root\ndescription: root\n---\n");
+			try {
+				const workspaceRoot = join(tempDir, "Projects");
+				const nonRepoRoot = join(workspaceRoot, "non-repo");
+				const nestedCwd = join(nonRepoRoot, "a", "b");
+				mkdirSync(nestedCwd, { recursive: true });
 
-			const middleSkill = join(nonRepoRoot, "a", ".agents", "skills", "middle", "SKILL.md");
-			mkdirSync(join(nonRepoRoot, "a", ".agents", "skills", "middle"), { recursive: true });
-			writeFileSync(middleSkill, "---\nname: middle\ndescription: middle\n---\n");
+				const workspaceSkill = join(workspaceRoot, ".agents", "skills", "workspace", "SKILL.md");
+				mkdirSync(join(workspaceRoot, ".agents", "skills", "workspace"), { recursive: true });
+				writeFileSync(workspaceSkill, "---\nname: workspace\ndescription: workspace\n---\n");
 
-			const pm = new DefaultPackageManager({
-				cwd: nestedCwd,
-				agentDir,
-				settingsManager,
-			});
+				const projectSkill = join(nonRepoRoot, ".agents", "skills", "project", "SKILL.md");
+				mkdirSync(join(nonRepoRoot, ".agents", "skills", "project"), { recursive: true });
+				writeFileSync(projectSkill, "---\nname: project\ndescription: project\n---\n");
 
-			const result = await pm.resolve();
-			expect(result.skills.some((r) => r.path === rootSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === middleSkill && r.enabled)).toBe(true);
+				const homeSkill = join(tempDir, ".agents", "skills", "home", "SKILL.md");
+				mkdirSync(join(tempDir, ".agents", "skills", "home"), { recursive: true });
+				writeFileSync(homeSkill, "---\nname: home\ndescription: home\n---\n");
+
+				const pm = new DefaultPackageManager({
+					cwd: nestedCwd,
+					agentDir,
+					settingsManager,
+				});
+
+				const result = await pm.resolve();
+				expect(result.skills.some((r) => r.path === workspaceSkill && r.enabled)).toBe(true);
+				expect(result.skills.some((r) => r.path === projectSkill && r.enabled)).toBe(true);
+				expect(result.skills.some((r) => r.path === homeSkill && r.metadata.scope === "project")).toBe(false);
+			} finally {
+				if (previousHome === undefined) {
+					delete process.env.HOME;
+				} else {
+					process.env.HOME = previousHome;
+				}
+			}
 		});
 
 		it("should ignore root markdown files in .agents/skills", async () => {
