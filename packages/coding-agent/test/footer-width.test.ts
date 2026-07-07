@@ -23,9 +23,11 @@ function createSession(options: {
 	sessionName: string;
 	modelId?: string;
 	provider?: string;
+	api?: string;
 	reasoning?: boolean;
 	thinkingLevel?: string;
 	pendingAutoModelAlias?: string;
+	isUsingOAuth?: boolean;
 	usage?: AssistantUsage;
 	entries?: unknown[];
 	branchEntries?: unknown[];
@@ -63,6 +65,7 @@ function createSession(options: {
 			model: {
 				id: options.modelId ?? "test-model",
 				provider: options.provider ?? "test",
+				api: options.api ?? "openai-responses",
 				contextWindow: 200_000,
 				reasoning: options.reasoning ?? false,
 			},
@@ -78,7 +81,7 @@ function createSession(options: {
 		getContextUsage: () => options.contextUsage ?? { tokens: 24_600, contextWindow: 200_000, percent: 12.3 },
 		pendingAutoModelAlias: options.pendingAutoModelAlias,
 		modelRegistry: {
-			isUsingOAuth: () => false,
+			isUsingOAuth: () => options.isUsingOAuth ?? false,
 		},
 		extensionRunner: {
 			// Mirrors the production agents extension hook (core/extensions/agents.ts)
@@ -314,6 +317,83 @@ describe("FooterComponent width handling", () => {
 		expect(rendered).not.toContain("gpt-5.3-codex-spark");
 		expect(rendered).not.toContain("→");
 		expect(rendered).toContain("low");
+	});
+
+	it("shows claude-code as the active adapter for oauth anthropic lanes", () => {
+		const session = createSession({
+			sessionName: "",
+			modelId: "claude-sonnet-5",
+			provider: "anthropic",
+			api: "anthropic-messages",
+			isUsingOAuth: true,
+			reasoning: true,
+			thinkingLevel: "medium",
+		});
+		const footer = new FooterComponent(session, createFooterData(2));
+
+		const rendered = stripAnsi(footer.render(160).join("\n"));
+
+		expect(rendered).toContain("adapter:claude-code");
+	});
+
+	it("shows codex as the active adapter for codex lanes", () => {
+		const session = createSession({
+			sessionName: "",
+			modelId: "gpt-5.5",
+			provider: "openai-codex",
+			api: "openai-codex-responses",
+			reasoning: true,
+			thinkingLevel: "low",
+		});
+		const footer = new FooterComponent(session, createFooterData(2));
+
+		const rendered = stripAnsi(footer.render(160).join("\n"));
+
+		expect(rendered).toContain("adapter:codex");
+	});
+
+	it("shows codex as the active adapter for clawrouter GPT lanes", () => {
+		const session = createSession({
+			sessionName: "",
+			modelId: "gpt-5.4-mini",
+			provider: "clawrouter",
+			api: "anthropic-messages",
+			reasoning: true,
+			thinkingLevel: "low",
+		});
+		const footer = new FooterComponent(session, createFooterData(2));
+
+		const rendered = stripAnsi(footer.render(160).join("\n"));
+
+		expect(rendered).toContain("adapter:codex");
+	});
+
+	it("invalidates memoized footer lines when the active adapter changes", () => {
+		const session = createSession({
+			sessionName: "",
+			modelId: "claude-sonnet-5",
+			provider: "anthropic",
+			api: "anthropic-messages",
+			isUsingOAuth: true,
+		});
+		const footer = new FooterComponent(session, createFooterData(2));
+
+		const first = footer.render(160);
+		expect(stripAnsi(first.join("\n"))).toContain("adapter:claude-code");
+
+		session.state.model = {
+			...(session.state.model ?? {}),
+			id: "gpt-5.5",
+			provider: "openai-codex",
+			api: "openai-codex-responses",
+			reasoning: false,
+			contextWindow: 200_000,
+		} as typeof session.state.model;
+		(session.modelRegistry as unknown as { isUsingOAuth: () => boolean }).isUsingOAuth = () => false;
+
+		const second = footer.render(160);
+		expect(second).not.toBe(first);
+		expect(stripAnsi(second.join("\n"))).toContain("adapter:codex");
 	});
 
 	it("shows the resolved backend model for provider-side auto aliases", () => {
@@ -678,7 +758,7 @@ describe("FooterComponent width handling", () => {
 
 		const rendered = stripAnsi(footer.render(140).join("\n"));
 
-		expect(rendered).toContain("cache 62% 🔥prefix");
+		expect(rendered).toContain("cache 62% 🔥write");
 	});
 
 	it("does not flag first-turn cache writes as prefix drift", () => {
