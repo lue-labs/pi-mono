@@ -1,0 +1,18 @@
+Use the Task tool to launch a background agent (subagent_type general-purpose, run_in_background true) that runs: for i in 1 2 3 4 5; do echo tick $i; sleep 3; done — report back when it finishes, don't block. This is a research smoke test for a documentation task, keep it minimal.
+
+---
+
+<task-notification>
+<task-id>ade86911ec1e856f7</task-id>
+<tool-use-id>toolu_01FBSEDWrcezDmfu1D261HF3</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-luke-Projects-personal-my-pi/96c85df7-2d15-4551-8b7b-7a23d990f24a/tasks/ade86911ec1e856f7.output</output-file>
+<status>completed</status>
+<summary>Agent "Run tick loop smoke test" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>tick 1
+tick 2
+tick 3
+tick 4
+tick 5</result>
+<usage><subagent_tokens>38472</subagent_tokens><tool_uses>1</tool_uses><duration_ms>24573</duration_ms></usage>
+</task-notification>
