@@ -77,6 +77,14 @@ function getCacheControl(
 	};
 }
 
+function usesExtendedCacheTtl(
+	model: Model<"anthropic-messages">,
+	cacheRetention?: CacheRetention,
+	env?: ProviderEnv,
+): boolean {
+	return getCacheControl(model, cacheRetention, env).cacheControl?.ttl === "1h";
+}
+
 // Stealth mode: Mimic Claude Code's tool naming exactly
 const claudeCodeVersion = "2.1.75";
 
@@ -258,6 +266,7 @@ export type AnthropicThinkingDisplay = "summarized" | "omitted";
 const FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14";
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 const TOOL_SEARCH_BETA = "advanced-tool-use-2025-11-20";
+const EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11";
 
 function getAnthropicCompat(
 	model: Model<"anthropic-messages">,
@@ -690,6 +699,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					options?.interleavedThinking ?? true,
 					shouldUseFineGrainedToolStreamingBeta(model, context),
 					shouldUseToolSearchBeta(model, context),
+					usesExtendedCacheTtl(model, options?.cacheRetention, options?.env),
 					options?.headers,
 					copilotDynamicHeaders,
 					cacheSessionId,
@@ -1192,6 +1202,7 @@ function createClient(
 	interleavedThinking: boolean,
 	useFineGrainedToolStreamingBeta: boolean,
 	useToolSearchBeta: boolean,
+	useExtendedCacheTtlBeta: boolean,
 	optionsHeaders?: ProviderHeaders,
 	dynamicHeaders?: Record<string, string>,
 	sessionId?: string,
@@ -1207,6 +1218,9 @@ function createClient(
 	}
 	if (useToolSearchBeta) {
 		betaFeatures.push(TOOL_SEARCH_BETA);
+	}
+	if (useExtendedCacheTtlBeta) {
+		betaFeatures.push(EXTENDED_CACHE_TTL_BETA);
 	}
 
 	// Copilot: Bearer auth, selective betas.
