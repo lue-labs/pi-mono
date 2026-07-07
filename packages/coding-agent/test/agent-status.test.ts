@@ -136,6 +136,26 @@ describe("native agent status", () => {
 		unsubscribe();
 	});
 
+	test("shows child model and thinking in summary and detail views", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }]);
+		finishAgentRecentRun(run, {
+			mode: "single",
+			status: "completed",
+			runs: [
+				{
+					...makeRunDetails(),
+					model: { provider: "clawrouter", id: "gpt-5.5" },
+					thinking: "medium",
+				},
+			],
+		});
+
+		expect(formatAgentStatus()).toContain("models: clawrouter/gpt-5.5 · thinking medium");
+		expect(formatAgentStatus(undefined, "agent-1")).toContain(
+			"scout completed 1ms · clawrouter/gpt-5.5 · thinking medium",
+		);
+	});
+
 	test("tracks startup failures", () => {
 		const run = startAgentRecentRun("chain", [{ agent: "missing", task: "Do it" }]);
 		failAgentRecentRun(run, new Error("boom"));
@@ -198,11 +218,18 @@ describe("native agent status", () => {
 		updateAgentRecentRunProgress(run, {
 			mode: "single",
 			status: "running",
-			runs: [makeRunDetails("running")],
+			runs: [
+				{
+					...makeRunDetails("running"),
+					model: { provider: "clawrouter", id: "gpt-5.5" },
+					thinking: "medium",
+				},
+			],
 		});
 
 		expect(formatAgentFooterStatus()).toContain("Agents: 1 running");
 		expect(formatAgentFooterStatus()).toContain("agent-1 running scout");
+		expect(formatAgentFooterStatus()).toContain("clawrouter/gpt-5.5 · thinking medium");
 		expect(formatAgentFooterStatus()).toContain("/agents runs");
 	});
 

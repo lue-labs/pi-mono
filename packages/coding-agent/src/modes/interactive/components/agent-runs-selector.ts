@@ -1,5 +1,5 @@
 import { Container, getKeybindings, Spacer, Text } from "@valkyriweb/pi-tui";
-import { type AgentRecentRun, formatAgentDurationMs } from "../../../core/agents/status.ts";
+import { type AgentRecentRun, formatAgentDurationMs, formatAgentRunModel } from "../../../core/agents/status.ts";
 import type { AgentToolStatus } from "../../../core/agents/types.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
@@ -57,7 +57,11 @@ export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): strin
 	// queued (parallel beyond the concurrency limit, or later chain steps) have no
 	// `runs[]` entry yet, so `runs.length` understates the total mid-flight.
 	const fanout = run.tasks.length > 1 ? theme.fg("muted", ` [${countSettledChildren(run)}/${run.tasks.length}]`) : "";
-	return `${prefix}${id}${nesting} ${execution} ${agentRunStatusText(run.status)}${resumable}${attention}${fanout} ${theme.fg("muted", run.agents.join(", "))}`;
+	const models = Array.from(
+		new Set(run.runs.map(formatAgentRunModel).filter((model): model is string => Boolean(model))),
+	);
+	const modelText = models.length > 0 ? theme.fg("muted", ` · ${models.join(",")}`) : "";
+	return `${prefix}${id}${nesting} ${execution} ${agentRunStatusText(run.status)}${resumable}${attention}${fanout} ${theme.fg("muted", run.agents.join(", "))}${modelText}`;
 }
 
 /**
@@ -87,8 +91,9 @@ export function formatAgentRunDetailView(run: AgentRecentRun | undefined): strin
 	if (run.error) lines.push(`error: ${run.error}`);
 	for (const child of run.runs) {
 		const tools = child.recentToolCalls.slice(-6);
-		if (tools.length === 0) continue;
-		lines.push(theme.fg("muted", `↳ ${child.agent} (${child.status})`));
+		const model = formatAgentRunModel(child);
+		if (tools.length === 0 && !model) continue;
+		lines.push(theme.fg("muted", `↳ ${child.agent} (${child.status})${model ? ` · ${model}` : ""}`));
 		for (const tool of tools) {
 			const args = tool.argsPreview ? ` ${tool.argsPreview}` : "";
 			const err = tool.isError ? theme.fg("error", " (error)") : "";
