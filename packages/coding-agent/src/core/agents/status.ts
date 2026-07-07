@@ -490,8 +490,15 @@ function formatUsage(run: AgentRunDetails): string | undefined {
 	return `${formatAgentTokenCount(run.usage.totalTokens)} tok${cache}${cost}`;
 }
 
+export function formatAgentRunModel(run: AgentRunDetails): string | undefined {
+	if (!run.model && !run.thinking) return undefined;
+	const model = run.model ? `${run.model.provider}/${run.model.id}` : "unknown-model";
+	return `${model}${run.thinking ? ` · thinking ${run.thinking}` : ""}`;
+}
+
 function formatRunDetail(run: AgentRunDetails, index: number): string[] {
-	const lines = [`${index + 1}. ${run.agent} ${run.status} ${formatChildDuration(run)}`];
+	const model = formatAgentRunModel(run);
+	const lines = [`${index + 1}. ${run.agent} ${run.status} ${formatChildDuration(run)}${model ? ` · ${model}` : ""}`];
 	lines.push(`   session: ${run.sessionPath ?? run.sessionId ?? "n/a"}`);
 	lines.push(`   tools: ${run.toolCallCount}${run.currentToolName ? ` current ${run.currentToolName}` : ""}`);
 	if (run.recentToolCalls.length > 0) {
@@ -551,8 +558,12 @@ export function formatAgentFooterStatus(runs = listAgentRecentRuns()): string | 
 	].filter((part): part is string => Boolean(part));
 	const latest = backgroundRuns[0];
 	const latestAgents = latest.agents.length > 0 ? ` ${latest.agents.join(",")}` : "";
+	const latestModels = Array.from(
+		new Set(latest.runs.map(formatAgentRunModel).filter((model): model is string => Boolean(model))),
+	);
+	const latestModelLabel = latestModels.length > 0 ? ` · ${latestModels.join(",")}` : "";
 	const attention = backgroundRuns.some((run) => run.needsAttention) ? " · needs attention" : "";
-	const latestLabel = `${latest.id} ${latest.status}${latest.resumable ? " resumable" : ""}${latest.needsAttention ? " needs attention" : ""}${latestAgents}`;
+	const latestLabel = `${latest.id} ${latest.status}${latest.resumable ? " resumable" : ""}${latest.needsAttention ? " needs attention" : ""}${latestAgents}${latestModelLabel}`;
 	return `Agents: ${statusParts.join(", ")}${attention} · ${latestLabel} · /agents runs`;
 }
 
@@ -607,8 +618,12 @@ export function formatAgentStatus(runs = listAgentRecentRuns(), detailId?: strin
 		// children (parallel beyond the concurrency limit, or later chain steps) have no
 		// `runs[]` entry yet, so `runs.length` would understate the total and mislead.
 		const fanout = run.tasks.length > 1 ? ` [${doneCount}/${run.tasks.length} done]` : "";
+		const activeModels = Array.from(
+			new Set(run.runs.map(formatAgentRunModel).filter((model): model is string => Boolean(model))),
+		);
+		const models = activeModels.length > 0 ? ` models: ${activeModels.join(", ")}` : "";
 		lines.push(
-			`${run.id} ${run.mode} ${run.execution} ${run.status}${nesting}${resumable}${attention} ${formatDuration(run)} agents: ${run.agents.join(", ")}${fanout}${sessions}${outputs}${error}`,
+			`${run.id} ${run.mode} ${run.execution} ${run.status}${nesting}${resumable}${attention} ${formatDuration(run)} agents: ${run.agents.join(", ")}${fanout}${models}${sessions}${outputs}${error}`,
 		);
 	}
 	lines.push(

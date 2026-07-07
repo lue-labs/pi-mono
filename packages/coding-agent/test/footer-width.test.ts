@@ -316,6 +316,34 @@ describe("FooterComponent width handling", () => {
 		expect(rendered).toContain("low");
 	});
 
+	it("shows the resolved backend model for provider-side auto aliases", () => {
+		const usage = { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } };
+		const session = createSession({
+			sessionName: "",
+			modelId: "auto",
+			provider: "clawrouter",
+			reasoning: true,
+			thinkingLevel: "medium",
+			entries: [
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						provider: "clawrouter",
+						model: "gpt-5.5",
+						usage,
+					},
+				},
+			],
+		});
+		const footer = new FooterComponent(session, createFooterData(2));
+
+		const rendered = stripAnsi(footer.render(120).join("\n"));
+
+		expect(rendered).toContain("auto→gpt-5.5");
+		expect(rendered).toContain("medium");
+	});
+
 	it("keeps stats line within width for wide model and provider names", () => {
 		const width = 60;
 		const session = createSession({

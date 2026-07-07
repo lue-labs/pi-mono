@@ -76,7 +76,9 @@ interface UsageTotals {
 	assistantTurns: number;
 	lastUsage?: UsageSnapshot;
 	lastTimestamp?: string | number;
+	lastProvider?: string;
 	lastModel?: string;
+	lastResponseModel?: string;
 	previousUsage?: UsageSnapshot;
 	previousTimestamp?: string | number;
 	previousModel?: string;
@@ -221,7 +223,13 @@ export class FooterComponent implements Component {
 			lastUsage?.cacheWrite ?? 0,
 			lastUsage?.cost.total ?? 0,
 			lastAssistantEntry?.timestamp ?? "",
+			lastAssistantEntry?.type === "message"
+				? ((lastAssistantEntry.message as { provider?: string }).provider ?? "")
+				: "",
 			lastAssistantEntry?.type === "message" ? ((lastAssistantEntry.message as { model?: string }).model ?? "") : "",
+			lastAssistantEntry?.type === "message"
+				? ((lastAssistantEntry.message as { responseModel?: string }).responseModel ?? "")
+				: "",
 			previousUsage?.input ?? 0,
 			previousUsage?.cacheRead ?? 0,
 			previousUsage?.cacheWrite ?? 0,
@@ -245,9 +253,17 @@ export class FooterComponent implements Component {
 			assistantTurns: 0,
 			lastUsage,
 			lastTimestamp: lastAssistantEntry?.timestamp,
+			lastProvider:
+				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
+					? (lastAssistantEntry.message as { provider?: string }).provider
+					: undefined,
 			lastModel:
 				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
 					? (lastAssistantEntry.message as { model?: string }).model
+					: undefined,
+			lastResponseModel:
+				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
+					? (lastAssistantEntry.message as { responseModel?: string }).responseModel
 					: undefined,
 			previousUsage,
 			previousTimestamp: previousAssistantEntry?.timestamp,
@@ -294,7 +310,9 @@ export class FooterComponent implements Component {
 			assistantTurns,
 			lastUsage,
 			lastTimestamp,
+			lastProvider,
 			lastModel,
+			lastResponseModel,
 			previousUsage,
 			previousTimestamp,
 			previousModel,
@@ -374,6 +392,8 @@ export class FooterComponent implements Component {
 				: "",
 			lastTimestamp ?? "",
 			lastModel ?? "",
+			lastResponseModel ?? "",
+			lastProvider ?? "",
 			previousUsage ? `${previousUsage.input}:${previousUsage.cacheRead}:${previousUsage.cacheWrite}` : "",
 			previousTimestamp ?? "",
 			previousModel ?? "",
@@ -497,7 +517,14 @@ export class FooterComponent implements Component {
 		// state is just the unrouted compat seed, and rendering it reads as if
 		// routing already resolved. The alias clears on resolve, so the routed
 		// model shows here as soon as it actually exists.
-		const modelName = pendingAutoModelAlias ?? state.model?.id ?? "no-model";
+		const selectedModelName = pendingAutoModelAlias ?? state.model?.id ?? "no-model";
+		const resolvedModelName = lastResponseModel ?? lastModel;
+		const resolvedProvider = lastProvider ?? state.model?.provider;
+		const showResolvedModel =
+			Boolean(resolvedModelName) &&
+			resolvedModelName !== selectedModelName &&
+			resolvedProvider === state.model?.provider;
+		const modelName = showResolvedModel ? `${selectedModelName}→${resolvedModelName}` : selectedModelName;
 		const rightParts: string[] = [];
 		rightParts.push(theme.fg("syntaxFunction", modelName));
 		if (state.model?.reasoning) {

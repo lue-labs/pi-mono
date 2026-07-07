@@ -11,7 +11,12 @@ beforeAll(() => {
 	initTheme(undefined, false);
 });
 
-function child(agent: string, status: AgentRunDetails["status"], toolNames: string[] = []): AgentRunDetails {
+function child(
+	agent: string,
+	status: AgentRunDetails["status"],
+	toolNames: string[] = [],
+	overrides: Partial<AgentRunDetails> = {},
+): AgentRunDetails {
 	return {
 		agent,
 		source: "builtin",
@@ -39,6 +44,7 @@ function child(agent: string, status: AgentRunDetails["status"], toolNames: stri
 		recentOutputSnippets: [],
 		loadedSkills: [],
 		invokedSkills: { count: 0, names: [] },
+		...overrides,
 	};
 }
 
@@ -98,6 +104,17 @@ describe("agent runs selector formatting", () => {
 			runs: [child("a", "completed")],
 		});
 		expect(formatAgentRunRow(queued, false)).toContain("[1/3]");
+	});
+
+	test("row and detail show child model and thinking", () => {
+		const childRun = child("scout", "running", [], {
+			model: { provider: "clawrouter", id: "gpt-5.5" },
+			thinking: "medium",
+		});
+		const current = run({ runs: [childRun] });
+
+		expect(formatAgentRunRow(current, false)).toContain("clawrouter/gpt-5.5 · thinking medium");
+		expect(formatAgentRunDetailView(current)).toContain("scout (running) · clawrouter/gpt-5.5 · thinking medium");
 	});
 
 	// B2 + C1: the detail view names the parent and inlines each child's tool

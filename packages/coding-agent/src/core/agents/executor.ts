@@ -596,21 +596,26 @@ function extractTextPreview(content: unknown, maxLength = 240): string | undefin
 	return previewValue(text, maxLength);
 }
 
-function getLastAssistantUsage(
-	messages: readonly { role: string; usage?: Usage; stopReason?: string }[],
-): Usage | undefined {
+function getLastCompletedAssistantMessage(messages: readonly AssistantMessage[]): AssistantMessage | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
-		if (
-			message.role === "assistant" &&
-			message.usage &&
-			message.stopReason !== "aborted" &&
-			message.stopReason !== "error"
-		) {
-			return message.usage;
+		if (message.role === "assistant" && message.stopReason !== "aborted" && message.stopReason !== "error") {
+			return message;
 		}
 	}
 	return undefined;
+}
+
+function getLastAssistantUsage(messages: readonly AssistantMessage[]): Usage | undefined {
+	return getLastCompletedAssistantMessage(messages)?.usage;
+}
+
+function getLastAssistantModelDetails(
+	messages: readonly AssistantMessage[],
+): { provider: string; id: string } | undefined {
+	const message = getLastCompletedAssistantMessage(messages);
+	if (!message) return undefined;
+	return { provider: message.provider, id: message.responseModel ?? message.model };
 }
 
 function recordSkillInvocation(details: AgentRunDetails, toolName: string, args: unknown): void {
@@ -630,9 +635,11 @@ function refreshRunDetailsFromSession(
 	session: { messages: readonly unknown[] },
 	startedAt: number,
 ): void {
+	const messages = session.messages as AssistantMessage[];
 	details.durationMs = Date.now() - startedAt;
 	details.messageCount = session.messages.length;
-	details.usage = getLastAssistantUsage(session.messages as AssistantMessage[]);
+	details.usage = getLastAssistantUsage(messages);
+	details.model = getLastAssistantModelDetails(messages) ?? details.model;
 }
 
 interface DriveChildSessionOptions extends AgentExecutorOptions {
