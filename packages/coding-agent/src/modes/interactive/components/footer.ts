@@ -76,6 +76,7 @@ interface UsageTotals {
 	assistantTurns: number;
 	lastUsage?: UsageSnapshot;
 	lastTimestamp?: string | number;
+	lastApi?: string;
 	lastProvider?: string;
 	lastModel?: string;
 	lastResponseModel?: string;
@@ -86,6 +87,37 @@ interface UsageTotals {
 	/** True when the latest assistant turn is the first after a compaction —
 	 * its cold cache write is expected, not prefix drift. */
 	postCompactionTurn: boolean;
+}
+
+function isClaudeFamilyModel(modelId: string | undefined): boolean {
+	if (!modelId) return false;
+	return /^claude(?:[-/]|$)/i.test(modelId);
+}
+
+function isGptFamilyModel(modelId: string | undefined): boolean {
+	if (!modelId) return false;
+	return /^gpt(?:[-/.]|$)/i.test(modelId);
+}
+
+function resolveActiveAdapter(options: {
+	selectedApi?: string;
+	selectedProvider?: string;
+	selectedModel?: string;
+	usingOAuth: boolean;
+	lastApi?: string;
+	lastProvider?: string;
+	lastModel?: string;
+	lastResponseModel?: string;
+}): "claude-code" | "codex" | undefined {
+	const modelName = options.lastResponseModel ?? options.lastModel ?? options.selectedModel;
+	const provider = options.selectedProvider ?? options.lastProvider;
+	const api = options.selectedApi ?? options.lastApi;
+	if (provider === "openai-codex" || api === "openai-codex-responses") return "codex";
+	if (provider === "clawrouter" && isGptFamilyModel(modelName)) return "codex";
+	if (provider === "claude-bridge") return "claude-code";
+	if (options.usingOAuth && api === "anthropic-messages") return "claude-code";
+	if (provider === "clawrouter" && isClaudeFamilyModel(modelName)) return "claude-code";
+	return undefined;
 }
 
 /**
@@ -253,6 +285,10 @@ export class FooterComponent implements Component {
 			assistantTurns: 0,
 			lastUsage,
 			lastTimestamp: lastAssistantEntry?.timestamp,
+			lastApi:
+				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
+					? (lastAssistantEntry.message as { api?: string }).api
+					: undefined,
 			lastProvider:
 				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
 					? (lastAssistantEntry.message as { provider?: string }).provider
@@ -310,6 +346,7 @@ export class FooterComponent implements Component {
 			assistantTurns,
 			lastUsage,
 			lastTimestamp,
+			lastApi,
 			lastProvider,
 			lastModel,
 			lastResponseModel,
@@ -369,6 +406,17 @@ export class FooterComponent implements Component {
 		const pendingAutoModelAlias = this.session.pendingAutoModelAlias;
 		const thinkingLevel = state.thinkingLevel || "off";
 		const providerCount = this.footerData.getAvailableProviderCount();
+		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
+		const activeAdapter = resolveActiveAdapter({
+			selectedApi: state.model?.api,
+			selectedProvider: state.model?.provider,
+			selectedModel: state.model?.id,
+			usingOAuth: usingSubscription,
+			lastApi,
+			lastProvider,
+			lastModel,
+			lastResponseModel,
+		});
 		const renderKey = [
 			width,
 			basePwd,
@@ -391,6 +439,7 @@ export class FooterComponent implements Component {
 				? `${lastUsage.input}:${lastUsage.output}:${lastUsage.cacheRead}:${lastUsage.cacheWrite}:${lastUsage.cost.total}`
 				: "",
 			lastTimestamp ?? "",
+			lastApi ?? "",
 			lastModel ?? "",
 			lastResponseModel ?? "",
 			lastProvider ?? "",
@@ -405,6 +454,9 @@ export class FooterComponent implements Component {
 			thinkingLevel,
 			providerCount,
 			state.model?.provider ?? "",
+			state.model?.api ?? "",
+			usingSubscription ? "1" : "0",
+			activeAdapter ?? "",
 		].join("|");
 
 		if (renderKey === this.renderCacheKey) {
@@ -482,7 +534,6 @@ export class FooterComponent implements Component {
 			leftParts.push(colored);
 		}
 
-		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
 		if (totalCost || usingSubscription) {
 			const costStr = `$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
 			leftParts.push(theme.fg("dim", costStr));
@@ -529,6 +580,9 @@ export class FooterComponent implements Component {
 		rightParts.push(theme.fg("syntaxFunction", modelName));
 		if (state.model?.reasoning) {
 			rightParts.push(thinkingLevel === "off" ? theme.fg("dim", "thinking off") : theme.fg("accent", thinkingLevel));
+		}
+		if (activeAdapter) {
+			rightParts.push(theme.fg("dim", `adapter:${activeAdapter}`));
 		}
 		let rightSide = rightParts.join(sep);
 
