@@ -77,6 +77,14 @@ function getCacheControl(
 	};
 }
 
+function usesExtendedCacheTtl(
+	model: Model<"anthropic-messages">,
+	cacheRetention?: CacheRetention,
+	env?: ProviderEnv,
+): boolean {
+	return getCacheControl(model, cacheRetention, env).cacheControl?.ttl === "1h";
+}
+
 // Stealth mode: Mimic Claude Code's tool naming exactly
 const claudeCodeVersion = "2.1.75";
 
@@ -258,6 +266,7 @@ export type AnthropicThinkingDisplay = "summarized" | "omitted";
 const FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14";
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 const TOOL_SEARCH_BETA = "advanced-tool-use-2025-11-20";
+const EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11";
 
 function getAnthropicCompat(
 	model: Model<"anthropic-messages">,
@@ -373,13 +382,16 @@ function mergeHeadersWithAnthropicBetas(
 ): Record<string, string | null> {
 	const merged = mergeHeaders(...headerSources);
 	const betaSet = new Set<string>();
-	const existing = merged["anthropic-beta"];
-	if (typeof existing === "string") {
-		for (const beta of existing
+	for (const [key, value] of Object.entries(merged)) {
+		if (key.toLowerCase() !== "anthropic-beta") continue;
+		if (typeof value !== "string") continue;
+		for (const beta of value
 			.split(",")
-			.map((value) => value.trim())
-			.filter(Boolean))
+			.map((entry) => entry.trim())
+			.filter(Boolean)) {
 			betaSet.add(beta);
+		}
+		if (key !== "anthropic-beta") delete merged[key];
 	}
 	for (const beta of requiredBetas) betaSet.add(beta);
 	if (betaSet.size > 0) merged["anthropic-beta"] = Array.from(betaSet).join(",");
@@ -690,6 +702,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					options?.interleavedThinking ?? true,
 					shouldUseFineGrainedToolStreamingBeta(model, context),
 					shouldUseToolSearchBeta(model, context),
+					usesExtendedCacheTtl(model, options?.cacheRetention, options?.env),
 					options?.headers,
 					copilotDynamicHeaders,
 					cacheSessionId,
@@ -1192,6 +1205,7 @@ function createClient(
 	interleavedThinking: boolean,
 	useFineGrainedToolStreamingBeta: boolean,
 	useToolSearchBeta: boolean,
+	useExtendedCacheTtlBeta: boolean,
 	optionsHeaders?: ProviderHeaders,
 	dynamicHeaders?: Record<string, string>,
 	sessionId?: string,
@@ -1207,6 +1221,9 @@ function createClient(
 	}
 	if (useToolSearchBeta) {
 		betaFeatures.push(TOOL_SEARCH_BETA);
+	}
+	if (useExtendedCacheTtlBeta) {
+		betaFeatures.push(EXTENDED_CACHE_TTL_BETA);
 	}
 
 	// Copilot: Bearer auth, selective betas.
