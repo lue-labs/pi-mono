@@ -48,6 +48,51 @@ describe("AgentSession model and extension characterization", () => {
 		).toEqual([`${nextModel.provider}/${nextModel.id}`]);
 	});
 
+	it("pending auto routing emits model events even when it keeps the current concrete model", async () => {
+		const modelEvents: string[] = [];
+		const harness = await createHarness({
+			models: [{ id: "faux-1", name: "One", reasoning: true }],
+			extensionFactories: [
+				(pi) => {
+					pi.hooks.addFilter<any>("model:resolve", "test.same-model-route", (value) => ({
+						...value,
+						model: value.model,
+						thinkingLevel: value.thinkingLevel,
+						metadata: {
+							...(value.metadata ?? {}),
+							route: value.requestedModel,
+							tier: "medium",
+							llmRouterDecision: {
+								route: value.requestedModel,
+								provider: value.model?.provider,
+								modelId: value.model?.id,
+								tier: "medium",
+								thinkingLevel: value.thinkingLevel,
+								reason: ["test"],
+							},
+						},
+					}));
+					pi.on("model_select", async (event) => {
+						modelEvents.push(`${event.previousModel?.id ?? "none"}->${event.model.id}:${event.source}`);
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("done")]);
+
+		harness.session.setPendingAutoModelAlias("clawrouter/auto");
+		await harness.session.prompt("route me");
+
+		expect(harness.session.pendingAutoModelAlias).toBeUndefined();
+		expect(
+			harness
+				.eventsOfType("model_changed")
+				.map((event) => `${event.previousModel?.id ?? "none"}->${event.model.id}:${event.source}`),
+		).toEqual(["faux-1->faux-1:set"]);
+		expect(modelEvents).toEqual(["faux-1->faux-1:set"]);
+	});
+
 	it("setModel re-syncs provider-sensitive extension resources before the next request", async () => {
 		const discoveredForProviders: string[] = [];
 		const harness = await createHarness({

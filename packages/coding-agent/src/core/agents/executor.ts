@@ -8,7 +8,7 @@ import { createAgentSessionFromServices, createAgentSessionServices } from "../a
 import type { AuthStorage } from "../auth-storage.ts";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.ts";
 import type { ModelRegistry } from "../model-registry.ts";
-import { parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
+import { normalizeAutoAliasString, parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
 import { type ReadonlySessionManager, SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import { appendTaskMessage } from "../tasks/messages.ts";
@@ -320,15 +320,12 @@ function resolveAgentModelReference(options: {
 	);
 }
 
+function normalizeAgentAutoModelAlias(reference: string | undefined): string | undefined {
+	return normalizeAutoAliasString("clawrouter", reference);
+}
+
 function isAutoModelAlias(reference: string | undefined): boolean {
-	const normalized = reference?.trim().toLowerCase();
-	return (
-		normalized === "auto" ||
-		normalized === "pi-fork/auto" ||
-		normalized === "claude-bridge/auto" ||
-		normalized === "clawrouter/auto" ||
-		normalized === "openai-codex/auto"
-	);
+	return normalizeAgentAutoModelAlias(reference) !== undefined;
 }
 
 type AgentTierAlias = "fast" | "medium" | "frontier" | "ultra";
@@ -874,7 +871,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		agent,
 		defaults: agentDefaults,
 	});
-	const requestedAutoModel = isAutoModelAlias(selectedModelReference) ? selectedModelReference : undefined;
+	const requestedAutoModel = normalizeAgentAutoModelAlias(selectedModelReference);
 	const warnings: string[] = [];
 	const model = resolveAgentModel({
 		modelReference: options.task.model,

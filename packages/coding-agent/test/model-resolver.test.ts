@@ -589,7 +589,7 @@ describe("resolveCliModel", () => {
 
 describe("auto alias normalization", () => {
 	test("normalizes settings-default auto aliases for supported providers", () => {
-		expect(normalizeAutoAliasString("pi-fork", "auto")).toBe("pi-fork/auto");
+		expect(normalizeAutoAliasString("pi-fork", "auto")).toBe("clawrouter/auto");
 		expect(normalizeAutoAliasString("claude-bridge", "auto")).toBe("claude-bridge/auto");
 		expect(normalizeAutoAliasString("openai-codex", "auto")).toBe("openai-codex/auto");
 		expect(normalizeAutoAliasString("clawrouter", "auto")).toBe("clawrouter/auto");
@@ -597,6 +597,7 @@ describe("auto alias normalization", () => {
 
 	test("normalizes provider-prefixed auto aliases", () => {
 		expect(normalizeAutoAliasString("openai-codex", "openai-codex/auto")).toBe("openai-codex/auto");
+		expect(normalizeAutoAliasString(undefined, "pi-fork/auto")).toBe("clawrouter/auto");
 		expect(normalizeAutoAliasString(undefined, "claude-bridge/auto")).toBe("claude-bridge/auto");
 		expect(normalizeAutoAliasString("openai-codex", "claude-bridge/auto")).toBe("claude-bridge/auto");
 		expect(normalizeAutoAliasString(undefined, "clawrouter/auto")).toBe("clawrouter/auto");

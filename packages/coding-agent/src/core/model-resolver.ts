@@ -10,7 +10,16 @@ import { isValidThinkingLevel } from "../cli/args.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 
-export const AUTO_MODEL_ALIAS_PROVIDERS = new Set(["pi-fork", "claude-bridge", "openai-codex", "clawrouter"]);
+export const AUTO_MODEL_ALIAS_PROVIDERS = new Set(["clawrouter", "claude-bridge", "openai-codex"]);
+
+const AUTO_MODEL_ALIAS_PROVIDER_RENAMES = new Map([["pi-fork", "clawrouter"]]);
+
+function normalizeAutoAliasProvider(provider: string | undefined): string | undefined {
+	const normalizedProvider = provider?.trim().toLowerCase();
+	if (!normalizedProvider) return undefined;
+	const canonicalProvider = AUTO_MODEL_ALIAS_PROVIDER_RENAMES.get(normalizedProvider) ?? normalizedProvider;
+	return AUTO_MODEL_ALIAS_PROVIDERS.has(canonicalProvider) ? canonicalProvider : undefined;
+}
 
 export function normalizeAutoAliasString(
 	provider: string | undefined,
@@ -22,15 +31,12 @@ export function normalizeAutoAliasString(
 	const modelReferenceParts = normalizedModelId.split("/");
 	if (modelReferenceParts.length === 2) {
 		const [referenceProvider, referenceModelId] = modelReferenceParts;
-		return referenceModelId === "auto" && AUTO_MODEL_ALIAS_PROVIDERS.has(referenceProvider)
-			? `${referenceProvider}/auto`
-			: undefined;
+		const canonicalProvider = normalizeAutoAliasProvider(referenceProvider);
+		return referenceModelId === "auto" && canonicalProvider ? `${canonicalProvider}/auto` : undefined;
 	}
 
-	const normalizedProvider = provider?.trim().toLowerCase();
-	return normalizedModelId === "auto" && normalizedProvider && AUTO_MODEL_ALIAS_PROVIDERS.has(normalizedProvider)
-		? `${normalizedProvider}/auto`
-		: undefined;
+	const canonicalProvider = normalizeAutoAliasProvider(provider);
+	return normalizedModelId === "auto" && canonicalProvider ? `${canonicalProvider}/auto` : undefined;
 }
 
 /**

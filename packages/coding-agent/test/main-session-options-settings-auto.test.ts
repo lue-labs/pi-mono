@@ -64,6 +64,32 @@ describe("buildSessionOptions settings-default auto", () => {
 		expect(result.options.model).not.toBe(clawrouterModel);
 	});
 
+	it("canonicalizes legacy pi-fork auto settings to clawrouter/auto", () => {
+		const result = buildSessionOptions(
+			{} as Args,
+			scoped(clawrouterModel, codexModel, bridgeModel),
+			false,
+			registry([clawrouterModel, codexModel, bridgeModel]),
+			settings("pi-fork", "auto"),
+		);
+
+		expect(result.options.requestedModel).toBe("clawrouter/auto");
+		expect(result.options.model).toBe(clawrouterModel);
+	});
+
+	it("canonicalizes bare CLI auto to clawrouter/auto", () => {
+		const result = buildSessionOptions(
+			{ model: "auto" } as Args,
+			scoped(clawrouterModel, codexModel, bridgeModel),
+			false,
+			registry([clawrouterModel, codexModel, bridgeModel]),
+			settings("openai-codex", "gpt-5.5"),
+		);
+
+		expect(result.options.requestedModel).toBe("clawrouter/auto");
+		expect(result.options.model).toBe(clawrouterModel);
+	});
+
 	it("seeds the auto placeholder from enabledModels scope, not the full registry", () => {
 		const outOfScopeCodexModel = model("openai-codex", "gpt-5.3-codex-spark");
 		const result = buildSessionOptions(
