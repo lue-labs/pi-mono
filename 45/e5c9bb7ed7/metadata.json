@@ -4,7 +4,7 @@
   "checkpoint_id": "45e5c9bb7ed7",
   "strategy": "manual-commit",
   "branch": "lue/reforge-primitives-plan-wip",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "hooks/commit-msg",
     "hooks/post-commit",
@@ -20,6 +20,12 @@
       "compact_transcript": "/45/e5c9bb7ed7/0/transcript.jsonl",
       "content_hash": "/45/e5c9bb7ed7/0/content_hash.txt",
       "prompt": "/45/e5c9bb7ed7/0/prompt.txt"
+    },
+    {
+      "metadata": "/45/e5c9bb7ed7/1/metadata.json",
+      "transcript": "/45/e5c9bb7ed7/1/full.jsonl",
+      "content_hash": "/45/e5c9bb7ed7/1/content_hash.txt",
+      "prompt": "/45/e5c9bb7ed7/1/prompt.txt"
     }
   ],
   "token_usage": {

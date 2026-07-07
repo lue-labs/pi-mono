@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.7.8",
+  "checkpoint_id": "45e5c9bb7ed7",
+  "session_id": "d87408b0-47a8-4be4-88f3-b10f8c2dc8fc",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-07T13:02:25.986996Z",
+  "branch": "lue/reforge-primitives-plan-wip",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "hooks/pre-push"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "261f077ae1f2",
+  "checkpoint_transcript_start": 26,
+  "transcript_lines_at_start": 26,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-07T13:02:25.981778Z",
+    "agent_lines": 9,
+    "agent_removed": 11,
+    "human_added": 23,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 32,
+    "total_lines_changed": 6486,
+    "agent_percentage": 0.3083564600678384,
+    "metric_version": 2
+  }
+}
