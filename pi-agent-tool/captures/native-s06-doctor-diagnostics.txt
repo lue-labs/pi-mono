@@ -1,3 +1,0 @@
-# S06 native doctor/diagnostics
-Evidence mode: source-backed plus tmux `/agents-doctor` capture.
-Native now has `/agents-doctor` and `/agents doctor`, backed by buildAgentDoctorReport in packages/coding-agent/src/core/agents/doctor.ts.

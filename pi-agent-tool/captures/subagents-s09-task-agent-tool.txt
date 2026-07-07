@@ -1,3 +1,0 @@
-# S09 pi-subagents closest task lifecycle equivalent
-Evidence mode: source-backed comparison.
-pi-subagents management actions create/list/get/update/delete reusable agent and chain definitions, and status/control async runs. That is not a general non-spawn task-list lifecycle equivalent to the requested native task-agent tool.

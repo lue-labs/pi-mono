@@ -1,3 +1,0 @@
-# S01 pi-subagents single-agent reconnaissance
-Evidence mode: source-backed; live child not run to avoid paid tokens.
-`/run` is registered in pi-subagents src/slash/slash-commands.ts and `subagent` single execution is registered in src/extension/index.ts. Isolation: extension arm launch uses `--no-builtin-tools --no-extensions -e <pi-subagents>`; native `agent` tool disabled and not invoked.

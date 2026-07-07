@@ -1,5 +1,0 @@
-# S07 pi-subagents UI manager/selector
-Evidence mode: source-backed plus tmux unavailable-command capture.
-pi-subagents 0.24.0 removed the `/agents` manager overlay and there is no `/subagents` replacement command registered in current source. Management remains via tool actions/settings/markdown files.
-
-If `captures/subagents-s07-manager-removed-live.txt` exists, it shows `/subagents` falls through as a normal model prompt. In the baseline run the model invoked extension `subagent list`, consuming roughly ↑11k/↓81 tokens and ~$0.055 in the footer. This makes the removed manager command an actual token-cost footgun if an operator expects a slash UI.

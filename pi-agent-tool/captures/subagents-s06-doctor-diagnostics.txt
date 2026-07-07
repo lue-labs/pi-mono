@@ -1,3 +1,0 @@
-# S06 pi-subagents doctor/diagnostics
-Evidence mode: source-backed plus tmux `/subagents-doctor` capture.
-pi-subagents registers `/subagents-doctor` and `subagent({ action: "doctor" })`, backed by src/extension/doctor.ts.

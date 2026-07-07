@@ -1,5 +1,0 @@
-# S05 pi-subagents async/background/status/control
-Evidence mode: source-backed plus command-surface captures.
-pi-subagents still supports `async`, `status`, `interrupt`, and `resume` tool actions plus async widgets/logs, but 0.24.0 removed the `/subagents-status` slash overlay. Use `subagent({ action: "status" })`, not `/subagents-status`.
-
-If `captures/subagents-s05-status-removed-live.txt` exists, it shows the removed slash command falls through as a normal model prompt. In the baseline run the model invoked extension `subagent list`, consuming roughly ↑11k/↓106 tokens and ~$0.056 in the footer. This is real UX/token evidence, not a child-agent run.

@@ -1,3 +1,0 @@
-# S04 native saved/reusable workflow
-Evidence mode: source-backed.
-Native saved chains are documented in packages/coding-agent/docs/usage.md and handled by `/agents list-chains` and `/agents run-chain` in interactive-mode.ts. This is now a first-class native equivalent for saved/reusable workflows.

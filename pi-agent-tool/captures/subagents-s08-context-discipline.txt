@@ -1,3 +1,0 @@
-# S08 pi-subagents context discipline/forking
-Evidence mode: source-backed.
-pi-subagents exposes `--fork` and `context: "fork"` but does not match native's `default/slim/none/fork` enum. Child prompt runtime tells subagents not to delegate further.

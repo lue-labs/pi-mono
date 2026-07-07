@@ -1,3 +1,0 @@
-# S01 native single-agent reconnaissance
-Evidence mode: source-backed; live child not run to avoid paid tokens.
-Native `agent` supports single `{ agent, task }` mode in packages/coding-agent/src/core/tools/agent.ts and built-in agents in packages/coding-agent/src/core/agents/definitions.ts. Isolation: evaluated under native launch with `--no-extensions`; no `subagent` extension loaded.

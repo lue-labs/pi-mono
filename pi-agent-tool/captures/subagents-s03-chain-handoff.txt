@@ -1,3 +1,0 @@
-# S03 pi-subagents chain handoff
-Evidence mode: source-backed; live child not run to avoid paid tokens.
-`/chain` is registered and forwards sequential chain params; `/run-chain` supports saved `.chain.md` workflows. Native `/agents` and native `agent` were not used.
