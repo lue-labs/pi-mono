@@ -179,6 +179,7 @@ const runContentSignatures = new WeakMap<AgentRecentRun, string>();
 function computeRunContentSignature(run: AgentRecentRun): string {
 	return JSON.stringify({
 		status: run.status,
+		execution: run.execution,
 		error: run.error,
 		needsAttention: run.needsAttention,
 		attentionMessage: run.attentionMessage,
@@ -299,6 +300,15 @@ export function updateAgentRecentRunProgress(
 	// guard against re-rendering when nothing user-visible actually changed —
 	// see perf/BASELINE.md fix #2 (global requestRender() on every agent tick).
 	applyRunDetails(run, details, details.status !== "running", expectedGeneration, /* guardUnchanged */ true);
+}
+
+export function markAgentRecentRunBackgrounded(run: AgentRecentRun): void {
+	if (run.execution === "background") return;
+	run.execution = "background";
+	run.updatedAt = nowIso();
+	run.resumable = canResumeRun(run);
+	runContentSignatures.set(run, computeRunContentSignature(run));
+	notifyAgentRecentRunsChanged();
 }
 
 export function finishAgentRecentRun(
