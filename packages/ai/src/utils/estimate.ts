@@ -109,15 +109,41 @@ function isMessageArray(value: Context | readonly Message[]): value is readonly 
 	return Array.isArray(value);
 }
 
+/**
+ * A usage anchor is trusted only while it plausibly reflects the messages still
+ * present. After compaction the retained assistant message keeps its
+ * pre-compaction `usage.totalTokens`, which counts messages that were dropped —
+ * a stale anchor that over-counts the real context by multiples. Trusting it
+ * collapses the available output budget in `clampMaxTokensToContext` and
+ * truncates (or empties) the next turn. When the anchored estimate exceeds a
+ * fresh recount of the current messages + prefix by more than this factor, the
+ * anchor is treated as stale and the recount is used instead. The factor is
+ * generous because the char/4 recount under-counts real tokenization; only a
+ * compaction-scale mismatch trips it.
+ */
+const STALE_USAGE_RECOUNT_FACTOR = 2;
+
 export function estimateContextTokens(context: Context | readonly Message[]): ContextUsageEstimate {
 	if (isMessageArray(context)) return estimateMessages(context);
 
 	const estimate = estimateMessages(context.messages);
-	if (estimate.lastUsageIndex !== null) return estimate;
 
 	let prefixTokens = context.systemPrompt ? estimateTextTokens(context.systemPrompt) : 0;
 	if (context.tools && context.tools.length > 0) {
 		prefixTokens += estimateTextTokens(safeJsonStringify(context.tools));
+	}
+
+	if (estimate.lastUsageIndex !== null) {
+		// `estimate.tokens` (usage.totalTokens already includes the system + tools
+		// prefix) is compared against an independent recount of everything currently
+		// in context. A wide gap means the anchor still counts messages that
+		// compaction dropped — use the recount instead of the stale usage total.
+		let recountTokens = prefixTokens;
+		for (const message of context.messages) recountTokens += estimateMessageTokens(message);
+		if (recountTokens > 0 && estimate.tokens > recountTokens * STALE_USAGE_RECOUNT_FACTOR) {
+			return { tokens: recountTokens, usageTokens: 0, trailingTokens: recountTokens, lastUsageIndex: null };
+		}
+		return estimate;
 	}
 
 	return {
