@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Cache health: classify Anthropic thinking-block strips as `thinking_strip_likely` instead of `cache_write_unhealthy`, rendered as a dim `⟳think` footer marker (analogous to `⟳compact`). When a non-tool-result user message follows an agentic loop, the Anthropic API strips the loop's accrued thinking blocks from history, collapsing the warm prefix to the tools+system anchor — an expected one-time rewrite, not prefix drift (diagnosed from session `019f40ab` turn 70: 140,605→26,913 read collapse, 121,790 write, 2m46s gap). Detection: new `followsUserTurn` signal (user-role entries between assistant turns) + warm→anchor collapse (< 50% of ≥ 30k previous read), > 5k write, gap under the TTL window, same model. Regressions in `test/cache-health.test.ts` (baseline-fail verified).
+
 - Agents runs selector: resume now prompts for an optional steering message before reattaching a resumable run, matching the existing Agent control `resume(message)` path while keeping empty-Enter as an explicit resume-without-message action.
 
 - Footer/agent status: surface provider-side resolved auto models from assistant metadata (for example `clawrouter/auto → gpt-5.5`) and show model + thinking details in `/agents status`, background-agent footer status, and the agent runs selector. Regressions in `test/footer-width.test.ts`, `test/agent-status.test.ts`, and `test/agent-runs-selector.test.ts`.
