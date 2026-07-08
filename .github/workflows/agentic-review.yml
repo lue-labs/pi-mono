@@ -43,7 +43,7 @@ jobs:
     steps:
       - name: Authorize author (collaborator write+)
         id: auth
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const author = context.payload.pull_request.user.login;
@@ -59,7 +59,7 @@ jobs:
 
       - name: Decide scope (code changed? fork? labelled?)
         id: scope
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = context.payload.pull_request;
@@ -98,7 +98,7 @@ jobs:
     steps:
       - name: Checkout PR head
         if: env.RUN_REVIEW == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -147,14 +147,14 @@ jobs:
       # Skills (private) + bridge (private) — need a PAT with repo read.
       - name: Checkout skills (agent-scripts)
         if: env.RUN_REVIEW == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: valkyriweb/agent-scripts
           path: agent-scripts
           token: ${{ secrets.GH_CLONE_TOKEN }}
       - name: Checkout claude-bridge
         if: env.RUN_REVIEW == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: valkyriweb/pi-claude-bridge
           path: pi-claude-bridge
@@ -169,7 +169,7 @@ jobs:
       # so both skew classes vanish and there is no pin to keep current.
       - name: Checkout my-pi (actions profile source)
         if: env.RUN_REVIEW == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: valkyriweb/my-pi
           ref: main
