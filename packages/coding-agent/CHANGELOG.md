@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Agents runs selector: resume now prompts for an optional steering message before reattaching a resumable run, matching the existing Agent control `resume(message)` path while keeping empty-Enter as an explicit resume-without-message action.
+
 - Footer/agent status: surface provider-side resolved auto models from assistant metadata (for example `clawrouter/auto → gpt-5.5`) and show model + thinking details in `/agents status`, background-agent footer status, and the agent runs selector. Regressions in `test/footer-width.test.ts`, `test/agent-status.test.ts`, and `test/agent-runs-selector.test.ts`.
 
 - Keep Edit tool TUI output within terminal width: render Edit errors as wrapped text and clamp/wrap ColorDiff lines so long diagnostics, emoji, and markdown table rows cannot crash the interactive renderer with `Rendered line ... exceeds terminal width`.
