@@ -79,7 +79,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Checkout pi-mono fork
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: pi-mono-fork
           fetch-depth: 0
