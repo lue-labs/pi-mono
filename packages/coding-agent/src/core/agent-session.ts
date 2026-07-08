@@ -1033,6 +1033,12 @@ export class AgentSession {
 		const exemptions = entriesSincePreviousAssistant.some((entry) => entry.type === "model_change")
 			? ["model_change" as const]
 			: [];
+		// Non-tool-result user input between assistant turns triggers Anthropic's
+		// thinking-block strip; cache-health uses it to classify the expected
+		// one-time prefix rewrite as thinking_strip_likely.
+		const followsUserTurn = entriesSincePreviousAssistant.some(
+			(entry) => entry.type === "message" && entry.message.role === "user",
+		);
 		const currentEntry = branch[currentAssistantIndex];
 		const model = (message as { model?: string }).model ?? this.model?.id ?? "unknown";
 		const timestamp =
@@ -1055,6 +1061,7 @@ export class AgentSession {
 				postCompactionTurn,
 				exemptions,
 				previousAssistant,
+				followsUserTurn,
 			}),
 			sessionId: this.sessionManager.getSessionId(),
 			turn: assistantTurn,
