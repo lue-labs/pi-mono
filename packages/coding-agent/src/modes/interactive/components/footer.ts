@@ -87,6 +87,10 @@ interface UsageTotals {
 	/** True when the latest assistant turn is the first after a compaction —
 	 * its cold cache write is expected, not prefix drift. */
 	postCompactionTurn: boolean;
+	/** True when a user message arrived between the previous and latest
+	 * assistant turns — Anthropic's thinking-block strip makes the resulting
+	 * one-time prefix rewrite expected (`thinking_strip_likely`). */
+	followsUserTurn: boolean;
 }
 
 function isClaudeFamilyModel(modelId: string | undefined): boolean {
@@ -138,6 +142,7 @@ export class FooterComponent implements Component {
 		assistantTurns: 0,
 		cacheHealthExemptions: [],
 		postCompactionTurn: false,
+		followsUserTurn: false,
 	};
 	private selectedExtensionFooterId: string | undefined = undefined;
 	private renderCacheKey = "";
@@ -243,6 +248,12 @@ export class FooterComponent implements Component {
 					? ["model_change"]
 					: []
 				: [];
+		const followsUserTurn =
+			previousAssistantIndex >= 0 && lastAssistantIndex >= 0
+				? entries
+						.slice(previousAssistantIndex + 1, lastAssistantIndex)
+						.some((entry) => entry.type === "message" && entry.message.role === "user")
+				: false;
 		const latestCompaction = getLatestCompactionEntry(entries);
 		const cacheKey = [
 			entries.length,
@@ -270,6 +281,7 @@ export class FooterComponent implements Component {
 				? ((previousAssistantEntry.message as { model?: string }).model ?? "")
 				: "",
 			cacheHealthExemptions.join(","),
+			followsUserTurn,
 		].join(":");
 
 		if (cacheKey === this.usageCacheKey) {
@@ -309,6 +321,7 @@ export class FooterComponent implements Component {
 					: undefined,
 			cacheHealthExemptions,
 			postCompactionTurn: false,
+			followsUserTurn,
 		};
 
 		const startIndex =
@@ -355,6 +368,7 @@ export class FooterComponent implements Component {
 			previousModel,
 			cacheHealthExemptions,
 			postCompactionTurn,
+			followsUserTurn,
 		} = this.getUsageTotals();
 
 		const contextUsage = this.session.getContextUsage();
@@ -448,6 +462,7 @@ export class FooterComponent implements Component {
 			previousModel ?? "",
 			cacheHealthExemptions.join(","),
 			postCompactionTurn,
+			followsUserTurn,
 			pendingAutoModelAlias ?? "",
 			state.model?.id ?? "",
 			state.model?.reasoning ? "1" : "0",
@@ -516,16 +531,19 @@ export class FooterComponent implements Component {
 				previousAssistant: previousUsage
 					? { usage: previousUsage, timestamp: previousTimestamp, model: previousModel }
 					: undefined,
+				followsUserTurn,
 			});
 			const markers: string[] = [];
 			if (postCompactionTurn) markers.push("⟳compact");
 			if (health.warnings.includes("fresh_tail_large")) markers.push("⚠fresh");
 			if (health.warnings.includes("cache_write_unhealthy")) markers.push("🔥write");
+			if (health.warnings.includes("thinking_strip_likely")) markers.push("⟳think");
 			if (health.warnings.includes("ttl_expiry_likely")) markers.push("⌛ttl");
 			const label = [`cache ${health.coveragePct}%`, ...markers].join(" ");
 			let colored: string;
 			if (postCompactionTurn) colored = theme.fg("dim", label);
 			else if (health.warnings.includes("cache_write_unhealthy")) colored = theme.fg("error", theme.bold(label));
+			else if (health.warnings.includes("thinking_strip_likely")) colored = theme.fg("dim", label);
 			else if (health.warnings.includes("ttl_expiry_likely")) colored = theme.fg("warning", theme.bold(label));
 			else if (health.warnings.includes("fresh_tail_large")) colored = theme.fg("warning", label);
 			else if (health.warmthPct >= 80) colored = theme.fg("success", label);
