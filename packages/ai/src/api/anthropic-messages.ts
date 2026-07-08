@@ -1144,6 +1144,15 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 	// For models with adaptive thinking: use an effort level.
 	// For older models: use budget-based thinking.
 	if (model.compat?.forceAdaptiveThinking === true) {
+		// Adaptive thinking self-regulates its budget and cannot be given an explicit
+		// cap, so a clamped max_tokens (near-full context, or a small output cap) can
+		// be consumed entirely by thinking — the turn ends with stopReason "length"
+		// and zero visible output. When there isn't room for a meaningful thinking
+		// budget plus an answer, disable thinking for this request. Mirrors the
+		// budget-based floor guard below (which needs max_tokens >= 2 * the floor).
+		if ((base.maxTokens ?? model.maxTokens) < MIN_THINKING_BUDGET * 2) {
+			return stream(model, context, { ...base, thinkingEnabled: false } satisfies AnthropicOptions);
+		}
 		// "adaptive" level = fully unconstrained: send thinking.type=adaptive with no effort cap,
 		// letting Claude self-regulate budget per turn.
 		if (options.reasoning === "adaptive") {
