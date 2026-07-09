@@ -49,31 +49,32 @@ function ensureUpstreamRemote() {
 }
 
 function fetchUpstream() {
-	// Try a shallow-ish fetch first (cheap in CI); if the local history is too shallow for a
-	// merge-base to resolve, deepen once, then fall back to a full unshallow fetch.
-	let result = tryGit(["fetch", "upstream", "main", "--depth=200"]);
+	// Only the upstream tip tree is needed (diff-filter=A against upstream/main),
+	// so a shallow fetch suffices; fall back to a full fetch if it fails.
+	let result = tryGit(["fetch", "upstream", "main", "--depth=1"]);
 	if (!result.ok) {
 		result = tryGit(["fetch", "upstream", "main"]);
 	}
 	return result.ok;
 }
 
-function resolveMergeBase() {
-	let result = tryGit(["merge-base", "HEAD", "upstream/main"]);
-	if (!result.ok) {
-		// Local history (or upstream/main's) may be shallow relative to the other side.
-		// Deepen both refs and retry once before giving up.
-		tryGit(["fetch", "upstream", "main", "--deepen=500"]);
-		tryGit(["fetch", "origin", "HEAD", "--deepen=500"]);
-		result = tryGit(["merge-base", "HEAD", "upstream/main"]);
-	}
-	return result.ok ? result.output.trim() : null;
-}
-
-function computeDeltaFiles(mergeBase) {
-	// Diff merge-base against HEAD (committed state), not the working tree, so local
-	// scratch edits or dirty CI trees cannot widen the delta set.
-	const output = git(["diff", "--name-only", mergeBase, "HEAD", "--", ...DELTA_GLOBS.map((dir) => `${dir}/**/*.ts`)]);
+function computeDeltaFiles() {
+	// Fork-ADDED files only: present in HEAD but absent from upstream/main's tip
+	// (--diff-filter=A against the tip, not the merge-base — a merge-base diff also
+	// counts files upstream added since divergence, which arrive via sync merges).
+	// Files the fork merely modified still participate in upstream import
+	// cycles/graphs, so including them drowns the report in inherited findings the
+	// fork can't fix (~400 cycle warnings). Diff committed state (HEAD), not the
+	// working tree, so dirty CI trees cannot widen the delta set.
+	const output = git([
+		"diff",
+		"--name-only",
+		"--diff-filter=A",
+		"upstream/main",
+		"HEAD",
+		"--",
+		...DELTA_GLOBS.map((dir) => `${dir}/**/*.ts`),
+	]);
 	return new Set(
 		output
 			.split("\n")
@@ -157,16 +158,8 @@ function main() {
 		process.exit(0);
 	}
 
-	const mergeBase = resolveMergeBase();
-	if (!mergeBase) {
-		console.log(
-			"check-fork-delta-static: could not resolve merge-base with upstream/main (shallow history). Skipping fork-delta static analysis.",
-		);
-		process.exit(0);
-	}
-
-	const deltaFiles = computeDeltaFiles(mergeBase);
-	console.log(`check-fork-delta-static: merge-base=${mergeBase.slice(0, 12)} delta files=${deltaFiles.size}`);
+	const deltaFiles = computeDeltaFiles();
+	console.log(`check-fork-delta-static: fork-added delta files=${deltaFiles.size} (vs upstream/main tip)`);
 
 	if (deltaFiles.size === 0) {
 		console.log("check-fork-delta-static: no fork-owned .ts changes in the delta set; nothing to check.");
@@ -192,7 +185,18 @@ function main() {
 	console.log("");
 	console.log(`dependency-cruiser (fork-delta scoped): ${depcruiseViolations.length} violation(s)`);
 	for (const violation of depcruiseViolations) {
-		console.log(`  [${violation.rule?.name ?? "unknown"}] ${violation.from} -> ${violation.to}`);
+		const severity = violation.rule?.severity ?? "unknown";
+		console.log(`  [${severity}] [${violation.rule?.name ?? "unknown"}] ${violation.from} -> ${violation.to}`);
+	}
+
+	// Error-severity depcruise rules (the package-boundary rules) are always blocking:
+	// they encode hard architectural constraints on fork-added code and are green today.
+	// Warn-severity (no-circular/no-orphans through upstream hubs) and knip stay advisory
+	// unless --strict.
+	const errorViolations = depcruiseViolations.filter((violation) => violation.rule?.severity === "error");
+	if (errorViolations.length > 0) {
+		console.error(`\ncheck-fork-delta-static: ${errorViolations.length} error-severity boundary violation(s) on fork-added files.`);
+		process.exit(1);
 	}
 
 	const hasFindings = knipIssues.length > 0 || unusedFiles.length > 0 || depcruiseViolations.length > 0;
