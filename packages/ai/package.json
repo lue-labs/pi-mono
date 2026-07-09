@@ -48,7 +48,7 @@
 		"generate-models": "node scripts/generate-models.ts",
 		"generate-image-models": "node scripts/generate-image-models.ts",
 		"refresh-models": "npm run generate-models && npm run generate-image-models",
-		"build": "tsgo -p tsconfig.build.json",
+		"build": "tsc -p tsconfig.build.json",
 		"test": "vitest --run",
 		"prepublishOnly": "npm run build"
 	},
