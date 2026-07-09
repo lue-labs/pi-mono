@@ -93,11 +93,17 @@ export class FooterComponent implements Component {
 	}
 
 	/**
-	 * No-op: git branch caching now handled by provider.
-	 * Kept for compatibility with existing call sites in interactive-mode.
+	 * Clear rendered lines when an external footer source changes.
+	 *
+	 * Git branch caching lives in the provider, and registered footer pill
+	 * output participates in the render memo key, so most dynamic sources
+	 * repaint on the next render pass without this call. This seam remains for
+	 * callers that know footer inputs changed out-of-band (core task
+	 * subscriptions) and must not race the change-guard.
 	 */
 	invalidate(): void {
-		// No-op: git branch is cached/invalidated by provider
+		this.renderCacheKey = "";
+		this.renderCache = [];
 	}
 
 	/**
@@ -206,6 +212,15 @@ export class FooterComponent implements Component {
 		// below, and skip straight to the memoized lines if nothing changed.
 		// Same pattern as FooterUsageTracker's usageCacheKey (footer-usage.ts),
 		// extended to the whole footer output (see perf/BASELINE.md fix #1).
+		//
+		// Registered footer pills have dynamic visible()/render() callbacks, so
+		// their output must be part of the change-guard: extensions (monitor,
+		// workflow, agents) mutate state and expect the next render pass to
+		// repaint the pill without any explicit invalidation call. The callbacks
+		// are cheap per-frame renderers (upstream called them on every frame
+		// before memoization existed), so evaluating them here keeps the memo
+		// for the expensive theme/layout work below.
+		const backgroundStatusLine = this.renderBackgroundStatusLine(width);
 		const extensionStatuses = this.footerData.getExtensionStatuses();
 		const extensionStatusesKey = Array.from(extensionStatuses.entries())
 			.map(([id, text]) => `${id}=${text}`)
@@ -254,6 +269,7 @@ export class FooterComponent implements Component {
 			state.model?.provider ?? "",
 			state.model?.api ?? "",
 			usingSubscription ? "1" : "0",
+			backgroundStatusLine ?? "",
 		].join("|");
 
 		if (renderKey === this.renderCacheKey) {
@@ -413,7 +429,6 @@ export class FooterComponent implements Component {
 
 		const lines = [pwdLine, statsLine];
 
-		const backgroundStatusLine = this.renderBackgroundStatusLine(width);
 		if (backgroundStatusLine) {
 			lines.push(backgroundStatusLine);
 		}

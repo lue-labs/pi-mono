@@ -187,6 +187,77 @@ describe("FooterComponent width handling", () => {
 		expect(selectedArgs).toEqual([false, true]);
 	});
 
+	it("re-renders dynamic registered footers after invalidation", () => {
+		let visible = false;
+		let label = "1 agent running";
+		const session = createSession({ sessionName: "same-session" });
+		(session as unknown as { extensionRunner: AgentSession["extensionRunner"] }).extensionRunner = {
+			getRegisteredFooters: () => [
+				{
+					id: "agents-status",
+					extensionPath: "<builtin:hook:agents>",
+					spec: {
+						visible: () => visible,
+						render: () => label,
+						onActivate: () => {},
+					},
+				},
+			],
+		} as unknown as AgentSession["extensionRunner"];
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const idle = footer.render(100);
+		expect(stripAnsi(idle.join("\n"))).not.toContain("agent running");
+
+		visible = true;
+		footer.invalidate();
+		const running = footer.render(100);
+		expect(running).not.toBe(idle);
+		expect(stripAnsi(running.join("\n"))).toContain("1 agent running");
+
+		label = "1 agent needs attention";
+		footer.invalidate();
+		expect(stripAnsi(footer.render(100).join("\n"))).toContain("1 agent needs attention");
+
+		visible = false;
+		footer.invalidate();
+		expect(stripAnsi(footer.render(100).join("\n"))).not.toContain("agent needs attention");
+	});
+
+	it("repaints dynamic registered footers on the next render without explicit invalidation", () => {
+		let visible = false;
+		let label = "workflow: 2 runs active";
+		const session = createSession({ sessionName: "same-session" });
+		(session as unknown as { extensionRunner: AgentSession["extensionRunner"] }).extensionRunner = {
+			getRegisteredFooters: () => [
+				{
+					id: "workflow-status",
+					extensionPath: "<extension:workflow>",
+					spec: {
+						visible: () => visible,
+						render: () => label,
+						onActivate: () => {},
+					},
+				},
+			],
+		} as unknown as AgentSession["extensionRunner"];
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		// Prime the memo with the pill hidden.
+		expect(stripAnsi(footer.render(100).join("\n"))).not.toContain("workflow:");
+
+		// Extension state changes with no invalidate() and no other key change —
+		// exactly what registerFooter consumers (monitor, workflow) do today.
+		visible = true;
+		expect(stripAnsi(footer.render(100).join("\n"))).toContain("workflow: 2 runs active");
+
+		label = "workflow: 1 run active";
+		expect(stripAnsi(footer.render(100).join("\n"))).toContain("workflow: 1 run active");
+
+		visible = false;
+		expect(stripAnsi(footer.render(100).join("\n"))).not.toContain("workflow:");
+	});
+
 	it("keeps all lines within width for wide session names", () => {
 		const width = 93;
 		const session = createSession({ sessionName: "한글".repeat(30) });
