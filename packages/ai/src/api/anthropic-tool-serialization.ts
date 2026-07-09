@@ -62,6 +62,10 @@ function sortObjectKeysDeep(value: unknown): unknown {
  * On rebuild: new tool references => memo miss => recompute. No correctness
  * risk; just no caching benefit until the rebuild cycle itself is fixed
  * (Fix #3 in the cache-break investigation doc).
+ *
+ * @internal Shared only with `anthropic-messages.ts` `convertTools` (which
+ * stays inline for upstream-coupling reasons). Not exported from the package
+ * barrel; do not add it to `src/index.ts` or mutate it from elsewhere.
  */
 export const convertedToolCache = new WeakMap<object, Map<string, Anthropic.Messages.ToolUnion>>();
 
