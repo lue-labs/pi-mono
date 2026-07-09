@@ -11,7 +11,7 @@ const myPiDir = process.env.MY_PI_EXTENSION_GATE_DIR
 const packageJson = resolve(myPiDir, "package.json");
 
 if (!existsSync(packageJson)) {
-	console.log("skip test:my-pi-extensions: ../my-pi sibling repo not present");
+	console.log(`skip test:my-pi-extensions: sibling repo not present at ${myPiDir}`);
 	process.exit(0);
 }
 
@@ -21,14 +21,14 @@ const status = spawnSync("git", ["-C", myPiDir, "status", "--porcelain"], {
 });
 
 if (status.status !== 0) {
-	console.warn("warning: unable to inspect ../my-pi dirty state; skipping sibling extension gate");
-	if (status.stderr) console.warn(status.stderr.trim());
-	process.exit(0);
+	console.error(`error: unable to inspect my-pi dirty state at ${myPiDir}`);
+	if (status.stderr) console.error(status.stderr.trim());
+	process.exit(status.status ?? 1);
 }
 
 if (status.stdout.trim()) {
-	console.warn("warning: skipping test:my-pi-extensions because ../my-pi has uncommitted changes");
-	console.warn("warning: run `npm --prefix ../my-pi run test:extension-gate:ci` from a clean my-pi checkout for full coverage");
+	console.warn(`warning: skipping test:my-pi-extensions because ${myPiDir} has uncommitted changes`);
+	console.warn(`warning: run \`npm --prefix ${myPiDir} run test:extension-gate:ci\` from a clean my-pi checkout for full coverage`);
 	process.exit(0);
 }
 
