@@ -1,0 +1,68 @@
+{
+  "cli_version": "0.8.1",
+  "checkpoint_id": "6e09efd99094",
+  "session_id": "a3f4525d-4494-407f-86ac-e4678808b9d6",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-09T13:28:09.115691Z",
+  "branch": "fix/codex-footer-dedupe",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/pi-setup/catalog/extensions.yaml",
+    "docs/pi-setup/catalog/packages.yaml",
+    "package-lock.json",
+    "packages/my-pi-full/package.json",
+    "scripts/extension-catalog.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "d522ec2b4872",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 13340,
+    "cache_creation_tokens": 92714,
+    "cache_read_tokens": 959273,
+    "output_tokens": 27696,
+    "api_call_count": 14
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-doctor-2026-07-09T09:12:41.491145Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "doctor"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "d522ec2b4872",
+      "timestamp": "2026-07-09T09:12:41.491145Z",
+      "native": {
+        "command": "/doctor"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/doctor",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-09T13:28:09.092655Z",
+    "agent_lines": 552,
+    "agent_removed": 19,
+    "human_added": 1373,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1925,
+    "total_lines_changed": 1944,
+    "agent_percentage": 29.372427983539097,
+    "metric_version": 2
+  }
+}
