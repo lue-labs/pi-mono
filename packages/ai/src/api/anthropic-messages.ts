@@ -19,7 +19,6 @@ import type {
 	Model,
 	ProviderEnv,
 	ProviderHeaders,
-	ServerToolSource,
 	SimpleStreamOptions,
 	StopReason,
 	StreamFunction,
@@ -30,13 +29,21 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
+import { splitSystemPromptForCache } from "./anthropic-cache-split.ts";
+import { type ServerToolResultBlockLike, summarizeServerToolResult } from "./anthropic-server-tools.ts";
+import { isLatestThinkingModifiedError, stripThinkingFromMessageParams } from "./anthropic-thinking-recovery.ts";
+import {
+	convertedToolCache,
+	convertOneTool,
+	hasDeferredTool,
+	hasToolReferenceContent,
+} from "./anthropic-tool-serialization.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import {
 	adjustMaxTokensForThinking,
@@ -547,63 +554,6 @@ async function* iterateSseMessages(
 	} finally {
 		reader.releaseLock();
 	}
-}
-
-/**
- * Provider-executed (server-side) web tool result block, loosely typed because
- * `web_fetch_tool_result` is not in the non-beta SDK content-block union while
- * `web_search_tool_result` is. Both arrive over the wire when bridged.
- */
-interface ServerToolResultBlockLike {
-	type: string;
-	tool_use_id: string;
-	content: unknown;
-}
-
-/**
- * Normalize a server tool result block (web_search/web_fetch) into a compact,
- * display-only summary. Never persisted or sent back to the API.
- */
-function summarizeServerToolResult(block: ServerToolResultBlockLike): {
-	toolName: string;
-	status: "completed" | "error";
-	sources?: ServerToolSource[];
-	errorCode?: string;
-} {
-	const toolName =
-		block.type === "web_fetch_tool_result"
-			? "web_fetch"
-			: block.type === "advisor_tool_result"
-				? "advisor"
-				: "web_search";
-	const content = block.content as Record<string, unknown> | unknown[] | null | undefined;
-
-	// Error shape: { type: "web_search_tool_result_error" | ..., error_code: "..." }
-	if (content && !Array.isArray(content) && typeof (content as Record<string, unknown>).error_code === "string") {
-		return { toolName, status: "error", errorCode: (content as Record<string, unknown>).error_code as string };
-	}
-
-	// web_search: content is an array of { title, url, ... } result blocks.
-	if (Array.isArray(content)) {
-		const sources: ServerToolSource[] = [];
-		for (const item of content) {
-			if (item && typeof item === "object" && typeof (item as Record<string, unknown>).url === "string") {
-				const record = item as Record<string, unknown>;
-				sources.push({
-					url: record.url as string,
-					title: typeof record.title === "string" ? (record.title as string) : undefined,
-				});
-			}
-		}
-		return { toolName, status: "completed", sources };
-	}
-
-	// web_fetch: content is a single retrieved-document object, often { url, ... }.
-	if (content && typeof content === "object" && typeof (content as Record<string, unknown>).url === "string") {
-		return { toolName, status: "completed", sources: [{ url: (content as Record<string, unknown>).url as string }] };
-	}
-
-	return { toolName, status: "completed" };
 }
 
 async function* iterateAnthropicEvents(
@@ -1303,37 +1253,6 @@ function createClient(
 	return { client, isOAuthToken: false };
 }
 
-function splitSystemPromptForCache(systemPrompt: string, cacheControl?: CacheControlEphemeral) {
-	const boundaryIndex = systemPrompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
-	if (boundaryIndex === -1) {
-		return [
-			{
-				type: "text" as const,
-				text: sanitizeSurrogates(systemPrompt),
-				...(cacheControl ? { cache_control: cacheControl } : {}),
-			},
-		];
-	}
-
-	const stable = systemPrompt.slice(0, boundaryIndex).trimEnd();
-	const dynamic = systemPrompt.slice(boundaryIndex + SYSTEM_PROMPT_DYNAMIC_BOUNDARY.length).trimStart();
-	return [
-		stable
-			? {
-					type: "text" as const,
-					text: sanitizeSurrogates(stable),
-					...(cacheControl ? { cache_control: cacheControl } : {}),
-				}
-			: undefined,
-		dynamic
-			? {
-					type: "text" as const,
-					text: sanitizeSurrogates(dynamic),
-				}
-			: undefined,
-	].filter((block): block is Exclude<typeof block, undefined> => Boolean(block));
-}
-
 function buildParams(
 	model: Model<"anthropic-messages">,
 	context: Context,
@@ -1453,34 +1372,6 @@ function buildParams(
 // Normalize tool call IDs to match Anthropic's required pattern and length
 function normalizeToolCallId(id: string): string {
 	return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
-}
-
-// Detect the specific 400 raised when a thinking/redacted_thinking block in the
-// latest assistant message does not match the signature Anthropic issued.
-function isLatestThinkingModifiedError(error: unknown): boolean {
-	const status = (error as { status?: number })?.status;
-	if (status !== undefined && status !== 400) return false;
-	const text =
-		error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error ?? "");
-	return /thinking|redacted_thinking/i.test(text) && /latest assistant message/i.test(text);
-}
-
-// Drop every thinking/redacted_thinking block from assistant message params so a
-// session poisoned by a drifted signature can recover. Anthropic only validates
-// replayed thinking blocks; sending none always passes. Messages left with no
-// content are dropped (Anthropic rejects empty content arrays).
-function stripThinkingFromMessageParams(messages: MessageParam[]): MessageParam[] {
-	const result: MessageParam[] = [];
-	for (const message of messages) {
-		if (message.role !== "assistant" || typeof message.content === "string") {
-			result.push(message);
-			continue;
-		}
-		const content = message.content.filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking");
-		if (content.length === 0) continue;
-		result.push({ ...message, content });
-	}
-	return result;
 }
 
 function convertMessages(
@@ -1686,104 +1577,6 @@ function shouldUseFineGrainedToolStreamingBeta(model: Model<"anthropic-messages"
 function shouldUseToolSearchBeta(model: Model<"anthropic-messages">, context: Context): boolean {
 	if (!getAnthropicCompat(model).supportsDeferredTools) return false;
 	return hasDeferredTool(context) || hasToolReferenceContent(context);
-}
-
-function hasDeferredTool(context: Context): boolean {
-	return context.tools?.some((tool) => tool.deferLoading && !tool.alwaysLoad) ?? false;
-}
-
-function hasToolReferenceContent(context: Context): boolean {
-	return context.messages.some((message) => {
-		if (message.role === "assistant" || message.role === "toolResult") {
-			return message.content.some((block) => block.type === "tool_reference");
-		}
-		return false;
-	});
-}
-
-/**
- * Recursively sort object keys for deterministic serialization. Arrays are
- * left in place (preserves enum order). Primitives pass through.
- *
- * JSON Schema is semantically key-order-independent, so sorting is safe. This
- * defends against cache-prefix mutation when the upstream schema source (e.g.
- * an MCP server re-emitting `tools/list`) returns the same keys in a
- * different order between turns.
- *
- * Refs: my-pi/docs/cache-break-investigation-2026-05-16.md Fix #2.
- */
-function sortObjectKeysDeep(value: unknown): unknown {
-	if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
-	const input = value as Record<string, unknown>;
-	const out: Record<string, unknown> = {};
-	for (const key of Object.keys(input).sort()) {
-		out[key] = sortObjectKeysDeep(input[key]);
-	}
-	return out;
-}
-
-/**
- * Per-tool memoization of the converted Anthropic shape. Same `tool` reference
- * + same flag combination => byte-identical returned object across calls.
- *
- * Steady state (no `_buildRuntime` rebuild): `state.tools.slice()` returns a
- * fresh array but the element references are stable, so the memo hits and we
- * return the exact same converted object each turn. Anthropic's prompt cache
- * hashes these bytes, so identity + sort-keys together guarantee a stable
- * cache prefix for the tools slot.
- *
- * On rebuild: new tool references => memo miss => recompute. No correctness
- * risk; just no caching benefit until the rebuild cycle itself is fixed
- * (Fix #3 in the cache-break investigation doc).
- */
-const convertedToolCache = new WeakMap<object, Map<string, Anthropic.Messages.ToolUnion>>();
-
-function convertOneTool(
-	tool: Tool,
-	model: Model<any>,
-	supportsEagerToolInputStreaming: boolean,
-	deferLoading: boolean,
-	wireName: string,
-): Anthropic.Messages.ToolUnion {
-	// Explicit server-tool opt-in: the tool definition supplies the exact
-	// Anthropic server tool block (web_search_20250305, web_fetch_20260309, ...).
-	// Replaces the old name-based web_fetch/web_search interception so client-side
-	// implementations may reuse those wire names.
-	if (model.provider === "claude-bridge" && tool.anthropicServerTool) {
-		return tool.anthropicServerTool as unknown as Anthropic.Messages.ToolUnion;
-	}
-	if (model.provider === "claude-bridge" && tool.name === "advisor") {
-		// Server-side advisor (advisor_20260301, beta advisor-tool-2026-03-01).
-		// Anthropic runs the advisor call server-side and forwards the full
-		// conversation — the advisor rides the parent's prompt cache instead of
-		// paying full input cost on a client-built transcript. The advisor model
-		// comes from the schema's `model` default (set by the advisor extension);
-		// the bridge adds the beta header when it sees this typed block.
-		const schema = tool.parameters as { properties?: { model?: { default?: string } } };
-		const advisorModel = schema.properties?.model?.default;
-		if (typeof advisorModel === "string" && advisorModel.length > 0) {
-			return {
-				name: "advisor",
-				type: "advisor_20260301",
-				model: advisorModel,
-			} as unknown as Anthropic.Messages.ToolUnion;
-		}
-		// No advisor model configured → fall through to the client tool path.
-	}
-	const schema = tool.parameters as { properties?: unknown; required?: string[] };
-	const properties = sortObjectKeysDeep(schema.properties ?? {}) as Record<string, unknown>;
-	const required = (schema.required ?? []).slice().sort();
-	return {
-		name: wireName,
-		description: tool.description,
-		...(supportsEagerToolInputStreaming ? { eager_input_streaming: true } : {}),
-		...(deferLoading ? { defer_loading: true } : {}),
-		input_schema: {
-			type: "object",
-			properties,
-			required,
-		},
-	};
 }
 
 function convertTools(
