@@ -71,7 +71,9 @@ function resolveMergeBase() {
 }
 
 function computeDeltaFiles(mergeBase) {
-	const output = git(["diff", "--name-only", mergeBase, "--", ...DELTA_GLOBS.map((dir) => `${dir}/**/*.ts`)]);
+	// Diff merge-base against HEAD (committed state), not the working tree, so local
+	// scratch edits or dirty CI trees cannot widen the delta set.
+	const output = git(["diff", "--name-only", mergeBase, "HEAD", "--", ...DELTA_GLOBS.map((dir) => `${dir}/**/*.ts`)]);
 	return new Set(
 		output
 			.split("\n")
@@ -132,7 +134,11 @@ function filterKnipIssues(knipResult, deltaFiles) {
 			}
 		}
 	}
-	return { filtered, countsByType };
+	// Fully-unused files live in a top-level `files: string[]` array in knip's JSON
+	// reporter, not in `issues[]` — handle them separately so --strict sees them.
+	const unusedFiles = (knipResult.files ?? []).filter((file) => deltaFiles.has(file));
+	if (unusedFiles.length > 0) countsByType.files = unusedFiles.length;
+	return { filtered, countsByType, unusedFiles };
 }
 
 function filterDepcruiseViolations(depcruiseResult, deltaFiles) {
@@ -168,7 +174,7 @@ function main() {
 	}
 
 	const knipResult = runJson("npx", ["knip", "--reporter", "json", "--no-exit-code"]);
-	const { filtered: knipIssues, countsByType } = filterKnipIssues(knipResult, deltaFiles);
+	const { filtered: knipIssues, countsByType, unusedFiles } = filterKnipIssues(knipResult, deltaFiles);
 
 	const depcruiseResult = runJson("npx", ["depcruise", ...DEPCRUISE_ARGS]);
 	const depcruiseViolations = filterDepcruiseViolations(depcruiseResult, deltaFiles);
@@ -189,7 +195,7 @@ function main() {
 		console.log(`  [${violation.rule?.name ?? "unknown"}] ${violation.from} -> ${violation.to}`);
 	}
 
-	const hasFindings = knipIssues.length > 0 || depcruiseViolations.length > 0;
+	const hasFindings = knipIssues.length > 0 || unusedFiles.length > 0 || depcruiseViolations.length > 0;
 	if (STRICT && hasFindings) {
 		console.error("\ncheck-fork-delta-static: --strict set and fork-delta findings exist.");
 		process.exit(1);
