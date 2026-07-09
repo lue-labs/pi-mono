@@ -83,13 +83,9 @@ jobs:
       - name: Fork canonical check
         run: npm run check
 
-      - name: Advisory static analysis - knip (unused files/exports/deps)
+      - name: Advisory static analysis - fork delta (knip + dependency-cruiser)
         continue-on-error: true
-        run: npm run lint:knip
-
-      - name: Advisory static analysis - dependency-cruiser (arch boundaries)
-        continue-on-error: true
-        run: npm run lint:arch
+        run: npm run lint:fork-delta
 
       - name: Source CLI smoke
         run: ./pi-test.sh --no-env --version
