@@ -93,37 +93,6 @@ interface UsageTotals {
 	followsUserTurn: boolean;
 }
 
-function isClaudeFamilyModel(modelId: string | undefined): boolean {
-	if (!modelId) return false;
-	return /^claude(?:[-/]|$)/i.test(modelId);
-}
-
-function isGptFamilyModel(modelId: string | undefined): boolean {
-	if (!modelId) return false;
-	return /^gpt(?:[-/.]|$)/i.test(modelId);
-}
-
-function resolveActiveAdapter(options: {
-	selectedApi?: string;
-	selectedProvider?: string;
-	selectedModel?: string;
-	usingOAuth: boolean;
-	lastApi?: string;
-	lastProvider?: string;
-	lastModel?: string;
-	lastResponseModel?: string;
-}): "claude-code" | "codex" | undefined {
-	const modelName = options.lastResponseModel ?? options.lastModel ?? options.selectedModel;
-	const provider = options.selectedProvider ?? options.lastProvider;
-	const api = options.selectedApi ?? options.lastApi;
-	if (provider === "openai-codex" || api === "openai-codex-responses") return "codex";
-	if (provider === "clawrouter" && isGptFamilyModel(modelName)) return "codex";
-	if (provider === "claude-bridge") return "claude-code";
-	if (options.usingOAuth && api === "anthropic-messages") return "claude-code";
-	if (provider === "clawrouter" && isClaudeFamilyModel(modelName)) return "claude-code";
-	return undefined;
-}
-
 /**
  * Footer component that shows pwd, token stats, and context usage.
  * Computes token/context stats from session, gets git branch and extension statuses from provider.
@@ -421,16 +390,6 @@ export class FooterComponent implements Component {
 		const thinkingLevel = state.thinkingLevel || "off";
 		const providerCount = this.footerData.getAvailableProviderCount();
 		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
-		const activeAdapter = resolveActiveAdapter({
-			selectedApi: state.model?.api,
-			selectedProvider: state.model?.provider,
-			selectedModel: state.model?.id,
-			usingOAuth: usingSubscription,
-			lastApi,
-			lastProvider,
-			lastModel,
-			lastResponseModel,
-		});
 		const renderKey = [
 			width,
 			basePwd,
@@ -471,7 +430,6 @@ export class FooterComponent implements Component {
 			state.model?.provider ?? "",
 			state.model?.api ?? "",
 			usingSubscription ? "1" : "0",
-			activeAdapter ?? "",
 		].join("|");
 
 		if (renderKey === this.renderCacheKey) {
@@ -598,9 +556,6 @@ export class FooterComponent implements Component {
 		rightParts.push(theme.fg("syntaxFunction", modelName));
 		if (state.model?.reasoning) {
 			rightParts.push(thinkingLevel === "off" ? theme.fg("dim", "thinking off") : theme.fg("accent", thinkingLevel));
-		}
-		if (activeAdapter) {
-			rightParts.push(theme.fg("dim", `adapter:${activeAdapter}`));
 		}
 		let rightSide = rightParts.join(sep);
 

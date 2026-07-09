@@ -319,43 +319,10 @@ describe("FooterComponent width handling", () => {
 		expect(rendered).toContain("low");
 	});
 
-	it("shows claude-code as the active adapter for oauth anthropic lanes", () => {
-		const session = createSession({
-			sessionName: "",
-			modelId: "claude-sonnet-5",
-			provider: "anthropic",
-			api: "anthropic-messages",
-			isUsingOAuth: true,
-			reasoning: true,
-			thinkingLevel: "medium",
-		});
-		const footer = new FooterComponent(session, createFooterData(2));
-
-		const rendered = stripAnsi(footer.render(160).join("\n"));
-
-		expect(rendered).toContain("adapter:claude-code");
-	});
-
-	it("shows codex as the active adapter for codex lanes", () => {
+	it("does not render implementation adapter badges in the model footer", () => {
 		const session = createSession({
 			sessionName: "",
 			modelId: "gpt-5.5",
-			provider: "openai-codex",
-			api: "openai-codex-responses",
-			reasoning: true,
-			thinkingLevel: "low",
-		});
-		const footer = new FooterComponent(session, createFooterData(2));
-
-		const rendered = stripAnsi(footer.render(160).join("\n"));
-
-		expect(rendered).toContain("adapter:codex");
-	});
-
-	it("shows codex as the active adapter for clawrouter GPT lanes", () => {
-		const session = createSession({
-			sessionName: "",
-			modelId: "gpt-5.4-mini",
 			provider: "clawrouter",
 			api: "anthropic-messages",
 			reasoning: true,
@@ -365,35 +332,9 @@ describe("FooterComponent width handling", () => {
 
 		const rendered = stripAnsi(footer.render(160).join("\n"));
 
-		expect(rendered).toContain("adapter:codex");
-	});
-
-	it("invalidates memoized footer lines when the active adapter changes", () => {
-		const session = createSession({
-			sessionName: "",
-			modelId: "claude-sonnet-5",
-			provider: "anthropic",
-			api: "anthropic-messages",
-			isUsingOAuth: true,
-		});
-		const footer = new FooterComponent(session, createFooterData(2));
-
-		const first = footer.render(160);
-		expect(stripAnsi(first.join("\n"))).toContain("adapter:claude-code");
-
-		session.state.model = {
-			...(session.state.model ?? {}),
-			id: "gpt-5.5",
-			provider: "openai-codex",
-			api: "openai-codex-responses",
-			reasoning: false,
-			contextWindow: 200_000,
-		} as typeof session.state.model;
-		(session.modelRegistry as unknown as { isUsingOAuth: () => boolean }).isUsingOAuth = () => false;
-
-		const second = footer.render(160);
-		expect(second).not.toBe(first);
-		expect(stripAnsi(second.join("\n"))).toContain("adapter:codex");
+		expect(rendered).toContain("(clawrouter) gpt-5.5");
+		expect(rendered).toContain("low");
+		expect(rendered).not.toContain("adapter:");
 	});
 
 	it("shows the resolved backend model for provider-side auto aliases", () => {
