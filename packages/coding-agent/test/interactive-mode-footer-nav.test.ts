@@ -327,6 +327,17 @@ describe("interactive-mode footer navigation", () => {
 			expect(fakeMode.ui.setFocus).toHaveBeenCalledWith(component);
 		});
 
+		it("keeps editor focus for display-only panes that route input through editor submit", () => {
+			const component = { render: vi.fn(() => []), dispose: vi.fn(), captureInput: false };
+			const fakeMode = fakeModeWithMainPane(component);
+
+			(
+				InteractiveMode.prototype as unknown as { showExtensionMainPane: (id: string, payload: unknown) => void }
+			).showExtensionMainPane.call(fakeMode, "zoom", {});
+
+			expect(fakeMode.ui.setFocus).toHaveBeenCalledWith(fakeMode.editor);
+		});
+
 		it("restores focus to the editor when the pane is hidden", () => {
 			const component = { render: vi.fn(() => []), handleInput: vi.fn(), dispose: vi.fn() };
 			const fakeMode = fakeModeWithMainPane(component);
