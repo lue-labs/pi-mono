@@ -61,19 +61,7 @@ import {
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
-import { findAgentChain, loadAgentChainRegistry } from "../../core/agents/chains.ts";
-import { buildAgentDoctorReport } from "../../core/agents/doctor.ts";
-import { loadAgentRegistry } from "../../core/agents/registry.ts";
-import {
-	type AgentRecentRun,
-	cancelAgentRecentRun,
-	formatAgentStatus,
-	interruptAgentRecentRun,
-	listAgentRecentRuns,
-	resumeAgentRecentRun,
-	subscribeAgentRecentRuns,
-} from "../../core/agents/status.ts";
-import type { AgentDefinition } from "../../core/agents/types.ts";
+import { formatAgentStatus, subscribeAgentRecentRuns } from "../../core/agents/status.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -116,14 +104,7 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
-import {
-	type AgentRunsSelectorAction,
-	AgentRunsSelectorComponent,
-	getAgentRunResumePrompt,
-	normalizeAgentRunResumePrompt,
-	shouldZoomAgentRunRow,
-} from "./components/agent-runs-selector.ts";
-import { AgentsSelectorComponent } from "./components/agents-selector.ts";
+import { type AgentCommandsHost, runAgentsCommand, runAgentsDoctorCommand } from "./agent-commands.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -4577,114 +4558,29 @@ export class InteractiveMode {
 		});
 	}
 
+	/** Fork seam: per-call host adapter for the extracted `/agents` command family. */
+	private agentCommandsHost(): AgentCommandsHost {
+		return {
+			session: this.session,
+			getCwd: () => this.sessionManager.getCwd(),
+			showStatus: (message) => this.showStatus(message),
+			setEditorText: (text) => {
+				this.editor.setText(text);
+				this.ui.setFocus(this.editor);
+			},
+			requestRender: () => this.ui.requestRender(),
+			showSelector: (create) => this.showSelector(create),
+			showExtensionMainPane: (id, payload) => this.showExtensionMainPane(id, payload),
+			showExtensionInput: (title, placeholder) => this.showExtensionInput(title, placeholder),
+		};
+	}
+
 	private async handleAgentsCommand(args?: string): Promise<void> {
-		const registry = await loadAgentRegistry({ cwd: this.sessionManager.getCwd(), agentScope: "user" });
-		if (!args) {
-			this.showAgentsSelector(registry.agents);
-			return;
-		}
-		if (args === "runs") {
-			this.showAgentRunsSelector();
-			return;
-		}
-		if (args === "status" || args.startsWith("status ")) {
-			const detailId = args.startsWith("status ") ? args.slice(7).trim() : undefined;
-			this.showStatus(formatAgentStatus(undefined, detailId));
-			return;
-		}
-		if (args.startsWith("interrupt ")) {
-			const runId = args.slice(10).trim();
-			const result = await interruptAgentRecentRun(runId);
-			this.showStatus(`${result.message}\n\n${formatAgentStatus(undefined, runId)}`);
-			return;
-		}
-		if (args.startsWith("cancel ")) {
-			const runId = args.slice(7).trim();
-			const result = await cancelAgentRecentRun(runId);
-			this.showStatus(`${result.message}\n\n${formatAgentStatus(undefined, runId)}`);
-			return;
-		}
-		if (args.startsWith("resume ")) {
-			const [runId, prompt] = args.slice(7).split(/\s+--\s+/, 2);
-			const result = await resumeAgentRecentRun(runId.trim(), prompt?.trim());
-			this.showStatus(`${result.message}\n\n${formatAgentStatus(undefined, runId.trim())}`);
-			return;
-		}
-		if (args === "doctor") {
-			await this.handleAgentsDoctorCommand();
-			return;
-		}
-		if (args === "list-chains") {
-			const chains = await loadAgentChainRegistry(this.sessionManager.getCwd());
-			this.showStatus(
-				chains.chains.length > 0
-					? chains.chains.map((chain) => `${chain.name} [${chain.source}]`).join(", ")
-					: "No saved chains found",
-			);
-			return;
-		}
-		if (args.startsWith("run ")) {
-			const [agentId, task = ""] = args.slice(4).split(/\s+--\s+/, 2);
-			this.editor.setText(`Use the native agent tool to run ${agentId} with this task: ${task}`);
-			this.ui.setFocus(this.editor);
-			return;
-		}
-		if (args.startsWith("parallel ")) {
-			const [agentsRaw, task = ""] = args.slice(9).split(/\s+--\s+/, 2);
-			const agents = agentsRaw
-				.split(",")
-				.map((agent) => agent.trim())
-				.filter(Boolean);
-			this.editor.setText(
-				`Use the native agent tool parallel mode for these agents: ${agents.join(", ")}. Task for each: ${task}`,
-			);
-			this.ui.setFocus(this.editor);
-			return;
-		}
-		if (args.startsWith("run-chain ")) {
-			const [chainName, task = ""] = args.slice(10).split(/\s+--\s+/, 2);
-			const chains = await loadAgentChainRegistry(this.sessionManager.getCwd());
-			const chain = findAgentChain(chains, chainName);
-			if (!chain) {
-				this.showStatus(`Unknown chain: ${chainName}`);
-				return;
-			}
-			const chainInput = JSON.stringify({
-				chain: chain.chain,
-				context: chain.context,
-				model: chain.model,
-				tools: chain.tools,
-				thinking: chain.thinking,
-				outputMode: chain.outputMode,
-			});
-			this.editor.setText(
-				`Use the native agent tool chain mode to run saved chain ${chain.name}${task ? ` for this task: ${task}` : ""}. Chain input: ${chainInput}`,
-			);
-			this.ui.setFocus(this.editor);
-			return;
-		}
-		const agent = registry.agents.find((candidate) => candidate.id === args);
-		if (!agent) {
-			this.showStatus(`Unknown agent or /agents subcommand: ${args}`);
-			return;
-		}
-		const tools = Array.isArray(agent.tools) ? agent.tools.join(", ") : (agent.tools ?? "*");
-		this.showStatus(
-			`${agent.id} [${agent.source}] — ${agent.description} | context: ${agent.defaultContext ?? "default"} | tools: ${tools}`,
-		);
+		await runAgentsCommand(this.agentCommandsHost(), args);
 	}
 
 	private async handleAgentsDoctorCommand(): Promise<void> {
-		const activeTools = this.session.getActiveToolNames();
-		const report = await buildAgentDoctorReport({
-			cwd: this.sessionManager.getCwd(),
-			activeTools,
-			modelRegistry: this.session.modelRegistry,
-			parentModel: this.session.model,
-			parentThinkingLevel: this.session.thinkingLevel,
-			runtimeServicesAvailable: activeTools.includes("agent"),
-		});
-		this.showStatus(report);
+		await runAgentsDoctorCommand(this.agentCommandsHost());
 	}
 
 	private async handleModelCommand(searchTerm?: string): Promise<void> {
@@ -4780,23 +4676,6 @@ export class InteractiveMode {
 		}
 	}
 
-	private showAgentsSelector(agents: AgentDefinition[]): void {
-		this.showSelector((done) => {
-			const selector = new AgentsSelectorComponent(
-				agents,
-				(agent) => {
-					done();
-					this.editor.setText(`Use the ${agent.id} agent to: `);
-					this.ui.setFocus(this.editor);
-				},
-				() => {
-					done();
-				},
-			);
-			return { component: selector, focus: selector };
-		});
-	}
-
 	private maybeSaveImplicitProjectTrustAfterReload(): boolean {
 		const cwd = this.sessionManager.getCwd();
 		if (this.autoTrustOnReloadCwd !== cwd) {
@@ -4846,69 +4725,6 @@ export class InteractiveMode {
 			});
 			return { component: selector, focus: selector };
 		});
-	}
-
-	private showAgentRunsSelector(): void {
-		this.showSelector((done) => {
-			const selector = new AgentRunsSelectorComponent(
-				() => listAgentRecentRuns(),
-				(action, run) => {
-					void this.handleAgentRunSelectorAction(action, run, selector, done);
-				},
-				() => {
-					done();
-				},
-			);
-			return { component: selector, focus: selector };
-		});
-	}
-
-	/**
-	 * Row-scoped zoom entry (agents-ux-parity Slice B, row 3): pressing Enter on
-	 * a *running background* row jumps straight into that row's live transcript
-	 * via the already-registered `pi-agent-ui` "zoom" main pane, instead of only
-	 * ever showing a text status summary. Falls back to the pre-existing status
-	 * detail for non-running rows or when no extension has registered the
-	 * "zoom" pane (e.g. a lean profile without `pi-agent-ui` loaded) — this is a
-	 * generic, already-public core seam (`getRegisteredMainPane`/`showMainPane`
-	 * by string id), not a new coupling to a specific extension.
-	 */
-	private async handleAgentRunSelectorAction(
-		action: AgentRunsSelectorAction,
-		run: AgentRecentRun,
-		selector: AgentRunsSelectorComponent,
-		done: () => void,
-	): Promise<void> {
-		if (action === "detail") {
-			const canZoom =
-				shouldZoomAgentRunRow(run) && this.session.extensionRunner.getRegisteredMainPane("zoom") !== undefined;
-			if (canZoom) {
-				done();
-				this.showExtensionMainPane("zoom", {
-					taskId: run.id,
-					sessionConfig: { cwd: this.sessionManager.getCwd() },
-				});
-				return;
-			}
-			this.showStatus(formatAgentStatus(undefined, run.id));
-			return;
-		}
-		if (action === "resume") {
-			const prompt = getAgentRunResumePrompt(run);
-			done();
-			const message = await this.showExtensionInput(prompt.title, prompt.placeholder);
-			if (message === undefined) return;
-			const result = await resumeAgentRecentRun(run.id, normalizeAgentRunResumePrompt(message));
-			this.showStatus(`${result.message}\n\n${formatAgentStatus(undefined, run.id)}`);
-			this.ui.requestRender();
-			return;
-		}
-
-		const result =
-			action === "interrupt" ? await interruptAgentRecentRun(run.id) : await cancelAgentRecentRun(run.id);
-		selector.invalidate();
-		this.showStatus(`${result.message}\n\n${formatAgentStatus(undefined, run.id)}`);
-		this.ui.requestRender();
 	}
 
 	private showModelSelector(initialSearchInput?: string): void {

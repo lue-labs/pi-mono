@@ -1,10 +1,10 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@valkyriweb/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
-import { type CacheHealthExemption, computeCacheHealth } from "../../../core/cache-health.ts";
+import { computeCacheHealth } from "../../../core/cache-health.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
-import { getLatestCompactionEntry } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";
+import { FooterUsageTracker, type UsageTotals } from "./footer-usage.ts";
 
 /**
  * Sanitize text for display in a single-line status.
@@ -59,40 +59,6 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
 	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
-interface UsageSnapshot {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	cost: { total: number };
-}
-
-interface UsageTotals {
-	totalInput: number;
-	totalOutput: number;
-	totalCacheRead: number;
-	totalCacheWrite: number;
-	totalCost: number;
-	assistantTurns: number;
-	lastUsage?: UsageSnapshot;
-	lastTimestamp?: string | number;
-	lastApi?: string;
-	lastProvider?: string;
-	lastModel?: string;
-	lastResponseModel?: string;
-	previousUsage?: UsageSnapshot;
-	previousTimestamp?: string | number;
-	previousModel?: string;
-	cacheHealthExemptions: CacheHealthExemption[];
-	/** True when the latest assistant turn is the first after a compaction —
-	 * its cold cache write is expected, not prefix drift. */
-	postCompactionTurn: boolean;
-	/** True when a user message arrived between the previous and latest
-	 * assistant turns — Anthropic's thinking-block strip makes the resulting
-	 * one-time prefix rewrite expected (`thinking_strip_likely`). */
-	followsUserTurn: boolean;
-}
-
 /**
  * Footer component that shows pwd, token stats, and context usage.
  * Computes token/context stats from session, gets git branch and extension statuses from provider.
@@ -101,18 +67,7 @@ export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
-	private usageCacheKey = "";
-	private usageCache: UsageTotals = {
-		totalInput: 0,
-		totalOutput: 0,
-		totalCacheRead: 0,
-		totalCacheWrite: 0,
-		totalCost: 0,
-		assistantTurns: 0,
-		cacheHealthExemptions: [],
-		postCompactionTurn: false,
-		followsUserTurn: false,
-	};
+	private usageTracker = new FooterUsageTracker();
 	private selectedExtensionFooterId: string | undefined = undefined;
 	private renderCacheKey = "";
 	private renderCache: string[] = [];
@@ -183,138 +138,7 @@ export class FooterComponent implements Component {
 	}
 
 	private getUsageTotals(): UsageTotals {
-		const entries = this.getUsageEntries();
-		let lastAssistantEntry: (typeof entries)[number] | undefined;
-		let previousAssistantEntry: (typeof entries)[number] | undefined;
-		let lastAssistantIndex = -1;
-		let previousAssistantIndex = -1;
-		for (let i = entries.length - 1; i >= 0; i--) {
-			const entry = entries[i];
-			if (entry?.type === "message" && entry.message.role === "assistant") {
-				if (lastAssistantEntry === undefined) {
-					lastAssistantEntry = entry;
-					lastAssistantIndex = i;
-				} else {
-					previousAssistantEntry = entry;
-					previousAssistantIndex = i;
-					break;
-				}
-			}
-		}
-		const lastUsage =
-			lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
-				? lastAssistantEntry.message.usage
-				: undefined;
-		const previousUsage =
-			previousAssistantEntry?.type === "message" && previousAssistantEntry.message.role === "assistant"
-				? previousAssistantEntry.message.usage
-				: undefined;
-		const cacheHealthExemptions: CacheHealthExemption[] =
-			previousAssistantIndex >= 0 && lastAssistantIndex >= 0
-				? entries
-						.slice(previousAssistantIndex + 1, lastAssistantIndex)
-						.some((entry) => entry.type === "model_change")
-					? ["model_change"]
-					: []
-				: [];
-		const followsUserTurn =
-			previousAssistantIndex >= 0 && lastAssistantIndex >= 0
-				? entries
-						.slice(previousAssistantIndex + 1, lastAssistantIndex)
-						.some((entry) => entry.type === "message" && entry.message.role === "user")
-				: false;
-		const latestCompaction = getLatestCompactionEntry(entries);
-		const cacheKey = [
-			entries.length,
-			entries.at(-1)?.id ?? "",
-			latestCompaction?.id ?? "",
-			latestCompaction?.timestamp ?? "",
-			lastUsage?.input ?? 0,
-			lastUsage?.output ?? 0,
-			lastUsage?.cacheRead ?? 0,
-			lastUsage?.cacheWrite ?? 0,
-			lastUsage?.cost.total ?? 0,
-			lastAssistantEntry?.timestamp ?? "",
-			lastAssistantEntry?.type === "message"
-				? ((lastAssistantEntry.message as { provider?: string }).provider ?? "")
-				: "",
-			lastAssistantEntry?.type === "message" ? ((lastAssistantEntry.message as { model?: string }).model ?? "") : "",
-			lastAssistantEntry?.type === "message"
-				? ((lastAssistantEntry.message as { responseModel?: string }).responseModel ?? "")
-				: "",
-			previousUsage?.input ?? 0,
-			previousUsage?.cacheRead ?? 0,
-			previousUsage?.cacheWrite ?? 0,
-			previousAssistantEntry?.timestamp ?? "",
-			previousAssistantEntry?.type === "message"
-				? ((previousAssistantEntry.message as { model?: string }).model ?? "")
-				: "",
-			cacheHealthExemptions.join(","),
-			followsUserTurn,
-		].join(":");
-
-		if (cacheKey === this.usageCacheKey) {
-			return this.usageCache;
-		}
-
-		const totals: UsageTotals = {
-			totalInput: 0,
-			totalOutput: 0,
-			totalCacheRead: 0,
-			totalCacheWrite: 0,
-			totalCost: 0,
-			assistantTurns: 0,
-			lastUsage,
-			lastTimestamp: lastAssistantEntry?.timestamp,
-			lastApi:
-				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
-					? (lastAssistantEntry.message as { api?: string }).api
-					: undefined,
-			lastProvider:
-				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
-					? (lastAssistantEntry.message as { provider?: string }).provider
-					: undefined,
-			lastModel:
-				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
-					? (lastAssistantEntry.message as { model?: string }).model
-					: undefined,
-			lastResponseModel:
-				lastAssistantEntry?.type === "message" && lastAssistantEntry.message.role === "assistant"
-					? (lastAssistantEntry.message as { responseModel?: string }).responseModel
-					: undefined,
-			previousUsage,
-			previousTimestamp: previousAssistantEntry?.timestamp,
-			previousModel:
-				previousAssistantEntry?.type === "message" && previousAssistantEntry.message.role === "assistant"
-					? (previousAssistantEntry.message as { model?: string }).model
-					: undefined,
-			cacheHealthExemptions,
-			postCompactionTurn: false,
-			followsUserTurn,
-		};
-
-		const startIndex =
-			latestCompaction === null ? 0 : entries.findIndex((entry) => entry.id === latestCompaction.id) + 1;
-		for (const entry of entries.slice(startIndex)) {
-			if (entry.type === "message" && entry.message.role === "assistant") {
-				totals.totalInput += entry.message.usage.input;
-				totals.totalOutput += entry.message.usage.output;
-				totals.totalCacheRead += entry.message.usage.cacheRead;
-				totals.totalCacheWrite += entry.message.usage.cacheWrite;
-				totals.totalCost += entry.message.usage.cost.total;
-				totals.assistantTurns += 1;
-			}
-		}
-
-		// The first assistant turn after a compaction rewrites the full prefix —
-		// an expected one-time cache write, not prefix drift. Flag it so render()
-		// doesn't alarm on the cold hit-rate (CC notifyCompaction analog: the
-		// compaction entry in the session IS the notification; no event needed).
-		totals.postCompactionTurn = latestCompaction !== null && totals.assistantTurns <= 1;
-
-		this.usageCacheKey = cacheKey;
-		this.usageCache = totals;
-		return totals;
+		return this.usageTracker.getTotals(this.getUsageEntries());
 	}
 
 	render(width: number): string[] {
@@ -380,8 +204,8 @@ export class FooterComponent implements Component {
 		// Cheap change-guard: gather every input that can affect the rendered
 		// lines *before* doing any of the theme.fg()/padding/truncation work
 		// below, and skip straight to the memoized lines if nothing changed.
-		// Same pattern as usageCacheKey above, extended to the whole footer
-		// output (see perf/BASELINE.md fix #1).
+		// Same pattern as FooterUsageTracker's usageCacheKey (footer-usage.ts),
+		// extended to the whole footer output (see perf/BASELINE.md fix #1).
 		const extensionStatuses = this.footerData.getExtensionStatuses();
 		const extensionStatusesKey = Array.from(extensionStatuses.entries())
 			.map(([id, text]) => `${id}=${text}`)
