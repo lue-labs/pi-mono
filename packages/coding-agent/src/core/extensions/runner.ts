@@ -16,8 +16,19 @@ import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
 import { recordTiming, timingsEnabled } from "../timings.ts";
+import { loadDeferredExtensionsBatch } from "./deferred-loading.ts";
 import { applyFilters } from "./extension-hooks.ts";
-import { getExtensionProcessService, loadDeferredExtension } from "./loader.ts";
+import { getExtensionProcessService } from "./loader.ts";
+import {
+	collectRegisteredAgentChains,
+	collectRegisteredAgentDefinitions,
+	collectRegisteredFooters,
+	findDefaultMessageRenderer,
+	findRegisteredContextMode,
+	findRegisteredMainPane,
+	findRegisteredOverlay,
+	fireSessionDisposeHandlers,
+} from "./runner-registries.ts";
 import type {
 	AgentTelemetry,
 	BeforeAgentStartEvent,
@@ -80,20 +91,9 @@ import type {
 	UserBashEvent,
 	UserBashEventResult,
 } from "./types.ts";
+import type { ExtensionSlotUIActions } from "./ui-slots.ts";
 
-/**
- * Actions wired into the extension runner by a UI-capable mode (today only
- * interactive-mode) to back the B5 imperative show/hide API. Non-UI modes
- * skip the bind call so the default no-op stubs stay in place and the API
- * silently swallows the requests.
- */
-export interface ExtensionSlotUIActions {
-	showMainPane: (id: string, payload: unknown) => void;
-	hideMainPane: (id: string) => void;
-	hasMainPane?: (id: string) => boolean;
-	showOverlay: (id: string, payload: unknown) => void;
-	hideOverlay: (id: string) => void;
-}
+export type { ExtensionSlotUIActions } from "./ui-slots.ts";
 
 // Extension shortcuts compete with canonical keybinding ids from keybindings.json.
 // Only editor-global shortcuts are reserved here. Picker-specific bindings are not.
@@ -530,39 +530,16 @@ export class ExtensionRunner {
 		this.deferredLoadedListeners.add(listener);
 	}
 
-	private async loadDeferredExtensionsOnce(): Promise<void> {
-		const pending = this.deferredExtensions.splice(0);
-		const previousSuppressNewToolActivation = this.runtime.suppressNewToolActivation;
-		this.runtime.suppressNewToolActivation = true;
-		try {
-			for (const deferred of pending) {
-				const { extension, error } = await loadDeferredExtension(deferred, this.cwd, this.eventBus, this.runtime);
-				if (error) {
-					this.emitError({ extensionPath: deferred.path, event: "deferred_load", error });
-					continue;
-				}
-				if (!extension) continue;
-
-				if (deferred.sourceInfo) {
-					extension.sourceInfo = deferred.sourceInfo;
-					for (const command of extension.commands.values()) {
-						command.sourceInfo = extension.sourceInfo;
-					}
-					for (const tool of extension.tools.values()) {
-						tool.sourceInfo = extension.sourceInfo;
-					}
-				}
-				this.extensions.push(extension);
-			}
-		} finally {
-			this.runtime.suppressNewToolActivation = previousSuppressNewToolActivation;
-		}
-		this.runtime.refreshTools({ activateNewTools: false });
-		if (pending.length > 0) {
-			for (const listener of this.deferredLoadedListeners) {
-				listener();
-			}
-		}
+	private loadDeferredExtensionsOnce(): Promise<void> {
+		return loadDeferredExtensionsBatch({
+			deferredExtensions: this.deferredExtensions,
+			extensions: this.extensions,
+			runtime: this.runtime,
+			eventBus: this.eventBus,
+			cwd: this.cwd,
+			emitError: (error) => this.emitError(error),
+			listeners: this.deferredLoadedListeners,
+		});
 	}
 
 	/** Get all registered tools from all extensions (first registration per name wins). */
@@ -704,19 +681,9 @@ export class ExtensionRunner {
 		return undefined;
 	}
 
-	/**
-	 * Return the first default renderer registered for `customType` via
-	 * `ctx.setDefaultMessageRenderer`, or undefined if none. Intended as a
-	 * fallback consulted after `getMessageRenderer`.
-	 */
+	/** See {@link findDefaultMessageRenderer}. */
 	getDefaultMessageRenderer(customType: string): MessageRenderer | undefined {
-		for (const ext of this.extensions) {
-			const renderer = ext.defaultMessageRenderers.get(customType);
-			if (renderer) {
-				return renderer;
-			}
-		}
-		return undefined;
+		return findDefaultMessageRenderer(this.extensions, customType);
 	}
 
 	getEntryRenderer(customType: string): EntryRenderer | undefined {
@@ -729,67 +696,24 @@ export class ExtensionRunner {
 		return undefined;
 	}
 
-	/**
-	 * Fire all handlers registered via `ctx.onSessionDispose`. Called
-	 * synchronously from `AgentSession.dispose()` before the runner is
-	 * invalidated. Per-handler errors are surfaced through the runner's error
-	 * stream and do not skip remaining handlers.
-	 */
+	/** See {@link fireSessionDisposeHandlers}. */
 	fireSessionDispose(): void {
-		for (const ext of this.extensions) {
-			for (const handler of ext.disposeHandlers) {
-				try {
-					handler();
-				} catch (err) {
-					this.emitError({
-						extensionPath: ext.path,
-						event: "session_dispose",
-						error: err instanceof Error ? err.message : String(err),
-						stack: err instanceof Error ? err.stack : undefined,
-					});
-				}
-			}
-		}
+		fireSessionDisposeHandlers(this.extensions, (error) => this.emitError(error));
 	}
 
-	/**
-	 * Snapshot of every agent definition registered through
-	 * `ctx.registerAgentDefinitions`. Iteration order matches extension load
-	 * order. Consumers (e.g. the future `pi-agents` loader) merge this with
-	 * the built-in / user / project sources.
-	 */
+	/** See {@link collectRegisteredAgentDefinitions}. */
 	getRegisteredAgentDefinitions(): AgentDefinition[] {
-		const defs: AgentDefinition[] = [];
-		for (const ext of this.extensions) {
-			defs.push(...ext.registeredAgentDefinitions);
-		}
-		return defs;
+		return collectRegisteredAgentDefinitions(this.extensions);
 	}
 
-	/**
-	 * Snapshot of every agent chain registered through
-	 * `ctx.registerAgentChains`.
-	 */
+	/** See {@link collectRegisteredAgentChains}. */
 	getRegisteredAgentChains(): AgentChainDefinition[] {
-		const chains: AgentChainDefinition[] = [];
-		for (const ext of this.extensions) {
-			chains.push(...ext.registeredAgentChains);
-		}
-		return chains;
+		return collectRegisteredAgentChains(this.extensions);
 	}
 
-	/**
-	 * Resolved policy for a context mode registered through
-	 * `ctx.registerContextMode`. Returns undefined when the name is unknown.
-	 * Built-in modes (`default`/`fork`/`slim`/`none`) are NOT included here;
-	 * core resolves those directly.
-	 */
+	/** See {@link findRegisteredContextMode}. */
 	getRegisteredContextMode(name: string): ExtensionContextModePolicy | undefined {
-		for (const ext of this.extensions) {
-			const policy = ext.registeredContextModes.get(name);
-			if (policy) return policy;
-		}
-		return undefined;
+		return findRegisteredContextMode(this.extensions, name);
 	}
 
 	/**
@@ -824,45 +748,19 @@ export class ExtensionRunner {
 		this.runtime.hideOverlayFn = actions.hideOverlay;
 	}
 
-	/**
-	 * Lookup a main pane factory registered through `pi.registerMainPane`.
-	 * Walks all extensions in load order and returns the first match.
-	 * Returns `undefined` if no extension has registered the given id.
-	 */
+	/** See {@link findRegisteredMainPane}. */
 	getRegisteredMainPane(id: string): ExtensionMainPaneFactory | undefined {
-		for (const ext of this.extensions) {
-			const factory = ext.registeredMainPanes.get(id);
-			if (factory) return factory;
-		}
-		return undefined;
+		return findRegisteredMainPane(this.extensions, id);
 	}
 
-	/**
-	 * Lookup an overlay factory registered through `pi.registerOverlay`.
-	 * Walks all extensions in load order and returns the first match.
-	 */
+	/** See {@link findRegisteredOverlay}. */
 	getRegisteredOverlay(id: string): ExtensionOverlayFactory | undefined {
-		for (const ext of this.extensions) {
-			const factory = ext.registeredOverlays.get(id);
-			if (factory) return factory;
-		}
-		return undefined;
+		return findRegisteredOverlay(this.extensions, id);
 	}
 
-	/**
-	 * Snapshot of every footer pill registered through `pi.registerFooter`,
-	 * keyed by id. Iteration order matches extension load order; ties broken
-	 * by registration order within an extension. Interactive-mode reads this
-	 * on every footer invalidate to assemble the focus chain.
-	 */
+	/** See {@link collectRegisteredFooters}. */
 	getRegisteredFooters(): Array<{ id: string; spec: ExtensionFooterSpec; extensionPath: string }> {
-		const result: Array<{ id: string; spec: ExtensionFooterSpec; extensionPath: string }> = [];
-		for (const ext of this.extensions) {
-			for (const [id, spec] of ext.registeredFooters) {
-				result.push({ id, spec, extensionPath: ext.path });
-			}
-		}
-		return result;
+		return collectRegisteredFooters(this.extensions);
 	}
 
 	private resolveRegisteredCommands(): ResolvedCommand[] {
