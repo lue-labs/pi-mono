@@ -74,7 +74,9 @@ describe("model:resolve startup filter", () => {
 		expect(result.session.model?.id).toBe("claude-sonnet-4-6");
 		expect(result.session.thinkingLevel).toBe("medium");
 		expect(sessionManager.buildSessionContext().model?.modelId).toBe("claude-sonnet-4-6");
-		expect(result.modelFallbackMessage).toContain("Auto model clawrouter/auto selected claude-bridge/claude-sonnet-4-6");
+		expect(result.modelFallbackMessage).toContain(
+			"Auto model clawrouter/auto selected claude-bridge/claude-sonnet-4-6",
+		);
 		expect(result.modelRoutingFailed).toBe(false);
 	});
 

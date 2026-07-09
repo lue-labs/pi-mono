@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getModel } from "../src/compat.ts";
-import { getSupportedThinkingLevels } from "../src/models.ts";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "../src/models.ts";
 import { allOf, isReasoning, pickModel, supportsThinkingLevel } from "./helpers/models.ts";
 
 // These tests validate getSupportedThinkingLevels against capability classes pulled
@@ -54,5 +54,38 @@ describe("getSupportedThinkingLevels", () => {
 		expect(model).toBeDefined();
 		expect(getSupportedThinkingLevels(model!)).toContain("xhigh");
 		expect(getSupportedThinkingLevels(model!)).not.toContain("off");
+	});
+
+	it("includes max (and xhigh, but not minimal) for OpenAI GPT-5.6", () => {
+		const model = pickModel("openai", supportsThinkingLevel("max"));
+		const levels = getSupportedThinkingLevels(model);
+		expect(levels).toContain("max");
+		expect(levels).toContain("xhigh");
+		expect(levels).not.toContain("minimal");
+	});
+
+	it("excludes max for a reasoning model that does not opt into max", () => {
+		const model = pickModel(
+			"anthropic",
+			allOf(isReasoning, (candidate) => !getSupportedThinkingLevels(candidate).includes("max")),
+		);
+		expect(getSupportedThinkingLevels(model)).not.toContain("max");
+	});
+});
+
+describe("clampThinkingLevel with max", () => {
+	it("keeps max on a model that opts in", () => {
+		const model = pickModel("openai", supportsThinkingLevel("max"));
+		expect(clampThinkingLevel(model, "max")).toBe("max");
+	});
+
+	it("clamps max down for a model without it", () => {
+		const model = pickModel(
+			"openai",
+			allOf(isReasoning, (candidate) => !getSupportedThinkingLevels(candidate).includes("max")),
+		);
+		const clamped = clampThinkingLevel(model, "max");
+		expect(clamped).not.toBe("max");
+		expect(getSupportedThinkingLevels(model)).toContain(clamped);
 	});
 });

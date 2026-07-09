@@ -61,6 +61,7 @@ function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCo
 		supportsDeveloperRole: model.compat?.supportsDeveloperRole ?? true,
 		sendSessionIdHeader: model.compat?.sendSessionIdHeader ?? true,
 		supportsLongCacheRetention: model.compat?.supportsLongCacheRetention ?? true,
+		promptCacheApi: model.compat?.promptCacheApi ?? "legacy",
 	};
 }
 
@@ -68,6 +69,9 @@ function getPromptCacheRetention(
 	compat: Required<OpenAIResponsesCompat>,
 	cacheRetention: CacheRetention,
 ): "24h" | undefined {
+	// GPT-5.6+ deprecates prompt_cache_retention in favor of prompt_cache_options.ttl
+	// (default and only value "30m"); omit it entirely on breakpoint-capable models.
+	if (compat.promptCacheApi === "breakpoints") return undefined;
 	return cacheRetention === "long" && compat.supportsLongCacheRetention ? "24h" : undefined;
 }
 
@@ -77,7 +81,7 @@ function formatOpenAIResponsesError(error: unknown): string {
 
 // OpenAI Responses-specific options
 export interface OpenAIResponsesOptions extends StreamOptions {
-	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	reasoningSummary?: "auto" | "detailed" | "concise" | null;
 	serviceTier?: ResponseCreateParamsStreaming["service_tier"];
 }
@@ -220,10 +224,15 @@ function createClient(
 }
 
 function buildParams(model: Model<"openai-responses">, context: Context, options?: OpenAIResponsesOptions) {
-	const messages = convertResponsesMessages(model, context, OPENAI_TOOL_CALL_PROVIDERS);
-
 	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 	const compat = getCompat(model);
+	// Explicit breakpoints ride the default implicit mode, so prompt_cache_options is
+	// not sent (mode "implicit" and ttl "30m" are the API defaults). The implicit
+	// latest-message breakpoint replaces the legacy last-user-message anchor.
+	const promptCacheBreakpoints = compat.promptCacheApi === "breakpoints" && cacheRetention !== "none";
+	const messages = convertResponsesMessages(model, context, OPENAI_TOOL_CALL_PROVIDERS, {
+		promptCacheBreakpoints,
+	});
 	const params: ResponseCreateParamsStreaming = {
 		model: model.id,
 		input: messages,

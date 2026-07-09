@@ -47,8 +47,8 @@ export function buildBaseOptions(
 
 export function clampReasoning(
 	effort: ThinkingLevel | undefined,
-): Exclude<ThinkingLevel, "xhigh" | "adaptive"> | undefined {
-	if (effort === "xhigh" || effort === "adaptive") return "high";
+): Exclude<ThinkingLevel, "xhigh" | "max" | "adaptive"> | undefined {
+	if (effort === "xhigh" || effort === "max" || effort === "adaptive") return "high";
 	return effort;
 }
 

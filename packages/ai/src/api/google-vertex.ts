@@ -315,7 +315,10 @@ export const streamSimple: StreamFunction<"google-vertex", SimpleStreamOptions> 
 	const clampedReasoning = clampThinkingLevel(model, options.reasoning);
 	// "adaptive" is Anthropic-only; clamp it to "high" for Google Vertex. "off" also falls through to "high".
 	const effort = (
-		clampedReasoning === "off" || clampedReasoning === "adaptive" || clampedReasoning === "xhigh"
+		clampedReasoning === "off" ||
+		clampedReasoning === "adaptive" ||
+		clampedReasoning === "xhigh" ||
+		clampedReasoning === "max"
 			? "high"
 			: clampedReasoning
 	) as ClampedThinkingLevel;
@@ -506,7 +509,7 @@ function buildParams(
 	return params;
 }
 
-type ClampedThinkingLevel = Exclude<PiThinkingLevel, "xhigh" | "adaptive">;
+type ClampedThinkingLevel = Exclude<PiThinkingLevel, "xhigh" | "max" | "adaptive">;
 
 function isGemini3ProModel(model: Model<"google-generative-ai">): boolean {
 	return /gemini-3(?:\.\d+)?-pro/.test(model.id.toLowerCase());
