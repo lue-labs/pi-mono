@@ -27,7 +27,7 @@ interface RawAgentFrontmatter extends Record<string, unknown> {
 
 const CONTEXT_MODES = new Set<ContextMode>(["default", "fork", "slim", "none"]);
 const CACHE_PROFILES = new Set<AgentCacheProfile>(["normal", "stable"]);
-const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "inherit"]);
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max", "adaptive", "inherit"]);
 
 export function getUserAgentsDir(): string {
 	return join(homedir(), ".pi", "agent", "agents");

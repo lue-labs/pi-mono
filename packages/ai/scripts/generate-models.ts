@@ -9,7 +9,14 @@ import {
 	CLOUDFLARE_AI_GATEWAY_OPENAI_BASE_URL,
 	CLOUDFLARE_WORKERS_AI_BASE_URL,
 } from "../src/api/cloudflare.ts";
-import type { AnthropicMessagesCompat, Api, KnownProvider, Model, OpenAICompletionsCompat } from "../src/types.ts";
+import type {
+	AnthropicMessagesCompat,
+	Api,
+	KnownProvider,
+	Model,
+	OpenAICompletionsCompat,
+	OpenAIResponsesCompat,
+} from "../src/types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -201,6 +208,10 @@ const OPENAI_RESPONSES_NONE_REASONING_MODELS = new Set([
 	"gpt-5.4-mini",
 	"gpt-5.4-nano",
 	"gpt-5.5",
+	"gpt-5.6",
+	"gpt-5.6-sol",
+	"gpt-5.6-terra",
+	"gpt-5.6-luna",
 ]);
 
 const OPENCODE_OPENAI_COMPLETIONS_LONG_CACHE_RETENTION_UNSUPPORTED_MODELS = new Set([
@@ -248,8 +259,14 @@ function supportsOpenAiXhigh(modelId: string): boolean {
 		modelId.includes("gpt-5.2") ||
 		modelId.includes("gpt-5.3") ||
 		modelId.includes("gpt-5.4") ||
-		modelId.includes("gpt-5.5")
+		modelId.includes("gpt-5.5") ||
+		modelId.includes("gpt-5.6")
 	);
+}
+
+// GPT-5.6+ adds a `max` reasoning effort above `xhigh`.
+function supportsOpenAiMax(modelId: string): boolean {
+	return modelId.includes("gpt-5.6");
 }
 
 function isGoogleThinkingApi(model: Model<any>): boolean {
@@ -305,6 +322,10 @@ type OpenAICompletionsResolvedCompat = typeof OPENAI_COMPLETIONS_DEFAULT_COMPAT 
 
 function mergeAnthropicMessagesCompat(model: Model<Api>, compat: AnthropicMessagesCompat): void {
 	model.compat = { ...(model.compat as AnthropicMessagesCompat | undefined), ...compat };
+}
+
+function mergeOpenAIResponsesCompat(model: Model<Api>, compat: OpenAIResponsesCompat): void {
+	model.compat = { ...(model.compat as OpenAIResponsesCompat | undefined), ...compat };
 }
 
 function detectOpenAICompletionsCompat(model: Model<"openai-completions">): OpenAICompletionsResolvedCompat {
@@ -453,8 +474,19 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	if (supportsOpenAiXhigh(model.id)) {
 		mergeThinkingLevelMap(model, { xhigh: "xhigh" });
 	}
+	if (supportsOpenAiMax(model.id)) {
+		mergeThinkingLevelMap(model, { max: "max" });
+	}
 	if (model.provider === "openai" && model.id === "gpt-5.5") {
 		mergeThinkingLevelMap(model, { minimal: null });
+	}
+	if (model.provider === "openai" && model.id.startsWith("gpt-5.6")) {
+		// GPT-5.6 exposes efforts none/low/medium/high/xhigh/max — no minimal.
+		mergeThinkingLevelMap(model, { minimal: null });
+	}
+	if (model.api === "openai-responses" && model.provider === "openai" && model.id.startsWith("gpt-5.6")) {
+		// GPT-5.6+ prompt-cache API: explicit breakpoints, deprecated prompt_cache_retention.
+		mergeOpenAIResponsesCompat(model, { promptCacheApi: "breakpoints" });
 	}
 	if (model.id.endsWith("gpt-5.5-pro")) {
 		mergeThinkingLevelMap(model, { off: null, minimal: null, low: null });

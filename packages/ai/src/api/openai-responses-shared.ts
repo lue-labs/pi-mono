@@ -32,6 +32,7 @@ import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
+import { splitSystemPromptAtDynamicBoundary } from "./openai-prompt-cache.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 // =============================================================================
@@ -78,6 +79,42 @@ export interface OpenAIResponsesStreamOptions {
 
 export interface ConvertResponsesMessagesOptions {
 	includeSystemPrompt?: boolean;
+	/**
+	 * Emit explicit `prompt_cache_breakpoint` markers (GPT-5.6+ prompt-cache API).
+	 * Places one breakpoint at the end of the stable system-prompt prefix (split at
+	 * `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`) and one on the previous user message, leaving
+	 * the implicit latest-message breakpoint and one spare write slot free (max 4
+	 * cache writes per request). Older models reject these fields — opt-in per model
+	 * via `OpenAIResponsesCompat.promptCacheApi: "breakpoints"`.
+	 */
+	promptCacheBreakpoints?: boolean;
+}
+
+const EXPLICIT_PROMPT_CACHE_BREAKPOINT = { mode: "explicit" } as const;
+
+/**
+ * Mark the last breakpoint-capable content block of the previous (second-to-last)
+ * user message. Earlier-turn breakpoints stay readable server-side (latest 50), so
+ * this creates a durable mid-conversation anchor: if the implicit latest-message
+ * cache entry is evicted, reads fall back to this prefix instead of a full re-write.
+ * The prefix up to here was already cached by the prior turn, so the incremental
+ * write cost is ~0.
+ */
+function markPreviousUserMessageBreakpoint(messages: ResponseInput): void {
+	let seenLatestUserMessage = false;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const item = messages[i] as { role?: string; content?: unknown };
+		if (item.role !== "user" || !Array.isArray(item.content) || item.content.length === 0) continue;
+		if (!seenLatestUserMessage) {
+			seenLatestUserMessage = true;
+			continue;
+		}
+		const lastBlock = item.content[item.content.length - 1] as { type?: string; prompt_cache_breakpoint?: unknown };
+		if (lastBlock.type === "input_text" || lastBlock.type === "input_image") {
+			lastBlock.prompt_cache_breakpoint = EXPLICIT_PROMPT_CACHE_BREAKPOINT;
+		}
+		return;
+	}
 }
 
 export interface ConvertResponsesToolsOptions {
@@ -187,10 +224,30 @@ export function convertResponsesMessages<TApi extends Api>(
 	if (includeSystemPrompt && context.systemPrompt) {
 		const compat = model.compat as { supportsDeveloperRole?: boolean } | undefined;
 		const role = model.reasoning && compat?.supportsDeveloperRole !== false ? "developer" : "system";
-		messages.push({
-			role,
-			content: sanitizeSurrogates(stripSystemPromptDynamicBoundary(context.systemPrompt)),
-		});
+		if (options?.promptCacheBreakpoints) {
+			// Stable prefix carries an explicit breakpoint; the dynamic tail stays
+			// unmarked so per-session content never busts the shared static prefix.
+			const { stable, dynamic } = splitSystemPromptAtDynamicBoundary(context.systemPrompt);
+			const content: ResponseInputContent[] = [];
+			if (stable) {
+				content.push({
+					type: "input_text",
+					text: sanitizeSurrogates(stable),
+					prompt_cache_breakpoint: EXPLICIT_PROMPT_CACHE_BREAKPOINT,
+				} satisfies ResponseInputText);
+			}
+			if (dynamic) {
+				content.push({ type: "input_text", text: sanitizeSurrogates(dynamic) } satisfies ResponseInputText);
+			}
+			if (content.length > 0) {
+				messages.push({ role, content });
+			}
+		} else {
+			messages.push({
+				role,
+				content: sanitizeSurrogates(stripSystemPromptDynamicBoundary(context.systemPrompt)),
+			});
+		}
 	}
 
 	let msgIndex = 0;
@@ -322,6 +379,10 @@ export function convertResponsesMessages<TApi extends Api>(
 			});
 		}
 		msgIndex++;
+	}
+
+	if (options?.promptCacheBreakpoints) {
+		markPreviousUserMessageBreakpoint(messages);
 	}
 
 	return messages;

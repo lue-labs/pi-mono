@@ -23,7 +23,9 @@ describe("AgentSession auto-compaction queue resume", () => {
 		mkdirSync(tempDir, { recursive: true });
 		vi.useFakeTimers();
 
-		const model = pickModel("anthropic");
+		// Usage numbers below assume a 200k context window; pick by capability so
+		// catalog regeneration (which reorders/removes models) cannot break the math.
+		const model = pickModel("anthropic", (m) => m.contextWindow === 200_000);
 		const agent = new Agent({
 			initialState: {
 				model,
