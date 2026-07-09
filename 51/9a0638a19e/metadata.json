@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.8.1",
+  "checkpoint_id": "519a0638a19e",
+  "strategy": "manual-commit",
+  "branch": "fix/codex-footer-dedupe",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "packages/pi-agent-ui/src/extension.test.ts",
+    "packages/pi-agent-ui/src/extension.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/51/9a0638a19e/0/metadata.json",
+      "transcript": "/51/9a0638a19e/0/full.jsonl",
+      "compact_transcript": "/51/9a0638a19e/0/transcript.jsonl",
+      "content_hash": "/51/9a0638a19e/0/content_hash.txt",
+      "prompt": "/51/9a0638a19e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 13340,
+    "cache_creation_tokens": 92714,
+    "cache_read_tokens": 959273,
+    "output_tokens": 27696,
+    "api_call_count": 14
+  }
+}
