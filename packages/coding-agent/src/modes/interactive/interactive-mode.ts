@@ -550,7 +550,12 @@ export class InteractiveMode {
 
 				// Create items with provider/id format
 				const items = [
-					{ id: "auto", provider: "pi-fork", name: "Auto (semantic, provider-neutral)", label: "pi-fork/auto" },
+					{
+						id: "auto",
+						provider: "clawrouter",
+						name: "Auto (semantic ClawRouter)",
+						label: "clawrouter/auto",
+					},
 					{
 						id: "auto",
 						provider: "claude-bridge",
@@ -3098,9 +3103,16 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 
+			case "model_changed":
+				this.footer.invalidate();
+				this.updateEditorBorderColor();
+				this.ui.requestRender();
+				break;
+
 			case "thinking_level_changed":
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
+				this.ui.requestRender();
 				break;
 
 			case "message_start":
@@ -4616,7 +4628,7 @@ export class InteractiveMode {
 	}
 
 	private findAutoModelAlias(searchTerm: string): string | undefined {
-		return normalizeAutoAliasString("pi-fork", searchTerm);
+		return normalizeAutoAliasString("clawrouter", searchTerm);
 	}
 
 	private async findExactModelMatch(searchTerm: string): Promise<Model<any> | undefined> {

@@ -42,7 +42,11 @@ function makeAutoAliasModel(provider: string, name: string): Model<any> {
 
 function autoAliasItems(): ModelItem[] {
 	return [
-		{ provider: "pi-fork", id: "auto", model: makeAutoAliasModel("pi-fork", "Auto (semantic, provider-neutral)") },
+		{
+			provider: "clawrouter",
+			id: "auto",
+			model: makeAutoAliasModel("clawrouter", "Auto (semantic ClawRouter)"),
+		},
 		{
 			provider: "claude-bridge",
 			id: "auto",
@@ -52,11 +56,6 @@ function autoAliasItems(): ModelItem[] {
 			provider: "openai-codex",
 			id: "auto",
 			model: makeAutoAliasModel("openai-codex", "Auto (semantic OpenAI Codex)"),
-		},
-		{
-			provider: "clawrouter",
-			id: "auto",
-			model: makeAutoAliasModel("clawrouter", "Auto (semantic ClawRouter)"),
 		},
 	];
 }
