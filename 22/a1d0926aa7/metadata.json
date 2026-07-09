@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.8.1",
+  "checkpoint_id": "22a1d0926aa7",
+  "strategy": "manual-commit",
+  "branch": "fix/codex-footer-dedupe",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "hooks/commit-msg",
+    "hooks/post-commit",
+    "hooks/post-rewrite",
+    "hooks/pre-push",
+    "hooks/pre-push.pre-entire",
+    "hooks/prepare-commit-msg"
+  ],
+  "sessions": [
+    {
+      "metadata": "/22/a1d0926aa7/0/metadata.json",
+      "transcript": "/22/a1d0926aa7/0/full.jsonl",
+      "compact_transcript": "/22/a1d0926aa7/0/transcript.jsonl",
+      "content_hash": "/22/a1d0926aa7/0/content_hash.txt",
+      "prompt": "/22/a1d0926aa7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 13340,
+    "cache_creation_tokens": 92714,
+    "cache_read_tokens": 959273,
+    "output_tokens": 27696,
+    "api_call_count": 14
+  }
+}
