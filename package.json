@@ -32,7 +32,7 @@
 		"test:loader-resolver": "npm --prefix packages/coding-agent run test -- test/loader-module-alias-symmetry.test.ts",
 		"test:cache-stability": "npm --prefix packages/ai run test -- test/anthropic-defer-loading.test.ts test/anthropic-tool-serialization-stable.test.ts test/transform-messages-copilot-openai-to-anthropic.test.ts test/openai-codex-defer-loading.test.ts && npm --prefix packages/coding-agent run test -- test/extensions-hook-api.test.ts test/model-resolve-filter.test.ts test/agent-child-auto-routing.test.ts test/suite/regressions/cache-break-builtin-preservation.test.ts test/suite/regressions/deferred-tool-activation-refresh.test.ts",
 		"test:e2e": "npm --prefix packages/coding-agent run test -- test/suite",
-		"test:my-pi-extensions": "if [ -f ../my-pi/package.json ]; then npm --prefix ../my-pi run test:extension-gate:ci; else echo 'skip test:my-pi-extensions: ../my-pi sibling repo not present'; fi",
+		"test:my-pi-extensions": "node scripts/run-my-pi-extension-gate.mjs",
 		"test:system-prompt": "npm --prefix packages/ai run test -- test/anthropic-system-prompt-boundary.test.ts && npm --prefix packages/coding-agent run test -- test/system-prompt.test.ts test/suite/agent-tool-context-modes.test.ts test/suite/extensions/fork-agent.test.ts",
 		"version:patch": "npm version patch -ws --no-git-tag-version && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts",
 		"version:minor": "npm version minor -ws --no-git-tag-version && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts",
