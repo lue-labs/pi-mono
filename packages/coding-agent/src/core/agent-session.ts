@@ -14,7 +14,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname } from "node:path";
 import type {
 	Agent,
 	AgentEvent,
@@ -24,16 +24,7 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@valkyriweb/pi-agent-core";
-import type {
-	AssistantMessage,
-	Context,
-	ImageContent,
-	Message,
-	Model,
-	TextContent,
-	ToolReferenceContent,
-	ToolResultMessage,
-} from "@valkyriweb/pi-ai";
+import type { AssistantMessage, ImageContent, Message, Model, TextContent, ToolResultMessage } from "@valkyriweb/pi-ai";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -42,7 +33,6 @@ import {
 	isRetryableAssistantError,
 	modelsAreEqual,
 	resetApiProviders,
-	SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 	streamSimple,
 } from "@valkyriweb/pi-ai/compat";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
@@ -61,6 +51,7 @@ import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { type CacheHealthMetrics, computeCacheHealth } from "./cache-health.ts";
+import { CacheHeartbeatManager } from "./cache-heartbeat.ts";
 import {
 	COMPACTION_FAILURE_TRIP_COUNT,
 	type CompactionResult,
@@ -77,7 +68,6 @@ import {
 import { CONTEXT_USAGE_SERVICE_ID, type ContextUsageSnapshotService } from "./context-usage.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { isDeferredTool } from "./deferred-tools.ts";
-
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import { applyFilters } from "./extensions/extension-hooks.ts";
@@ -110,10 +100,8 @@ import {
 } from "./extensions/index.ts";
 import { getExtensionProcessService } from "./extensions/loader.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
-
 import type { ForkAgentOptions, ForkAgentResult, TranscriptEntry } from "./extensions/types.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
-
 import type { ModelRegistry } from "./model-registry.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
@@ -130,6 +118,7 @@ import type { SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
+import { capModelFacingToolResultText, replaceUnsupportedToolResultImages } from "./tool-artifacts.ts";
 
 import { type BashBgJob, type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { allToolNames, createAllToolDefinitions, type ToolName } from "./tools/index.ts";
@@ -173,24 +162,6 @@ export interface PendingAutoModelRequest {
 }
 
 const IDLE_CACHE_HINT_MS = 55 * 60 * 1000;
-const BASE_HEARTBEAT_SESSION_ID = "pi-base-system-prompt-heartbeat";
-const CACHE_HEARTBEAT_MESSAGE = "<system-reminder>Cache heartbeat only. Reply with a single '.'</system-reminder>";
-
-const globalCacheHeartbeat: {
-	timer: ReturnType<typeof setTimeout> | undefined;
-	running: boolean;
-	baseWarmAt: Map<string, number>;
-	rateLimitedUntil: Map<string, number>;
-} = {
-	timer: undefined,
-	running: false,
-	baseWarmAt: new Map(),
-	rateLimitedUntil: new Map(),
-};
-
-function modelCacheKey(model: Model<any>): string {
-	return `${model.provider}/${model.id}`;
-}
 
 /** Order-independent equality for two string sets. */
 function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
@@ -208,10 +179,6 @@ function sameStringMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, st
 		if (b.get(key) !== value) return false;
 	}
 	return true;
-}
-
-function isRateLimitErrorText(text: string | undefined): boolean {
-	return /\b429\b|rate.?limit|quota|too many requests/i.test(text ?? "");
 }
 
 /** Session-specific events that extend the core AgentEvent */
@@ -413,129 +380,6 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 
 /** Standard thinking levels */
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
-const SUPPORTED_INLINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-const TOOL_ARTIFACTS_DIR = ".pi/tool-artifacts";
-const TOOL_RESULT_TEXT_ARTIFACTS_DIR = ".pi/tool-results";
-const MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS = 100_000;
-
-type ToolResultContentBlock = TextContent | ImageContent | ToolReferenceContent;
-
-function capModelFacingToolResultText(
-	content: ToolResultContentBlock[],
-	cwd: string,
-	toolCallId: string,
-	toolName: string,
-): ToolResultContentBlock[] | undefined {
-	const totalTextChars = content.reduce((sum, block) => sum + (block.type === "text" ? block.text.length : 0), 0);
-	if (totalTextChars <= MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS) {
-		return undefined;
-	}
-
-	const relativePath = `${TOOL_RESULT_TEXT_ARTIFACTS_DIR}/${sanitizeArtifactName(toolCallId)}-${sanitizeArtifactName(toolName)}.txt`;
-	let saveError: string | undefined;
-	try {
-		const absolutePath = resolve(cwd, relativePath);
-		mkdirSync(dirname(absolutePath), { recursive: true });
-		writeFileSync(
-			absolutePath,
-			content
-				.filter((block): block is TextContent => block.type === "text")
-				.map((block) => block.text)
-				.join("\n\n"),
-			"utf8",
-		);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		saveError = message.slice(0, 500);
-	}
-
-	const makeHint = (omittedChars: number) =>
-		saveError
-			? `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full-text artifact save failed: ${saveError}.]`
-			: `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full text saved to ${relativePath}.]`;
-
-	let omittedChars = 0;
-	let previewBudget = MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS;
-	for (let i = 0; i < 3; i++) {
-		const hint = makeHint(omittedChars);
-		previewBudget = Math.max(0, MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS - hint.length);
-		const nextOmittedChars = Math.max(0, totalTextChars - previewBudget);
-		if (nextOmittedChars === omittedChars) break;
-		omittedChars = nextOmittedChars;
-	}
-
-	let remainingTextChars = previewBudget;
-	const nextContent: ToolResultContentBlock[] = [];
-	for (const block of content) {
-		if (block.type !== "text") {
-			nextContent.push(block);
-			continue;
-		}
-
-		if (remainingTextChars <= 0) {
-			continue;
-		}
-
-		if (block.text.length <= remainingTextChars) {
-			nextContent.push(block);
-			remainingTextChars -= block.text.length;
-			continue;
-		}
-
-		nextContent.push({ type: "text", text: block.text.slice(0, remainingTextChars) });
-		remainingTextChars = 0;
-	}
-
-	nextContent.push({ type: "text", text: makeHint(omittedChars) });
-	return nextContent;
-}
-
-function replaceUnsupportedToolResultImages(
-	content: ToolResultContentBlock[],
-	cwd: string,
-	toolCallId: string,
-): ToolResultContentBlock[] | undefined {
-	let changed = false;
-	const nextContent = content.map((block, index): ToolResultContentBlock => {
-		if (block.type !== "image" || SUPPORTED_INLINE_IMAGE_MIME_TYPES.has(block.mimeType)) {
-			return block;
-		}
-
-		changed = true;
-		const relativePath = `${TOOL_ARTIFACTS_DIR}/${sanitizeArtifactName(toolCallId)}-${index}${extensionForMimeType(block.mimeType)}`;
-		const absolutePath = resolve(cwd, relativePath);
-		try {
-			mkdirSync(dirname(absolutePath), { recursive: true });
-			writeFileSync(absolutePath, Buffer.from(block.data, "base64"));
-			return {
-				type: "text",
-				text: `[Unsupported image MIME ${block.mimeType}; saved artifact to ${relativePath}]`,
-			};
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return {
-				type: "text",
-				text: `[Unsupported image MIME ${block.mimeType}; image omitted because artifact save failed: ${message}]`,
-			};
-		}
-	});
-
-	return changed ? nextContent : undefined;
-}
-
-function sanitizeArtifactName(value: string): string {
-	return value.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "tool-result";
-}
-
-function extensionForMimeType(mimeType: string): string {
-	const subtype =
-		mimeType
-			.split("/")[1]
-			?.toLowerCase()
-			.replace(/[^a-z0-9.+-]/g, "") || "bin";
-	return `.${subtype.replace("+", ".")}`;
-}
-
 // ============================================================================
 // AgentSession Class
 // ============================================================================
@@ -593,12 +437,10 @@ export class AgentSession {
 	/** Set by extensions that need the current run to park after the active turn completes. */
 	private _extensionStopAfterTurnReason: string | undefined = undefined;
 	private _lastIdleCacheHintAssistantTimestamp: number | undefined = undefined;
-	private _cacheHeartbeatTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-	private _cacheHeartbeatAbortController: AbortController | undefined = undefined;
+	/** Prompt-cache heartbeats (fork-owned); state and scheduling live in cache-heartbeat.ts. */
+	private readonly _cacheHeartbeat: CacheHeartbeatManager;
 	/** Debounce timer for wakeOnIdle continuation turns (see sendCustomMessage). */
 	private _idleWakeTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-	private _sessionHeartbeatTargetTimestamp: number | undefined = undefined;
-	private _sessionHeartbeatUsedTimestamp: number | undefined = undefined;
 	private _disposed = false;
 
 	// Branch summarization state
@@ -692,6 +534,27 @@ export class AgentSession {
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 		this._pendingAutoModelRequest = config.pendingAutoModelRequest;
 		if (config.source) this._source = config.source;
+
+		// Host reads are live (getters/closures) — never snapshots of session state.
+		const session = this;
+		this._cacheHeartbeat = new CacheHeartbeatManager({
+			get disposed() {
+				return session._disposed;
+			},
+			get model() {
+				return session.model;
+			},
+			get systemPrompt() {
+				return session.systemPrompt;
+			},
+			get sessionId() {
+				return session.sessionId;
+			},
+			settingsManager: this.settingsManager,
+			agent: this.agent,
+			findLastAssistantMessage: () => this._findLastAssistantMessage(),
+			emit: (event) => this._emit(event),
+		});
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
@@ -1128,220 +991,6 @@ export class AgentSession {
 		});
 	}
 
-	private _isWithinCacheHeartbeatHours(now = new Date()): boolean {
-		const { workingHours } = this.settingsManager.getCacheHeartbeatSettings();
-		if (!workingHours.days.includes(now.getDay())) return false;
-
-		const minutes = now.getHours() * 60 + now.getMinutes();
-		const start = this._parseTimeOfDay(workingHours.start, 8 * 60);
-		const end = this._parseTimeOfDay(workingHours.end, 18 * 60);
-		return start <= end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
-	}
-
-	private _parseTimeOfDay(value: string, fallback: number): number {
-		const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
-		if (!match) return fallback;
-		const hours = Number(match[1]);
-		const minutes = Number(match[2]);
-		if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return fallback;
-		return hours * 60 + minutes;
-	}
-
-	private _noteCacheHeartbeatActivity(scope: "base" | "session" | "all" = "all"): void {
-		if (this._disposed) return;
-		const settings = this.settingsManager.getCacheHeartbeatSettings();
-		if (!settings.enabled || !this.model || !this._isWithinCacheHeartbeatHours()) return;
-		if (!this._isCacheHeartbeatProviderAllowed()) return;
-		if (this._isCacheHeartbeatRateLimited()) return;
-
-		if ((scope === "base" || scope === "all") && settings.basePrompt) {
-			this._markBaseCacheWarm();
-			this._scheduleBaseCacheHeartbeat(settings.intervalMs);
-		}
-		if ((scope === "session" || scope === "all") && settings.sessionPrompt) {
-			this._scheduleSessionCacheHeartbeat(settings.intervalMs);
-		}
-	}
-
-	private _isCacheHeartbeatProviderAllowed(): boolean {
-		if (!this.model) return false;
-		const modelName = modelCacheKey(this.model);
-		return this.settingsManager
-			.getCacheHeartbeatSettings()
-			.providers.some(
-				(prefix) => modelName.startsWith(prefix) || this.model?.provider === prefix.replace(/\/$/, ""),
-			);
-	}
-
-	private _isCacheHeartbeatRateLimited(): boolean {
-		if (!this.model) return true;
-		const until = globalCacheHeartbeat.rateLimitedUntil.get(modelCacheKey(this.model));
-		return until !== undefined && until > Date.now();
-	}
-
-	private _markCacheHeartbeatRateLimited(errorText: string | undefined): void {
-		if (!this.model || !isRateLimitErrorText(errorText)) return;
-		const cooldownMs = this.settingsManager.getCacheHeartbeatSettings().rateLimitCooldownMs;
-		globalCacheHeartbeat.rateLimitedUntil.set(modelCacheKey(this.model), Date.now() + cooldownMs);
-	}
-
-	private _markBaseCacheWarm(): void {
-		if (!this.model) return;
-		globalCacheHeartbeat.baseWarmAt.set(modelCacheKey(this.model), Date.now());
-	}
-
-	private _scheduleBaseCacheHeartbeat(intervalMs: number): void {
-		if (!this.model) return;
-		const lastWarmAt = globalCacheHeartbeat.baseWarmAt.get(modelCacheKey(this.model)) ?? Date.now();
-		const delayMs = Math.max(0, intervalMs - (Date.now() - lastWarmAt));
-		if (globalCacheHeartbeat.timer) {
-			clearTimeout(globalCacheHeartbeat.timer);
-		}
-		globalCacheHeartbeat.timer = setTimeout(() => {
-			void this._runBaseCacheHeartbeat();
-		}, delayMs);
-	}
-
-	private _scheduleSessionCacheHeartbeat(intervalMs: number): void {
-		if (this._cacheHeartbeatTimer) {
-			clearTimeout(this._cacheHeartbeatTimer);
-		}
-		this._cacheHeartbeatTimer = setTimeout(() => {
-			void this._runSessionCacheHeartbeat();
-		}, intervalMs);
-	}
-
-	private _baseSystemPromptForHeartbeat(): string {
-		const boundary = this.systemPrompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
-		return boundary === -1 ? this.systemPrompt : this.systemPrompt.slice(0, boundary).trimEnd();
-	}
-
-	private async _runBaseCacheHeartbeat(): Promise<void> {
-		if (this._disposed || globalCacheHeartbeat.running) return;
-		const settings = this.settingsManager.getCacheHeartbeatSettings();
-		if (!settings.enabled || !settings.basePrompt || !this.model || !this._isWithinCacheHeartbeatHours()) return;
-		if (!this._isCacheHeartbeatProviderAllowed() || this._isCacheHeartbeatRateLimited()) return;
-
-		globalCacheHeartbeat.running = true;
-		try {
-			await this._sendCacheHeartbeat(
-				{
-					systemPrompt: this._baseSystemPromptForHeartbeat(),
-					messages: [],
-					tools: [],
-					sessionId: BASE_HEARTBEAT_SESSION_ID,
-				},
-				"base",
-			);
-		} finally {
-			this._markBaseCacheWarm();
-			globalCacheHeartbeat.running = false;
-			const latest = this.settingsManager.getCacheHeartbeatSettings();
-			if (latest.enabled && latest.basePrompt && this._isWithinCacheHeartbeatHours()) {
-				this._scheduleBaseCacheHeartbeat(latest.intervalMs);
-			}
-		}
-	}
-
-	private async _runSessionCacheHeartbeat(): Promise<void> {
-		if (this._disposed) return;
-		const settings = this.settingsManager.getCacheHeartbeatSettings();
-		const targetTimestamp = this._sessionHeartbeatTargetTimestamp;
-		if (
-			!settings.enabled ||
-			!settings.sessionPrompt ||
-			!this.model ||
-			!targetTimestamp ||
-			this._sessionHeartbeatUsedTimestamp === targetTimestamp ||
-			!this._isWithinCacheHeartbeatHours() ||
-			!this._isCacheHeartbeatProviderAllowed() ||
-			this._isCacheHeartbeatRateLimited()
-		) {
-			return;
-		}
-
-		const lastAssistant = this._findLastAssistantMessage();
-		if (!lastAssistant || lastAssistant.timestamp !== targetTimestamp) return;
-
-		this._sessionHeartbeatUsedTimestamp = targetTimestamp;
-		await this._sendCacheHeartbeat(
-			{
-				systemPrompt: this.systemPrompt,
-				messages: await convertToLlm(this.agent.state.messages),
-				tools: this.agent.state.tools,
-				sessionId: this.sessionId,
-			},
-			"session",
-		);
-	}
-
-	private async _sendCacheHeartbeat(
-		context: Context & { sessionId: string },
-		scope: "base" | "session",
-	): Promise<void> {
-		if (this._disposed || !this.model) return;
-		this._cacheHeartbeatAbortController?.abort();
-		const abortController = new AbortController();
-		this._cacheHeartbeatAbortController = abortController;
-
-		const heartbeatContext: Context = {
-			...context,
-			messages: [
-				...context.messages,
-				{ role: "user", content: [{ type: "text", text: CACHE_HEARTBEAT_MESSAGE }], timestamp: Date.now() },
-			],
-		};
-
-		const settings = this.settingsManager.getCacheHeartbeatSettings();
-		const providerRetrySettings = this.settingsManager.getProviderRetrySettings();
-		try {
-			const model = this.model;
-			const stream = await this.agent.streamFn(model, heartbeatContext, {
-				cacheRetention: "long",
-				maxTokens: settings.maxTokens,
-				maxRetries: 0,
-				maxRetryDelayMs: 0,
-				timeoutMs: providerRetrySettings.timeoutMs,
-				sessionId: context.sessionId,
-				cacheAffinityKey: createPromptCacheAffinityKey(model, heartbeatContext),
-				signal: abortController.signal,
-				transport: this.settingsManager.getTransport(),
-			});
-			for await (const event of stream) {
-				if (event.type === "done") {
-					this._emitCacheHeartbeatEvent(scope, model, event.message as AssistantMessage);
-					break;
-				}
-				if (event.type === "error") {
-					this._markCacheHeartbeatRateLimited("message" in event ? String(event.message) : undefined);
-					break;
-				}
-			}
-		} catch (error) {
-			this._markCacheHeartbeatRateLimited(error instanceof Error ? error.message : String(error));
-			// Heartbeats are opportunistic. Never surface background cache-refresh failures to the user.
-		} finally {
-			if (this._cacheHeartbeatAbortController === abortController) {
-				this._cacheHeartbeatAbortController = undefined;
-			}
-		}
-	}
-
-	private _emitCacheHeartbeatEvent(scope: "base" | "session", model: Model<any>, message: AssistantMessage): void {
-		const usage = message.usage;
-		const cacheableInput = usage.input + usage.cacheRead;
-		this._emit({
-			type: "cache_heartbeat",
-			scope,
-			model: model.id,
-			provider: model.provider,
-			cacheRead: usage.cacheRead,
-			cacheWrite: usage.cacheWrite,
-			input: usage.input,
-			cacheHitRate: cacheableInput > 0 ? usage.cacheRead / cacheableInput : undefined,
-		});
-	}
-
 	private _replaceMessageInPlace(target: AgentMessage, replacement: AgentMessage): void {
 		// Agent-core stores the finalized message object in its state before emitting message_end.
 		// SessionManager persistence happens later in _handleAgentEvent() with event.message.
@@ -1494,15 +1143,11 @@ export class AgentSession {
 		);
 		this._disconnectFromAgent();
 		this._eventListeners = [];
-		if (this._cacheHeartbeatTimer) {
-			clearTimeout(this._cacheHeartbeatTimer);
-			this._cacheHeartbeatTimer = undefined;
-		}
+		this._cacheHeartbeat.dispose();
 		if (this._idleWakeTimer) {
 			clearTimeout(this._idleWakeTimer);
 			this._idleWakeTimer = undefined;
 		}
-		this._cacheHeartbeatAbortController?.abort();
 		cleanupSessionResources(this.sessionId);
 	}
 
@@ -2010,9 +1655,8 @@ export class AgentSession {
 			// this turn finishes before the debounce window elapses).
 			this._cancelIdleWake();
 			await this._refilterSystemPromptIfNeeded();
-			const heartbeatTarget = this._findLastAssistantMessage()?.timestamp;
-			this._sessionHeartbeatTargetTimestamp = heartbeatTarget;
-			this._noteCacheHeartbeatActivity();
+			this._cacheHeartbeat.setSessionTarget(this._findLastAssistantMessage()?.timestamp);
+			this._cacheHeartbeat.noteActivity();
 			await this.agent.prompt(messages);
 			while (await this._handlePostAgentRun()) {
 				await this.agent.continue();
@@ -2044,8 +1688,8 @@ export class AgentSession {
 			this._retryAttempt = 0;
 		}
 
-		this._sessionHeartbeatTargetTimestamp = msg.timestamp;
-		this._noteCacheHeartbeatActivity();
+		this._cacheHeartbeat.setSessionTarget(msg.timestamp);
+		this._cacheHeartbeat.noteActivity();
 		if (this._midRunCompactionStop) {
 			// The loop was stopped at a turn boundary by the mid-run cap. Compact
 			// now ("run", not "defer") and always resume — the interrupted run

@@ -19,12 +19,20 @@ type SessionWithCompactionInternals = {
 		thresholdMode?: "run" | "defer",
 	) => Promise<boolean>;
 	_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
+};
+
+/** Fork-owned CacheHeartbeatManager internals (src/core/cache-heartbeat.ts). */
+type CacheHeartbeatInternals = {
+	noteActivity: () => void;
 	_runBaseCacheHeartbeat: () => Promise<void>;
 	_runSessionCacheHeartbeat: () => Promise<void>;
-	_noteCacheHeartbeatActivity: () => void;
 	_sessionHeartbeatTargetTimestamp?: number;
 	_sessionHeartbeatUsedTimestamp?: number;
 };
+
+function heartbeatInternals(harness: Harness): CacheHeartbeatInternals {
+	return (harness.session as unknown as { _cacheHeartbeat: CacheHeartbeatInternals })._cacheHeartbeat;
+}
 
 function createUsage(totalTokens: number, cacheTokens = 0) {
 	return {
@@ -564,11 +572,11 @@ describe("AgentSession compaction characterization", () => {
 			});
 			return stream;
 		};
-		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
-		sessionInternals._sessionHeartbeatTargetTimestamp = now;
+		const heartbeat = heartbeatInternals(harness);
+		heartbeat._sessionHeartbeatTargetTimestamp = now;
 
-		await sessionInternals._runSessionCacheHeartbeat();
-		await sessionInternals._runSessionCacheHeartbeat();
+		await heartbeat._runSessionCacheHeartbeat();
+		await heartbeat._runSessionCacheHeartbeat();
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.options).toMatchObject({ cacheRetention: "long", maxTokens: 1, maxRetries: 0 });
@@ -596,10 +604,10 @@ describe("AgentSession compaction characterization", () => {
 			calls.push(context);
 			return createAssistantMessageEventStream();
 		};
-		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
-		sessionInternals._sessionHeartbeatTargetTimestamp = now;
+		const heartbeat = heartbeatInternals(harness);
+		heartbeat._sessionHeartbeatTargetTimestamp = now;
 
-		await sessionInternals._runSessionCacheHeartbeat();
+		await heartbeat._runSessionCacheHeartbeat();
 
 		expect(calls).toHaveLength(0);
 	});
@@ -635,10 +643,10 @@ describe("AgentSession compaction characterization", () => {
 			});
 			return stream;
 		};
-		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		const heartbeat = heartbeatInternals(harness);
 
-		sessionInternals._noteCacheHeartbeatActivity();
-		await sessionInternals._runBaseCacheHeartbeat();
+		heartbeat.noteActivity();
+		await heartbeat._runBaseCacheHeartbeat();
 
 		expect(calls).toHaveLength(1);
 		expect(harness.eventsOfType("cache_heartbeat")[0]).toMatchObject({
@@ -672,12 +680,12 @@ describe("AgentSession compaction characterization", () => {
 			calls++;
 			throw new Error("429 rate limit");
 		};
-		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
-		sessionInternals._sessionHeartbeatTargetTimestamp = now;
+		const heartbeat = heartbeatInternals(harness);
+		heartbeat._sessionHeartbeatTargetTimestamp = now;
 
-		await sessionInternals._runSessionCacheHeartbeat();
-		sessionInternals._sessionHeartbeatUsedTimestamp = undefined;
-		await sessionInternals._runSessionCacheHeartbeat();
+		await heartbeat._runSessionCacheHeartbeat();
+		heartbeat._sessionHeartbeatUsedTimestamp = undefined;
+		await heartbeat._runSessionCacheHeartbeat();
 
 		expect(calls).toBe(1);
 	});
