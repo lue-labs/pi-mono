@@ -83,8 +83,9 @@ jobs:
       - name: Fork canonical check
         run: npm run check
 
-      - name: Advisory static analysis - fork delta (knip + dependency-cruiser)
-        continue-on-error: true
+      # Blocking on error-severity depcruise boundary rules (fork-added files only);
+      # warn-severity cycles/orphans and knip findings remain advisory (printed, exit 0).
+      - name: Static analysis - fork delta (knip + dependency-cruiser)
         run: npm run lint:fork-delta
 
       - name: Source CLI smoke
