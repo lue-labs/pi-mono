@@ -162,8 +162,6 @@ Before pushing package code changes, update the matching `packages/*/CHANGELOG.m
 
 Fork-wide operational changes that do not belong to a package changelog can also go in root `FORK-CHANGELOG.md`, but package code changes should include package changelog entries so releases ship usable notes.
 
-For native-agent A/B testing, the installed `pi-subagents` extension manager command is locally aliased from `/agents` to `/subagents` so native `/agents` remains reachable. This patch lives in `~/.pi/agent/git/github.com/nicobailon/pi-subagents/src/slash/slash-commands.ts` and may need reapplying after `pi update`.
-
 Location: `packages/*/CHANGELOG.md` (one per package).
 
 Sections under `## [Unreleased]`: `### Breaking Changes` (API changes requiring migration), `### Added`, `### Changed`, `### Fixed`, `### Removed`.
