@@ -26,7 +26,7 @@
 		"check:ts-imports": "node scripts/check-ts-relative-imports.mjs",
 		"changeset": "changeset",
 		"changeset:status": "changeset status",
-		"version-packages": "changeset version && npm install --package-lock-only --ignore-scripts && npm run shrinkwrap:coding-agent",
+		"version-packages": "changeset version && npm install --package-lock-only --ignore-scripts && npm run shrinkwrap:coding-agent && npm run install-lock:coding-agent",
 		"publish:changesets": "changeset publish",
 		"profile:tui": "node scripts/profile-coding-agent-node.mjs --mode tui",
 		"profile:rpc": "node scripts/profile-coding-agent-node.mjs --mode rpc",
