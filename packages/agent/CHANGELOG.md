@@ -12,4 +12,6 @@ longer append their full changelog here.
 
 ## Unreleased
 
+- Add `max` to `ThinkingLevel` (GPT-5.6+ reasoning effort above `xhigh`).
+
 - Preserve abort reasons when `Agent.abort(reason)` cancels the active run, allowing extension-owned cleanup aborts to be distinguished from generic user/provider aborts.

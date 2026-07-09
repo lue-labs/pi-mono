@@ -9,6 +9,10 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Add GPT-5.6 prompt-cache breakpoints support: `OpenAIResponsesCompat.promptCacheApi: "breakpoints"` omits the deprecated `prompt_cache_retention` param and emits explicit `prompt_cache_breakpoint` markers on the stable system-prompt prefix (split at `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`) and the previous user message. Default stays `"legacy"`; GPT-5.6 (Sol/Terra/Luna) opts in via the generated catalog. OpenAI SDK bumped to 6.46.0.
+- Add `max` thinking level (GPT-5.6+ effort above `xhigh`, opt-in via `thinkingLevelMap`); other providers clamp it to their highest supported level. GPT-5.6 drops `minimal`.
+- Regenerate model catalogs: GPT-5.6 family with real cache-write pricing (1.25× input); models.dev drops legacy Claude 3.x/4.0 entries.
+
 - Fix: OpenAI Responses usage parsing now records provider-compatible cache-write metadata without double-counting Anthropic-style total + breakdown fields.
 - Fix: Codex Responses adapter no longer forwards `prompt_cache_retention` (the ChatGPT `chatgpt.com/backend-api` backend now rejects it with `Unsupported parameter`, 400ing every Codex request). Cache affinity is preserved via `prompt_cache_key` + `session-id`. See root `FORK-CHANGELOG.md`.
 - Add Anthropic tool namespace serialization support with a `PI_ANTHROPIC_NAMESPACE_WIRE=0` kill switch so grouped deferred tools can be emitted without changing flat-tool behavior when disabled.
