@@ -4,6 +4,7 @@ import {
 	EventStream,
 	type Message,
 	type Model,
+	type ToolResultMessage,
 	type UserMessage,
 } from "@valkyriweb/pi-ai";
 import { Type } from "typebox";
@@ -1401,5 +1402,152 @@ describe("agentLoopContinue with AgentMessage", () => {
 		const messages = await stream.result();
 		expect(messages.length).toBe(1);
 		expect(messages[0].role).toBe("assistant");
+	});
+});
+
+describe("length-truncated trailing tool call guard", () => {
+	const toolSchema = Type.Object({ path: Type.String(), content: Type.String() });
+
+	function createWriteTool(executedCalls: string[]): AgentTool<typeof toolSchema, { path: string }> {
+		return {
+			name: "write",
+			label: "Write",
+			description: "Write a file",
+			parameters: toolSchema,
+			async execute(toolCallId, params) {
+				executedCalls.push(toolCallId);
+				return {
+					content: [{ type: "text", text: `wrote ${params.path}` }],
+					details: { path: params.path },
+				};
+			},
+		};
+	}
+
+	function runToOnlyToolResults(
+		firstMessage: AssistantMessage,
+	): Promise<{ messages: AgentMessage[]; executedCalls: string[] }> {
+		const executedCalls: string[] = [];
+		const context: AgentContext = {
+			systemPrompt: "You are helpful.",
+			messages: [],
+			tools: [createWriteTool(executedCalls)],
+		};
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+		let callIndex = 0;
+		const streamFn = () => {
+			const stream = new MockAssistantStream();
+			queueMicrotask(() => {
+				if (callIndex === 0) {
+					stream.push({
+						type: "done",
+						reason: firstMessage.stopReason as "length" | "toolUse",
+						message: firstMessage,
+					});
+				} else {
+					const message = createAssistantMessage([{ type: "text", text: "done" }]);
+					stream.push({ type: "done", reason: "stop", message });
+				}
+				callIndex++;
+			});
+			return stream;
+		};
+		return (async () => {
+			const stream = agentLoop([createUserMessage("go")], context, config, undefined, streamFn);
+			for await (const _event of stream) {
+				// drain
+			}
+			return { messages: await stream.result(), executedCalls };
+		})();
+	}
+
+	it("does not execute the trailing tool call of a length-stopped message and returns a truncation error result", async () => {
+		// Simulates the 2026-07-09 fable incident: max_tokens exhausted mid tool
+		// call, lenient partial-JSON parse left only {path} (content missing).
+		const message = createAssistantMessage(
+			[
+				{ type: "text", text: "Cutting the new module now." },
+				{ type: "toolCall", id: "tool-truncated", name: "write", arguments: { path: "/tmp/x.ts" } },
+			],
+			"length",
+		);
+
+		const { messages, executedCalls } = await runToOnlyToolResults(message);
+
+		expect(executedCalls).toEqual([]);
+		const toolResult = messages.find((m) => m.role === "toolResult") as ToolResultMessage;
+		expect(toolResult).toBeDefined();
+		expect(toolResult.toolCallId).toBe("tool-truncated");
+		expect(toolResult.isError).toBe(true);
+		const text = toolResult.content.map((c) => (c.type === "text" ? c.text : "")).join(" ");
+		expect(text).toContain("output token limit");
+		expect(text).toContain("Do not retry the identical call");
+	});
+
+	it("blocks the trailing tool call even when truncated arguments happen to validate", async () => {
+		// Truncation inside the content string can still yield schema-valid args;
+		// a silently truncated file write must never execute.
+		const message = createAssistantMessage(
+			[
+				{
+					type: "toolCall",
+					id: "tool-valid-but-cut",
+					name: "write",
+					arguments: { path: "/tmp/x.ts", content: "trunca" },
+				},
+			],
+			"length",
+		);
+
+		const { executedCalls, messages } = await runToOnlyToolResults(message);
+
+		expect(executedCalls).toEqual([]);
+		const toolResult = messages.find((m) => m.role === "toolResult") as ToolResultMessage;
+		expect(toolResult.isError).toBe(true);
+	});
+
+	it("still executes earlier complete tool calls in a length-stopped message", async () => {
+		const message = createAssistantMessage(
+			[
+				{ type: "toolCall", id: "tool-complete", name: "write", arguments: { path: "/tmp/a.ts", content: "ok" } },
+				{ type: "toolCall", id: "tool-truncated", name: "write", arguments: { path: "/tmp/b.ts" } },
+			],
+			"length",
+		);
+
+		const { messages, executedCalls } = await runToOnlyToolResults(message);
+
+		expect(executedCalls).toEqual(["tool-complete"]);
+		const results = messages.filter((m) => m.role === "toolResult") as ToolResultMessage[];
+		expect(results).toHaveLength(2);
+		expect(results.find((r) => r.toolCallId === "tool-complete")?.isError).toBeFalsy();
+		expect(results.find((r) => r.toolCallId === "tool-truncated")?.isError).toBe(true);
+	});
+
+	it("does not block a trailing tool call when the stop reason is toolUse", async () => {
+		const message = createAssistantMessage(
+			[{ type: "toolCall", id: "tool-normal", name: "write", arguments: { path: "/tmp/a.ts", content: "ok" } }],
+			"toolUse",
+		);
+
+		const { executedCalls } = await runToOnlyToolResults(message);
+		expect(executedCalls).toEqual(["tool-normal"]);
+	});
+
+	it("does not block tool calls on a length-stopped message whose final block is text", async () => {
+		// Truncation hit during trailing text, not the tool call — the call is complete.
+		const message = createAssistantMessage(
+			[
+				{ type: "toolCall", id: "tool-complete", name: "write", arguments: { path: "/tmp/a.ts", content: "ok" } },
+				{ type: "text", text: "and now I will als" },
+			],
+			"length",
+		);
+
+		const { executedCalls } = await runToOnlyToolResults(message);
+		expect(executedCalls).toEqual(["tool-complete"]);
 	});
 });

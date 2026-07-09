@@ -584,6 +584,26 @@ function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall)
 	};
 }
 
+/**
+ * A `length` stop means the provider cut the response mid-stream. When the cut
+ * lands inside the final tool call's streamed argument JSON, lenient partial-JSON
+ * parsing yields incomplete arguments — at best a confusing validation error
+ * ("missing required property"), at worst a silently truncated payload that
+ * still validates (e.g. a `write` whose `content` string was cut short).
+ * A trailing tool call on a length-stopped message is therefore never
+ * trustworthy, even when its arguments happen to parse.
+ */
+function isTruncatedTrailingToolCall(assistantMessage: AssistantMessage, toolCall: AgentToolCall): boolean {
+	if (assistantMessage.stopReason !== "length") return false;
+	const last = assistantMessage.content[assistantMessage.content.length - 1];
+	return last?.type === "toolCall" && last.id === toolCall.id;
+}
+
+const TRUNCATED_TOOL_CALL_MESSAGE =
+	'This tool call was cut off: the response hit the output token limit (stopReason "length") while its arguments were still streaming, so the arguments are incomplete and were not executed. ' +
+	"Do not retry the identical call. Produce less output this turn — for example, create the file with a short `write` and extend it with `edit` calls, or split the work across multiple smaller tool calls. " +
+	"If the context window is nearly full, the per-turn output budget may be tiny; finish or compact before attempting large outputs.";
+
 async function prepareToolCall(
 	currentContext: AgentContext,
 	assistantMessage: AssistantMessage,
@@ -591,6 +611,14 @@ async function prepareToolCall(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 ): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
+	if (isTruncatedTrailingToolCall(assistantMessage, toolCall)) {
+		return {
+			kind: "immediate",
+			result: createErrorToolResult(TRUNCATED_TOOL_CALL_MESSAGE),
+			isError: true,
+		};
+	}
+
 	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
 	if (!tool) {
 		return {
