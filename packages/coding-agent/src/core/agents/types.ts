@@ -29,6 +29,10 @@ export interface AgentDefinition {
 	prompt: string;
 	source: AgentSource;
 	path?: string;
+	/**
+	 * Child-session tool allow-list. Declared names may target deferred or extension
+	 * tools that are registered only inside the child; unavailable names are ignored.
+	 */
 	tools?: AgentToolList;
 	denyTools?: string[];
 	model?: AgentModelPreference;
@@ -58,6 +62,7 @@ export interface AgentTaskConfig {
 	context?: ContextMode;
 	extraContext?: string;
 	model?: string;
+	/** Explicit per-call subset of the parent's currently active tools. */
 	tools?: string[];
 	thinking?: ThinkingLevel;
 	/**

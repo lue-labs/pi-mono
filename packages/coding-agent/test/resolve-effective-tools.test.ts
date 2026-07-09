@@ -38,6 +38,24 @@ describe("resolveEffectiveTools capability matching", () => {
 		expect(effectiveTools).not.toContain("Agent");
 	});
 
+	it("preserves agent-scoped tools that are inactive in the parent", () => {
+		const { effectiveTools } = resolveEffectiveTools({
+			parentActiveTools: ["Read"],
+			agent: agent({ tools: ["read", "SemanticGrep", "ast_grep_outline"] }),
+		});
+		expect(effectiveTools).toEqual(["Read", "SemanticGrep", "ast_grep_outline"]);
+	});
+
+	it("still rejects explicit caller tools that are inactive in the parent", () => {
+		expect(() =>
+			resolveEffectiveTools({
+				parentActiveTools: ["Read"],
+				agent: agent({ tools: ["read", "SemanticGrep"] }),
+				requestedTools: ["SemanticGrep"],
+			}),
+		).toThrow("Requested inactive tool(s): SemanticGrep");
+	});
+
 	it("bundles bash job-control companions under their aliased names", () => {
 		const { effectiveTools } = resolveEffectiveTools({
 			parentActiveTools: capitalizedParent,

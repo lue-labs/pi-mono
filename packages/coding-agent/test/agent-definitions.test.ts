@@ -31,10 +31,20 @@ describe("built-in agent definitions", () => {
 			if (agent.id === "explore") {
 				expect(agent.denyTools).toEqual(expect.arrayContaining(["agent", "edit", "write"]));
 				expect(agent.denyTools).not.toContain("bash");
-				expect(agent.tools).toEqual(["read", "grep", "Glob", "ls", "bash"]);
+				expect(agent.tools).toEqual([
+					"read",
+					"grep",
+					"Glob",
+					"bash",
+					"SemanticGrep",
+					"ast_grep_outline",
+					"ast_grep_search",
+					"skill_search",
+					"skill",
+				]);
 			} else {
 				expect(agent.denyTools).toEqual(expect.arrayContaining(["agent", "edit", "write", "bash"]));
-				expect(agent.tools).toEqual(["read", "grep", "Glob", "ls"]);
+				expect(agent.tools).toEqual(["read", "grep", "Glob"]);
 			}
 		}
 	});
@@ -72,8 +82,12 @@ describe("built-in agent definitions", () => {
 		const exploreLine = agentTool.promptGuidelines?.find(
 			(line) => line.includes("`explore`") && line.includes("no transcript"),
 		);
-		expect(exploreLine).toContain("no transcript/project context/skills");
+		expect(exploreLine).toContain("no transcript/project context/preloaded skills");
+		expect(exploreLine).toContain("read-only bash");
 		expect(exploreLine).toMatch(/quick \| medium \| very thorough/);
+		expect(joined).toMatch(/omit `context` for the agent's isolated default/i);
+		expect(joined).toMatch(/only pass `context: "fork"` when the child truly needs/i);
+		expect(joined).not.toMatch(/reach for fork mode for research or multi-step work/i);
 	});
 
 	test("built-in agent casing aliases resolve when unique", () => {

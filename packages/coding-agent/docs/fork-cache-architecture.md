@@ -84,7 +84,7 @@ message arrays".
 |---|---|---|---|---|
 | `worker` | `fork` | Parent's rendered bytes | Parent's 1:1 | **Shares prefix with parent + siblings** |
 | `general` | `default` | Own dedicated | Resolved from agent def | Own cache, no parent share |
-| `explore` | `none` | Own + `cacheProfile: "stable"` | Read-only subset | **Stable bytes cross-call → hits across explore invocations cluster-wide** |
+| `explore` | `none` | Own + `cacheProfile: "stable"` | Child-scoped read-only allow-list; installed optional search tools activate | **Stable bytes for a fixed extension set → hits across explore invocations cluster-wide** |
 | `decompose` | `none` | Own + `cacheProfile: "stable"` | Read-only subset | Same as explore |
 | `plan` | `slim` | Own | Read-only subset | Own cache |
 | `reviewer` | `default` | Own | Defined per agent | Own cache |

@@ -262,14 +262,21 @@ export function resolveEffectiveTools(options: {
 		}
 	}
 
-	// Resolve candidates to the actual active alias names.
-	let candidates = (requested ?? options.parentActiveTools).map(
-		(tool) => parentByCanonical.get(canonicalToolName(tool)) ?? tool,
-	);
+	// Agent definitions are child-scoped allow-lists. Resolve names to a parent
+	// alias when one is active, but preserve declared names that are not active in
+	// the parent: createAgentSession can register matching deferred/extension tools
+	// inside the child and safely ignores names that are unavailable there.
 	const agentTools = options.agent.tools ?? "*";
-	if (agentTools !== "*") {
-		const allowed = new Set(agentTools.map(canonicalToolName));
-		candidates = candidates.filter((tool) => allowed.has(canonicalToolName(tool)));
+	let candidates: string[];
+	if (requested) {
+		candidates = requested.map((tool) => parentByCanonical.get(canonicalToolName(tool)) ?? tool);
+		if (agentTools !== "*") {
+			const allowed = new Set(agentTools.map(canonicalToolName));
+			candidates = candidates.filter((tool) => allowed.has(canonicalToolName(tool)));
+		}
+	} else {
+		const declared = agentTools === "*" ? options.parentActiveTools : agentTools;
+		candidates = declared.map((tool) => parentByCanonical.get(canonicalToolName(tool)) ?? tool);
 	}
 
 	const deny = new Set(
@@ -280,7 +287,7 @@ export function resolveEffectiveTools(options: {
 		].map(canonicalToolName),
 	);
 	const isDenied = (tool: string): boolean => deny.has(canonicalToolName(tool));
-	const effectiveTools = candidates.filter((tool) => hasParent(tool) && !isDenied(tool));
+	const effectiveTools = candidates.filter((tool) => !isDenied(tool));
 	const deniedTools = candidates.filter((tool) => isDenied(tool));
 
 	// Bundle the bash job-control trio: when `bash`/`Bash` is granted, also grant
