@@ -1,0 +1,66 @@
+{
+  "cli_version": "0.8.1",
+  "checkpoint_id": "519a0638a19e",
+  "session_id": "d8329c07-200b-4fa5-b27b-3113c8b2b4fe",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-09T13:28:29.373968Z",
+  "branch": "fix/codex-footer-dedupe",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "packages/pi-agent-ui/src/extension.test.ts",
+    "packages/pi-agent-ui/src/extension.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "3bf3cc8a8ca7",
+  "checkpoint_transcript_start": 164,
+  "transcript_lines_at_start": 164,
+  "compact_transcript_start": 28,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-checkup-2026-07-09T09:16:21.616201Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "checkup"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "3bf3cc8a8ca7",
+      "timestamp": "2026-07-09T09:16:21.616201Z",
+      "native": {
+        "command": "/checkup"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/checkup",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-09T13:28:29.347441Z",
+    "agent_lines": 67,
+    "agent_removed": 12,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 67,
+    "total_lines_changed": 79,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
