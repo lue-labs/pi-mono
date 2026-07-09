@@ -82,6 +82,13 @@ export interface Component {
 	handleInput?(data: string): void;
 
 	/**
+	 * If false, higher-level pane hosts may keep focus on their existing input
+	 * surface while displaying this component. Use for display-only panes whose
+	 * text input is handled elsewhere.
+	 */
+	captureInput?: boolean;
+
+	/**
 	 * If true, component receives key release events (Kitty protocol).
 	 * Default is false - release events are filtered out.
 	 */

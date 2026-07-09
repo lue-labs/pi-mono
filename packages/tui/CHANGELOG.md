@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Add an optional `captureInput?: boolean` component hint so higher-level pane hosts can keep focus on an existing editor/input surface for display-only components.
+
 - Clamp overwide non-image render lines at the TUI boundary instead of crashing the interactive session with `Rendered line ... exceeds terminal width`.
 
 This file is fork-owned (`.gitattributes` `merge=ours`) so upstream syncs no
