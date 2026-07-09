@@ -64,6 +64,7 @@ Flag P1 in local review when:
 
 - After code changes (not documentation changes): `npm run check` (get full output, no tail). Fix all errors, warnings, and infos before committing.
 - Note: `npm run check` does not run tests.
+- Fork-delta static analysis (advisory): `node scripts/check-fork-delta-static.mjs` — knip + dependency-cruiser scoped to files changed vs `git merge-base HEAD upstream/main`. Never report or "fix" findings in upstream-inherited code; configs (`knip.json`, `.dependency-cruiser.cjs`) are fork-owned. CI runs it advisory as `lint:fork-delta`; `--strict` is the opt-in blocking mode.
 - After changing core/package `src`, rebuild that package's dist so the change is live at runtime (pi runs built `dist`, not source): `npm --prefix packages/<pkg> run build`. Do NOT run the root `npm run build` casually — it chains `test:build-gate` → `test:e2e`, which hits real provider APIs and burns paid tokens. Use the root build (or `npm run release:local`) only when a cross-package release-style verification is intended.
 - NEVER run: `npm test` (runs workspace e2e against real provider APIs / paid tokens).
 - Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present. For all non-e2e tests, run `./test.sh` from the repo root. Otherwise run specific tests from the package root: `node ../../node_modules/vitest/dist/cli.js --run test/specific.test.ts`.
