@@ -3,7 +3,7 @@
   "checkpoint_id": "e1985bc665a4",
   "strategy": "manual-commit",
   "branch": "fix/codex-footer-dedupe",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/pi-fork-patch-inventory.md"
   ],
@@ -14,13 +14,20 @@
       "compact_transcript": "/e1/985bc665a4/0/transcript.jsonl",
       "content_hash": "/e1/985bc665a4/0/content_hash.txt",
       "prompt": "/e1/985bc665a4/0/prompt.txt"
+    },
+    {
+      "metadata": "/e1/985bc665a4/1/metadata.json",
+      "transcript": "/e1/985bc665a4/1/full.jsonl",
+      "compact_transcript": "/e1/985bc665a4/1/transcript.jsonl",
+      "content_hash": "/e1/985bc665a4/1/content_hash.txt",
+      "prompt": "/e1/985bc665a4/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 13340,
-    "cache_creation_tokens": 92714,
-    "cache_read_tokens": 959273,
-    "output_tokens": 27696,
-    "api_call_count": 14
+    "input_tokens": 26586,
+    "cache_creation_tokens": 180030,
+    "cache_read_tokens": 1838599,
+    "output_tokens": 52768,
+    "api_call_count": 27
   }
 }
