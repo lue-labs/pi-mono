@@ -45,7 +45,17 @@ describe("agent tool permissions", () => {
 			agent: explore ?? getBuiltinAgentDefinitions()[0],
 		});
 		expect(result.effectiveTools).toContain("bash");
-		expect(result.effectiveTools).toEqual(["read", "bash", "grep", "Glob", "ls"]);
+		expect(result.effectiveTools).toEqual([
+			"read",
+			"grep",
+			"Glob",
+			"bash",
+			"SemanticGrep",
+			"ast_grep_outline",
+			"ast_grep_search",
+			"skill_search",
+			"skill",
+		]);
 	});
 
 	test("bash brings bash_output and bash_kill along when parent has them", () => {
