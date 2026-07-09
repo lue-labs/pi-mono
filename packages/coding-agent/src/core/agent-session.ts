@@ -3710,7 +3710,10 @@ export class AgentSession {
 					this.agent.abort(reason);
 				},
 				requestStopAfterTurn: (reason) => {
-					if (!this.isStreaming) return;
+					// Latch unconditionally: a tool's execute() can call this mid-turn before
+					// this.isStreaming reflects the in-flight state (see goal-wait-failures
+					// catalog, 2026-07-09), and _extensionStopAfterTurnReason is already reset
+					// on every agent_start/agent_end, so latching outside a run is harmless.
 					this._extensionStopAfterTurnReason = reason?.trim() || "extension requested stop after turn";
 				},
 				hasPendingMessages: () => this.pendingMessageCount > 0,
