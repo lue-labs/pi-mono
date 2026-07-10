@@ -123,7 +123,7 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 	},
 	clawrouter: {
 		fast: ["claude-haiku-4-5", "gpt-5.4-mini"],
-		medium: ["claude-sonnet-5", "claude-sonnet-4-6", "gpt-5.4"],
+		medium: ["claude-sonnet-5", "claude-sonnet-4-6", "gpt-5.6-terra", "gpt-5.4"],
 		frontier: ["claude-opus-4-8-200k", "gpt-5.5"],
 		ultra: ["claude-fable-5-200k", "gpt-5.6"],
 	},
@@ -138,7 +138,7 @@ const modelFamilyTierCandidatesByProvider: Record<
 			prefix: "gpt-",
 			candidates: {
 				fast: ["gpt-5.6-luna", "gpt-5.4-mini"],
-				medium: ["gpt-5.4"],
+				medium: ["gpt-5.6-terra", "gpt-5.4"],
 				frontier: ["gpt-5.5"],
 				ultra: ["gpt-5.6"],
 			},

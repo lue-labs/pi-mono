@@ -271,10 +271,22 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.4");
 	});
 
-	test('"medium" alias keeps clawrouter GPT parents on gpt-5.4', () => {
+	test('"medium" alias prefers gpt-5.6-terra for clawrouter GPT parents', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
 			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
+			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
+			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+		]);
+		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
+		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("gpt-5.6-terra");
+	});
+
+	test('"medium" alias falls back to gpt-5.4 when clawrouter Terra is unavailable', () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
 			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
@@ -441,6 +453,22 @@ describe("agent model and thinking selection", () => {
 		});
 		expect(selected?.provider).toBe("clawrouter");
 		expect(selected?.id).toBe("claude-sonnet-5");
+	});
+
+	test('"clawrouter/auto" alias falls back to gpt-5.6-terra for GPT parents', () => {
+		const { registry, parent } = createStaticRegistry("clawrouter", [
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
+			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
+			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+		]);
+		const selected = resolveAgentModel({
+			agent: getBuiltinAgentDefinitions()[0],
+			defaults: { model: "clawrouter/auto" },
+			parentModel: parent,
+			modelRegistry: registry,
+		});
+		expect(selected?.provider).toBe("clawrouter");
+		expect(selected?.id).toBe("gpt-5.6-terra");
 	});
 
 	test("auto alias falls back to the parent when no medium tier candidate exists", () => {
