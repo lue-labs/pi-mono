@@ -26,6 +26,34 @@ export const RAPID_REFILL_TRIP_COUNT = 3;
 /** Consecutive compaction failures required to trip the failure breaker. */
 export const COMPACTION_FAILURE_TRIP_COUNT = 3;
 
+/**
+ * Provider-availability failures that self-resolve: rate limits / usage-limit
+ * windows (OpenAI 429 usage_limit_reached responses even carry
+ * resets_in_seconds), overload shedding (Anthropic 529 overloaded_error), and
+ * transient gateway errors (502/503/504). Matched on the flattened error
+ * message because provider errors reach the compaction catch as plain Error
+ * messages, e.g.
+ * `Summarization failed: OpenAI API error (429): {"type":"usage_limit_reached",...}`.
+ */
+const TRANSIENT_COMPACTION_ERROR_PATTERN =
+	/\b(?:429|502|503|504|529)\b|rate.?limit|usage.?limit|too many requests|quota|overloaded|service unavailable|resets_in_seconds/i;
+
+/**
+ * Whether a compaction failure is a transient provider-availability error
+ * (rate limit, usage-limit window, overload) rather than a structural one
+ * (oversized payload, broken auth, missing model). Transient failures must
+ * not count toward the failure circuit breaker: the breaker permanently
+ * disables auto-compaction for the session, but a rate-limited provider
+ * recovers on its own (usage-limit 429s carry an explicit reset time) — the
+ * session keeps working after the reset, so tripping the breaker would leave
+ * a healthy session unable to compact until it dies at the context-window
+ * limit. Transient failures also must not reset a real-failure streak: they
+ * carry no signal about whether the underlying structural problem went away.
+ */
+export function isTransientCompactionError(errorMessage: string): boolean {
+	return TRANSIENT_COMPACTION_ERROR_PATTERN.test(errorMessage);
+}
+
 export interface RapidRefillInput {
 	/** Whether a compaction has already happened earlier in this session. */
 	hadPriorCompaction: boolean;
