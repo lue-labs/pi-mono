@@ -303,7 +303,8 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 		clampedReasoning === "off" ||
 		clampedReasoning === "adaptive" ||
 		clampedReasoning === "xhigh" ||
-		clampedReasoning === "max"
+		clampedReasoning === "max" ||
+		clampedReasoning === "ultra"
 			? "high"
 			: clampedReasoning
 	) as ClampedThinkingLevel;
@@ -411,7 +412,7 @@ function buildParams(
 	return params;
 }
 
-type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "max" | "adaptive">;
+type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "max" | "ultra" | "adaptive">;
 
 function isGemma4Model(model: Model<"google-generative-ai">): boolean {
 	return /gemma-?4/.test(model.id.toLowerCase());

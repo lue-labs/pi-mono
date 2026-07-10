@@ -53,7 +53,16 @@ export interface ThinkingBudgetsSettings {
 	high?: number;
 }
 
-export type SubagentThinkingSetting = "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type SubagentThinkingSetting =
+	| "inherit"
+	| "off"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max"
+	| "ultra";
 
 export interface SubagentDefaultSettings {
 	model?: string;
@@ -133,7 +142,7 @@ export interface Settings {
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
-	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "adaptive";
+	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "adaptive";
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -806,7 +815,17 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getDefaultThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "adaptive" | undefined {
+	getDefaultThinkingLevel():
+		| "off"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max"
+		| "ultra"
+		| "adaptive"
+		| undefined {
 		return this.settings.defaultThinkingLevel;
 	}
 
@@ -819,7 +838,9 @@ export class SettingsManager {
 		return structuredClone(this.settings.subagents ?? {});
 	}
 
-	setDefaultThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "adaptive"): void {
+	setDefaultThinkingLevel(
+		level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "adaptive",
+	): void {
 		this.globalSettings.defaultThinkingLevel = level;
 		this.markModified("defaultThinkingLevel");
 		this.save();

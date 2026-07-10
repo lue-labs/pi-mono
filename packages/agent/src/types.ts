@@ -307,9 +307,10 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
  * Note: "xhigh" and "adaptive" are only supported by selected model families.
  * - "adaptive" is Claude-4.6+ / Sonnet-4.6 only: model self-regulates thinking budget per turn.
  * - "xhigh" is reserved for native xhigh-effort models (Opus 4.7, GPT-5, etc.).
+ * - "ultra" is a client orchestration mode mapped to the model's maximum native effort.
  * Use model thinking-level metadata from @valkyriweb/pi-ai to detect support for a concrete model.
  */
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "adaptive";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "adaptive";
 
 /**
  * Extensible interface for custom app messages.

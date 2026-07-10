@@ -269,6 +269,15 @@ function supportsOpenAiMax(modelId: string): boolean {
 	return modelId.includes("gpt-5.6");
 }
 
+// Codex advertises Ultra only for GPT-5.6 Sol and Terra. Ultra is a Pi-side
+// orchestration mode and maps to the model's native `max` wire effort.
+function supportsOpenAiUltra(model: Model<any>): boolean {
+	return (
+		(model.provider === "openai" || model.provider === "openai-codex") &&
+		(model.id === "gpt-5.6-sol" || model.id === "gpt-5.6-terra")
+	);
+}
+
 function isGoogleThinkingApi(model: Model<any>): boolean {
 	return model.api === "google-generative-ai" || model.api === "google-vertex";
 }
@@ -476,6 +485,9 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	}
 	if (supportsOpenAiMax(model.id)) {
 		mergeThinkingLevelMap(model, { max: "max" });
+	}
+	if (supportsOpenAiUltra(model)) {
+		mergeThinkingLevelMap(model, { ultra: "max" });
 	}
 	if (model.provider === "openai" && model.id === "gpt-5.5") {
 		mergeThinkingLevelMap(model, { minimal: null });

@@ -147,8 +147,8 @@ describe("parseArgs", () => {
 		});
 
 		test("parses --thinking", () => {
-			const result = parseArgs(["--thinking", "high"]);
-			expect(result.thinking).toBe("high");
+			const result = parseArgs(["--thinking", "ultra"]);
+			expect(result.thinking).toBe("ultra");
 		});
 
 		test("parses --models as comma-separated list", () => {

@@ -214,7 +214,7 @@ Current behavior:
 
 ### Thinking Level Map
 
-Use `thinkingLevelMap` on a model to describe model-specific thinking controls. Keys are pi thinking levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`.
+Use `thinkingLevelMap` on a model to describe model-specific thinking controls. Keys are pi thinking levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, `adaptive`. Ultra is opt-in and maps to the model's maximum native effort; OpenAI Responses sends it as `max`.
 
 Values are tristate:
 

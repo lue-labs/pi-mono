@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { convertMessages } from "../src/api/openai-completions.ts";
+import { convertMessages, stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
 import { getModel, streamSimple } from "../src/compat.ts";
 import type { AssistantMessage, Model, Tool, ToolResultMessage } from "../src/types.ts";
 import { hasCompatFlag, isReasoning, type ModelPredicate, pickModel } from "./helpers/models.ts";
@@ -74,6 +74,34 @@ describe("openai-completions tool_choice", () => {
 	beforeEach(() => {
 		mockState.lastParams = undefined;
 		mockState.chunks = undefined;
+	});
+
+	it("normalizes direct ultra effort to max on the wire", async () => {
+		const { compat: _compat, ...baseModel } = pickModel("openai");
+		const model = {
+			...baseModel,
+			api: "openai-completions",
+			reasoning: true,
+			compat: { supportsReasoningEffort: true },
+		} as const;
+		let payload: unknown;
+
+		await streamOpenAICompletions(
+			model,
+			{
+				messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test",
+				reasoningEffort: "ultra",
+				onPayload: (params: unknown) => {
+					payload = params;
+				},
+			},
+		).result();
+
+		const params = (payload ?? mockState.lastParams) as { reasoning_effort?: string };
+		expect(params.reasoning_effort).toBe("max");
 	});
 
 	it("forwards toolChoice from simple options to payload", async () => {

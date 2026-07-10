@@ -10,6 +10,7 @@ This package's release notes are split:
 ## Unreleased
 
 - Add `max` thinking level (GPT-5.6+) across CLI `--thinking`, settings, thinking/settings selectors, agent tool schema, and theme (reuses the `xhigh` color).
+- Add model-gated `ultra` across the same surfaces, described as maximum reasoning with automatic task delegation and rendered with the `xhigh` color.
 
 - Refactor (fork-delta reforge slice 1, no behavior change): extracted the fork's resident session pruning subsystem (~590 lines — in-memory prune, load-time raw-metadata prune plan, payload byte estimation, entry stubbing, streaming JSONL line reader) from `core/session-manager.ts` into fork-owned `core/session-resident-prune.ts`. `SessionManager.pruneResidentHistoryAfterCompaction` delegates to the new pure `pruneResidentHistory(entries, path, compactionId, options)`; moved public symbols (`estimateResidentPayloadBytes`, `ResidentPruneOptions`, `ResidentPruneResult`) are re-exported from `session-manager.ts` so downstream imports are unchanged. Verbatim move; existing `test/session-manager/resident-prune.test.ts` and compaction suites pass unmodified.
 

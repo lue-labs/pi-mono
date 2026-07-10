@@ -110,7 +110,7 @@ function isEncryptedReasoningDetail(detail: unknown): detail is OpenAIEncryptedR
 
 export interface OpenAICompletionsOptions extends StreamOptions {
 	toolChoice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
-	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 }
 
 interface OpenAICompatCacheControl {
@@ -157,6 +157,9 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 	options?: OpenAICompletionsOptions,
 ): AssistantMessageEventStream => {
 	const stream = new AssistantMessageEventStream();
+	// Ultra is a client-side orchestration mode layered on maximum reasoning.
+	// OpenAI-compatible completions APIs only understand the wire-level "max" effort.
+	const wireOptions = options?.reasoningEffort === "ultra" ? { ...options, reasoningEffort: "max" as const } : options;
 
 	(async () => {
 		const output: AssistantMessage = {
@@ -183,7 +186,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 			const cacheSessionId = cacheRetention === "none" ? undefined : options?.sessionId;
 			const client = createClient(model, context, apiKey, options?.headers, cacheSessionId, compat);
-			let params = buildParams(model, context, options, compat, cacheRetention);
+			let params = buildParams(model, context, wireOptions, compat, cacheRetention);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
