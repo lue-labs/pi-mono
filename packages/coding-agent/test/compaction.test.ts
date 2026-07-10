@@ -669,6 +669,9 @@ describe("isTransientCompactionError", () => {
 			'Anthropic API error (529): {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
 			"rate_limit_error: This request would exceed your organization's rate limit",
 			"Google API error: RESOURCE_EXHAUSTED: Quota exceeded for quota metric",
+			// Billing/API quota errors are retried, not breaker strikes (in
+			// practice providers wrap these in a 429 anyway).
+			"You exceeded your current quota, please check your plan and billing details",
 			"HTTP 503 Service Unavailable",
 			"502 Bad Gateway",
 		];
@@ -689,10 +692,9 @@ describe("isTransientCompactionError", () => {
 			"Summarization failed: model produced 5290 tokens from 14290 input tokens",
 			// Filesystem quota on the session write (thrown after the paid
 			// summarization call) does not self-resolve - the breaker must stop
-			// the repeated-paid-summarization loop.
+			// the repeated-paid-summarization loop. Excluded via the
+			// `(?<!disk )quota` lookbehind.
 			"EDQUOT: disk quota exceeded, write '/Users/luke/.pi/agent/sessions/session.jsonl'",
-			// OpenAI insufficient_quota (billing-permanent, not a usage window).
-			"You exceeded your current quota, please check your plan and billing details",
 		];
 		for (const message of structural) {
 			expect(isTransientCompactionError(message), message).toBe(false);
