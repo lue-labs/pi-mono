@@ -687,6 +687,10 @@ describe("isTransientCompactionError", () => {
 			"No API key found for provider openai",
 			"Summarization failed: OpenAI API error (400): This model's maximum context length is 272000 tokens",
 			"Summarization failed: request entity too large",
+			// The terminal error of the 2026-07-10 incident: after the tripped
+			// breaker let context grow unchecked, every request died with this.
+			// A too-large payload never self-resolves - it must count.
+			'OpenAI API error (413): {"code":"request_too_large","message":"JSON request body exceeds the 8 MiB limit"}',
 			"Invalid model: gpt-5.6-sol",
 			// Digit substrings must not false-positive on the status-code patterns.
 			"Summarization failed: model produced 5290 tokens from 14290 input tokens",
