@@ -1,9 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	clearAgentRecentRunsForTests,
+	finishAgentRecentRun,
 	markAgentRecentRunNeedsAttention,
 	startAgentRecentRun,
+	updateAgentRecentRunProgress,
 } from "../src/core/agents/status.ts";
+import type { AgentRunDetails } from "../src/core/agents/types.ts";
 import { hookAgents, hookAgentsTools, hookAgentsUI } from "../src/core/extensions/agents.ts";
 import { addAction, getActions, load, removeAction } from "../src/core/extensions/extension-hooks.ts";
 import type { ExtensionFooterSpec, ExtensionMainPaneFactory } from "../src/core/extensions/types.ts";
@@ -39,6 +42,32 @@ function createFakePi(options?: { hasMainPane?: (id: string) => boolean; cwd?: s
 	};
 }
 
+function runDetail(status: AgentRunDetails["status"], overrides: Partial<AgentRunDetails> = {}): AgentRunDetails {
+	return {
+		agent: "explore",
+		source: "builtin",
+		task: "Map files",
+		status,
+		context: {
+			mode: "default",
+			includeTranscript: false,
+			includeProjectContext: true,
+			includeSkills: true,
+			includeAppendSystemPrompt: true,
+		},
+		effectiveTools: ["read"],
+		deniedTools: [],
+		durationMs: 1,
+		toolCallCount: 0,
+		messageCount: 1,
+		recentToolCalls: [],
+		recentOutputSnippets: [],
+		loadedSkills: [],
+		invokedSkills: { count: 0, names: [] },
+		...overrides,
+	};
+}
+
 describe("agents UI", () => {
 	beforeAll(() => initTheme(undefined, false));
 	beforeEach(() => clearAgentRecentRunsForTests());
@@ -52,18 +81,25 @@ describe("agents UI", () => {
 
 		const footer = fake.footers.get("agents-status");
 		expect(footer).toBeDefined();
-		expect(footer?.visible?.()).toBe(false);
-
-		startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
-
-		expect(footer?.visible?.()).toBe(true);
+		expect(footer?.visible).toBeUndefined();
 		expect(
 			footer?.render({
 				width: 120,
 				theme: { fg: (_color: string, value: string) => value } as never,
-				selected: true,
+				selected: false,
 			}),
-		).toContain("Background: 1 running");
+		).toBe("← for agents");
+
+		startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
+
+		// Compact semantic footer: a working count and the agents hint, never raw
+		// run ids/types/descriptions (agents-footer-parity contract).
+		const rendered = footer?.render({
+			width: 120,
+			theme: { fg: (_color: string, value: string) => value } as never,
+			selected: true,
+		});
+		expect(rendered).toBe("1 working · \u2190 for agents");
 
 		footer?.onActivate({ close: vi.fn() });
 		expect(fake.showMainPane).toHaveBeenCalledWith("agents-status");
@@ -203,5 +239,146 @@ describe("agents UI", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	// agents-footer-parity: the pane regroups rows into Needs input / Working /
+	// Completed sections instead of one flat id-labeled list, with needs-input
+	// sorted first and no raw run ids/type tags in the compact rows (those stay
+	// in the fallback detail view).
+	describe("regrouped Needs input / Working / Completed sections", () => {
+		function renderPane(fake: ReturnType<typeof createFakePi>): string {
+			const factory = fake.panes.get("agents-status");
+			const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
+			const pane = factory!({ requestRender: vi.fn() } as never, theme as never, { requestHide: vi.fn() } as never);
+			return pane.render(120).join("\n");
+		}
+
+		test("orders sections Needs input, then Working, then Completed", () => {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+
+			const completedRun = startAgentRecentRun("single", [{ agent: "explore", task: "Old task" }], {
+				background: true,
+			});
+			finishAgentRecentRun(completedRun, { mode: "single", status: "completed", runs: [runDetail("completed")] });
+
+			const workingRun = startAgentRecentRun("single", [{ agent: "explore", task: "Live task" }], {
+				background: true,
+			});
+			updateAgentRecentRunProgress(workingRun, { mode: "single", status: "running", runs: [runDetail("running")] });
+
+			const rendered = renderPane(fake);
+			const needsInputIndex = rendered.indexOf("Needs input");
+			const workingIndex = rendered.indexOf("Working");
+			const completedIndex = rendered.indexOf("Completed");
+			expect(workingIndex).toBeGreaterThan(-1);
+			expect(completedIndex).toBeGreaterThan(workingIndex);
+			// No needs-input run in this render.
+			expect(needsInputIndex).toBe(-1);
+		});
+
+		test("rows are compact: no raw run id and no [type] tag", () => {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+			const run = startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
+			updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runDetail("running")] });
+
+			const rendered = renderPane(fake);
+			expect(rendered).not.toContain(run.id);
+			expect(rendered).not.toContain("[local_agent]");
+			expect(rendered).not.toContain("[agent]");
+		});
+
+		test("needs-input runs are sorted into their own section ahead of working runs", async () => {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+
+			const workingRun = startAgentRecentRun("single", [{ agent: "explore", task: "Live task" }], {
+				background: true,
+			});
+			updateAgentRecentRunProgress(workingRun, { mode: "single", status: "running", runs: [runDetail("running")] });
+
+			const blockedRun = startAgentRecentRun("single", [{ agent: "explore", task: "Blocked task" }], {
+				background: true,
+			});
+			updateAgentRecentRunProgress(blockedRun, { mode: "single", status: "running", runs: [runDetail("running")] });
+			markAgentRecentRunNeedsAttention(blockedRun, "Should I proceed?");
+
+			const rendered = renderPane(fake);
+			const needsInputIndex = rendered.indexOf("Needs input");
+			const workingIndex = rendered.indexOf("Working");
+			expect(needsInputIndex).toBeGreaterThan(-1);
+			expect(workingIndex).toBeGreaterThan(needsInputIndex);
+		});
+
+		test("bounds the Completed section to at most 6 rows", () => {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+			for (let index = 0; index < 8; index++) {
+				const run = startAgentRecentRun("single", [{ agent: "explore", task: `Task ${index}` }], {
+					background: true,
+				});
+				finishAgentRecentRun(run, { mode: "single", status: "completed", runs: [runDetail("completed")] });
+			}
+
+			const rendered = renderPane(fake).split("\n");
+			const completedHeaderIndex = rendered.findIndex((line) => line.includes("Completed"));
+			expect(completedHeaderIndex).toBeGreaterThan(-1);
+			const rowsAfterHeader = rendered
+				.slice(completedHeaderIndex + 1)
+				.filter((line) => line.trim().length > 0 && !line.includes("navigate"));
+			expect(rowsAfterHeader.length).toBe(6);
+		});
+
+		test("uses the persistent fork's exact label, and idle rather than interrupted, for a parked run", () => {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+			const run = startAgentRecentRun("single", [{ agent: "explore", task: "watch" }], {
+				background: true,
+				persistent: true,
+				label: "Paired observer",
+			});
+			updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runDetail("running")] });
+			// Executor parks a persistent single-mode background run at "interrupted" on
+			// completion; the pane must show it as idle/working, never as needs-input.
+			updateAgentRecentRunProgress(run, {
+				mode: "single",
+				status: "interrupted",
+				parked: true,
+				runs: [runDetail("completed")],
+			});
+
+			const rendered = renderPane(fake);
+			expect(rendered).toContain("Paired observer");
+			expect(rendered).not.toContain("Needs input");
+		});
+
+		test("Enter zooms into a parked persistent run with a resumable session", async () => {
+			const fake = createFakePi({ hasMainPane: () => true, cwd: "/work/proj" });
+			hookAgents(fake.pi as never);
+			const run = startAgentRecentRun("single", [{ agent: "explore", task: "watch" }], {
+				background: true,
+				persistent: true,
+				label: "Paired observer",
+			});
+			updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runDetail("running")] });
+			updateAgentRecentRunProgress(run, {
+				mode: "single",
+				status: "interrupted",
+				parked: true,
+				runs: [runDetail("completed", { sessionId: "child", sessionPath: "/tmp/child.jsonl" })],
+			});
+
+			const factory = fake.panes.get("agents-status");
+			const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
+			const pane = factory!({ requestRender: vi.fn() } as never, theme as never, { requestHide: vi.fn() } as never);
+
+			pane.handleInput?.("\r");
+
+			expect(fake.showMainPane).toHaveBeenCalledWith("zoom", {
+				taskId: run.id,
+				sessionConfig: { cwd: "/work/proj" },
+			});
+		});
 	});
 });

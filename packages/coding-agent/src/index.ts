@@ -26,6 +26,7 @@ export {
 export { getLiveSession } from "./core/agents/live-sessions.ts";
 export {
 	type AgentRecentRun,
+	agentRunUiStatus,
 	cancelAgentRecentRun,
 	findAgentRecentRun,
 	formatAgentDurationMs,

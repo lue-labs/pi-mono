@@ -164,6 +164,8 @@ export interface AgentToolDetails {
 	runId?: string;
 	background?: boolean;
 	resumable?: boolean;
+	/** True only when a persistent run completed a turn and intentionally parked. */
+	parked?: boolean;
 	message?: string;
 	concurrency?: number;
 	chainDir?: string;
@@ -173,14 +175,16 @@ export interface AgentExecutionProgress {
 	mode: AgentToolMode;
 	status: AgentToolStatus;
 	runs: AgentRunDetails[];
+	/** True only when a persistent run completed a turn and intentionally parked. */
+	parked?: boolean;
 	concurrency?: number;
 	chainDir?: string;
 }
 
 /**
- * Structured completion payload for a background agent run. Pushed to the
- * parent session as a custom message when the run reaches a terminal status,
- * so the parent doesn't have to poll `agent` action=detail/status.
+ * Structured lifecycle payload for a background agent run. Pushed to the
+ * parent session when the run reaches a terminal status or a persistent run
+ * intentionally parks between turns, so the parent doesn't have to poll.
  *
  * Shape parallels Claude Code's <task_notification> block (task_id, status,
  * summary, result, output_file, usage) — enough for the model to act on
@@ -188,7 +192,9 @@ export interface AgentExecutionProgress {
  */
 export interface AgentBackgroundCompletion {
 	runId: string;
-	status: AgentToolStatus;
+	status: AgentToolStatus | "idle";
+	/** True when a persistent run intentionally parked between turns. */
+	parked?: boolean;
 	mode: AgentToolMode;
 	agents: string[];
 	tasks: string[];

@@ -158,9 +158,9 @@ export interface AgentToolOptions {
 	 */
 	getParentSystemPrompt?: () => string;
 	/**
-	 * Fired exactly once when a background agent run reaches terminal status.
-	 * Parent sessions wire this to inject a structured `agent_completion`
-	 * custom message so the model is notified on completion instead of polling.
+	 * Fired exactly once when a background run reaches terminal status or a
+	 * persistent run intentionally parks. Parent sessions wire this to inject a
+	 * structured `agent_completion` message instead of polling.
 	 */
 	onBackgroundTerminal?: (notification: AgentBackgroundCompletion) => void;
 }

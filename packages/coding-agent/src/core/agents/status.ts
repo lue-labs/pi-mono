@@ -31,6 +31,38 @@ export interface AgentRecentRun {
 	needsAttention: boolean;
 	attentionMessage?: string;
 	error?: string;
+	/**
+	 * True for a `mode:"single"` background run kept alive across turns
+	 * (`AgentToolExecutionInput.persistent` / `ForkAgentOptions.persistent`).
+	 * Persistent runs may intentionally park between turns; `parked` distinguishes
+	 * that state from a real interruption of the same long-lived run.
+	 */
+	persistent?: boolean;
+	/**
+	 * True only while a persistent run is intentionally parked after completing
+	 * a turn. Both parked runs and real interruptions use storage status
+	 * `interrupted`; this bit keeps their UI/eviction semantics distinct.
+	 */
+	parked?: boolean;
+	/**
+	 * Exact, caller-supplied UI label — sourced from `ForkAgentOptions.description`
+	 * (threaded via `AgentTaskConfig.description`) for extension-launched forks.
+	 * Preferred over the generic `agent: task preview` text wherever a compact,
+	 * human-authored name is available. Undefined for runs that never set one.
+	 */
+	label?: string;
+}
+
+/**
+ * UI-facing status for a run: identical to `run.status` except a run explicitly
+ * parked at "interrupted" reads as "idle" instead — it's waiting to be fed its
+ * next turn, not stuck needing the user. Real interruptions remain visible. Every
+ * surface that renders `run.status` as user-visible text (footer, agents
+ * pane, `/agents runs` rows/detail) should go through this instead of
+ * reading `run.status` directly.
+ */
+export function agentRunUiStatus(run: Pick<AgentRecentRun, "status" | "parked">): AgentToolStatus | "idle" {
+	return run.parked && run.status === "interrupted" ? "idle" : run.status;
 }
 
 export interface AgentRecentRunController {
@@ -54,15 +86,30 @@ const recentRuns: AgentRecentRun[] = [];
 const liveRunControllers = new Map<string, AgentRecentRunController>();
 const recentRunListeners = new Set<AgentRecentRunsListener>();
 const terminalListeners = new Map<string, AgentRecentRunTerminalListener>();
-// Atomic dedup: once fired for a run, never fires again. Survives status
-// thrash between e.g. failAgentRecentRun and markRunStopped that may both
-// drive a run to terminal in the same tick.
-const terminalNotified = new WeakSet<AgentRecentRun>();
+// Atomic dedup per run generation. Survives status thrash between lifecycle
+// paths in one turn while allowing a persistent run to notify again after
+// restartAgentRecentRun() advances it to the next turn.
+const terminalNotifiedGeneration = new WeakMap<AgentRecentRun, number>();
 const runGenerations = new WeakMap<AgentRecentRun, number>();
 let nextRunId = 1;
 
 function nowIso(): string {
 	return new Date().toISOString();
+}
+
+function pruneAgentRecentRuns(): void {
+	while (recentRuns.length > MAX_RECENT_RUNS) {
+		let evictIndex = -1;
+		for (let index = recentRuns.length - 1; index >= 0; index--) {
+			const candidate = recentRuns[index];
+			if (candidate && candidate.status !== "running" && !candidate.parked) {
+				evictIndex = index;
+				break;
+			}
+		}
+		if (evictIndex === -1) break;
+		recentRuns.splice(evictIndex, 1);
+	}
 }
 
 function notifyAgentRecentRunsChanged(): void {
@@ -73,6 +120,11 @@ function notifyAgentRecentRunsChanged(): void {
 			// Status listeners are UI refresh hooks; never let one break lifecycle updates.
 		}
 	}
+	// The registry may temporarily exceed the history bound while every row is
+	// live (running or a parked persistent helper). Notify synchronous waiters of
+	// the terminal transition before pruning its row; scheduled UI renders then
+	// read the already-pruned registry.
+	pruneAgentRecentRuns();
 }
 
 export function subscribeAgentRecentRuns(listener: AgentRecentRunsListener): () => void {
@@ -120,14 +172,22 @@ function isTerminalStatus(status: AgentToolStatus): boolean {
 	return status !== "running";
 }
 
-// Fire the terminal listener at most once per run. Caller must have already
-// driven `run.status` to a terminal value; we read it here for the snapshot.
+// Fire the terminal listener at most once per run generation. Caller must have
+// already driven `run.status` to a terminal value; we read it for the snapshot.
 function maybeFireTerminal(run: AgentRecentRun): void {
 	if (!isTerminalStatus(run.status)) return;
-	if (terminalNotified.has(run)) return;
-	terminalNotified.add(run);
 	const listener = terminalListeners.get(run.id);
+	// Do not mark a generation notified until a listener actually observes it;
+	// late registration must still close the transition-vs-registration race.
 	if (!listener) return;
+	const generation = getRunGeneration(run);
+	const keepForNextGeneration = run.parked || run.resumable;
+	if (terminalNotifiedGeneration.get(run) === generation) {
+		if (!keepForNextGeneration && terminalListeners.get(run.id) === listener) terminalListeners.delete(run.id);
+		return;
+	}
+	terminalNotifiedGeneration.set(run, generation);
+	if (!keepForNextGeneration && terminalListeners.get(run.id) === listener) terminalListeners.delete(run.id);
 	try {
 		listener(cloneRecentRun(run));
 	} catch {
@@ -184,6 +244,7 @@ function computeRunContentSignature(run: AgentRecentRun): string {
 		needsAttention: run.needsAttention,
 		attentionMessage: run.attentionMessage,
 		resumable: run.resumable,
+		parked: run.parked,
 		outputPaths: run.outputPaths,
 		sessionRefs: run.sessionRefs,
 		runs: run.runs.map((r) => ({
@@ -207,6 +268,7 @@ function applyRunDetails(
 ): void {
 	if (!isExpectedGeneration(run, expectedGeneration)) return;
 	run.status = details.status;
+	run.parked = details.status === "interrupted" && details.parked === true;
 	updateRunTimestamps(run, terminal);
 	refreshRunSummary(run, details.runs);
 	if (run.status !== "interrupted") run.resumable = false;
@@ -234,6 +296,7 @@ function applyRunDetails(
 
 function markRunStopped(run: AgentRecentRun, status: "interrupted" | "cancelled", message?: string): void {
 	run.status = status;
+	run.parked = false;
 	updateRunTimestamps(run, true);
 	run.runs = run.runs.map((child) => (child.status === "running" ? { ...child, status } : child));
 	refreshRunSummary(run, run.runs);
@@ -254,7 +317,15 @@ function findMutableRun(runId: string): AgentRecentRun | undefined {
 export function startAgentRecentRun(
 	mode: AgentToolMode,
 	tasks: Array<{ agent: string; task: string }>,
-	options?: { background?: boolean; depth?: number; parentRunId?: string },
+	options?: {
+		background?: boolean;
+		depth?: number;
+		parentRunId?: string;
+		/** See `AgentRecentRun.persistent`. Default false. */
+		persistent?: boolean;
+		/** See `AgentRecentRun.label`. */
+		label?: string;
+	},
 ): AgentRecentRun {
 	const timestamp = nowIso();
 	const run: AgentRecentRun = {
@@ -273,20 +344,12 @@ export function startAgentRecentRun(
 		runs: [],
 		resumable: false,
 		needsAttention: false,
+		persistent: options?.persistent ?? false,
+		parked: false,
+		label: options?.label,
 	};
 	runGenerations.set(run, 0);
 	recentRuns.unshift(run);
-	while (recentRuns.length > MAX_RECENT_RUNS) {
-		let evictIndex = -1;
-		for (let index = recentRuns.length - 1; index >= 0; index--) {
-			if (recentRuns[index]?.status !== "running") {
-				evictIndex = index;
-				break;
-			}
-		}
-		if (evictIndex === -1) break;
-		recentRuns.splice(evictIndex, 1);
-	}
 	notifyAgentRecentRunsChanged();
 	return run;
 }
@@ -322,6 +385,7 @@ export function finishAgentRecentRun(
 export function failAgentRecentRun(run: AgentRecentRun, error: unknown, expectedGeneration?: number): void {
 	if (!isExpectedGeneration(run, expectedGeneration)) return;
 	run.status = "failed";
+	run.parked = false;
 	updateRunTimestamps(run, true);
 	run.error = error instanceof Error ? error.message : String(error);
 	run.resumable = false;
@@ -341,10 +405,10 @@ export function detachAgentRecentRunController(runId: string): void {
 }
 
 /**
- * Register a one-shot callback that fires when this run reaches a terminal
+ * Register a lifecycle callback that fires when this run reaches a terminal
  * status (completed | failed | cancelled | interrupted). Atomic dedup: fires
- * at most once per run even if multiple lifecycle paths drive the run to
- * terminal in the same tick. Returns an unregister function for explicit cleanup.
+ * at most once per run generation even if multiple paths drive that turn
+ * terminal in the same tick, then re-arms when a run is resumed.
  *
  * Used by the background-agent path to push a structured task_notification
  * back to the parent session without polling.
@@ -365,6 +429,7 @@ export function attachAgentRecentRunTerminalListener(
 export function restartAgentRecentRun(run: AgentRecentRun): void {
 	runGenerations.set(run, getRunGeneration(run) + 1);
 	run.status = "running";
+	run.parked = false;
 	run.updatedAt = nowIso();
 	run.endedAt = undefined;
 	run.durationMs = undefined;
@@ -544,8 +609,8 @@ function formatChildDuration(run: AgentRunDetails): string {
 	return run.durationMs !== undefined ? formatAgentDurationMs(run.durationMs) : "running";
 }
 
-function countRunsByStatus(runs: AgentRecentRun[], status: AgentToolStatus): number {
-	return runs.filter((run) => run.status === status).length;
+function countRunsByUiStatus(runs: AgentRecentRun[], status: AgentToolStatus | "idle"): number {
+	return runs.filter((run) => agentRunUiStatus(run) === status).length;
 }
 
 function formatCount(count: number, label: string): string | undefined {
@@ -561,10 +626,11 @@ export function formatAgentFooterStatus(runs = listAgentRecentRuns()): string | 
 	);
 	if (backgroundRuns.length === 0) return undefined;
 	const statusParts = [
-		formatCount(countRunsByStatus(backgroundRuns, "running"), "running"),
-		formatCount(countRunsByStatus(backgroundRuns, "interrupted"), "interrupted"),
+		formatCount(countRunsByUiStatus(backgroundRuns, "running"), "running"),
+		formatCount(countRunsByUiStatus(backgroundRuns, "idle"), "idle"),
+		formatCount(countRunsByUiStatus(backgroundRuns, "interrupted"), "interrupted"),
 		formatCount(backgroundRuns.filter((run) => run.resumable).length, "resumable"),
-		formatCount(countRunsByStatus(backgroundRuns, "failed"), "failed"),
+		formatCount(countRunsByUiStatus(backgroundRuns, "failed"), "failed"),
 	].filter((part): part is string => Boolean(part));
 	const latest = backgroundRuns[0];
 	const latestAgents = latest.agents.length > 0 ? ` ${latest.agents.join(",")}` : "";
@@ -573,7 +639,7 @@ export function formatAgentFooterStatus(runs = listAgentRecentRuns()): string | 
 	);
 	const latestModelLabel = latestModels.length > 0 ? ` · ${latestModels.join(",")}` : "";
 	const attention = backgroundRuns.some((run) => run.needsAttention) ? " · needs attention" : "";
-	const latestLabel = `${latest.id} ${latest.status}${latest.resumable ? " resumable" : ""}${latest.needsAttention ? " needs attention" : ""}${latestAgents}${latestModelLabel}`;
+	const latestLabel = `${latest.id} ${agentRunUiStatus(latest)}${latest.resumable ? " resumable" : ""}${latest.needsAttention ? " needs attention" : ""}${latestAgents}${latestModelLabel}`;
 	return `Agents: ${statusParts.join(", ")}${attention} · ${latestLabel} · /agents runs`;
 }
 
@@ -589,7 +655,7 @@ export function formatAgentStatus(runs = listAgentRecentRuns(), detailId?: strin
 	if (detailRun) {
 		lines.push(
 			"",
-			`${detailRun.id} ${detailRun.mode} ${detailRun.execution} ${detailRun.status} ${formatDuration(detailRun)}`,
+			`${detailRun.id} ${detailRun.mode} ${detailRun.execution} ${agentRunUiStatus(detailRun)} ${formatDuration(detailRun)}`,
 			`started: ${detailRun.startedAt}`,
 			`updated: ${detailRun.updatedAt}`,
 		);
@@ -633,7 +699,7 @@ export function formatAgentStatus(runs = listAgentRecentRuns(), detailId?: strin
 		);
 		const models = activeModels.length > 0 ? ` models: ${activeModels.join(", ")}` : "";
 		lines.push(
-			`${run.id} ${run.mode} ${run.execution} ${run.status}${nesting}${resumable}${attention} ${formatDuration(run)} agents: ${run.agents.join(", ")}${fanout}${models}${sessions}${outputs}${error}`,
+			`${run.id} ${run.mode} ${run.execution} ${agentRunUiStatus(run)}${nesting}${resumable}${attention} ${formatDuration(run)} agents: ${run.agents.join(", ")}${fanout}${models}${sessions}${outputs}${error}`,
 		);
 	}
 	lines.push(

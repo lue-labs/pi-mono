@@ -3475,8 +3475,8 @@ export class AgentSession {
 	}
 
 	/**
-	 * Push a structured agent_completion message to the session when a
-	 * background agent reaches a terminal status. Mirrors Claude Code's
+	 * Push a structured agent_completion message when a background agent
+	 * reaches a terminal status or intentionally parks between turns. Mirrors Claude Code's
 	 * <task_notification> shape: runId, status, summary, result preview,
 	 * outputPaths, sessionPaths, usage.
 	 *
@@ -3501,6 +3501,7 @@ export class AgentSession {
 			`<agents>${notification.agents.join(", ")}</agents>`,
 			`<summary>${notification.summary}</summary>`,
 		];
+		if (notification.parked) lines.push(`<parked>true</parked>`);
 		if (typeof notification.durationMs === "number") {
 			lines.push(`<duration_ms>${notification.durationMs}</duration_ms>`);
 		}
@@ -3520,7 +3521,9 @@ export class AgentSession {
 		}
 		lines.push(`</agent_completion>`);
 		lines.push(
-			`\nThe background agent has finished. Do NOT call \`agent\` action=status/detail to verify — the run is terminal. Read output_path or session_path if you need the full transcript.`,
+			notification.parked
+				? `\nThe persistent background agent is idle between turns, not interrupted or terminal. Do NOT call \`agent\` action=status/detail to verify. Use \`agent\` action=inject when it should process another turn; read output_path or session_path for the transcript.`
+				: `\nThe background agent has finished. Do NOT call \`agent\` action=status/detail to verify — the run is terminal. Read output_path or session_path if you need the full transcript.`,
 		);
 		void this.sendCustomMessage(
 			{
