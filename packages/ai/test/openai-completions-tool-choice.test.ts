@@ -1318,7 +1318,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("omits reasoning effort for OpenCode Grok Build", async () => {
-		const model = pickModel("opencode", (m) => m.id.includes("grok"));
+		const model = pickModel("opencode", (m) => m.id.includes("grok-build"));
 		let payload: unknown;
 
 		await streamSimple(

@@ -38,6 +38,7 @@ const thinkingSchema = Type.Union([
 	Type.Literal("medium"),
 	Type.Literal("high"),
 	Type.Literal("xhigh"),
+	Type.Literal("max"),
 ]);
 
 const outputModeSchema = Type.Union([Type.Literal("inline"), Type.Literal("file"), Type.Literal("both")]);

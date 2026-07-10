@@ -309,7 +309,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
  * - "xhigh" is reserved for native xhigh-effort models (Opus 4.7, GPT-5, etc.).
  * Use model thinking-level metadata from @valkyriweb/pi-ai to detect support for a concrete model.
  */
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "adaptive";
 
 /**
  * Extensible interface for custom app messages.

@@ -300,7 +300,10 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 	const clampedReasoning = clampThinkingLevel(model, options.reasoning);
 	// "adaptive" is Anthropic-only; clamp it to "high" for Google. "off" also falls through to "high".
 	const effort = (
-		clampedReasoning === "off" || clampedReasoning === "adaptive" || clampedReasoning === "xhigh"
+		clampedReasoning === "off" ||
+		clampedReasoning === "adaptive" ||
+		clampedReasoning === "xhigh" ||
+		clampedReasoning === "max"
 			? "high"
 			: clampedReasoning
 	) as ClampedThinkingLevel;
@@ -408,7 +411,7 @@ function buildParams(
 	return params;
 }
 
-type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "adaptive">;
+type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "max" | "adaptive">;
 
 function isGemma4Model(model: Model<"google-generative-ai">): boolean {
 	return /gemma-?4/.test(model.id.toLowerCase());

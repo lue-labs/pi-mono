@@ -94,7 +94,11 @@ describe("agent child auto model routing", () => {
 		}
 
 		expect(seen).toHaveLength(3);
-		expect(seen.map((entry) => entry.requestedModel)).toEqual(["clawrouter/auto", "clawrouter/auto", "clawrouter/auto"]);
+		expect(seen.map((entry) => entry.requestedModel)).toEqual([
+			"clawrouter/auto",
+			"clawrouter/auto",
+			"clawrouter/auto",
+		]);
 		expect(seen[0]?.routing).toMatchObject({ source: "child-agent", agentId: "explore", contextMode: "none" });
 		expect(seen[0]?.routing.promptPreview).toContain("Reply with OK only.");
 		expect(seen[1]?.routing).toMatchObject({ source: "child-agent", agentId: "worker" });

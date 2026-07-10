@@ -397,7 +397,7 @@ export class Theme {
 	}
 
 	getThinkingBorderColor(
-		level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive",
+		level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "adaptive",
 	): (str: string) => string {
 		// Map thinking levels to dedicated theme colors
 		switch (level) {
@@ -412,6 +412,7 @@ export class Theme {
 			case "high":
 				return (str: string) => this.fg("thinkingHigh", str);
 			case "xhigh":
+			case "max":
 				return (str: string) => this.fg("thinkingXhigh", str);
 			case "adaptive":
 				return (str: string) => this.fg("thinkingHigh", str);

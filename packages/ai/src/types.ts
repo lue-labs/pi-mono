@@ -71,7 +71,7 @@ export type KnownImagesProvider = "openrouter";
 
 export type ImagesProviderId = KnownImagesProvider | string;
 
-export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive";
+export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "adaptive";
 export type ModelThinkingLevel = "off" | ThinkingLevel;
 export type ThinkingLevelMap = Partial<Record<ModelThinkingLevel, string | null>>;
 export type ChatTemplateKwargValue =
@@ -587,6 +587,13 @@ export interface OpenAIResponsesCompat {
 	sendSessionIdHeader?: boolean;
 	/** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
 	supportsLongCacheRetention?: boolean;
+	/**
+	 * Prompt-cache API generation. `"legacy"` (default) sends `prompt_cache_retention`;
+	 * `"breakpoints"` (GPT-5.6+) omits the deprecated retention field and marks explicit
+	 * `prompt_cache_breakpoint` blocks on the stable system-prompt prefix and the previous
+	 * user message. Older models reject breakpoint fields, so this must be opt-in per model.
+	 */
+	promptCacheApi?: "legacy" | "breakpoints";
 }
 
 /** Compatibility settings for Anthropic Messages-compatible APIs. */
