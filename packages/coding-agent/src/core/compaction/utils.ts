@@ -36,7 +36,7 @@ export const COMPACTION_FAILURE_TRIP_COUNT = 3;
  * `Summarization failed: OpenAI API error (429): {"type":"usage_limit_reached",...}`.
  */
 const TRANSIENT_COMPACTION_ERROR_PATTERN =
-	/\b(?:429|502|503|504|529)\b|rate.?limit|usage.?limit|too many requests|quota|overloaded|service unavailable|resets_in_seconds/i;
+	/\b(?:429|502|503|504|529)\b|rate.?limit|usage.?limit|too many requests|RESOURCE_EXHAUSTED|overloaded|service unavailable|resets_in_seconds/i;
 
 /**
  * Whether a compaction failure is a transient provider-availability error

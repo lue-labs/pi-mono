@@ -687,6 +687,12 @@ describe("isTransientCompactionError", () => {
 			"Invalid model: gpt-5.6-sol",
 			// Digit substrings must not false-positive on the status-code patterns.
 			"Summarization failed: model produced 5290 tokens from 14290 input tokens",
+			// Filesystem quota on the session write (thrown after the paid
+			// summarization call) does not self-resolve - the breaker must stop
+			// the repeated-paid-summarization loop.
+			"EDQUOT: disk quota exceeded, write '/Users/luke/.pi/agent/sessions/session.jsonl'",
+			// OpenAI insufficient_quota (billing-permanent, not a usage window).
+			"You exceeded your current quota, please check your plan and billing details",
 		];
 		for (const message of structural) {
 			expect(isTransientCompactionError(message), message).toBe(false);
