@@ -3056,8 +3056,6 @@ export class InteractiveMode {
 			await this.init();
 		}
 
-		this.footer.invalidate();
-
 		switch (event.type) {
 			case "agent_start":
 				this.pendingTools.clear();

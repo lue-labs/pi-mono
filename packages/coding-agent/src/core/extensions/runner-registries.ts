@@ -108,8 +108,8 @@ export function findRegisteredOverlay(extensions: Extension[], id: string): Exte
 /**
  * Snapshot of every footer pill registered through `pi.registerFooter`,
  * keyed by id. Iteration order matches extension load order; ties broken
- * by registration order within an extension. Interactive-mode reads this
- * on every footer invalidate to assemble the focus chain.
+ * by registration order within an extension. Footer rendering reads this on
+ * every render pass; interactive-mode also uses it to assemble the focus chain.
  */
 export function collectRegisteredFooters(
 	extensions: Extension[],

@@ -106,6 +106,13 @@ function createSession(options: {
 	return session as unknown as AgentSession;
 }
 
+type RegisteredFooter = ReturnType<AgentSession["extensionRunner"]["getRegisteredFooters"]>[number];
+
+function stubRegisteredFooters(session: AgentSession, footers: RegisteredFooter[]): void {
+	const extensionRunner = { getRegisteredFooters: () => footers };
+	(session as unknown as { extensionRunner: typeof extensionRunner }).extensionRunner = extensionRunner;
+}
+
 function createFooterData(providerCount: number): ReadonlyFooterDataProvider {
 	const provider = {
 		getGitBranch: () => "main",
@@ -139,8 +146,8 @@ describe("FooterComponent width handling", () => {
 	beforeEach(() => clearAgentRecentRunsForTests());
 
 	it("memoizes rendered lines when nothing that affects the footer changed", () => {
-		// Regression for perf/BASELINE.md fix #1: render(width) used to rebuild
-		// the full string set (theme.fg/padding/truncation) unconditionally on
+		// Regression: render(width) used to rebuild the full string set
+		// (theme.fg/padding/truncation) unconditionally on
 		// every call. Fails on the pre-fix baseline (each call returns a fresh
 		// array), passes once render() returns the memoized array for an
 		// unchanged cache key.
@@ -157,25 +164,23 @@ describe("FooterComponent width handling", () => {
 		expect(third).toEqual(expect.arrayContaining([expect.stringContaining("200k")]));
 	});
 
-	it("invalidates memoized footer lines when extension footer selection changes", () => {
+	it("repaints memoized footer lines when extension footer selection changes", () => {
 		const selectedArgs: boolean[] = [];
 		const session = createSession({ sessionName: "same-session" });
-		(session as unknown as { extensionRunner: AgentSession["extensionRunner"] }).extensionRunner = {
-			getRegisteredFooters: () => [
-				{
-					id: "bg-test",
-					extensionPath: "/tmp/footer-test",
-					spec: {
-						visible: () => true,
-						render: ({ selected }: { selected: boolean }) => {
-							selectedArgs.push(selected);
-							return "bg ready";
-						},
-						onActivate: () => {},
+		stubRegisteredFooters(session, [
+			{
+				id: "bg-test",
+				extensionPath: "/tmp/footer-test",
+				spec: {
+					visible: () => true,
+					render: ({ selected }) => {
+						selectedArgs.push(selected);
+						return "bg ready";
 					},
+					onActivate: () => {},
 				},
-			],
-		} as unknown as AgentSession["extensionRunner"];
+			},
+		]);
 		const footer = new FooterComponent(session, createFooterData(1));
 
 		const first = footer.render(100);
@@ -185,6 +190,50 @@ describe("FooterComponent width handling", () => {
 		const second = footer.render(100);
 		expect(second).not.toBe(first);
 		expect(selectedArgs).toEqual([false, true]);
+	});
+
+	it("invalidate() forces a rebuild even when the render key is unchanged", () => {
+		const session = createSession({ sessionName: "same-session" });
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const first = footer.render(100);
+		footer.invalidate();
+		const second = footer.render(100);
+
+		expect(second).not.toBe(first);
+		expect(second).toEqual(first);
+	});
+
+	it("repaints dynamic registered footers on the next render without explicit invalidation", () => {
+		let visible = false;
+		let label = "workflow: 2 runs active";
+		const session = createSession({ sessionName: "same-session" });
+		stubRegisteredFooters(session, [
+			{
+				id: "workflow-status",
+				extensionPath: "<extension:workflow>",
+				spec: {
+					visible: () => visible,
+					render: () => label,
+					onActivate: () => {},
+				},
+			},
+		]);
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		// Prime the memo with the pill hidden.
+		expect(stripAnsi(footer.render(100).join("\n"))).not.toContain("workflow:");
+
+		// Extension state changes with no invalidate() and no other key change —
+		// exactly what registerFooter consumers (monitor, workflow) do today.
+		visible = true;
+		expect(stripAnsi(footer.render(100).join("\n"))).toContain("workflow: 2 runs active");
+
+		label = "workflow: 1 run active";
+		expect(stripAnsi(footer.render(100).join("\n"))).toContain("workflow: 1 run active");
+
+		visible = false;
+		expect(stripAnsi(footer.render(100).join("\n"))).not.toContain("workflow:");
 	});
 
 	it("keeps all lines within width for wide session names", () => {

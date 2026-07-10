@@ -6,6 +6,8 @@ Fork-specific changes maintained by valkyriweb. Upstream package changelogs stay
 
 ### Fixed
 
+- **Dynamic registered footer pills now repaint when task/extension state changes.** Whole-footer memoization excluded registered pill output from its change-guard and `FooterComponent.invalidate()` was a no-op, so any `registerFooter` consumer (agents, monitor, workflow pills) could stay hidden, stale, or visible after completion until an unrelated footer input changed. Pill `visible()`/`render()` output now participates in the render memo key — extensions repaint on the next render pass with no invalidation wiring — and `invalidate()` actually evicts memoized lines for core agent-run/background-bash subscriptions. Git branch caching remains provider-owned. Regression coverage proves both paths (explicit invalidation and no-invalidation extension updates) and fails on the prior implementation.
+
 - **`version-packages` now regenerates `packages/coding-agent/install-lock` after `changeset version`.** The changesets Release workflow regenerates `package-lock.json` and the coding-agent shrinkwrap on the `changeset-release/main` branch but left `install-lock` pinned to the pre-bump version, so every regenerated release PR failed CI's `check:install-lock:coding-agent` (`install-lock is out of date`) and needed a manual `npm run install-lock:coding-agent`. Appending the generator to the `version-packages` script heals the release branch automatically on the next Release run.
 
 ### Added
