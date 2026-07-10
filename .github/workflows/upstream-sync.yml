@@ -148,7 +148,10 @@ jobs:
           fi
 
           # Build commit log and diffstat for the PR body before attempting merge.
-          COMMIT_LOG=$(git log --oneline "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}" | head -40)
+          # Limit commit count natively (-n) instead of piping to `head`: under
+          # `set -o pipefail`, `git log | head -N` makes git exit 141 (SIGPIPE) once
+          # head closes the pipe after N lines, which aborts the whole step.
+          COMMIT_LOG=$(git log --oneline -n 40 "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}")
           DIFFSTAT=$(git diff --stat "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}" | tail -5)
           {
             echo "commit_log<<EOF"
@@ -164,7 +167,9 @@ jobs:
             echo "::notice::Clean merge."
           else
             # Capture conflicted paths, abort, mark draft.
-            CONFLICTS=$(git diff --name-only --diff-filter=U | head -30)
+            # `|| true` guards against SIGPIPE (141) when more than 30 paths conflict
+            # and `head` closes the pipe early under `set -o pipefail`.
+            CONFLICTS=$(git diff --name-only --diff-filter=U | head -30 || true)
             echo "::warning::Merge conflicts detected."
             git merge --abort
             # Reset to fork main and add an empty marker commit so GitHub can open a draft PR.
