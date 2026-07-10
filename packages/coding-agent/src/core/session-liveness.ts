@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { canonicalizePath } from "../utils/paths.ts";
 
@@ -95,22 +96,23 @@ export function listActiveSessionPaths(sessionPaths: Iterable<string>): Set<stri
  * stale markers for the sessions it lists — but a SIGKILL'd session whose path
  * is never reopened leaves its marker forever. This walks the whole sessions
  * tree and deletes every marker whose owning process is gone or whose heartbeat
- * has gone stale, so dead markers cannot accumulate. Returns the count removed.
+ * has gone stale, so dead markers cannot accumulate. Resolves to the count removed.
  *
  * Only dead markers are touched; live sessions are never disturbed. Safe to call
- * off the hot path at startup.
+ * at startup without blocking terminal input while the sessions tree is read.
  */
-export function sweepStaleMarkers(sessionsDir: string): number {
+export async function sweepStaleMarkers(sessionsDir: string): Promise<number> {
 	let removed = 0;
-	let entries: string[];
+	let markerPaths: string[];
 	try {
-		entries = readdirSync(sessionsDir, { recursive: true }) as string[];
+		const entries = await readdir(sessionsDir, { recursive: true, withFileTypes: true });
+		markerPaths = entries
+			.filter((entry) => entry.isFile() && entry.name.endsWith(MARKER_SUFFIX))
+			.map((entry) => join(entry.parentPath, entry.name));
 	} catch {
 		return 0; // sessions dir absent or unreadable
 	}
-	for (const entry of entries) {
-		if (!entry.endsWith(MARKER_SUFFIX)) continue;
-		const markerPath = join(sessionsDir, entry);
+	for (const markerPath of markerPaths) {
 		const marker = readMarker(markerPath);
 		if (marker && isMarkerLive(marker)) continue;
 		try {

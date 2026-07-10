@@ -84,7 +84,7 @@ describe("session liveness", () => {
 		expect(existsSync(`${sessionPath}.live`)).toBe(false);
 	});
 
-	it("sweeps dead and stale markers across nested session dirs, keeping live ones", () => {
+	it("yields before sweeping nested session dirs, keeping live markers", async () => {
 		const dir = makeDir();
 		const projectA = join(dir, "project-a");
 		const projectB = join(dir, "project-b");
@@ -98,7 +98,14 @@ describe("session liveness", () => {
 		writeMarker(dead, { pid: DEAD_PID, heartbeat: Date.now() });
 		writeMarker(stale, { pid: process.pid, heartbeat: Date.now() - 60_000 });
 
-		const removed = sweepStaleMarkers(dir);
+		let completed = false;
+		const sweep = Promise.resolve(sweepStaleMarkers(dir)).then((removed) => {
+			completed = true;
+			return removed;
+		});
+		await Promise.resolve();
+		expect(completed).toBe(false);
+		const removed = await sweep;
 
 		expect(removed).toBe(2);
 		expect(existsSync(`${live}.live`)).toBe(true);
@@ -106,8 +113,8 @@ describe("session liveness", () => {
 		expect(existsSync(`${stale}.live`)).toBe(false);
 	});
 
-	it("sweep returns 0 for a missing sessions dir", () => {
-		expect(sweepStaleMarkers(join(tmpdir(), "pi-liveness-does-not-exist-xyz"))).toBe(0);
+	it("sweep returns 0 for a missing sessions dir", async () => {
+		expect(await sweepStaleMarkers(join(tmpdir(), "pi-liveness-does-not-exist-xyz"))).toBe(0);
 	});
 
 	it("ignores sessions with no marker", () => {

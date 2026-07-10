@@ -689,11 +689,9 @@ export class InteractiveMode {
 		// Reap liveness markers left by crashed/killed sessions, off the hot boot
 		// path so a dead-marker backlog cannot grow without bound.
 		const markerSweep = setTimeout(() => {
-			try {
-				sweepStaleMarkers(getSessionsDir());
-			} catch {
+			void sweepStaleMarkers(getSessionsDir()).catch(() => {
 				// Best effort; readers still reap markers lazily.
-			}
+			});
 		}, 2_000);
 		markerSweep.unref?.();
 
