@@ -164,7 +164,7 @@ describe("FooterComponent width handling", () => {
 		expect(third).toEqual(expect.arrayContaining([expect.stringContaining("200k")]));
 	});
 
-	it("invalidates memoized footer lines when extension footer selection changes", () => {
+	it("repaints memoized footer lines when extension footer selection changes", () => {
 		const selectedArgs: boolean[] = [];
 		const session = createSession({ sessionName: "same-session" });
 		stubRegisteredFooters(session, [
@@ -192,7 +192,7 @@ describe("FooterComponent width handling", () => {
 		expect(selectedArgs).toEqual([false, true]);
 	});
 
-	it("invalidates memoized footer lines when keyed inputs are unchanged", () => {
+	it("invalidate() forces a rebuild even when the render key is unchanged", () => {
 		const session = createSession({ sessionName: "same-session" });
 		const footer = new FooterComponent(session, createFooterData(1));
 
