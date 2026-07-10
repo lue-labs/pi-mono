@@ -32,10 +32,36 @@ describe.skipIf(process.platform === "win32")("issue #5303 bash output truncatio
 	});
 
 	it("captures output emitted after exit while a detached child holds stdout open", async () => {
-		// The shell exits immediately, but a backgrounded subshell keeps the stdout
-		// pipe open and emits ticks every 50ms, the last well past the 100ms grace.
-		const command = 'printf "HEAD\\n"; ( for i in 1 2 3 4 5 6; do sleep 0.05; printf "TICK$i\\n"; done ) &';
-		child = spawnProcess("/bin/sh", ["-c", command], {
+		// Arm the descendant's disconnect handler before its launcher exits, then use
+		// that IPC disconnect as the post-exit signal. In-process timers avoid the
+		// per-tick startup latency of `sleep`, which exceeds 100ms on macOS.
+		const descendantScript = `
+			const { writeSync } = require("node:fs");
+			process.on("disconnect", () => {
+				let tick = 0;
+				const emitTick = () => {
+					tick += 1;
+					writeSync(1, \`TICK\${tick}\\n\`);
+					if (tick === 6) process.exit(0);
+					setTimeout(emitTick, 25);
+				};
+				emitTick();
+			});
+			process.send("ready");
+		`;
+		const launcherScript = `
+			const { spawn } = require("node:child_process");
+			const { writeSync } = require("node:fs");
+			const descendant = spawn(process.execPath, ["-e", ${JSON.stringify(descendantScript)}], {
+				stdio: ["ignore", "inherit", "inherit", "ipc"],
+			});
+			descendant.once("message", () => {
+				writeSync(1, "HEAD\\n");
+				process.exit(0);
+			});
+			descendant.unref();
+		`;
+		child = spawnProcess(process.execPath, ["-e", launcherScript], {
 			stdio: ["ignore", "pipe", "pipe"],
 			detached: true,
 		}) as ChildProcessByStdio<null, Readable, Readable>;
