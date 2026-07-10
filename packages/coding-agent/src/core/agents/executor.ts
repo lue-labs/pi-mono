@@ -353,7 +353,7 @@ function parseTierAlias(reference: string): { tier: AgentTierAlias; provider?: s
 	return undefined;
 }
 
-const FRONTIER_MODEL_ID_PATTERN = /(?:opus|fable|-pro$|-max$|gpt-5\.5|gpt-5\.6)/i;
+const FRONTIER_MODEL_ID_PATTERN = /(?:opus|fable|-pro$|-max$|gpt-5\.5|gpt-5\.6(?!-luna))/i;
 
 function warnIfFastAgentUsesExpensiveModel(options: {
 	reference: string;

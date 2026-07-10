@@ -137,7 +137,7 @@ const modelFamilyTierCandidatesByProvider: Record<
 		{
 			prefix: "gpt-",
 			candidates: {
-				fast: ["gpt-5.4-mini"],
+				fast: ["gpt-5.6-luna", "gpt-5.4-mini"],
 				medium: ["gpt-5.4"],
 				frontier: ["gpt-5.5"],
 				ultra: ["gpt-5.6"],
