@@ -269,6 +269,16 @@ function supportsOpenAiMax(modelId: string): boolean {
 	return modelId.includes("gpt-5.6");
 }
 
+// Ultra is a Pi-side orchestration mode limited to GPT-5.6 Sol and Terra. It
+// maps to native `max` across the OpenAI, Codex, Azure, and OpenRouter catalogs.
+function supportsOpenAiUltra(model: Model<any>): boolean {
+	const modelId = model.id.startsWith("openai/") ? model.id.slice("openai/".length) : model.id;
+	return (
+		["openai", "openai-codex", "azure-openai-responses", "openrouter"].includes(model.provider) &&
+		(modelId === "gpt-5.6-sol" || modelId === "gpt-5.6-terra")
+	);
+}
+
 function isGoogleThinkingApi(model: Model<any>): boolean {
 	return model.api === "google-generative-ai" || model.api === "google-vertex";
 }
@@ -476,6 +486,9 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	}
 	if (supportsOpenAiMax(model.id)) {
 		mergeThinkingLevelMap(model, { max: "max" });
+	}
+	if (supportsOpenAiUltra(model)) {
+		mergeThinkingLevelMap(model, { ultra: "max" });
 	}
 	if (model.provider === "openai" && model.id === "gpt-5.5") {
 		mergeThinkingLevelMap(model, { minimal: null });

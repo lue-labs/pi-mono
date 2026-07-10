@@ -2842,7 +2842,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"thinkingFormat":"openrouter"},
 		reasoning: true,
-		thinkingLevelMap: {"xhigh":"xhigh","max":"max"},
+		thinkingLevelMap: {"xhigh":"xhigh","max":"max","ultra":"max"},
 		input: ["text", "image"],
 		cost: {
 			input: 5,
@@ -2880,7 +2880,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"thinkingFormat":"openrouter"},
 		reasoning: true,
-		thinkingLevelMap: {"xhigh":"xhigh","max":"max"},
+		thinkingLevelMap: {"xhigh":"xhigh","max":"max","ultra":"max"},
 		input: ["text", "image"],
 		cost: {
 			input: 2.5,

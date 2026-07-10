@@ -1039,12 +1039,16 @@ function buildAdditionalModelRequestFields(
 						high: 16384,
 						xhigh: 16384, // Claude doesn't support xhigh, clamp to high
 						max: 16384, // OpenAI-only level, clamp to high
+						ultra: 16384, // OpenAI client orchestration mode, clamp to high
 						adaptive: 16384, // Non-adaptive Claude models can't go adaptive, clamp to high
 					};
 
-					// Custom budgets override defaults (xhigh/max/adaptive not in ThinkingBudgets, use high)
+					// Custom budgets override defaults (xhigh/max/ultra/adaptive not in ThinkingBudgets, use high)
 					const level =
-						options.reasoning === "xhigh" || options.reasoning === "max" || options.reasoning === "adaptive"
+						options.reasoning === "xhigh" ||
+						options.reasoning === "max" ||
+						options.reasoning === "ultra" ||
+						options.reasoning === "adaptive"
 							? "high"
 							: options.reasoning;
 					const budget = options.thinkingBudgets?.[level] ?? defaultBudgets[options.reasoning];

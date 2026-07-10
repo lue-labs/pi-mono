@@ -652,7 +652,7 @@ export const OPENAI_MODELS = {
 		baseUrl: "https://api.openai.com/v1",
 		compat: {"promptCacheApi":"breakpoints"},
 		reasoning: true,
-		thinkingLevelMap: {"off":"none","xhigh":"xhigh","max":"max","minimal":null},
+		thinkingLevelMap: {"off":"none","xhigh":"xhigh","max":"max","ultra":"max","minimal":null},
 		input: ["text", "image"],
 		cost: {
 			input: 5,
@@ -671,7 +671,7 @@ export const OPENAI_MODELS = {
 		baseUrl: "https://api.openai.com/v1",
 		compat: {"promptCacheApi":"breakpoints"},
 		reasoning: true,
-		thinkingLevelMap: {"off":"none","xhigh":"xhigh","max":"max","minimal":null},
+		thinkingLevelMap: {"off":"none","xhigh":"xhigh","max":"max","ultra":"max","minimal":null},
 		input: ["text", "image"],
 		cost: {
 			input: 2.5,

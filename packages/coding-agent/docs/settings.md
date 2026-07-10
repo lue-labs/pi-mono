@@ -29,7 +29,7 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 |---------|------|---------|-------------|
 | `defaultProvider` | string | - | Default provider (e.g., `"anthropic"`, `"openai"`) |
 | `defaultModel` | string | - | Default model ID |
-| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` |
+| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"`, `"adaptive"` |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
 | `thinkingBudgets` | object | - | Custom token budgets per thinking level |
 | `subagents` | object | - | Default native child-agent model/thinking, optionally per parent provider |
@@ -50,7 +50,7 @@ Native child agents inherit the parent model and thinking by default. Configure 
 }
 ```
 
-The `agent` tool can still override these per call or per task with `model` and `thinking` (`"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`). Precedence: explicit task option > agent frontmatter > `subagents.providers[<parent.provider>]` > `subagents.defaults` > parent inheritance.
+The `agent` tool can still override these per call or per task with `model` and `thinking` (`"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"`). Precedence: explicit task option > agent frontmatter > `subagents.providers[<parent.provider>]` > `subagents.defaults` > parent inheritance.
 
 **Nested delegation (`maxDelegationDepth`).** By default a child agent cannot spawn its own children (`maxDelegationDepth: 0`) — single-layer delegation, matching upstream and keeping the cached prompt prefix byte-stable (a child only gains the `agent` tool when nesting is enabled, so `tools[]` stays cache-stable by default). Raise it to let sub-agents delegate further, up to a hard cap of 16:
 

@@ -17,11 +17,12 @@ const LEVEL_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	high: "Deep reasoning (~16k tokens)",
 	xhigh: "Maximum reasoning (~32k tokens)",
 	max: "Extended reasoning beyond xhigh (GPT-5.6+)",
+	ultra: "Maximum reasoning + orchestration signal (GPT-5.6 Sol/Terra)",
 };
 
 // Display order: off → adaptive → ladder. Adaptive sits near the top because it's a mode,
 // not a budget rung; the rest are ordered low→high effort.
-const DISPLAY_ORDER: ThinkingLevel[] = ["off", "adaptive", "minimal", "low", "medium", "high", "xhigh", "max"];
+const DISPLAY_ORDER: ThinkingLevel[] = ["off", "adaptive", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
 /**
  * Component that renders a thinking level selector with borders

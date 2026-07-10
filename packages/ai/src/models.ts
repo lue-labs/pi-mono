@@ -402,12 +402,13 @@ const EXTENDED_THINKING_LEVELS: ModelThinkingLevel[] = [
 	"high",
 	"xhigh",
 	"max",
+	"ultra",
 	"adaptive",
 ];
 
 // Levels that must be explicitly opted in via thinkingLevelMap (model declares support).
 // Everything else is supported by default unless mapped to null.
-const OPT_IN_THINKING_LEVELS: ReadonlySet<ModelThinkingLevel> = new Set(["xhigh", "max", "adaptive"]);
+const OPT_IN_THINKING_LEVELS: ReadonlySet<ModelThinkingLevel> = new Set(["xhigh", "max", "ultra", "adaptive"]);
 
 export function getSupportedThinkingLevels<TApi extends Api>(model: Model<TApi>): ModelThinkingLevel[] {
 	if (!model.reasoning) return ["off"];

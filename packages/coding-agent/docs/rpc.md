@@ -286,7 +286,7 @@ Set the reasoning/thinking level for models that support it.
 {"type": "set_thinking_level", "level": "high"}
 ```
 
-Levels: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`
+Levels: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"`, `"adaptive"`
 
 Note: `"xhigh"` is only supported by OpenAI codex-max models.
 

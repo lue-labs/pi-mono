@@ -43,7 +43,7 @@ interface RawAgentChainDefinition {
 }
 
 const CONTEXT_MODES = new Set(["default", "fork", "slim", "none"]);
-const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max", "adaptive"]);
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "adaptive"]);
 const OUTPUT_MODES = new Set(["inline", "file", "both"]);
 
 export function getUserChainsDir(): string {

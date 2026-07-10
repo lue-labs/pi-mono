@@ -71,6 +71,36 @@ describe("getSupportedThinkingLevels", () => {
 		);
 		expect(getSupportedThinkingLevels(model)).not.toContain("max");
 	});
+
+	it.each(["gpt-5.6-sol", "gpt-5.6-terra"] as const)("includes ultra for proactive-delegation model %s", (modelId) => {
+		const model = getModel("openai", modelId);
+		expect(model).toBeDefined();
+		expect(getSupportedThinkingLevels(model!)).toContain("ultra");
+	});
+
+	it.each(["gpt-5.6-sol", "gpt-5.6-terra"] as const)(
+		"includes ultra for Azure proactive-delegation model %s",
+		(modelId) => {
+			const model = getModel("azure-openai-responses", modelId);
+			expect(model).toBeDefined();
+			expect(getSupportedThinkingLevels(model!)).toContain("ultra");
+		},
+	);
+
+	it.each(["openai/gpt-5.6-sol", "openai/gpt-5.6-terra"] as const)(
+		"includes ultra for OpenRouter proactive-delegation model %s",
+		(modelId) => {
+			const model = getModel("openrouter", modelId);
+			expect(model).toBeDefined();
+			expect(getSupportedThinkingLevels(model!)).toContain("ultra");
+		},
+	);
+
+	it.each(["gpt-5.6", "gpt-5.6-luna"] as const)("excludes ultra for non-delegating model %s", (modelId) => {
+		const model = getModel("openai", modelId);
+		expect(model).toBeDefined();
+		expect(getSupportedThinkingLevels(model!)).not.toContain("ultra");
+	});
 });
 
 describe("clampThinkingLevel with max", () => {
@@ -87,5 +117,20 @@ describe("clampThinkingLevel with max", () => {
 		const clamped = clampThinkingLevel(model, "max");
 		expect(clamped).not.toBe("max");
 		expect(getSupportedThinkingLevels(model)).toContain(clamped);
+	});
+});
+
+describe("clampThinkingLevel with ultra", () => {
+	it("keeps ultra on a model that opts in", () => {
+		const model = pickModel("openai", supportsThinkingLevel("ultra"));
+		expect(clampThinkingLevel(model, "ultra")).toBe("ultra");
+	});
+
+	it("clamps ultra down for a model without it", () => {
+		const model = getModel("openai", "gpt-5.6-luna");
+		expect(model).toBeDefined();
+		const clamped = clampThinkingLevel(model!, "ultra");
+		expect(clamped).not.toBe("ultra");
+		expect(getSupportedThinkingLevels(model!)).toContain(clamped);
 	});
 });

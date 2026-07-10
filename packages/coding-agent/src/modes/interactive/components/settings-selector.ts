@@ -38,6 +38,7 @@ const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	high: "Deep reasoning (~16k tokens)",
 	xhigh: "Maximum reasoning (~32k tokens)",
 	max: "Extended reasoning beyond xhigh (GPT-5.6+)",
+	ultra: "Maximum reasoning + orchestration signal (GPT-5.6 Sol/Terra)",
 };
 
 const DEFAULT_PROJECT_TRUST_LABELS: Record<DefaultProjectTrust, string> = {

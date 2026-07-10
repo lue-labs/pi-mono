@@ -318,7 +318,8 @@ export const streamSimple: StreamFunction<"google-vertex", SimpleStreamOptions> 
 		clampedReasoning === "off" ||
 		clampedReasoning === "adaptive" ||
 		clampedReasoning === "xhigh" ||
-		clampedReasoning === "max"
+		clampedReasoning === "max" ||
+		clampedReasoning === "ultra"
 			? "high"
 			: clampedReasoning
 	) as ClampedThinkingLevel;
@@ -509,7 +510,7 @@ function buildParams(
 	return params;
 }
 
-type ClampedThinkingLevel = Exclude<PiThinkingLevel, "xhigh" | "max" | "adaptive">;
+type ClampedThinkingLevel = Exclude<PiThinkingLevel, "xhigh" | "max" | "ultra" | "adaptive">;
 
 function isGemini3ProModel(model: Model<"google-generative-ai">): boolean {
 	return /gemini-3(?:\.\d+)?-pro/.test(model.id.toLowerCase());

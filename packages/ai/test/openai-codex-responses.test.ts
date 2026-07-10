@@ -120,6 +120,17 @@ describe("buildRequestBody — Codex prompt cache", () => {
 		expect(bodyB.prompt_cache_key).not.toBe(bodyA.prompt_cache_key);
 	});
 
+	it("serializes Ultra as max, never as a literal wire effort", () => {
+		const context: Context = { systemPrompt: "", messages: [] };
+		const fallbackBody = buildRequestBody(model, context, { reasoningEffort: "ultra" });
+		const explicitUltraBody = buildRequestBody({ ...model, thinkingLevelMap: { ultra: "MAX" as "max" } }, context, {
+			reasoningEffort: "ultra",
+		});
+
+		expect(fallbackBody.reasoning?.effort).toBe("max");
+		expect(explicitUltraBody.reasoning?.effort).toBe("max");
+	});
+
 	it("uses the stable Codex cache key as the Codex thread/request id", () => {
 		const threadId = "11111111-2222-5333-8444-555555555555";
 		const sseHeaders = buildSSEHeaders(undefined, undefined, "account-id", "token", "pi-session-id", threadId);
