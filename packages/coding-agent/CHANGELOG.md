@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Auto-compaction failure circuit breaker: transient provider-availability errors (429 rate-limit/usage-limit windows — e.g. ChatGPT-Codex `usage_limit_reached`, which carries `resets_in_seconds` — 529/503 overload shedding, gateway errors) no longer count toward the 3-strike trip and no longer reset a real-failure streak; when an attempt was already announced, a distinct `compaction_end` message marks it as retryable instead of a breaker strike. Previously a usage-limit window tripped the breaker and permanently disabled auto-compaction for a session that resumes working once the limit resets, leaving it to grow unchecked until the context-window limit (observed 2026-07-10: two sessions died this way). New pure helper `isTransientCompactionError` in `core/compaction/utils.ts`; regressions in `test/autocompact-thrashing-detector.test.ts` and `test/compaction.test.ts` (baseline-fail verified).
+
 - Add `max` thinking level (GPT-5.6+) across CLI `--thinking`, settings, thinking/settings selectors, agent tool schema, and theme (reuses the `xhigh` color).
 - Add model-gated `ultra` across the same surfaces, described as maximum reasoning plus a client-side orchestration signal and rendered with the `xhigh` color.
 - Fix startup freezes on large session trees by traversing the deferred stale-session-marker sweep asynchronously while preserving live, dead, and stale marker semantics.
