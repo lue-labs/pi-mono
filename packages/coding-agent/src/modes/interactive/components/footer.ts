@@ -80,8 +80,6 @@ export class FooterComponent implements Component {
 	setSelectedExtensionFooterId(id: string | undefined): void {
 		if (this.selectedExtensionFooterId === id) return;
 		this.selectedExtensionFooterId = id;
-		this.renderCacheKey = "";
-		this.renderCache = [];
 	}
 
 	setSession(session: AgentSession): void {
