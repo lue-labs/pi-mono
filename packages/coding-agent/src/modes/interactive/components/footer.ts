@@ -98,8 +98,8 @@ export class FooterComponent implements Component {
 	 * Git branch caching lives in the provider, and registered footer pill
 	 * output participates in the render memo key, so most dynamic sources
 	 * repaint on the next render pass without this call. This seam remains for
-	 * callers that know footer inputs changed out-of-band (core task
-	 * subscriptions) and must not race the change-guard.
+	 * unkeyed inputs such as theme changes and for callers that deliberately
+	 * force the next render pass to rebuild.
 	 */
 	invalidate(): void {
 		this.renderCacheKey = "";
@@ -211,7 +211,7 @@ export class FooterComponent implements Component {
 		// lines *before* doing any of the theme.fg()/padding/truncation work
 		// below, and skip straight to the memoized lines if nothing changed.
 		// Same pattern as FooterUsageTracker's usageCacheKey (footer-usage.ts),
-		// extended to the whole footer output (see perf/BASELINE.md fix #1).
+		// extended to the whole footer output.
 		//
 		// Registered footer pills have dynamic visible()/render() callbacks, so
 		// their output must be part of the change-guard: extensions (monitor,

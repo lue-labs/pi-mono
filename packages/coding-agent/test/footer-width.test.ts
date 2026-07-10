@@ -106,6 +106,13 @@ function createSession(options: {
 	return session as unknown as AgentSession;
 }
 
+type RegisteredFooter = ReturnType<AgentSession["extensionRunner"]["getRegisteredFooters"]>[number];
+
+function stubRegisteredFooters(session: AgentSession, footers: RegisteredFooter[]): void {
+	const extensionRunner = { getRegisteredFooters: () => footers };
+	(session as unknown as { extensionRunner: typeof extensionRunner }).extensionRunner = extensionRunner;
+}
+
 function createFooterData(providerCount: number): ReadonlyFooterDataProvider {
 	const provider = {
 		getGitBranch: () => "main",
@@ -139,8 +146,8 @@ describe("FooterComponent width handling", () => {
 	beforeEach(() => clearAgentRecentRunsForTests());
 
 	it("memoizes rendered lines when nothing that affects the footer changed", () => {
-		// Regression for perf/BASELINE.md fix #1: render(width) used to rebuild
-		// the full string set (theme.fg/padding/truncation) unconditionally on
+		// Regression: render(width) used to rebuild the full string set
+		// (theme.fg/padding/truncation) unconditionally on
 		// every call. Fails on the pre-fix baseline (each call returns a fresh
 		// array), passes once render() returns the memoized array for an
 		// unchanged cache key.
@@ -160,22 +167,20 @@ describe("FooterComponent width handling", () => {
 	it("invalidates memoized footer lines when extension footer selection changes", () => {
 		const selectedArgs: boolean[] = [];
 		const session = createSession({ sessionName: "same-session" });
-		(session as unknown as { extensionRunner: AgentSession["extensionRunner"] }).extensionRunner = {
-			getRegisteredFooters: () => [
-				{
-					id: "bg-test",
-					extensionPath: "/tmp/footer-test",
-					spec: {
-						visible: () => true,
-						render: ({ selected }: { selected: boolean }) => {
-							selectedArgs.push(selected);
-							return "bg ready";
-						},
-						onActivate: () => {},
+		stubRegisteredFooters(session, [
+			{
+				id: "bg-test",
+				extensionPath: "/tmp/footer-test",
+				spec: {
+					visible: () => true,
+					render: ({ selected }) => {
+						selectedArgs.push(selected);
+						return "bg ready";
 					},
+					onActivate: () => {},
 				},
-			],
-		} as unknown as AgentSession["extensionRunner"];
+			},
+		]);
 		const footer = new FooterComponent(session, createFooterData(1));
 
 		const first = footer.render(100);
@@ -191,19 +196,17 @@ describe("FooterComponent width handling", () => {
 		let visible = false;
 		let label = "1 agent running";
 		const session = createSession({ sessionName: "same-session" });
-		(session as unknown as { extensionRunner: AgentSession["extensionRunner"] }).extensionRunner = {
-			getRegisteredFooters: () => [
-				{
-					id: "agents-status",
-					extensionPath: "<builtin:hook:agents>",
-					spec: {
-						visible: () => visible,
-						render: () => label,
-						onActivate: () => {},
-					},
+		stubRegisteredFooters(session, [
+			{
+				id: "agents-status",
+				extensionPath: "<builtin:hook:agents>",
+				spec: {
+					visible: () => visible,
+					render: () => label,
+					onActivate: () => {},
 				},
-			],
-		} as unknown as AgentSession["extensionRunner"];
+			},
+		]);
 		const footer = new FooterComponent(session, createFooterData(1));
 
 		const idle = footer.render(100);
@@ -228,19 +231,17 @@ describe("FooterComponent width handling", () => {
 		let visible = false;
 		let label = "workflow: 2 runs active";
 		const session = createSession({ sessionName: "same-session" });
-		(session as unknown as { extensionRunner: AgentSession["extensionRunner"] }).extensionRunner = {
-			getRegisteredFooters: () => [
-				{
-					id: "workflow-status",
-					extensionPath: "<extension:workflow>",
-					spec: {
-						visible: () => visible,
-						render: () => label,
-						onActivate: () => {},
-					},
+		stubRegisteredFooters(session, [
+			{
+				id: "workflow-status",
+				extensionPath: "<extension:workflow>",
+				spec: {
+					visible: () => visible,
+					render: () => label,
+					onActivate: () => {},
 				},
-			],
-		} as unknown as AgentSession["extensionRunner"];
+			},
+		]);
 		const footer = new FooterComponent(session, createFooterData(1));
 
 		// Prime the memo with the pill hidden.
