@@ -62,6 +62,7 @@ import {
 	estimateTokens,
 	evaluateRapidRefill,
 	generateBranchSummary,
+	isTransientCompactionError,
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
@@ -3248,6 +3249,29 @@ export class AgentSession {
 			return this.agent.hasQueuedMessages();
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : "compaction failed";
+			// Transient provider-availability failures (rate limits / usage-limit
+			// windows, overload shedding) do not count toward the failure circuit
+			// breaker and do not reset an existing streak: they self-resolve (OpenAI
+			// usage-limit 429s carry an explicit reset time) while the breaker
+			// permanently disables auto-compaction — exactly wrong for a session
+			// that resumes working once the limit resets and then dies at the
+			// context-window limit with compaction disabled. The threshold check
+			// simply retries compaction on a later turn.
+			if (isTransientCompactionError(errorMessage)) {
+				if (started) {
+					this._emit({
+						type: "compaction_end",
+						reason,
+						result: undefined,
+						aborted: false,
+						willRetry: false,
+						errorMessage: `${
+							reason === "overflow" ? "Context overflow recovery" : "Auto-compaction"
+						} hit a transient provider error; it will be retried and does not count toward the circuit breaker: ${errorMessage}`,
+					});
+				}
+				return false;
+			}
 			this._consecutiveCompactionFailures++;
 			if (this._consecutiveCompactionFailures >= COMPACTION_FAILURE_TRIP_COUNT) {
 				this._autoCompactDisabledThisSession = true;

@@ -35,10 +35,10 @@ function createMockUsage(input: number, output: number) {
 	};
 }
 
-function createAssistantMessage(provider: string, modelId: string): AssistantMessage {
+function createAssistantMessage(provider: string, modelId: string, text = "ok"): AssistantMessage {
 	return {
 		role: "assistant",
-		content: [{ type: "text", text: "ok" }],
+		content: [{ type: "text", text }],
 		usage: createMockUsage(10, 5),
 		stopReason: "stop",
 		timestamp: Date.now(),
@@ -232,5 +232,145 @@ describe("auto-compaction thrashing detector wiring", () => {
 		// Streak resets to 0 after tripping so it doesn't re-emit every subsequent turn.
 		expect(s._consecutiveRapidRefills).toBe(0);
 		expect(events.filter((e) => e.type === "compaction_start")).toHaveLength(0);
+	});
+
+	it("transient provider failures (rate limits) never count toward the failure breaker", async () => {
+		const { session, sessionManager } = createSession(200000);
+		const events: AgentSessionEvent[] = [];
+		session.subscribe((event) => events.push(event));
+
+		const s = session as unknown as {
+			_autoCompactDisabledThisSession: boolean;
+			_consecutiveCompactionFailures: number;
+			_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
+		};
+
+		const originalGetBranch = sessionManager.getBranch.bind(sessionManager);
+		sessionManager.getBranch = (() => {
+			throw new Error(
+				'Summarization failed: OpenAI API error (429): {"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1783690536,"eligible_promo":null,"resets_in_seconds":5905}',
+			);
+		}) as typeof sessionManager.getBranch;
+
+		try {
+			// Far past COMPACTION_FAILURE_TRIP_COUNT: a rate-limit window that
+			// outlasts many threshold checks must still not trip the breaker.
+			for (let i = 0; i < COMPACTION_FAILURE_TRIP_COUNT + 2; i++) {
+				expect(await s._runAutoCompaction("threshold", false)).toBe(false);
+			}
+			expect(s._consecutiveCompactionFailures).toBe(0);
+			expect(s._autoCompactDisabledThisSession).toBe(false);
+			expect(
+				events.some(
+					(e) =>
+						e.type === "compaction_end" &&
+						(e as { errorMessage?: string }).errorMessage?.includes("circuit breaker"),
+				),
+			).toBe(false);
+		} finally {
+			sessionManager.getBranch = originalGetBranch;
+		}
+	});
+
+	it("a transient failure neither increments nor resets a real-failure streak", async () => {
+		const { session, sessionManager } = createSession(200000);
+		const events: AgentSessionEvent[] = [];
+		session.subscribe((event) => events.push(event));
+
+		const s = session as unknown as {
+			_autoCompactDisabledThisSession: boolean;
+			_consecutiveCompactionFailures: number;
+			_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
+		};
+
+		const originalGetBranch = sessionManager.getBranch.bind(sessionManager);
+		const throwStructural = (() => {
+			throw new Error("simulated structural compaction failure");
+		}) as typeof sessionManager.getBranch;
+		const throwTransient = (() => {
+			throw new Error('Anthropic API error (529): {"type":"overloaded_error","message":"Overloaded"}');
+		}) as typeof sessionManager.getBranch;
+
+		try {
+			// Two real failures arm the streak one below the trip count.
+			sessionManager.getBranch = throwStructural;
+			await s._runAutoCompaction("threshold", false);
+			await s._runAutoCompaction("threshold", false);
+			expect(s._consecutiveCompactionFailures).toBe(COMPACTION_FAILURE_TRIP_COUNT - 1);
+
+			// A rate-limited attempt in between leaves the streak untouched
+			// (neither incremented - which would trip here - nor reset).
+			sessionManager.getBranch = throwTransient;
+			await s._runAutoCompaction("threshold", false);
+			expect(s._consecutiveCompactionFailures).toBe(COMPACTION_FAILURE_TRIP_COUNT - 1);
+			expect(s._autoCompactDisabledThisSession).toBe(false);
+
+			// The next real failure completes the streak and trips the breaker.
+			sessionManager.getBranch = throwStructural;
+			await s._runAutoCompaction("threshold", false);
+			expect(s._consecutiveCompactionFailures).toBe(COMPACTION_FAILURE_TRIP_COUNT);
+			expect(s._autoCompactDisabledThisSession).toBe(true);
+			expect(
+				events.some(
+					(e) =>
+						e.type === "compaction_end" &&
+						(e as { errorMessage?: string }).errorMessage?.includes("circuit breaker"),
+				),
+			).toBe(true);
+		} finally {
+			sessionManager.getBranch = originalGetBranch;
+		}
+	});
+
+	it("a rate-limited attempt after compaction_start emits a distinct transient message and keeps retrying enabled", async () => {
+		const { session, sessionManager, model } = createSession(200000);
+		const events: AgentSessionEvent[] = [];
+		session.subscribe((event) => events.push(event));
+
+		// Enough real history that prepareCompaction returns a preparation:
+		// each message is ~12k estimated tokens, so with the default
+		// keepRecentTokens (20k) the cut point lands mid-history and
+		// messagesToSummarize is non-empty.
+		const bigText = "x".repeat(48_000);
+		for (let i = 0; i < 4; i++) {
+			sessionManager.appendMessage(createAssistantMessage(model.provider, model.id, bigText));
+		}
+
+		const s = session as unknown as {
+			_autoCompactDisabledThisSession: boolean;
+			_consecutiveCompactionFailures: number;
+			_modelRegistry: { getApiKeyAndHeaders: (model: unknown) => Promise<unknown> };
+			_getCompactionRequestAuth: (model: unknown) => Promise<unknown>;
+			_extensionRunner: {
+				hasHandlers: (type: string) => boolean;
+				emit: (event: { type?: string }) => Promise<unknown>;
+			};
+			_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
+		};
+
+		// Offline auth for both streamFn branches - neither performs any network IO.
+		s._modelRegistry.getApiKeyAndHeaders = async () => ({ ok: true, apiKey: "test-key" });
+		s._getCompactionRequestAuth = async () => ({ apiKey: "test-key" });
+
+		// Throw the rate limit from the extension seam - the first call after
+		// compaction_start that avoids any real summarization/network code.
+		s._extensionRunner.hasHandlers = (type) => type === "session_before_compact";
+		s._extensionRunner.emit = async (event) => {
+			if (event?.type === "session_before_compact") {
+				throw new Error("Summarization failed: OpenAI API error (429): Too Many Requests");
+			}
+			return undefined;
+		};
+
+		const result = await s._runAutoCompaction("threshold", false);
+
+		expect(result).toBe(false);
+		expect(events.filter((e) => e.type === "compaction_start")).toHaveLength(1);
+		const end = events.find((e) => e.type === "compaction_end");
+		expect(end).toBeDefined();
+		expect((end as { errorMessage?: string }).errorMessage).toContain("transient provider error");
+		expect((end as { errorMessage?: string }).errorMessage).not.toContain("circuit breaker tripped");
+		expect(s._consecutiveCompactionFailures).toBe(0);
+		expect(s._autoCompactDisabledThisSession).toBe(false);
 	});
 });

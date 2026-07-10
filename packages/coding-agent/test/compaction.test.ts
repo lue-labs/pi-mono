@@ -13,6 +13,7 @@ import {
 	evaluateRapidRefill,
 	findCutPoint,
 	getLastAssistantUsage,
+	isTransientCompactionError,
 	prepareCompaction,
 	RAPID_REFILL_TRIP_COUNT,
 	RAPID_REFILL_WINDOW,
@@ -654,5 +655,53 @@ describe("evaluateRapidRefill", () => {
 		expect(COMPACTION_FAILURE_TRIP_COUNT).toBe(3);
 		expect(RAPID_REFILL_TRIP_COUNT).toBe(3);
 		expect(RAPID_REFILL_WINDOW).toBe(3);
+	});
+});
+
+describe("isTransientCompactionError", () => {
+	it("classifies provider rate-limit / usage-limit / overload failures as transient", () => {
+		const transient = [
+			// Exact shape from the 2026-07-10 incident: a ChatGPT-Codex usage limit
+			// hit mid-session. The session resumed once resets_in_seconds elapsed,
+			// but the breaker had already permanently disabled auto-compaction.
+			'Summarization failed: OpenAI API error (429): {"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1783690536,"eligible_promo":null,"resets_in_seconds":5905}',
+			"Compaction failed: Summarization failed: OpenAI API error (429): Too Many Requests",
+			'Anthropic API error (529): {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+			"rate_limit_error: This request would exceed your organization's rate limit",
+			"Google API error: RESOURCE_EXHAUSTED: Quota exceeded for quota metric",
+			// Billing/API quota errors are retried, not breaker strikes (in
+			// practice providers wrap these in a 429 anyway).
+			"You exceeded your current quota, please check your plan and billing details",
+			"HTTP 503 Service Unavailable",
+			"502 Bad Gateway",
+		];
+		for (const message of transient) {
+			expect(isTransientCompactionError(message), message).toBe(true);
+		}
+	});
+
+	it("keeps structural failures counting toward the breaker", () => {
+		const structural = [
+			"Summarization failed: Unknown error",
+			"compaction failed",
+			"No API key found for provider openai",
+			"Summarization failed: OpenAI API error (400): This model's maximum context length is 272000 tokens",
+			"Summarization failed: request entity too large",
+			// The terminal error of the 2026-07-10 incident: after the tripped
+			// breaker let context grow unchecked, every request died with this.
+			// A too-large payload never self-resolves - it must count.
+			'OpenAI API error (413): {"code":"request_too_large","message":"JSON request body exceeds the 8 MiB limit"}',
+			"Invalid model: gpt-5.6-sol",
+			// Digit substrings must not false-positive on the status-code patterns.
+			"Summarization failed: model produced 5290 tokens from 14290 input tokens",
+			// Filesystem quota on the session write (thrown after the paid
+			// summarization call) does not self-resolve - the breaker must stop
+			// the repeated-paid-summarization loop. Excluded via the
+			// `(?<!disk )quota` lookbehind.
+			"EDQUOT: disk quota exceeded, write '/Users/luke/.pi/agent/sessions/session.jsonl'",
+		];
+		for (const message of structural) {
+			expect(isTransientCompactionError(message), message).toBe(false);
+		}
 	});
 });
