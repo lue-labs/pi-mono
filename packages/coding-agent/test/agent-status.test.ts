@@ -104,8 +104,8 @@ describe("native agent status", () => {
 	});
 
 	test("skips notifying subscribers when a progress tick has no user-visible content change", () => {
-		// Regression for perf/BASELINE.md fix #2: every background-agent progress
-		// tick used to force notifyAgentRecentRunsChanged() unconditionally, even
+		// Regression: every background-agent progress tick used to force
+		// notifyAgentRecentRunsChanged() unconditionally, even
 		// when nothing rendered would actually differ (e.g. a heartbeat re-send of
 		// the same tool state). Fails on the pre-fix baseline (listener count 3),
 		// passes after the change-guard (listener count 2).

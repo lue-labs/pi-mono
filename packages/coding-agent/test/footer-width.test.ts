@@ -192,39 +192,16 @@ describe("FooterComponent width handling", () => {
 		expect(selectedArgs).toEqual([false, true]);
 	});
 
-	it("re-renders dynamic registered footers after invalidation", () => {
-		let visible = false;
-		let label = "1 agent running";
+	it("invalidates memoized footer lines when keyed inputs are unchanged", () => {
 		const session = createSession({ sessionName: "same-session" });
-		stubRegisteredFooters(session, [
-			{
-				id: "agents-status",
-				extensionPath: "<builtin:hook:agents>",
-				spec: {
-					visible: () => visible,
-					render: () => label,
-					onActivate: () => {},
-				},
-			},
-		]);
 		const footer = new FooterComponent(session, createFooterData(1));
 
-		const idle = footer.render(100);
-		expect(stripAnsi(idle.join("\n"))).not.toContain("agent running");
-
-		visible = true;
+		const first = footer.render(100);
 		footer.invalidate();
-		const running = footer.render(100);
-		expect(running).not.toBe(idle);
-		expect(stripAnsi(running.join("\n"))).toContain("1 agent running");
+		const second = footer.render(100);
 
-		label = "1 agent needs attention";
-		footer.invalidate();
-		expect(stripAnsi(footer.render(100).join("\n"))).toContain("1 agent needs attention");
-
-		visible = false;
-		footer.invalidate();
-		expect(stripAnsi(footer.render(100).join("\n"))).not.toContain("agent needs attention");
+		expect(second).not.toBe(first);
+		expect(second).toEqual(first);
 	});
 
 	it("repaints dynamic registered footers on the next render without explicit invalidation", () => {

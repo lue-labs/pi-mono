@@ -297,8 +297,8 @@ export function updateAgentRecentRunProgress(
 	expectedGeneration?: number,
 ): void {
 	// Progress ticks fire far more often than terminal transitions (finish/fail);
-	// guard against re-rendering when nothing user-visible actually changed —
-	// see perf/BASELINE.md fix #2 (global requestRender() on every agent tick).
+	// guard against re-rendering when nothing user-visible actually changed;
+	// previously every agent progress tick triggered a global requestRender().
 	applyRunDetails(run, details, details.status !== "running", expectedGeneration, /* guardUnchanged */ true);
 }
 
