@@ -264,8 +264,9 @@ function buildParams(model: Model<"openai-responses">, context: Context, options
 
 	if (model.reasoning) {
 		if (options?.reasoningEffort || options?.reasoningSummary) {
-			const configuredEffort = options?.reasoningEffort
-				? (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort)
+			const requestedEffort = options?.reasoningEffort === "ultra" ? "max" : options?.reasoningEffort;
+			const configuredEffort = requestedEffort
+				? (model.thinkingLevelMap?.[requestedEffort] ?? requestedEffort)
 				: "medium";
 			const effort = configuredEffort === "ultra" ? "max" : configuredEffort;
 			params.reasoning = {

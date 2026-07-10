@@ -605,9 +605,11 @@ function buildRequestBody(
 
 	if (options?.reasoningEffort !== undefined) {
 		const configuredEffort =
-			options.reasoningEffort === "none"
-				? (model.thinkingLevelMap?.off ?? "none")
-				: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
+			options.reasoningEffort === "ultra"
+				? "max"
+				: options.reasoningEffort === "none"
+					? (model.thinkingLevelMap?.off ?? "none")
+					: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
 		const effort = configuredEffort === "ultra" ? "max" : configuredEffort;
 		if (effort !== null) {
 			body.reasoning = {

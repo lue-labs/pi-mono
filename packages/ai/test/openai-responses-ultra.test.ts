@@ -70,8 +70,8 @@ describe("OpenAI Responses Ultra wire mapping", () => {
 		expect(params.reasoning?.effort).toBe("max");
 	});
 
-	it("never forwards an explicit ultra mapping literally", async () => {
-		await stream({ ...model, thinkingLevelMap: { ultra: "ultra" } }, context, {
+	it("ignores a non-native custom Ultra mapping", async () => {
+		await stream({ ...model, thinkingLevelMap: { ultra: "MAX" as "max" } }, context, {
 			apiKey: "test",
 			reasoningEffort: "ultra",
 		}).result();

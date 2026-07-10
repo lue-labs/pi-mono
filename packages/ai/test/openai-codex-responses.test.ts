@@ -123,7 +123,7 @@ describe("buildRequestBody — Codex prompt cache", () => {
 	it("serializes Ultra as max, never as a literal wire effort", () => {
 		const context: Context = { systemPrompt: "", messages: [] };
 		const fallbackBody = buildRequestBody(model, context, { reasoningEffort: "ultra" });
-		const explicitUltraBody = buildRequestBody({ ...model, thinkingLevelMap: { ultra: "ultra" } }, context, {
+		const explicitUltraBody = buildRequestBody({ ...model, thinkingLevelMap: { ultra: "MAX" as "max" } }, context, {
 			reasoningEffort: "ultra",
 		});
 

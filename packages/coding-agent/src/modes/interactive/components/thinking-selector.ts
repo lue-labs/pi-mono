@@ -17,7 +17,7 @@ const LEVEL_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	high: "Deep reasoning (~16k tokens)",
 	xhigh: "Maximum reasoning (~32k tokens)",
 	max: "Extended reasoning beyond xhigh (GPT-5.6+)",
-	ultra: "Maximum reasoning with automatic task delegation (GPT-5.6 Sol/Terra)",
+	ultra: "Maximum reasoning + orchestration signal (GPT-5.6 Sol/Terra)",
 };
 
 // Display order: off → adaptive → ladder. Adaptive sits near the top because it's a mode,

@@ -13,6 +13,7 @@ interface CapturedAzureClientOptions {
 
 interface CapturedAzureResponsesPayload {
 	prompt_cache_key?: string;
+	reasoning?: { effort?: string };
 	store?: boolean;
 }
 
@@ -163,6 +164,21 @@ describe("azure-openai-responses base URL normalization", () => {
 		}).result();
 
 		expect(azureMock.lastParams?.store).toBe(false);
+	});
+
+	it("ignores a non-native custom Ultra mapping", async () => {
+		const model = pickModel("azure-openai-responses");
+		await streamAzureOpenAIResponses(
+			{ ...model, reasoning: true, thinkingLevelMap: { ultra: "MAX" as "max" } },
+			context,
+			{
+				apiKey: "test-api-key",
+				azureBaseUrl: "https://my-resource.openai.azure.com",
+				reasoningEffort: "ultra",
+			},
+		).result();
+
+		expect(azureMock.lastParams?.reasoning?.effort).toBe("max");
 	});
 
 	it("builds correct default URL from AZURE_OPENAI_RESOURCE_NAME", async () => {
