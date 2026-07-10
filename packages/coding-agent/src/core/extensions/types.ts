@@ -1589,8 +1589,8 @@ export interface ExtensionAPI {
 
 	/**
 	 * Register a footer pill that contributes into the existing footer's nav
-	 * chain. Reactive: `spec.visible()` is evaluated on every footer
-	 * invalidate. `ui.setFooter(factory)` keeps working for whole-footer
+	 * chain. Reactive: `spec.visible()` is evaluated on every footer render
+	 * pass. `ui.setFooter(factory)` keeps working for whole-footer
 	 * replacement; `registerFooter` only adds focusable children.
 	 */
 	registerFooter(id: string, spec: ExtensionFooterSpec): void;

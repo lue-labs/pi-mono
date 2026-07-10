@@ -13,7 +13,7 @@ import type { Theme } from "../../modes/interactive/theme/theme.ts";
 //   - show<Position>(id, payload?) / hide<Position>(id) imperatively activate/deactivate.
 //   - Footer is reactive (visible() predicate) rather than imperative show/hide.
 //
-// Design lives in docs/plans/b5-tui-hooks-design-proposal-2026-05-21.md.
+// Design lives in valkyriweb/my-pi at docs/plans/b5-tui-hooks-design-proposal-2026-05-21.md.
 // Naming follows VS Code's extension API (registerWebviewViewProvider style).
 
 /**
@@ -92,7 +92,7 @@ export interface ExtensionFooterRenderCtx {
  * existing footer nav chain without owning the whole footer (use
  * `ui.setFooter(factory)` for whole-region replacement).
  *
- * Visibility is reactive: `visible()` is evaluated on every footer invalidate,
+ * Visibility is reactive: `visible()` is evaluated on every footer render pass,
  * so pills appear/disappear based on extension state without imperative
  * `show/hide` calls.
  */
