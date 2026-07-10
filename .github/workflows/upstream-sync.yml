@@ -152,6 +152,10 @@ jobs:
           # `set -o pipefail`, `git log | head -N` makes git exit 141 (SIGPIPE) once
           # head closes the pipe after N lines, which aborts the whole step.
           COMMIT_LOG=$(git log --oneline -n 40 "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}")
+          BEHIND="${{ steps.check.outputs.behind }}"
+          if [ "${BEHIND}" -gt 40 ]; then
+            COMMIT_LOG="${COMMIT_LOG}"$'\n'"… and $((BEHIND - 40)) more upstream commit(s) not shown (newest 40 listed)"
+          fi
           DIFFSTAT=$(git diff --stat "origin/${FORK_BRANCH}..upstream/${UPSTREAM_BRANCH}" | tail -5)
           {
             echo "commit_log<<EOF"
@@ -167,9 +171,11 @@ jobs:
             echo "::notice::Clean merge."
           else
             # Capture conflicted paths, abort, mark draft.
-            # `|| true` guards against SIGPIPE (141) when more than 30 paths conflict
-            # and `head` closes the pipe early under `set -o pipefail`.
-            CONFLICTS=$(git diff --name-only --diff-filter=U | head -30 || true)
+            # SIGPIPE guard scoped to the producer only: `head` closing the
+            # pipe early (>30 conflicted paths) must not fail the step under
+            # `set -o pipefail`, while the rest of the pipeline's status is no
+            # longer swallowed by a trailing `|| true`.
+            CONFLICTS=$({ git diff --name-only --diff-filter=U || true; } | head -30)
             echo "::warning::Merge conflicts detected."
             git merge --abort
             # Reset to fork main and add an empty marker commit so GitHub can open a draft PR.
