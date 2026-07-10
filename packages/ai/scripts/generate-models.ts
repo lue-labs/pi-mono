@@ -269,12 +269,13 @@ function supportsOpenAiMax(modelId: string): boolean {
 	return modelId.includes("gpt-5.6");
 }
 
-// Codex advertises Ultra only for GPT-5.6 Sol and Terra. Ultra is a Pi-side
-// orchestration mode and maps to the model's native `max` wire effort.
+// Ultra is a Pi-side orchestration mode limited to GPT-5.6 Sol and Terra. It
+// maps to native `max` across the OpenAI, Codex, Azure, and OpenRouter catalogs.
 function supportsOpenAiUltra(model: Model<any>): boolean {
+	const modelId = model.id.startsWith("openai/") ? model.id.slice("openai/".length) : model.id;
 	return (
-		(model.provider === "openai" || model.provider === "openai-codex") &&
-		(model.id === "gpt-5.6-sol" || model.id === "gpt-5.6-terra")
+		["openai", "openai-codex", "azure-openai-responses", "openrouter"].includes(model.provider) &&
+		(modelId === "gpt-5.6-sol" || modelId === "gpt-5.6-terra")
 	);
 }
 

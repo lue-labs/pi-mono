@@ -78,6 +78,24 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toContain("ultra");
 	});
 
+	it.each(["gpt-5.6-sol", "gpt-5.6-terra"] as const)(
+		"includes ultra for Azure proactive-delegation model %s",
+		(modelId) => {
+			const model = getModel("azure-openai-responses", modelId);
+			expect(model).toBeDefined();
+			expect(getSupportedThinkingLevels(model!)).toContain("ultra");
+		},
+	);
+
+	it.each(["openai/gpt-5.6-sol", "openai/gpt-5.6-terra"] as const)(
+		"includes ultra for OpenRouter proactive-delegation model %s",
+		(modelId) => {
+			const model = getModel("openrouter", modelId);
+			expect(model).toBeDefined();
+			expect(getSupportedThinkingLevels(model!)).toContain("ultra");
+		},
+	);
+
 	it.each(["gpt-5.6", "gpt-5.6-luna"] as const)("excludes ultra for non-delegating model %s", (modelId) => {
 		const model = getModel("openai", modelId);
 		expect(model).toBeDefined();
