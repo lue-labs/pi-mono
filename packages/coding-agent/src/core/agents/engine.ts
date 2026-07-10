@@ -56,6 +56,7 @@ function controlDetailsFromRun(
 		runId: run.id,
 		background: run.execution === "background",
 		resumable: run.resumable,
+		parked: run.parked,
 		message,
 	};
 }
@@ -206,6 +207,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 						runId: run.id,
 						background: run.execution === "background",
 						resumable: run.resumable,
+						parked: run.parked,
 					};
 				}
 				return details;

@@ -1,15 +1,14 @@
 import { getKeybindings, truncateToWidth } from "@valkyriweb/pi-tui";
 import {
 	formatAgentRunDetailView,
-	formatAgentRunRow,
 	shouldZoomAgentRunRow,
 } from "../../modes/interactive/components/agent-runs-selector.ts";
 import { keyHint, rawKeyHint } from "../../modes/interactive/components/keybinding-hints.ts";
 import { theme } from "../../modes/interactive/theme/theme.ts";
 import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine } from "../agents/engine.ts";
-import { listAgentRecentRuns } from "../agents/status.ts";
+import { formatAgentDurationMs, listAgentRecentRuns } from "../agents/status.ts";
 import { findTaskAdapter, listTasks, subscribeTasks } from "../tasks/registry.ts";
-import { formatTaskFooterStatus, formatTaskStatus } from "../tasks/status.ts";
+import { formatTaskFooterStatus, formatTaskStatus, taskIsWorking, taskNeedsInput } from "../tasks/status.ts";
 import type { TaskSnapshot } from "../tasks/types.ts";
 import {
 	createAgentToolDefinition,
@@ -27,11 +26,7 @@ import type {
 const AGENTS_PANE_ID = "agents-status";
 
 function footerNeedsAttention(): boolean {
-	return listTasks().some((task) => {
-		if (task.status === "interrupted" || task.status === "failed") return true;
-		if (task.status !== "running" || task.type !== "local_agent") return false;
-		return listAgentRecentRuns().find((run) => run.id === task.id)?.needsAttention ?? false;
-	});
+	return listTasks().some(taskNeedsInput);
 }
 
 /**
@@ -42,8 +37,7 @@ function footerNeedsAttention(): boolean {
  * are active" never read distinctly from "an agent needs you".
  */
 function renderFooterText(ctx: ExtensionFooterRenderCtx): string {
-	const text = formatTaskFooterStatus() ?? "";
-	if (!text) return text;
+	const text = formatTaskFooterStatus();
 	if (ctx.selected) return ctx.theme.fg("accent", text);
 	return ctx.theme.fg(footerNeedsAttention() ? "warning" : "dim", text);
 }
@@ -86,11 +80,8 @@ export function hookAgentsTools(pi: ExtensionAPI): void {
 export function hookAgentsUI(pi: ExtensionAPI): void {
 	pi.registerMainPane(AGENTS_PANE_ID, createAgentsPaneFactory(pi));
 
-	// Background-runtime status pill (agents + bash jobs). Reactive visibility:
-	// the pill appears only while runtime tasks need attention.
 	pi.registerFooter(AGENTS_PANE_ID, {
 		render: (ctx) => renderFooterText(ctx),
-		visible: () => formatTaskFooterStatus() !== undefined,
 		onActivate: () => pi.showMainPane(AGENTS_PANE_ID),
 	});
 }
@@ -103,35 +94,86 @@ export function hookAgents(pi: ExtensionAPI): void {
 	hookAgentsUI(pi);
 }
 
-// Sort running/interrupted/failed tasks first (newest of those), then the
-// rest newest-first — keeps the row a user is most likely to act on at the
-// top without reshuffling completed history underneath it every tick.
-function isPaneRelevant(task: TaskSnapshot): boolean {
-	return task.status === "running" || task.status === "interrupted" || task.status === "failed";
+const MAX_COMPLETED_PANE_ROWS = 6;
+
+interface PaneTaskGroups {
+	needsInput: TaskSnapshot[];
+	working: TaskSnapshot[];
+	completed: TaskSnapshot[];
 }
 
-function sortPaneTasks(tasks: TaskSnapshot[]): TaskSnapshot[] {
-	return [...tasks].sort((a, b) => {
-		const relevance = Number(isPaneRelevant(b)) - Number(isPaneRelevant(a));
-		return relevance || b.startedAt - a.startedAt;
-	});
+function byNewestStart(a: TaskSnapshot, b: TaskSnapshot): number {
+	return b.startedAt - a.startedAt;
 }
 
-/** Render a single row, reusing `agent-runs-selector.ts`'s formatter for native
- * agent runs (same row shape as `/agents runs`) and a compact fallback for
- * other task types (e.g. background bash jobs) that formatter doesn't cover. */
-function formatPaneRow(task: TaskSnapshot, selected: boolean): string {
-	if (task.type === "local_agent") {
-		const run = listAgentRecentRuns().find((candidate) => candidate.id === task.id);
-		if (run) return formatAgentRunRow(run, selected);
+/**
+ * Regroups tasks into the three sections the pane renders, needs-input
+ * sorted first within its own section and ahead of Working/Completed —
+ * mirrors the footer's "attention wins" priority. Completed is bounded to
+ * `MAX_COMPLETED_PANE_ROWS` so a long session's history doesn't push the
+ * live sections off-screen. "idle" tasks (parked persistent forks) land in
+ * Working — they're alive and awaiting their next turn, not finished.
+ */
+function groupPaneTasks(tasks: TaskSnapshot[]): PaneTaskGroups {
+	const needsInput: TaskSnapshot[] = [];
+	const working: TaskSnapshot[] = [];
+	const completed: TaskSnapshot[] = [];
+	for (const task of [...tasks].sort(byNewestStart)) {
+		if (taskNeedsInput(task)) needsInput.push(task);
+		else if (taskIsWorking(task)) working.push(task);
+		else completed.push(task);
 	}
-	const prefix = selected ? `${theme.fg("accent", "→ ")}` : "  ";
-	const id = selected ? theme.fg("accent", task.id) : theme.fg("text", task.id);
-	const resumable = task.resumable ? theme.fg("warning", " resumable") : "";
-	const error = task.error ? theme.fg("error", ` error: ${task.error}`) : "";
-	return `${prefix}${id} [${task.type}] ${task.status}${resumable} ${task.description}${error}`;
+	return { needsInput, working, completed: completed.slice(0, MAX_COMPLETED_PANE_ROWS) };
 }
 
+function flattenPaneGroups(groups: PaneTaskGroups): TaskSnapshot[] {
+	return [...groups.needsInput, ...groups.working, ...groups.completed];
+}
+
+/**
+ * Compact per-task label for the pane list: the caller's exact `label`
+ * (`ForkAgentOptions.description` for extension-launched forks) when set,
+ * else the adapter's generic `description` preview. Deliberately never the
+ * raw task id or a `[type]` tag — those stay in the fallback detail view.
+ */
+function paneRowLabel(task: TaskSnapshot): string {
+	return task.label ?? task.description;
+}
+
+function paneRowStatusText(task: TaskSnapshot): string {
+	if (taskNeedsInput(task)) return theme.fg("warning", "needs input");
+	switch (task.status) {
+		case "running":
+			return theme.fg("accent", "working");
+		case "idle":
+			return theme.fg("muted", "idle");
+		case "completed":
+			return theme.fg("success", "done");
+		case "failed":
+			return theme.fg("error", "failed");
+		case "cancelled":
+		case "killed":
+			return theme.fg("muted", task.status);
+		default:
+			return theme.fg("muted", task.status);
+	}
+}
+
+function paneRowElapsed(task: TaskSnapshot): string {
+	return formatAgentDurationMs(Math.max(0, (task.endedAt ?? Date.now()) - task.startedAt));
+}
+
+/** Compact row: status + label + elapsed only — no task id, no `[type]` tag (agents-footer-parity). */
+function formatPaneRow(task: TaskSnapshot, selected: boolean): string {
+	const prefix = selected ? theme.fg("accent", "→ ") : "  ";
+	const label = paneRowLabel(task);
+	const labelText = selected ? theme.fg("accent", label) : theme.fg("text", label);
+	return `${prefix}${paneRowStatusText(task)} ${labelText} ${theme.fg("muted", paneRowElapsed(task))}`;
+}
+
+// The detail view (Enter on a row with no zoom target) is the deliberate
+// fallback surface that DOES show internal ids/session paths/tool calls —
+// only the compact rows above stay id/type-free.
 function formatPaneDetail(task: TaskSnapshot | undefined): string {
 	if (!task) return theme.fg("muted", "No background runtime tasks");
 	if (task.type === "local_agent") {
@@ -187,7 +229,7 @@ class AgentsPane implements ExtensionMainPaneComponent {
 	}
 
 	private sortedTasks(): TaskSnapshot[] {
-		return sortPaneTasks(listTasks());
+		return flattenPaneGroups(groupPaneTasks(listTasks()));
 	}
 
 	private selectedTask(): TaskSnapshot | undefined {
@@ -261,20 +303,31 @@ class AgentsPane implements ExtensionMainPaneComponent {
 	render(width: number): string[] {
 		const tasks = this.sortedTasks();
 		const selected = this.selectedTask();
-		const lines: string[] = [this.theme.fg("accent", this.theme.bold("Background task status"))];
+		const lines: string[] = [this.theme.fg("accent", this.theme.bold("Agents"))];
 		if (this.showDetail) {
 			lines.push("", ...formatPaneDetail(selected).split("\n"));
 			lines.push("", rawKeyHint("esc", "back"));
 		} else if (tasks.length === 0) {
-			lines.push("", this.theme.fg("muted", "No background runtime tasks."));
+			lines.push("", this.theme.fg("muted", "No agents or background tasks yet."));
 		} else {
-			lines.push("");
-			for (const [index, task] of tasks.entries()) lines.push(formatPaneRow(task, index === this.selectedIndex));
+			const groups = groupPaneTasks(listTasks());
+			let rowIndex = 0;
+			const pushSection = (heading: string, sectionTasks: TaskSnapshot[]) => {
+				if (sectionTasks.length === 0) return;
+				lines.push("", this.theme.fg("muted", this.theme.bold(heading)));
+				for (const task of sectionTasks) {
+					lines.push(formatPaneRow(task, rowIndex === this.selectedIndex));
+					rowIndex += 1;
+				}
+			};
+			pushSection("Needs input", groups.needsInput);
+			pushSection("Working", groups.working);
+			pushSection("Completed", groups.completed);
 			lines.push(
 				"",
 				rawKeyHint("↑↓", "navigate") +
 					"  " +
-					keyHint("tui.select.confirm", "details") +
+					keyHint("tui.select.confirm", "open") +
 					"  " +
 					rawKeyHint("x", "stop") +
 					"  " +

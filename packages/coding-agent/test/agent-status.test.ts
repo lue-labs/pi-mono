@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
+	agentRunUiStatus,
 	attachAgentRecentRunController,
+	attachAgentRecentRunTerminalListener,
 	cancelAgentRecentRun,
 	clearAgentRecentRunsForTests,
 	failAgentRecentRun,
@@ -103,6 +105,77 @@ describe("native agent status", () => {
 		expect(formatAgentStatus(undefined, "agent-1")).toContain("session:");
 	});
 
+	test("keeps parked persistent runs when bounded history evicts terminal runs", () => {
+		const observer = startAgentRecentRun("single", [{ agent: "general", task: "Observe" }], {
+			background: true,
+			persistent: true,
+			label: "Observer",
+		});
+		updateAgentRecentRunProgress(observer, {
+			mode: "single",
+			status: "interrupted",
+			parked: true,
+			runs: [makeRunDetails("interrupted")],
+		});
+		expect(observer).toMatchObject({ status: "interrupted", persistent: true, parked: true });
+		expect(formatAgentStatus()).toContain("agent-1 single background idle");
+		expect(formatAgentStatus(undefined, observer.id)).toContain("agent-1 single background idle");
+		expect(formatAgentFooterStatus()).toContain("1 idle");
+		expect(formatAgentStatus()).not.toContain("agent-1 single background interrupted");
+
+		// Fill the 25-row recent-run bound with truly terminal history. Starting
+		// the last run must evict an old completed row, never the still-live
+		// persistent observer merely parked as implementation status interrupted.
+		for (let index = 0; index < 25; index++) {
+			const run = startAgentRecentRun("single", [{ agent: "scout", task: `Task ${index}` }]);
+			finishAgentRecentRun(run, {
+				mode: "single",
+				status: "completed",
+				runs: [makeRunDetails()],
+			});
+		}
+
+		const retained = listAgentRecentRuns();
+		expect(retained.some((run) => run.id === observer.id)).toBe(true);
+		expect(retained).toHaveLength(25);
+	});
+
+	test("prunes an over-cap run when it becomes terminal after 25 parked runs", () => {
+		const parkedIds = new Set<string>();
+		for (let index = 0; index < 25; index++) {
+			const parked = startAgentRecentRun("single", [{ agent: "general", task: `Observe ${index}` }], {
+				background: true,
+				persistent: true,
+				label: `Observer ${index}`,
+			});
+			updateAgentRecentRunProgress(parked, {
+				mode: "single",
+				status: "interrupted",
+				parked: true,
+				runs: [makeRunDetails("interrupted")],
+			});
+			parkedIds.add(parked.id);
+		}
+
+		const overflow = startAgentRecentRun("single", [{ agent: "scout", task: "One more" }]);
+		expect(listAgentRecentRuns()).toHaveLength(26);
+		let observedOverflowStatus: string | undefined;
+		const unsubscribe = subscribeAgentRecentRuns(() => {
+			observedOverflowStatus = listAgentRecentRuns().find((run) => run.id === overflow.id)?.status;
+		});
+		finishAgentRecentRun(overflow, {
+			mode: "single",
+			status: "completed",
+			runs: [makeRunDetails()],
+		});
+		unsubscribe();
+
+		expect(observedOverflowStatus).toBe("completed");
+		const retained = listAgentRecentRuns();
+		expect(retained).toHaveLength(25);
+		expect(retained.every((run) => parkedIds.has(run.id))).toBe(true);
+	});
+
 	test("skips notifying subscribers when a progress tick has no user-visible content change", () => {
 		// Regression: every background-agent progress tick used to force
 		// notifyAgentRecentRunsChanged() unconditionally, even
@@ -181,6 +254,24 @@ describe("native agent status", () => {
 		expect(detail).toContain(`session: ${childSessionPath}`);
 	});
 
+	test("a real interrupt of a persistent run remains interrupted, not parked idle", async () => {
+		const run = startAgentRecentRun("single", [{ agent: "general", task: "Observe" }], {
+			background: true,
+			persistent: true,
+		});
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [makeRunDetails("running")],
+		});
+		attachAgentRecentRunController(run.id, { interrupt: vi.fn(), resume: vi.fn() });
+
+		await interruptAgentRecentRun(run.id);
+
+		expect(agentRunUiStatus(run)).toBe("interrupted");
+		expect(run.needsAttention || run.error).toBeTruthy();
+	});
+
 	test("interrupt and cancel update background status", async () => {
 		const interruptRun = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], {
 			background: true,
@@ -245,6 +336,21 @@ describe("native agent status", () => {
 
 		expect(formatAgentFooterStatus()).toContain("needs attention");
 		expect(formatAgentStatus()).toContain("needs-attention: No child progress for 10m");
+	});
+
+	test("fires a terminal listener registered after the transition", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "completed",
+			runs: [makeRunDetails("completed")],
+		});
+		const listener = vi.fn();
+
+		attachAgentRecentRunTerminalListener(run.id, listener);
+
+		expect(listener).toHaveBeenCalledOnce();
+		expect(listener).toHaveBeenCalledWith(expect.objectContaining({ id: run.id, status: "completed" }));
 	});
 
 	test("notifies subscribers when recent runs change", () => {

@@ -6,6 +6,7 @@ import {
 	formatAgentRunRow,
 	getAgentRunResumePrompt,
 	normalizeAgentRunResumePrompt,
+	shouldZoomAgentRunRow,
 } from "../src/modes/interactive/components/agent-runs-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -66,6 +67,7 @@ function run(overrides: Partial<AgentRecentRun> = {}): AgentRecentRun {
 		runs: [],
 		resumable: false,
 		needsAttention: false,
+		persistent: false,
 		...overrides,
 	};
 }
@@ -138,6 +140,79 @@ describe("agent runs selector formatting", () => {
 
 	test("empty selection renders a placeholder", () => {
 		expect(formatAgentRunDetailView(undefined)).toContain("No native agent runs yet");
+	});
+
+	// Persistent single background forks park at status "interrupted" but must
+	// still read as "idle" in the row text, not "interrupted" — real interrupts,
+	// including persistent ones, remain needs-input.
+	test("row and detail show idle, not interrupted/running, for a parked persistent run", () => {
+		const parked = run({
+			execution: "background",
+			status: "interrupted",
+			persistent: true,
+			parked: true,
+			resumable: true,
+		});
+		expect(formatAgentRunRow(parked, false)).toContain("idle");
+		expect(formatAgentRunRow(parked, false)).not.toContain("interrupted");
+		const detail = formatAgentRunDetailView(parked);
+		expect(detail).toContain("idle");
+		expect(detail).not.toContain("interrupted");
+		expect(detail).not.toContain("idle running");
+	});
+
+	test("row still shows interrupted for a real interruption of a persistent run", () => {
+		const blocked = run({
+			execution: "background",
+			status: "interrupted",
+			persistent: true,
+			parked: false,
+			resumable: true,
+		});
+		expect(formatAgentRunRow(blocked, false)).toContain("interrupted");
+		expect(formatAgentRunRow(blocked, false)).not.toContain("idle");
+	});
+
+	describe("shouldZoomAgentRunRow", () => {
+		test("zooms into a running background run", () => {
+			expect(shouldZoomAgentRunRow(run({ execution: "background", status: "running" }))).toBe(true);
+		});
+
+		test("does not zoom into a running foreground run", () => {
+			expect(shouldZoomAgentRunRow(run({ execution: "foreground", status: "running" }))).toBe(false);
+		});
+
+		test("zooms into a parked persistent run that has a resumable session", () => {
+			const parked = run({
+				execution: "background",
+				status: "interrupted",
+				persistent: true,
+				parked: true,
+				sessionRefs: [{ agent: "explore", sessionPath: "/tmp/child.jsonl" }],
+			});
+			expect(shouldZoomAgentRunRow(parked)).toBe(true);
+		});
+
+		test("does not zoom into a parked persistent run with no session to reconnect", () => {
+			const parked = run({
+				execution: "background",
+				status: "interrupted",
+				persistent: true,
+				parked: true,
+				sessionRefs: [],
+			});
+			expect(shouldZoomAgentRunRow(parked)).toBe(false);
+		});
+
+		test("does not zoom into an ordinary (non-persistent) interrupted run", () => {
+			const blocked = run({
+				execution: "background",
+				status: "interrupted",
+				persistent: false,
+				sessionRefs: [{ agent: "explore", sessionPath: "/tmp/child.jsonl" }],
+			});
+			expect(shouldZoomAgentRunRow(blocked)).toBe(false);
+		});
 	});
 
 	test("resume action asks for an optional steering message", () => {

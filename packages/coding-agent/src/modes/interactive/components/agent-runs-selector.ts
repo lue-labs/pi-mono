@@ -1,6 +1,10 @@
 import { Container, getKeybindings, Spacer, Text } from "@valkyriweb/pi-tui";
-import { type AgentRecentRun, formatAgentDurationMs, formatAgentRunModel } from "../../../core/agents/status.ts";
-import type { AgentToolStatus } from "../../../core/agents/types.ts";
+import {
+	type AgentRecentRun,
+	agentRunUiStatus,
+	formatAgentDurationMs,
+	formatAgentRunModel,
+} from "../../../core/agents/status.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint, rawKeyHint } from "./keybinding-hints.ts";
@@ -24,7 +28,12 @@ export function normalizeAgentRunResumePrompt(prompt: string): string | undefine
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function agentRunStatusText(status: AgentToolStatus): string {
+// Reads the run's UI status (persistent single-background forks parked at
+// "interrupted" read as "idle" — see `agentRunUiStatus`), so a launcher-fed
+// background agent waiting for its next turn never masquerades as needing
+// the user's attention the way an ordinary interrupted run does.
+function agentRunStatusText(run: AgentRecentRun): string {
+	const status = agentRunUiStatus(run);
 	switch (status) {
 		case "completed":
 			return theme.fg("success", status);
@@ -33,13 +42,16 @@ function agentRunStatusText(status: AgentToolStatus): string {
 			return theme.fg("error", status);
 		case "interrupted":
 			return theme.fg("warning", status);
+		case "idle":
+			return theme.fg("muted", status);
 		default:
 			return theme.fg("accent", status);
 	}
 }
 
 function agentRunDuration(run: AgentRecentRun): string {
-	return run.durationMs !== undefined ? formatAgentDurationMs(run.durationMs) : "running";
+	if (run.durationMs !== undefined) return formatAgentDurationMs(run.durationMs);
+	return formatAgentDurationMs(Math.max(0, Date.now() - Date.parse(run.startedAt)));
 }
 
 /**
@@ -57,7 +69,18 @@ function countSettledChildren(run: AgentRecentRun): number {
  * unit-testable without the `InteractiveMode` harness.
  */
 export function shouldZoomAgentRunRow(run: AgentRecentRun): boolean {
-	return run.execution === "background" && run.status === "running";
+	if (run.execution !== "background") return false;
+	if (run.status === "running") return true;
+	// A parked persistent fork has no live in-process controller to attach a
+	// "live" transcript to, but its child session is still on disk — zoom into
+	// that instead of falling back to the static detail view, as long as we
+	// actually have a session to reconnect. Real interrupted runs (persistent
+	// or not) stay on the static detail view: they need explicit
+	// resume/interrupt/cancel action, not a passive zoom.
+	if (run.parked && run.status === "interrupted") {
+		return run.sessionRefs.some((ref) => Boolean(ref.sessionPath));
+	}
+	return false;
 }
 
 /** Compact list row for the agent-runs selector. Pure (depends only on `run`). */
@@ -78,7 +101,7 @@ export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): strin
 		new Set(run.runs.map(formatAgentRunModel).filter((model): model is string => Boolean(model))),
 	);
 	const modelText = models.length > 0 ? theme.fg("muted", ` · ${models.join(",")}`) : "";
-	return `${prefix}${id}${nesting} ${execution} ${agentRunStatusText(run.status)}${resumable}${attention}${fanout} ${theme.fg("muted", run.agents.join(", "))}${modelText}`;
+	return `${prefix}${id}${nesting} ${execution} ${agentRunStatusText(run)}${resumable}${attention}${fanout} ${theme.fg("muted", run.agents.join(", "))}${modelText}`;
 }
 
 /**
@@ -90,7 +113,7 @@ export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): strin
 export function formatAgentRunDetailView(run: AgentRecentRun | undefined): string {
 	if (!run) return theme.fg("muted", "No native agent runs yet");
 	const lines = [
-		`${theme.fg("accent", run.id)} ${run.mode} ${run.execution} ${run.status} ${agentRunDuration(run)}`,
+		`${theme.fg("accent", run.id)} ${run.mode} ${run.execution} ${agentRunUiStatus(run)} ${agentRunDuration(run)}`,
 		`agents: ${run.agents.join(", ") || "n/a"}`,
 	];
 	if (run.depth > 0) lines.push(`nested: depth ${run.depth}${run.parentRunId ? ` (parent ${run.parentRunId})` : ""}`);

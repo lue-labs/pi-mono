@@ -509,6 +509,7 @@ describe("ctx.forkAgent", () => {
 		// Parked, not terminated: interrupted status keeps the controller alive and
 		// the session resumable so the launcher can feed the next turn.
 		expect(details.status).toBe("interrupted");
+		expect(details.parked).toBe(true);
 		expect(details.resumable).toBe(true);
 		expect(handle.status).toBe("interrupted");
 	});

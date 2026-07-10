@@ -1,6 +1,6 @@
 import { formatAgentDurationMs } from "../agents/status.ts";
 import { listTasks } from "./registry.ts";
-import type { TaskSnapshot, TaskStatus, TaskType } from "./types.ts";
+import type { TaskSnapshot, TaskType } from "./types.ts";
 
 function taskTypeLabel(type: TaskType): string {
 	if (type === "local_bash") return "bash";
@@ -9,28 +9,16 @@ function taskTypeLabel(type: TaskType): string {
 	return type;
 }
 
-function taskTypeNoun(type: TaskType, count: number): string {
-	const noun = type === "local_bash" ? "shell" : type === "local_agent" ? "agent" : taskTypeLabel(type);
-	return `${count} ${noun}${count === 1 ? "" : "s"}`;
+export function taskNeedsInput(task: TaskSnapshot): boolean {
+	return task.needsInput ?? (task.status === "interrupted" || task.status === "failed");
+}
+
+export function taskIsWorking(task: TaskSnapshot): boolean {
+	return task.status === "running" || task.status === "idle";
 }
 
 function isFooterRelevant(task: TaskSnapshot): boolean {
-	return task.status === "running" || task.status === "interrupted" || task.status === "failed";
-}
-
-function countByStatus(tasks: TaskSnapshot[], status: TaskStatus): number {
-	return tasks.filter((task) => task.status === status).length;
-}
-
-function formatCount(count: number, label: string): string | undefined {
-	if (count === 0) return undefined;
-	return `${count} ${label}`;
-}
-
-function formatTypeCounts(tasks: TaskSnapshot[]): string {
-	const counts = new Map<TaskType, number>();
-	for (const task of tasks) counts.set(task.type, (counts.get(task.type) ?? 0) + 1);
-	return [...counts.entries()].map(([type, count]) => taskTypeNoun(type, count)).join(", ");
+	return taskNeedsInput(task) || taskIsWorking(task);
 }
 
 function elapsed(task: TaskSnapshot): string {
@@ -46,18 +34,15 @@ function byActiveThenNewest(a: TaskSnapshot, b: TaskSnapshot): number {
 	return activeDelta || byNewestStart(a, b);
 }
 
-export function formatTaskFooterStatus(tasks = listTasks()): string | undefined {
-	const relevant = tasks.filter(isFooterRelevant).sort(byNewestStart);
-	if (relevant.length === 0) return undefined;
+const AGENTS_FOOTER_HINT = "← for agents";
 
-	const statusParts = [
-		formatCount(countByStatus(relevant, "running"), "running"),
-		formatCount(countByStatus(relevant, "interrupted"), "interrupted"),
-		formatCount(countByStatus(relevant, "failed"), "failed"),
-	].filter((part): part is string => Boolean(part));
-	const latest = relevant[0]!;
-	const latestDescription = latest.description ? ` ${latest.description}` : "";
-	return `Background: ${statusParts.join(", ")} · ${formatTypeCounts(relevant)} · ${latest.id} ${latest.status} ${taskTypeLabel(latest.type)}${latestDescription} · enter details`;
+/** Compact semantic footer text; internal ids, types, and descriptions stay in the pane. */
+export function formatTaskFooterStatus(tasks = listTasks()): string {
+	const needsInputCount = tasks.filter(taskNeedsInput).length;
+	if (needsInputCount > 0) return `${needsInputCount} needs input · ${AGENTS_FOOTER_HINT}`;
+	const workingCount = tasks.filter((task) => task.status === "running").length;
+	if (workingCount > 0) return `${workingCount} working · ${AGENTS_FOOTER_HINT}`;
+	return AGENTS_FOOTER_HINT;
 }
 
 export function formatTaskStatus(tasks = listTasks(), detailId?: string): string {

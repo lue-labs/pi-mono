@@ -16,6 +16,7 @@
 
 import type { AgentRecentRun } from "../agents/status.ts";
 import {
+	agentRunUiStatus,
 	cancelAgentRecentRun,
 	findAgentRecentRun,
 	injectAgentRecentRun,
@@ -53,34 +54,53 @@ function describeRun(run: AgentRecentRun): string {
 
 function describeChildRun(detail: AgentRunDetails): string {
 	const task = detail.description ?? previewTask(detail.task);
-	return task ? `${detail.agent}: ${task}` : detail.agent;
+	return task || detail.agent;
+}
+
+function taskStatusFromRun(run: AgentRecentRun): TaskStatus {
+	const status = agentRunUiStatus(run);
+	return status === "idle" ? "idle" : mapStatus(status);
+}
+
+function needsInputFor(run: AgentRecentRun, status: TaskStatus): boolean {
+	return run.needsAttention || status === "interrupted" || status === "failed";
 }
 
 function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, index: number): TaskSnapshot {
-	const status = mapStatus(detail.status);
+	const followsPersistentParent = run.persistent && run.runs.length === 1;
+	const status = followsPersistentParent ? taskStatusFromRun(run) : mapStatus(detail.status);
 	const startedAt = detail.startedAt ?? Date.parse(run.startedAt);
 	return {
 		id: `${run.id}:${index + 1}`,
 		type: "local_agent",
 		status,
 		description: describeChildRun(detail),
+		label: run.label ?? detail.agent,
+		sessionPath: detail.sessionPath,
+		needsInput: followsPersistentParent
+			? needsInputFor(run, status)
+			: status === "interrupted" || status === "failed",
 		startedAt,
-		endedAt: status === "running" || status === "interrupted" ? undefined : startedAt + detail.durationMs,
-		resumable: false,
+		endedAt:
+			status === "running" || status === "idle" || status === "interrupted"
+				? undefined
+				: startedAt + detail.durationMs,
+		resumable: Boolean(followsPersistentParent && run.resumable),
 		error: detail.error,
-		// This leaf id is display-only — there is no per-child adapter, live
-		// session, or message buffer, only one per top-level run. See
-		// `TaskSnapshot.controlId`'s docstring for why this must be set.
 		controlId: run.id,
 	};
 }
 
 function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
+	const status = taskStatusFromRun(run);
 	return {
 		id: run.id,
 		type: "local_agent",
-		status: mapStatus(run.status),
+		status,
 		description: describeRun(run),
+		label: run.label,
+		sessionPath: run.sessionRefs.length === 1 ? run.sessionRefs[0]?.sessionPath : undefined,
+		needsInput: needsInputFor(run, status),
 		startedAt: Date.parse(run.startedAt),
 		endedAt: run.endedAt ? Date.parse(run.endedAt) : undefined,
 		resumable: run.resumable,

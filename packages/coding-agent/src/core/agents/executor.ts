@@ -27,6 +27,7 @@ import { writeAgentOutput } from "./output.ts";
 import { findAgentDefinition, formatAvailableAgents, loadAgentRegistry } from "./registry.ts";
 import type { AgentRecentRun } from "./status.ts";
 import {
+	agentRunUiStatus,
 	attachAgentRecentRunController,
 	attachAgentRecentRunTerminalListener,
 	failAgentRecentRun,
@@ -106,8 +107,8 @@ export interface AgentExecutorOptions {
 	onChildSessionEnd?: (session: AgentSession, details: AgentRunDetails) => void;
 	onChildProviderRetry?: (event: { details: AgentRunDetails; activity: string }) => void;
 	/**
-	 * Fired exactly once when a background run reaches a terminal status
-	 * (completed | failed | cancelled | interrupted). Only wired by the
+	 * Fired exactly once when a background run reaches a terminal status or a
+	 * persistent run intentionally parks between turns. Only wired by the
 	 * `executeAgentTool` background path — foreground runs return synchronously
 	 * and don't need a push. Parent sessions use this to inject a structured
 	 * `agent_completion` custom message instead of polling status.
@@ -1077,19 +1078,23 @@ function buildBackgroundCompletion(run: AgentRecentRun): AgentBackgroundCompleti
 	const firstFinal = run.runs.find(
 		(child) => typeof child.finalOutput === "string" && child.finalOutput.length > 0,
 	)?.finalOutput;
+	const status = agentRunUiStatus(run);
 	const summary =
-		run.status === "completed"
-			? `Background agent ${run.id} (${run.agents.join(", ")}) completed`
-			: run.status === "failed"
-				? `Background agent ${run.id} failed: ${run.error || "unknown error"}`
-				: run.status === "cancelled"
-					? `Background agent ${run.id} was cancelled`
-					: run.status === "interrupted"
-						? `Background agent ${run.id} was interrupted`
-						: `Background agent ${run.id} reached status ${run.status}`;
+		status === "idle"
+			? `Background agent ${run.id} is idle between persistent turns`
+			: status === "completed"
+				? `Background agent ${run.id} (${run.agents.join(", ")}) completed`
+				: status === "failed"
+					? `Background agent ${run.id} failed: ${run.error || "unknown error"}`
+					: status === "cancelled"
+						? `Background agent ${run.id} was cancelled`
+						: status === "interrupted"
+							? `Background agent ${run.id} was interrupted`
+							: `Background agent ${run.id} reached status ${status}`;
 	return {
 		runId: run.id,
-		status: run.status,
+		status,
+		parked: run.parked,
 		mode: run.mode,
 		agents: [...run.agents],
 		tasks: [...run.tasks],
@@ -1306,6 +1311,7 @@ async function resumeSingleBackgroundRun(
 	const completedDetails: AgentToolDetails = {
 		mode: input.mode,
 		status: isPersistentPark(input) ? "interrupted" : "completed",
+		parked: isPersistentPark(input),
 		runs,
 		runId: recentRun.id,
 		background: true,
@@ -1422,6 +1428,7 @@ async function executeAgentToolToCompletion(
 	const completedDetails: AgentToolDetails = {
 		mode: input.mode,
 		status: isPersistentPark(input) ? "interrupted" : "completed",
+		parked: isPersistentPark(input),
 		runs,
 		runId: recentRun.id,
 		background: input.background === true,
@@ -1664,6 +1671,8 @@ export async function executeAgentTool(
 		// so the agents view can mark nested delegations and link them to their parent.
 		depth: callerDepth,
 		parentRunId: options.parentServices.parentRunId,
+		persistent: isPersistentPark(input),
+		label: input.mode === "single" ? input.tasks[0]?.description : undefined,
 	});
 	if (input.background) {
 		return executeManagedAgentRun(input, options, recentRun, { returnImmediately: true });

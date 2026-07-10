@@ -14,7 +14,9 @@ export type TaskType = "local_agent" | "local_bash" | "monitor" | "intercom_peer
 /**
  * Lifecycle states. Terminal: `completed | failed | cancelled | killed`.
  * `interrupted` is non-terminal — a soft-stopped task that may resume.
- * `idle` is reserved for future use (in-process teammates awaiting input).
+ * `idle` is a parked-but-alive task awaiting input (e.g. a persistent
+ * single-background fork between turns) — distinct from `interrupted`,
+ * which signals the task actually needs the user's attention.
  */
 export type TaskStatus = "running" | "idle" | "interrupted" | "completed" | "failed" | "cancelled" | "killed";
 
@@ -35,6 +37,28 @@ export interface TaskSnapshot {
 	error?: string;
 	/** Optional leaf tasks for aggregate/group tasks such as a parallel Agent call. */
 	children?: TaskSnapshot[];
+	/**
+	 * Exact, caller-supplied display label (e.g. `ForkAgentOptions.description`
+	 * for an extension-launched fork), preferred over `description`'s generic
+	 * `agent: task preview` text wherever a compact, human-authored name is
+	 * available. Undefined when the underlying run never set one.
+	 */
+	label?: string;
+	/**
+	 * Path to the underlying persisted child session, when the task has one
+	 * (single-mode agent runs). Lets a UI reconnect/zoom into a parked task
+	 * that has no live in-process controller left to attach to.
+	 */
+	sessionPath?: string;
+	/**
+	 * True when this task wants user attention right now: an ordinary (non-
+	 * persistent-parked) interrupted run, a failed run, or a running run that
+	 * flagged `needsAttention`. Persistent single-background forks parked at
+	 * `status: "idle"` are NOT needs-input by default — they're waiting to be
+	 * fed, not stuck. Drives the "needs input" footer/pane bucket, which wins
+	 * over "working" whenever both are non-zero.
+	 */
+	needsInput?: boolean;
 	/**
 	 * Id to use for control-plane operations (kill/requestShutdown/injectMessage,
 	 * and any other API that dispatches on a task id — including consumers that
