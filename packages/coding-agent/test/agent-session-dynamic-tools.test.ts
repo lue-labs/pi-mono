@@ -184,6 +184,45 @@ describe("AgentSession dynamic tool registration", () => {
 		session.dispose();
 	});
 
+	it("activates allow-listed deferred tools and ignores unavailable names", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const sessionManager = SessionManager.inMemory();
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+		});
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: pickModel("anthropic"),
+			settingsManager,
+			sessionManager,
+			resourceLoader,
+			tools: ["allowed_deferred_tool", "unavailable_tool"],
+			customTools: [
+				{
+					name: "allowed_deferred_tool",
+					label: "Allowed Deferred Tool",
+					description: "Child-scoped deferred tool",
+					deferLoading: true,
+					parameters: Type.Object({}),
+					execute: async () => ({
+						content: [{ type: "text", text: "ok" }],
+						details: {},
+					}),
+				},
+			],
+		});
+
+		expect(session.getActiveToolNames()).toEqual(["allowed_deferred_tool"]);
+		expect(session.getAllTools().map((tool) => tool.name)).not.toContain("unavailable_tool");
+
+		session.dispose();
+	});
+
 	it("returns source metadata for SDK custom tools", async () => {
 		const settingsManager = SettingsManager.create(tempDir, agentDir);
 		const sessionManager = SessionManager.inMemory();

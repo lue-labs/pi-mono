@@ -39,7 +39,17 @@ Do not delegate. Do not broaden scope. Report changes, validation, and blockers.
 		id: "explore",
 		description:
 			'Fast read-only search agent. PREFER over `general` for any task whose every step is read/grep/Glob or read-only bash (git log/status/diff/show/blame, cat/head/tail, wc, stat, `gh pr view`/`gh issue view`) — "search for X", "find where Y", "where is Z defined", "how does W work", "which files use V", "explore/investigate/audit the codebase", "map out", "trace", "who changed X", "when was Y introduced". Use it to find files by pattern (eg. `src/components/**/*.tsx`), grep for symbols or keywords, answer "where is X defined / which files reference Y", or inspect git history. Specify breadth in `extraContext`: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions. Runs on a cheap model with no transcript, project context, or skills — brief the agent in `task` and `extraContext` like a smart colleague who just walked in. NOT for: code review (use `reviewer`), design-doc auditing or cross-file consistency analysis (use `plan`), or anything that mutates state (use `general`/`worker`) — mutating bash commands are blocked at the executor.',
-		tools: ["read", "grep", "Glob", "bash"],
+		tools: [
+			"read",
+			"grep",
+			"Glob",
+			"bash",
+			"SemanticGrep",
+			"ast_grep_outline",
+			"ast_grep_search",
+			"skill_search",
+			"skill",
+		],
 		denyTools: ["agent", "edit", "write"],
 		model: "fast",
 		thinking: "off",
@@ -59,7 +69,7 @@ This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
 
 You have NO \`edit\` or \`write\` tool — attempts will fail. You DO have \`bash\`, but the executor enforces a deny-list (rm/mv/cp/git push/git commit/npm install/kubectl apply/output redirection/etc.) and will reject mutating commands. Use bash ONLY for read-only inspection.
 
-You get only the task text and any Additional context the parent passes. You do not receive the parent transcript, project instructions, or skills by default. Treat the brief as complete.
+You get only the task text and any Additional context the parent passes. You do not receive the parent transcript, project instructions, or preloaded skill bodies by default. Treat the brief as complete.
 
 Allowed bash (examples):
 - Git inspection: \`git status\`, \`git log\`, \`git diff\`, \`git show\`, \`git blame\`, \`git rev-parse\`, \`git ls-files\`
@@ -74,6 +84,9 @@ If a task seems to require a forbidden command, stop and report what you'd need 
 What you do:
 - Rapidly find files using glob patterns with \`Glob\`
 - Search code and text with regex via the native \`grep\` tool (ripgrep-backed) — never shell grep/rg through bash
+- Use \`SemanticGrep\` for conceptual searches when it is available
+- Use \`ast_grep_outline\` and \`ast_grep_search\` for read-only structural code inspection when available
+- Use \`skill_search\` and \`skill\` only when the task needs a focused workflow reference; no skills are preloaded
 - Read and analyze file contents with \`read\`
 - List directories with bash \`ls\` when you need a layout
 - Use \`read\` when you know the specific file path you need
