@@ -169,6 +169,51 @@ describe("session liveness", () => {
 		expect(existsSync(`${sessionPath}.live`)).toBe(false);
 	});
 
+	it("heals a false tombstone from heartbeat starvation on the owner's next sync", () => {
+		// Repro: a live session's heartbeat starves (sleep-wake, SIGSTOP, long
+		// synchronous block) past the stale threshold; a sibling picker refresh
+		// entombs the marker as crashed. The owner's next heartbeat must clear
+		// the false tombstone so a graceful exit leaves no crash evidence.
+		const dir = makeDir();
+		const sessionPath = join(dir, "starved.jsonl");
+		const liveness = new SessionLiveness();
+		liveness.start(() => sessionPath);
+
+		// Backdate the heartbeat: live pid, stale-looking marker.
+		writeMarker(sessionPath, { pid: process.pid, heartbeat: Date.now() - 60_000 });
+		// Sibling refresh entombs the "stale" marker.
+		listActiveSessionPaths([sessionPath]);
+		expect(existsSync(`${sessionPath}.crashed`)).toBe(true);
+
+		// Owner's next heartbeat rewrites the marker and heals the tombstone.
+		liveness.sync();
+		expect(existsSync(`${sessionPath}.crashed`)).toBe(false);
+		expect(existsSync(`${sessionPath}.live`)).toBe(true);
+
+		liveness.stop();
+		expect(existsSync(`${sessionPath}.live`)).toBe(false);
+		expect(listCrashedSessionPaths([sessionPath]).size).toBe(0);
+	});
+
+	it("listActiveSessionPaths heals a stale tombstone alongside a live marker", () => {
+		const dir = makeDir();
+		const sessionPath = join(dir, "healed.jsonl");
+		writeMarker(sessionPath, { pid: process.pid, heartbeat: Date.now() });
+		writeFileSync(`${sessionPath}.crashed`, JSON.stringify({ pid: DEAD_PID, startedAt: 0, heartbeat: 0 }));
+
+		expect(listActiveSessionPaths([sessionPath]).has(sessionPath)).toBe(true);
+		expect(existsSync(`${sessionPath}.crashed`)).toBe(false);
+	});
+
+	it("listCrashedSessionPaths excludes sessions with a live marker", () => {
+		const dir = makeDir();
+		const sessionPath = join(dir, "alive.jsonl");
+		writeMarker(sessionPath, { pid: process.pid, heartbeat: Date.now() });
+		writeFileSync(`${sessionPath}.crashed`, JSON.stringify({ pid: DEAD_PID, startedAt: 0, heartbeat: 0 }));
+
+		expect(listCrashedSessionPaths([sessionPath]).size).toBe(0);
+	});
+
 	it("sweep returns 0 for a missing sessions dir", async () => {
 		expect(await sweepStaleMarkers(join(tmpdir(), "pi-liveness-does-not-exist-xyz"))).toBe(0);
 	});

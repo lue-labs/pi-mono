@@ -113,6 +113,13 @@ export function listActiveSessionPaths(sessionPaths: Iterable<string>): Set<stri
 		const marker = readMarker(markerPath);
 		if (marker && isMarkerLive(marker)) {
 			active.add(canonicalizePath(sessionPath) ?? sessionPath);
+			// A live session can carry a stale tombstone from a heartbeat-starvation
+			// race (sleep-wake, SIGSTOP); heal the cross-process view immediately.
+			try {
+				unlinkSync(tombstonePathFor(sessionPath));
+			} catch {
+				// No tombstone; ignore.
+			}
 			continue;
 		}
 		// Stale or unreadable marker — the owning process died without a graceful
@@ -132,6 +139,10 @@ export function listCrashedSessionPaths(sessionPaths: Iterable<string>): Set<str
 	const crashed = new Set<string>();
 	for (const sessionPath of sessionPaths) {
 		if (!existsSync(tombstonePathFor(sessionPath))) continue;
+		// A tombstone alongside a live marker is a heartbeat-starvation artifact
+		// (sleep-wake, SIGSTOP), not a crash: the session is demonstrably open.
+		const marker = readMarker(markerPathFor(sessionPath));
+		if (marker && isMarkerLive(marker)) continue;
 		crashed.add(canonicalizePath(sessionPath) ?? sessionPath);
 	}
 	return crashed;
@@ -215,17 +226,17 @@ export class SessionLiveness {
 		if (this.currentMarkerPath && this.currentMarkerPath !== markerPath) {
 			this.removeMarker(this.currentMarkerPath);
 		}
-		const adopted = markerPath !== this.currentMarkerPath;
 		this.currentMarkerPath = markerPath;
 		if (!markerPath || !sessionPath) return;
 
-		// Opening (or resuming) a session restores it: clear any crash tombstone.
-		if (adopted) {
-			try {
-				unlinkSync(tombstonePathFor(sessionPath));
-			} catch {
-				// No tombstone, or another process cleared it; ignore.
-			}
+		// Clear any crash tombstone whenever the marker is (re)written — not only
+		// on adoption. If this process's heartbeat starves (sleep-wake, SIGSTOP,
+		// long synchronous block), a sibling picker/sweep may entomb our marker as
+		// crashed; the next heartbeat must undo that false evidence.
+		try {
+			unlinkSync(tombstonePathFor(sessionPath));
+		} catch {
+			// No tombstone, or another process cleared it; ignore.
 		}
 
 		const now = Date.now();
