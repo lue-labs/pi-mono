@@ -38,9 +38,9 @@ function createProbeExtensionFile(dir: string): string {
 		'    name: "CwdProbe",',
 		'    label: "Cwd Probe",',
 		'    description: "Returns ctx.cwd seen by this extension tool execution.",',
-		"    parameters: { type: \"object\", properties: {} },",
+		'    parameters: { type: "object", properties: {} },',
 		"    execute: async (_id, _params, _signal, _onUpdate, ctx) => {",
-		"      return { content: [{ type: \"text\", text: ctx.cwd }], isError: false };",
+		'      return { content: [{ type: "text", text: ctx.cwd }], isError: false };',
 		"    },",
 		"  });",
 		"};",
@@ -112,8 +112,10 @@ describe("regression #916: child session extension-tool ctx.cwd", () => {
 
 		expect(details.status).toBe("completed");
 		expect(seenChildContexts[0]?.tools?.map((tool) => tool.name)).toContain("CwdProbe");
-		// Evidence: on unmodified pre-seam code this observes harness.tempDir
-		// (the parent cwd) instead of childCwd — record whichever it is.
+		// Guard: core already threads the routed child cwd into ExtensionContext
+		// (each child session re-activates extensions with its own runner bound to
+		// task.cwd). A regression to parent-bound context would observe
+		// harness.tempDir here and fail both assertions.
 		expect(observedCwds).toEqual([childCwd]);
 		expect(observedCwds[0]).not.toBe(harness.tempDir);
 	});
