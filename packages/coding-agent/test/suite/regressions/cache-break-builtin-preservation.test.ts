@@ -28,6 +28,7 @@ function registerFakeTool(pi: ExtensionAPI, name: string, opts?: { alwaysLoad?: 
 		alwaysLoad: opts?.alwaysLoad,
 		execute: async () => ({
 			content: [{ type: "text", text: `${name} ok` }],
+			details: {},
 		}),
 	});
 }

@@ -12,6 +12,7 @@ function registerFakeTool(pi: ExtensionAPI, name: string): void {
 		parameters: Type.Object({}),
 		execute: async () => ({
 			content: [{ type: "text", text: `${name} ok` }],
+			details: {},
 		}),
 	});
 }
@@ -38,6 +39,7 @@ describe("deferred tool activation refresh", () => {
 							pi.setActiveTools(["tool_search", "fake_deferred_echo"]);
 							return {
 								content: [{ type: "text", text: "Activated 1 tool: fake_deferred_echo" }],
+								details: {},
 							};
 						},
 					});
@@ -97,7 +99,7 @@ describe("deferred tool activation refresh", () => {
 						parameters: Type.Object({ query: Type.String() }),
 						execute: async () => {
 							pi.setActiveTools(["tool_search", "fake_deferred_one", "fake_deferred_two", "fake_deferred_one"]);
-							return { content: [{ type: "text", text: "Activated 2 tools" }] };
+							return { content: [{ type: "text", text: "Activated 2 tools" }], details: {} };
 						},
 					});
 				},

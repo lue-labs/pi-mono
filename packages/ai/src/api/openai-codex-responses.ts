@@ -42,7 +42,6 @@ import type {
 } from "../types.ts";
 import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { combineAbortSignals } from "../utils/abort-signals.ts";
-import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import {
 	appendAssistantMessageDiagnostic,
 	createAssistantMessageDiagnostic,
@@ -545,10 +544,8 @@ function buildRequestBody(
 	context: Context,
 	options?: OpenAICodexResponsesOptions,
 ): RequestBody {
-	const toolPlacement = splitDeferredTools(context, model.compat?.supportsToolSearch ?? false);
 	const messages = convertResponsesMessages(model, context, CODEX_TOOL_CALL_PROVIDERS, {
 		includeSystemPrompt: false,
-		deferredTools: toolPlacement.deferred,
 	});
 
 	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);

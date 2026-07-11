@@ -32,7 +32,7 @@ const webClientToolsFactory: ExtensionFactory = (pi) => {
 		description: "Client-side WebFetch",
 		parameters: webFetchSchema,
 		async execute() {
-			return { content: [{ type: "text", text: "ok" }] };
+			return { content: [{ type: "text", text: "ok" }], details: {} };
 		},
 	});
 	pi.registerTool({
@@ -41,7 +41,7 @@ const webClientToolsFactory: ExtensionFactory = (pi) => {
 		description: "Client-side WebSearch",
 		parameters: webSearchSchema,
 		async execute() {
-			return { content: [{ type: "text", text: "ok" }] };
+			return { content: [{ type: "text", text: "ok" }], details: {} };
 		},
 	});
 };

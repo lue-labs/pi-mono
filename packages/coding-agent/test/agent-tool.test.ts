@@ -328,7 +328,7 @@ describe("agent tool", () => {
 				description: "agent",
 				deferLoading: true,
 				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "agent" }] }),
+				execute: async () => ({ content: [{ type: "text", text: "agent" }], details: {} }),
 			},
 			{
 				name: "Agent",
@@ -336,7 +336,7 @@ describe("agent tool", () => {
 				description: "agent",
 				deferLoading: true,
 				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "Agent" }] }),
+				execute: async () => ({ content: [{ type: "text", text: "Agent" }], details: {} }),
 			},
 			{
 				name: "Task",
@@ -344,7 +344,7 @@ describe("agent tool", () => {
 				description: "agent",
 				deferLoading: true,
 				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "Task" }] }),
+				execute: async () => ({ content: [{ type: "text", text: "Task" }], details: {} }),
 			},
 		];
 		const tool = createDeferredToolSearchTool({

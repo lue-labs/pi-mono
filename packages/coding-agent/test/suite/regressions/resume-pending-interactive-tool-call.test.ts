@@ -59,7 +59,7 @@ describe("resumability: pending interactive tool call re-presents on resume", ()
 						resumePendingCall: true,
 						execute: async () => {
 							executeCalls += 1;
-							return { content: [{ type: "text", text: "Blue" }] };
+							return { content: [{ type: "text", text: "Blue" }], details: {} };
 						},
 					});
 				},
@@ -105,7 +105,7 @@ describe("resumability: pending interactive tool call re-presents on resume", ()
 						parameters: Type.Object({}),
 						execute: async () => {
 							executeCalls += 1;
-							return { content: [{ type: "text", text: "ran" }] };
+							return { content: [{ type: "text", text: "ran" }], details: {} };
 						},
 					});
 				},
@@ -136,7 +136,7 @@ describe("resumability: pending interactive tool call re-presents on resume", ()
 						description: "test ask-user tool",
 						parameters: Type.Object({}),
 						resumePendingCall: true,
-						execute: async () => ({ content: [{ type: "text", text: "unused" }] }),
+						execute: async () => ({ content: [{ type: "text", text: "unused" }], details: {} }),
 					});
 				},
 			],

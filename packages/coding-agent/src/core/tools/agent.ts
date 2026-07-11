@@ -489,6 +489,12 @@ function detailsFromControlResult(
 	};
 }
 
+// Upstream's `AgentToolResult.details` is now required; control actions without a
+// resolved run previously omitted details entirely — this is the neutral stand-in.
+function emptyControlDetails(): AgentToolDetails {
+	return { mode: "single", status: "completed", runs: [] };
+}
+
 async function executeLegacyAgentControlAction(params: AgentToolInput): Promise<AgentToolResult<AgentToolDetails>> {
 	if (!params.runId) throw new Error(`agent control action ${params.action} requires runId`);
 	if (params.action === "inject") {
@@ -498,7 +504,7 @@ async function executeLegacyAgentControlAction(params: AgentToolInput): Promise<
 		const detailText = formatAgentStatus(undefined, params.runId);
 		return {
 			content: [{ type: "text", text: `${resumed.message}\n\n${detailText}` }],
-			details: detailsFromControlResult(resumed),
+			details: detailsFromControlResult(resumed) ?? emptyControlDetails(),
 		};
 	}
 	const result =
@@ -510,7 +516,7 @@ async function executeLegacyAgentControlAction(params: AgentToolInput): Promise<
 	const detailText = formatAgentStatus(undefined, params.runId);
 	return {
 		content: [{ type: "text", text: `${result.message}\n\n${detailText}` }],
-		details: detailsFromControlResult(result),
+		details: detailsFromControlResult(result) ?? emptyControlDetails(),
 	};
 }
 
@@ -526,14 +532,17 @@ async function executeAgentControlAction(
 	const action = params.action;
 	if (!action) throw new Error("Missing agent control action");
 	if (action === "status" || action === "detail") {
-		return { content: [{ type: "text", text: formatAgentStatus(undefined, params.runId) }] };
+		return {
+			content: [{ type: "text", text: formatAgentStatus(undefined, params.runId) }],
+			details: emptyControlDetails(),
+		};
 	}
 	if (!engine) return executeLegacyAgentControlAction(params);
 	const details = await engine.control(params);
 	const detailText = formatAgentStatus(undefined, params.runId);
 	return {
 		content: [{ type: "text", text: `${details?.message ?? "Agent control action completed"}\n\n${detailText}` }],
-		details,
+		details: details ?? emptyControlDetails(),
 	};
 }
 

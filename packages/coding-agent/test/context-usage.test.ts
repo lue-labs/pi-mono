@@ -52,7 +52,7 @@ function toolDefinition(name: string, description: string): ToolDefinition {
 		label: name,
 		description,
 		parameters: { type: "object", properties: {} },
-		execute: async () => ({ content: [] }),
+		execute: async () => ({ content: [], details: {} }),
 	};
 }
 

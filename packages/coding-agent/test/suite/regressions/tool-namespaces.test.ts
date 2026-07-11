@@ -11,7 +11,7 @@ function registerTool(pi: ExtensionAPI, name: string, opts: { deferLoading?: boo
 		description: `${name} description`,
 		parameters: Type.Object({}),
 		deferLoading: opts.deferLoading,
-		execute: async () => ({ content: [{ type: "text", text: `${name} ok` }] }),
+		execute: async () => ({ content: [{ type: "text", text: `${name} ok` }], details: {} }),
 	});
 }
 

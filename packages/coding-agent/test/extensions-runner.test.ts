@@ -1070,7 +1070,7 @@ describe("ExtensionRunner", () => {
 			fs.writeFileSync(path.join(extensionsDir, "headers.ts"), extCode);
 
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
-			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const runner = createRunner(result);
 
 			expect(runner.hasHandlers("before_provider_headers")).toBe(true);
 
@@ -1098,7 +1098,7 @@ describe("ExtensionRunner", () => {
 			fs.writeFileSync(path.join(extensionsDir, "b-good.ts"), good);
 
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
-			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const runner = createRunner(result);
 			const errors: Array<{ event: string; error: string }> = [];
 			runner.onError((err) => errors.push(err));
 

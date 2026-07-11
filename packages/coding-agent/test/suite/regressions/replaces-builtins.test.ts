@@ -27,7 +27,7 @@ function registerReadOverride(pi: ExtensionAPI): void {
 		parameters: Type.Object({}),
 		alwaysLoad: true,
 		replacesBuiltins: ["read"],
-		execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+		execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
 	});
 }
 

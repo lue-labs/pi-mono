@@ -16,6 +16,14 @@ interface JsonSchemaObject {
 	oneOf?: JsonSchemaObject[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isJsonSchemaObject(value: unknown): value is JsonSchemaObject {
+	return isRecord(value);
+}
+
 function getSchemaTypes(schema: JsonSchemaObject): string[] {
 	if (typeof schema.type === "string") {
 		return [schema.type];

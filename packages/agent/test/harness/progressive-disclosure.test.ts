@@ -17,7 +17,7 @@ function tool(
 		label: name,
 		description,
 		parameters,
-		execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+		execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
 	};
 }
 

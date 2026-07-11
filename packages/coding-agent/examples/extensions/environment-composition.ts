@@ -25,6 +25,7 @@ export default function openclawProfile(pi: ExtensionAPI) {
 			async execute() {
 				return {
 					content: [{ type: "text", text: "OpenClaw delegation would run here." }],
+					details: {},
 				};
 			},
 		});

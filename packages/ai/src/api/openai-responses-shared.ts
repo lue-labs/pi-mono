@@ -6,13 +6,11 @@ import type {
 	ResponseInput,
 	ResponseInputContent,
 	ResponseInputImage,
-	ResponseInputItem,
 	ResponseInputText,
 	ResponseOutputItem,
 	ResponseOutputMessage,
 	ResponseReasoningItem,
 	ResponseStreamEvent,
-	ResponseToolSearchOutputItemParam,
 } from "openai/resources/responses/responses.js";
 import { calculateCost } from "../models.ts";
 import type {
@@ -194,7 +192,6 @@ export function convertResponsesMessages<TApi extends Api>(
 	options?: ConvertResponsesMessagesOptions,
 ): ResponseInput {
 	const messages: ResponseInput = [];
-	const loadedToolNames = new Set<string>();
 
 	const normalizeIdPart = (part: string): string => {
 		const sanitized = part.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -380,32 +377,6 @@ export function convertResponsesMessages<TApi extends Api>(
 				call_id: callId,
 				output,
 			});
-
-			const deferredTools: Tool[] = [];
-			for (const name of msg.addedToolNames ?? []) {
-				const tool = options?.deferredTools?.get(name);
-				if (!tool || loadedToolNames.has(name)) continue;
-				loadedToolNames.add(name);
-				deferredTools.push(tool);
-			}
-			if (deferredTools.length > 0) {
-				const names = deferredTools.map((tool) => tool.name);
-				const searchCallId = `pi_tool_load_${shortHash(`${msg.toolCallId}:${names.join(",")}`)}`;
-				messages.push({
-					type: "tool_search_call",
-					call_id: searchCallId,
-					execution: "client",
-					status: "completed",
-					arguments: { query: names.join(" "), limit: names.length },
-				} satisfies ResponseInputItem);
-				messages.push({
-					type: "tool_search_output",
-					call_id: searchCallId,
-					execution: "client",
-					status: "completed",
-					tools: convertResponsesTools(deferredTools, { deferLoading: true }),
-				} satisfies ResponseToolSearchOutputItemParam);
-			}
 		}
 		msgIndex++;
 	}

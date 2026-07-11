@@ -16,7 +16,7 @@ function registerTool(
 		parameters: Type.Object({}),
 		alwaysLoad: opts.alwaysLoad,
 		deferLoading: opts.deferLoading,
-		execute: async () => ({ content: [{ type: "text", text: `${name} ok` }] }),
+		execute: async () => ({ content: [{ type: "text", text: `${name} ok` }], details: {} }),
 	});
 }
 

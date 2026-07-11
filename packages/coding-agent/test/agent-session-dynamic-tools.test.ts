@@ -340,7 +340,7 @@ describe("AgentSession dynamic tool registration", () => {
 						parameters: Type.Object({}),
 						deferLoading: true,
 						searchHint: "deferred metadata probe",
-						execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
 					});
 					pi.on("session_start", () => {
 						const definition = pi.tools.definitions().find((tool) => tool.name === "deferred_extension_tool");

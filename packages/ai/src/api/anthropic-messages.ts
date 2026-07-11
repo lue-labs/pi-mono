@@ -51,6 +51,7 @@ import {
 	clampMaxTokensToContext,
 	MIN_THINKING_BUDGET,
 } from "./simple-options.ts";
+import { transformMessages } from "./transform-messages.ts";
 
 /**
  * Resolve cache retention preference.
@@ -1385,47 +1386,13 @@ function buildParams(
 }
 
 // Normalize tool call IDs to match Anthropic's required pattern and length
-function _normalizeToolCallId(id: string): string {
+function normalizeToolCallId(id: string): string {
 	return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 }
 
-function _convertToolResult(
-	msg: ToolResultMessage,
-	isOAuthToken: boolean,
-	deferredToolNames: ReadonlySet<string>,
-	loadedToolNames: Set<string>,
-	normalizeToolName: (name: string) => string,
-): { toolResult: ContentBlockParam; siblingContent: ContentBlockParam[] } {
-	const references: Array<{ type: "tool_reference"; tool_name: string }> = [];
-	for (const name of msg.addedToolNames ?? []) {
-		const normalizedName = normalizeToolName(name);
-		if (!deferredToolNames.has(normalizedName) || loadedToolNames.has(normalizedName)) continue;
-		loadedToolNames.add(normalizedName);
-		references.push({
-			type: "tool_reference",
-			tool_name: isOAuthToken ? toClaudeCodeName(name) : name,
-		});
-	}
-	const convertedContent = convertContentBlocks(msg.content);
-	// Anthropic rejects tool references mixed with ordinary tool-result content.
-	return {
-		toolResult: {
-			type: "tool_result",
-			tool_use_id: msg.toolCallId,
-			content: references.length > 0 ? references : convertedContent,
-			is_error: msg.isError,
-		},
-		siblingContent:
-			references.length === 0
-				? []
-				: typeof convertedContent === "string"
-					? [{ type: "text", text: convertedContent }]
-					: convertedContent,
-	};
-}
-
 function convertMessages(
-	transformedMessages: Message[],
+	messages: Message[],
+	model: Model<"anthropic-messages">,
 	isOAuthToken: boolean,
 	cacheControl?: CacheControlEphemeral,
 	supportsDeferredTools = true,
@@ -1433,7 +1400,9 @@ function convertMessages(
 	canonicalToWire?: Map<string, string>,
 ): MessageParam[] {
 	const params: MessageParam[] = [];
-	const _loadedToolNames = new Set<string>();
+
+	// Transform messages for cross-provider compatibility
+	const transformedMessages = transformMessages(messages, model, normalizeToolCallId);
 
 	for (let i = 0; i < transformedMessages.length; i++) {
 		const msg = transformedMessages[i];
@@ -1579,13 +1548,13 @@ function convertMessages(
 				j++;
 			}
 
-			// Skip the messages we've already processed.
+			// Skip the messages we've already processed
 			i = j - 1;
 
-			// Displaced reference-bearing results must follow every tool_result block.
+			// Add a single user message with all tool results
 			params.push({
 				role: "user",
-				content: [...toolResults, ...siblingContent],
+				content: toolResults,
 			});
 		}
 	}
