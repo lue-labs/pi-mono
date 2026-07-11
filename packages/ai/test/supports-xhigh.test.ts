@@ -49,10 +49,11 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model)).toEqual(["off"]);
 	});
 
-	it("includes xhigh but not off for Bedrock Claude Fable 5", () => {
+	it("includes xhigh and max but not off for Bedrock Claude Fable 5", () => {
 		const model = getModel("amazon-bedrock", "global.anthropic.claude-fable-5");
 		expect(model).toBeDefined();
 		expect(getSupportedThinkingLevels(model!)).toContain("xhigh");
+		expect(getSupportedThinkingLevels(model!)).toContain("max");
 		expect(getSupportedThinkingLevels(model!)).not.toContain("off");
 	});
 

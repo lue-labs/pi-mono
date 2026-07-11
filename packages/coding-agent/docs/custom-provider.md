@@ -204,7 +204,7 @@ The `api` field determines which streaming implementation is used:
 | `google-vertex` | Google Vertex AI API |
 | `bedrock-converse-stream` | Amazon Bedrock Converse API |
 
-Most OpenAI-compatible providers work with `openai-completions`. Use model-level `thinkingLevelMap` for model-specific thinking levels, and `compat` for provider quirks:
+Most OpenAI-compatible providers work with `openai-completions`. Use model-level `thinkingLevelMap` for model-specific thinking levels, and `compat` for provider quirks. The `xhigh` and `max` levels are opt-in, require non-null map entries, and may be separated by unsupported holes:
 
 ```typescript
 models: [{
@@ -216,7 +216,8 @@ models: [{
     low: null,
     medium: null,
     high: "default",
-    xhigh: "max"
+    xhigh: null,
+    max: "max"
   },
   compat: {
     supportsDeveloperRole: false,   // use "system" instead of "developer"

@@ -734,6 +734,8 @@ for (const block of response.content) {
 }
 ```
 
+`xhigh` and `max` are model-specific, opt-in levels. Use `getSupportedThinkingLevels(model)` to determine whether a concrete model exposes either level; models such as GPT-5.6 can expose both.
+
 ### Provider-Specific Options (stream/complete)
 
 `models.stream()`/`complete()` accept the owning API's full option set. Use `hasApi()` to narrow a dynamically looked-up model to its API for full option typing:
@@ -1112,7 +1114,7 @@ Custom models can carry `headers` (e.g. proxies behind bot detection) and `compa
 
 Some OpenAI-compatible servers do not understand the `developer` role used for reasoning-capable models. For those providers, set `compat.supportsDeveloperRole` to `false` so the system prompt is sent as a `system` message instead. If the server also does not support `reasoning_effort`, set `compat.supportsReasoningEffort` to `false` too. This commonly applies to Ollama, vLLM, SGLang, and similar OpenAI-compatible servers.
 
-Use model-level `thinkingLevelMap` to describe model-specific thinking controls. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, `adaptive`). Missing keys use provider defaults, string values are sent to the provider, and `null` marks a level unsupported. `ultra` is an opt-in client orchestration mode; OpenAI Responses, Codex Responses, and OpenAI-compatible Completions transports serialize it as native `max` effort.
+Use model-level `thinkingLevelMap` to describe model-specific thinking controls. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, `adaptive`). Missing standard levels through `high` use provider defaults; `xhigh` and `max` are opt-in and require a non-null map entry. String values are sent to the provider, `null` marks a level unsupported, and maps may skip levels. `ultra` is an opt-in client orchestration mode; OpenAI Responses, Codex Responses, and OpenAI-compatible Completions transports serialize it as native `max` effort.
 
 ```typescript
 const ollamaReasoningModel: Model<'openai-completions'> = {

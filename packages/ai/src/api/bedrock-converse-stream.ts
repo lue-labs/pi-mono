@@ -153,7 +153,10 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 		// Resolve bearer token for Bedrock API key auth.
 		const skipAuth = getProviderEnvValue("AWS_BEDROCK_SKIP_AUTH", options.env) === "1";
 		const bearerToken =
-			options.bearerToken || getProviderEnvValue("AWS_BEARER_TOKEN_BEDROCK", options.env) || undefined;
+			options.bearerToken ||
+			options.apiKey ||
+			getProviderEnvValue("AWS_BEARER_TOKEN_BEDROCK", options.env) ||
+			undefined;
 		const useBearerToken = bearerToken !== undefined && !skipAuth;
 
 		// in Node.js/Bun environment only
@@ -583,7 +586,9 @@ function supportsAdaptiveThinking(modelId: string, modelName?: string): boolean 
 
 function supportsNativeXhighEffort(model: Model<"bedrock-converse-stream">): boolean {
 	const candidates = getModelMatchCandidates(model.id, model.name);
-	return candidates.some((s) => s.includes("opus-4-7") || s.includes("opus-4-8") || s.includes("fable-5"));
+	return candidates.some(
+		(s) => s.includes("opus-4-7") || s.includes("opus-4-8") || s.includes("sonnet-5") || s.includes("fable-5"),
+	);
 }
 
 function mapThinkingLevelToEffort(

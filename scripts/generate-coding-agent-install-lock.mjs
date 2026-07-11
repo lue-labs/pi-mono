@@ -128,6 +128,7 @@ function packageNameFromLockPath(lockPath) {
 	return parts[0];
 }
 
+
 function isExactVersionSpec(spec) {
 	return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(spec);
 }

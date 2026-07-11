@@ -116,36 +116,35 @@ describe("openai-responses provider defaults", () => {
 		async (model) => {
 			let capturedPayload: unknown;
 
-			vi.spyOn(globalThis, "fetch").mockResolvedValue(
-				new Response("data: [DONE]\n\n", {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				}),
-			);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("data: [DONE]\n\n", {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			}),
+		);
 
-			const stream = streamOpenAIResponses(
-				model,
-				{
-					systemPrompt: "sys",
-					messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+		const stream = streamOpenAIResponses(
+			model,
+			{
+				systemPrompt: "sys",
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test-key",
+				onPayload: (payload) => {
+					capturedPayload = payload;
 				},
-				{
-					apiKey: "test-key",
-					onPayload: (payload) => {
-						capturedPayload = payload;
-					},
-				},
-			);
+			},
+		);
 
-			for await (const event of stream) {
-				if (event.type === "done" || event.type === "error") break;
-			}
+		for await (const event of stream) {
+			if (event.type === "done" || event.type === "error") break;
+		}
 
-			expect(capturedPayload).toMatchObject({
-				reasoning: { effort: "none" },
-			});
-		},
-	);
+		expect(capturedPayload).toMatchObject({
+			reasoning: { effort: "none" },
+		});
+	});
 
 	it.each(offUnsupportedReasoningModels)(
 		"omits reasoning effort for OpenAI $id when off is unsupported",
