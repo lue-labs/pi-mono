@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { canonicalizePath } from "../utils/paths.ts";
@@ -15,10 +15,24 @@ import { canonicalizePath } from "../utils/paths.ts";
  * reads these markers to show which sessions are open in another live pi
  * process. Crashed processes leave a stale marker; readers treat a marker as
  * inactive when its owning pid is dead OR its heartbeat is older than
- * {@link STALE_MS}, and best-effort delete it.
+ * {@link STALE_MS}.
+ *
+ * A stale marker is evidence of a dirty shutdown (crash, SIGKILL, power loss):
+ * graceful exits — including SIGTERM/SIGHUP from closing a terminal tab —
+ * remove the marker. Instead of deleting that evidence, readers preserve it as
+ * a crash tombstone:
+ *
+ *   <sessionPath>.crashed   ->   { pid, startedAt, heartbeat }
+ *
+ * so resume UIs can offer browser-style "restore" for sessions that were open
+ * when the process died. Tombstones are cleared when their session is opened
+ * again and aged out by the sweep after {@link TOMBSTONE_MAX_AGE_MS}.
  */
 
 const MARKER_SUFFIX = ".live";
+const TOMBSTONE_SUFFIX = ".crashed";
+/** Crash tombstones older than this are reaped by {@link sweepStaleMarkers}. */
+const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 5_000;
 /** A marker older than this (without a fresh heartbeat) is considered stale. */
 const STALE_MS = 20_000;
@@ -31,6 +45,28 @@ interface LivenessMarker {
 
 function markerPathFor(sessionPath: string): string {
 	return `${sessionPath}${MARKER_SUFFIX}`;
+}
+
+function tombstonePathFor(sessionPath: string): string {
+	return `${sessionPath}${TOMBSTONE_SUFFIX}`;
+}
+
+/**
+ * Preserve a dead session's marker as a crash tombstone instead of deleting it.
+ * Atomic rename; overwrites an older tombstone for the same session (a repeat
+ * crash refreshes the record). Falls back to unlink so a rename failure cannot
+ * leave a stale marker lingering.
+ */
+function entombMarker(markerPath: string, sessionPath: string): void {
+	try {
+		renameSync(markerPath, tombstonePathFor(sessionPath));
+	} catch {
+		try {
+			unlinkSync(markerPath);
+		} catch {
+			// Another process may have handled it already; ignore.
+		}
+	}
 }
 
 /** Returns true when a process with the given pid is currently alive. */
@@ -66,8 +102,8 @@ function isMarkerLive(marker: LivenessMarker): boolean {
 
 /**
  * Given candidate session file paths, return the subset currently open in a live
- * pi process. Stale/dead markers are skipped and best-effort removed. Returned
- * paths are canonicalized to match picker comparisons.
+ * pi process. Stale/dead markers are skipped and preserved as crash tombstones.
+ * Returned paths are canonicalized to match picker comparisons.
  */
 export function listActiveSessionPaths(sessionPaths: Iterable<string>): Set<string> {
 	const active = new Set<string>();
@@ -79,44 +115,69 @@ export function listActiveSessionPaths(sessionPaths: Iterable<string>): Set<stri
 			active.add(canonicalizePath(sessionPath) ?? sessionPath);
 			continue;
 		}
-		// Stale or unreadable marker — clean it up so it cannot linger.
-		try {
-			unlinkSync(markerPath);
-		} catch {
-			// Another process may have removed it already; ignore.
-		}
+		// Stale or unreadable marker — the owning process died without a graceful
+		// shutdown. Keep the evidence as a crash tombstone for resume UIs.
+		entombMarker(markerPath, sessionPath);
 	}
 	return active;
 }
 
 /**
+ * Given candidate session file paths, return the subset with a crash tombstone:
+ * sessions that were open in a pi process that died without a graceful shutdown
+ * (crash, SIGKILL, power loss). Returned paths are canonicalized to match
+ * picker comparisons. Tombstones are cleared when the session is opened again.
+ */
+export function listCrashedSessionPaths(sessionPaths: Iterable<string>): Set<string> {
+	const crashed = new Set<string>();
+	for (const sessionPath of sessionPaths) {
+		if (!existsSync(tombstonePathFor(sessionPath))) continue;
+		crashed.add(canonicalizePath(sessionPath) ?? sessionPath);
+	}
+	return crashed;
+}
+
+/**
  * Reap liveness markers left behind by crashed or force-killed sessions.
  *
- * Graceful shutdown removes a session's own marker, and the resume picker reaps
- * stale markers for the sessions it lists — but a SIGKILL'd session whose path
- * is never reopened leaves its marker forever. This walks the whole sessions
- * tree and deletes every marker whose owning process is gone or whose heartbeat
- * has gone stale, so dead markers cannot accumulate. Resolves to the count removed.
+ * Graceful shutdown removes a session's own marker, and the resume picker
+ * handles stale markers for the sessions it lists — but a SIGKILL'd session
+ * whose path is never reopened leaves its marker forever. This walks the whole
+ * sessions tree and converts every marker whose owning process is gone (or
+ * whose heartbeat has gone stale) into a crash tombstone, so dead markers
+ * cannot accumulate while dirty-shutdown evidence is preserved for resume UIs.
+ * Tombstones older than {@link TOMBSTONE_MAX_AGE_MS} are deleted. Resolves to
+ * the count of markers swept plus tombstones aged out.
  *
  * Only dead markers are touched; live sessions are never disturbed. Safe to call
  * at startup without blocking terminal input while the sessions tree is read.
  */
 export async function sweepStaleMarkers(sessionsDir: string): Promise<number> {
 	let removed = 0;
-	let markerPaths: string[];
+	const markerPaths: string[] = [];
+	const tombstonePaths: string[] = [];
 	try {
 		const entries = await readdir(sessionsDir, { recursive: true, withFileTypes: true });
-		markerPaths = entries
-			.filter((entry) => entry.isFile() && entry.name.endsWith(MARKER_SUFFIX))
-			.map((entry) => join(entry.parentPath, entry.name));
+		for (const entry of entries) {
+			if (!entry.isFile()) continue;
+			if (entry.name.endsWith(MARKER_SUFFIX)) markerPaths.push(join(entry.parentPath, entry.name));
+			else if (entry.name.endsWith(TOMBSTONE_SUFFIX)) tombstonePaths.push(join(entry.parentPath, entry.name));
+		}
 	} catch {
 		return 0; // sessions dir absent or unreadable
 	}
 	for (const markerPath of markerPaths) {
 		const marker = readMarker(markerPath);
 		if (marker && isMarkerLive(marker)) continue;
+		entombMarker(markerPath, markerPath.slice(0, -MARKER_SUFFIX.length));
+		removed++;
+	}
+	// Age out old tombstones so never-restored crash records cannot accumulate.
+	const cutoff = Date.now() - TOMBSTONE_MAX_AGE_MS;
+	for (const tombstonePath of tombstonePaths) {
 		try {
-			unlinkSync(markerPath);
+			if (statSync(tombstonePath).mtimeMs >= cutoff) continue;
+			unlinkSync(tombstonePath);
 			removed++;
 		} catch {
 			// Already gone or being reaped by another process; ignore.
@@ -154,8 +215,18 @@ export class SessionLiveness {
 		if (this.currentMarkerPath && this.currentMarkerPath !== markerPath) {
 			this.removeMarker(this.currentMarkerPath);
 		}
+		const adopted = markerPath !== this.currentMarkerPath;
 		this.currentMarkerPath = markerPath;
-		if (!markerPath) return;
+		if (!markerPath || !sessionPath) return;
+
+		// Opening (or resuming) a session restores it: clear any crash tombstone.
+		if (adopted) {
+			try {
+				unlinkSync(tombstonePathFor(sessionPath));
+			} catch {
+				// No tombstone, or another process cleared it; ignore.
+			}
+		}
 
 		const now = Date.now();
 		const marker: LivenessMarker = { pid: process.pid, startedAt: now, heartbeat: now };

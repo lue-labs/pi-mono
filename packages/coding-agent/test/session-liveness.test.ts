@@ -1,10 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setKeybindings } from "@valkyriweb/pi-tui";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
-import { listActiveSessionPaths, SessionLiveness, sweepStaleMarkers } from "../src/core/session-liveness.ts";
+import {
+	listActiveSessionPaths,
+	listCrashedSessionPaths,
+	SessionLiveness,
+	sweepStaleMarkers,
+} from "../src/core/session-liveness.ts";
 import type { SessionInfo } from "../src/core/session-manager.ts";
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -21,6 +26,8 @@ function makeSession(path: string, id: string): SessionInfo {
 	return {
 		path,
 		id,
+		// Named so fixtures survive the picker's default "named" filter (#166).
+		name: `msg-${id}`,
 		cwd: "",
 		created: new Date(0),
 		modified: new Date(0),
@@ -74,6 +81,23 @@ describe("session liveness", () => {
 		expect(existsSync(`${sessionPath}.live`)).toBe(false);
 	});
 
+	it("preserves a stale marker as a crash tombstone", () => {
+		const dir = makeDir();
+		const sessionPath = join(dir, "crashed.jsonl");
+		writeMarker(sessionPath, { pid: DEAD_PID, heartbeat: Date.now() });
+
+		listActiveSessionPaths([sessionPath]);
+		expect(existsSync(`${sessionPath}.live`)).toBe(false);
+		expect(existsSync(`${sessionPath}.crashed`)).toBe(true);
+		expect(listCrashedSessionPaths([sessionPath]).has(sessionPath)).toBe(true);
+	});
+
+	it("listCrashedSessionPaths ignores sessions without a tombstone", () => {
+		const dir = makeDir();
+		const sessionPath = join(dir, "clean.jsonl");
+		expect(listCrashedSessionPaths([sessionPath]).size).toBe(0);
+	});
+
 	it("skips and removes a marker owned by a dead pid", () => {
 		const dir = makeDir();
 		const sessionPath = join(dir, "dead.jsonl");
@@ -111,6 +135,38 @@ describe("session liveness", () => {
 		expect(existsSync(`${live}.live`)).toBe(true);
 		expect(existsSync(`${dead}.live`)).toBe(false);
 		expect(existsSync(`${stale}.live`)).toBe(false);
+		// Dirty-shutdown evidence is preserved as tombstones, not deleted.
+		expect(existsSync(`${live}.crashed`)).toBe(false);
+		expect(existsSync(`${dead}.crashed`)).toBe(true);
+		expect(existsSync(`${stale}.crashed`)).toBe(true);
+	});
+
+	it("sweep ages out old tombstones but keeps fresh ones", async () => {
+		const dir = makeDir();
+		const fresh = join(dir, "fresh.jsonl.crashed");
+		const old = join(dir, "old.jsonl.crashed");
+		writeFileSync(fresh, JSON.stringify({ pid: DEAD_PID, startedAt: 0, heartbeat: 0 }));
+		writeFileSync(old, JSON.stringify({ pid: DEAD_PID, startedAt: 0, heartbeat: 0 }));
+		const thirtyOneDaysAgo = (Date.now() - 31 * 24 * 60 * 60 * 1000) / 1000;
+		utimesSync(old, thirtyOneDaysAgo, thirtyOneDaysAgo);
+
+		const removed = await sweepStaleMarkers(dir);
+		expect(removed).toBe(1);
+		expect(existsSync(fresh)).toBe(true);
+		expect(existsSync(old)).toBe(false);
+	});
+
+	it("opening a session clears its crash tombstone", () => {
+		const dir = makeDir();
+		const sessionPath = join(dir, "restored.jsonl");
+		writeFileSync(`${sessionPath}.crashed`, JSON.stringify({ pid: DEAD_PID, startedAt: 0, heartbeat: 0 }));
+
+		const liveness = new SessionLiveness();
+		liveness.start(() => sessionPath);
+		expect(existsSync(`${sessionPath}.crashed`)).toBe(false);
+		expect(existsSync(`${sessionPath}.live`)).toBe(true);
+		liveness.stop();
+		expect(existsSync(`${sessionPath}.live`)).toBe(false);
 	});
 
 	it("sweep returns 0 for a missing sessions dir", async () => {
@@ -173,6 +229,32 @@ describe("session liveness", () => {
 		const idleLine = output.split("\n").find((l) => l.includes("msg-idle")) ?? "";
 		expect(activeLine).toContain("●");
 		expect(idleLine).not.toContain("●");
+	});
+
+	it("badges a crashed session with a crash marker", async () => {
+		setKeybindings(new KeybindingsManager());
+		const dir = makeDir();
+		const crashedPath = join(dir, "crashed.jsonl");
+		const cleanPath = join(dir, "clean.jsonl");
+		writeFileSync(`${crashedPath}.crashed`, JSON.stringify({ pid: DEAD_PID, startedAt: 0, heartbeat: 0 }));
+
+		const sessions = [makeSession(crashedPath, "crashed"), makeSession(cleanPath, "clean")];
+		const selector = new SessionSelectorComponent(
+			async () => sessions,
+			async () => [],
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings: new KeybindingsManager() },
+		);
+		await flushPromises();
+
+		const output = stripAnsi(selector.render(120).join("\n"));
+		const crashedLine = output.split("\n").find((l) => l.includes("msg-crashed")) ?? "";
+		const cleanLine = output.split("\n").find((l) => l.includes("msg-clean")) ?? "";
+		expect(crashedLine).toContain("✗");
+		expect(cleanLine).not.toContain("✗");
 	});
 
 	it("does not badge the current session even when it has a live marker", async () => {

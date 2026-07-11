@@ -14,7 +14,7 @@ import {
 	visibleWidth,
 } from "@valkyriweb/pi-tui";
 import { KeybindingsManager } from "../../../core/keybindings.ts";
-import { listActiveSessionPaths } from "../../../core/session-liveness.ts";
+import { listActiveSessionPaths, listCrashedSessionPaths } from "../../../core/session-liveness.ts";
 import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.ts";
 import { canonicalizePath as _canonicalizePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";
@@ -301,6 +301,10 @@ class SessionList implements Component, Focusable {
 	private getActiveSessionPaths: (paths: string[]) => Set<string>;
 	/** Canonicalized session paths currently open in another live pi process. */
 	private activeSessionPaths = new Set<string>();
+	/** Resolver for which session paths crashed (dirty shutdown, never reopened). */
+	private getCrashedSessionPaths: (paths: string[]) => Set<string>;
+	/** Canonicalized session paths with a crash tombstone. */
+	private crashedSessionPaths = new Set<string>();
 	public onSelect?: (sessionPath: string) => void;
 	public onCancel?: () => void;
 	public onExit: () => void = () => {};
@@ -332,6 +336,7 @@ class SessionList implements Component, Focusable {
 		keybindings: KeybindingsManager,
 		currentSessionFilePath?: string,
 		getActiveSessionPaths: (paths: string[]) => Set<string> = listActiveSessionPaths,
+		getCrashedSessionPaths: (paths: string[]) => Set<string> = listCrashedSessionPaths,
 	) {
 		this.allSessions = sessions;
 		this.filteredSessions = [];
@@ -342,6 +347,7 @@ class SessionList implements Component, Focusable {
 		this.keybindings = keybindings;
 		this.currentSessionCanonicalPath = canonicalizePath(currentSessionFilePath);
 		this.getActiveSessionPaths = getActiveSessionPaths;
+		this.getCrashedSessionPaths = getCrashedSessionPaths;
 		this.refreshActiveSessions();
 		this.filterSessions("");
 
@@ -373,17 +379,28 @@ class SessionList implements Component, Focusable {
 		this.filterSessions(this.searchInput.getValue());
 	}
 
-	/** Recompute which listed sessions are open in another live pi process. */
+	/** Recompute which listed sessions are open in another live pi process or crashed. */
 	private refreshActiveSessions(): void {
+		const paths = this.allSessions.map((s) => s.path);
 		try {
-			this.activeSessionPaths = this.getActiveSessionPaths(this.allSessions.map((s) => s.path));
+			// Active first: it entombs stale markers, which crashed detection reads.
+			this.activeSessionPaths = this.getActiveSessionPaths(paths);
 		} catch {
 			this.activeSessionPaths = new Set();
+		}
+		try {
+			this.crashedSessionPaths = this.getCrashedSessionPaths(paths);
+		} catch {
+			this.crashedSessionPaths = new Set();
 		}
 	}
 
 	private isActiveSessionPath(path: string): boolean {
 		return this.activeSessionPaths.has(canonicalizePath(path) ?? path);
+	}
+
+	private isCrashedSessionPath(path: string): boolean {
+		return this.crashedSessionPaths.has(canonicalizePath(path) ?? path);
 	}
 
 	private filterSessions(query: string): void {
@@ -477,6 +494,8 @@ class SessionList implements Component, Focusable {
 			// A session open in another live pi process. The current session is never
 			// flagged as foreign-active even though it has its own liveness marker.
 			const isActiveElsewhere = !isCurrent && this.isActiveSessionPath(session.path);
+			// A session whose owning pi process died without a graceful shutdown.
+			const isCrashed = !isCurrent && !isActiveElsewhere && this.isCrashedSessionPath(session.path);
 
 			// Build tree prefix
 			const prefix = this.buildTreePrefix(node);
@@ -503,7 +522,7 @@ class SessionList implements Component, Focusable {
 			// Calculate available width for message
 			const prefixWidth = visibleWidth(prefix);
 			const rightWidth = visibleWidth(rightPart) + 2; // +2 for spacing
-			const badgeWidth = isActiveElsewhere ? 2 : 0; // "● " live badge
+			const badgeWidth = isActiveElsewhere || isCrashed ? 2 : 0; // "● " live / "✗ " crashed badge
 			const availableForMsg = width - 2 - prefixWidth - rightWidth - badgeWidth; // -2 for cursor
 
 			const truncatedMsg = truncateToWidth(normalizedMessage, Math.max(10, availableForMsg), "…");
@@ -516,11 +535,14 @@ class SessionList implements Component, Focusable {
 				messageColor = "accent";
 			} else if (isActiveElsewhere) {
 				messageColor = "success";
+			} else if (isCrashed) {
+				messageColor = "error";
 			} else if (hasName) {
 				messageColor = "warning";
 			}
-			// Live badge for sessions open in another pi process.
-			const badge = isActiveElsewhere ? theme.fg("success", "● ") : "";
+			// Live badge for sessions open in another pi process; crash badge for
+			// sessions whose process died without a graceful shutdown.
+			const badge = isActiveElsewhere ? theme.fg("success", "● ") : isCrashed ? theme.fg("error", "✗ ") : "";
 			let styledMsg = messageColor ? theme.fg(messageColor, truncatedMsg) : truncatedMsg;
 			if (isSelected) {
 				styledMsg = theme.bold(styledMsg);

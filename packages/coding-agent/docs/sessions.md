@@ -49,6 +49,23 @@ In the picker you can:
 
 When available, pi uses the `trash` CLI for deletion instead of permanently removing files.
 
+### Live and Crashed Badges
+
+The picker badges each session's liveness state:
+
+- `●` (green) — open in another live pi process right now.
+- `✗` (red) — crashed: the pi process that had this session open died without a
+  graceful shutdown (crash, SIGKILL, power loss). Graceful exits — including
+  closing the terminal tab or window — never mark a session as crashed.
+
+Crash detection works via sidecar files next to the session `.jsonl`: a running
+pi maintains a `.live` heartbeat marker and removes it on any graceful
+shutdown. A marker left behind by a dead process is preserved as a `.crashed`
+tombstone instead of being deleted, so after a reboot or crash you can find
+exactly the sessions that were open and resume them (browser-style session
+restore). Opening a session clears its tombstone; tombstones older than 30 days
+are swept automatically.
+
 ## Naming Sessions
 
 Use `/name <name>` to set a human-readable session name:
