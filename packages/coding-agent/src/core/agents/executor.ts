@@ -1237,8 +1237,14 @@ async function resumeSingleBackgroundRun(
 		startedAt,
 	});
 	const policy = details.context;
+	// Re-apply the routed task.cwd on resume, mirroring the initial dispatch at
+	// resolveChildCwd(options.task.cwd, options.parentServices.cwd) above. Without
+	// this, resuming a parked persistent background run rebinds the child's tool
+	// registry (bash/read/write/etc.) to the parent's cwd, even though the
+	// original dispatch routed the session elsewhere (my-pi issue #916).
+	const childCwd = resolveChildCwd(task.cwd, options.parentServices.cwd);
 	const childServices = await createAgentSessionServices({
-		cwd: options.parentServices.cwd,
+		cwd: childCwd,
 		agentDir: options.parentServices.agentDir,
 		authStorage: options.parentServices.authStorage,
 		settingsManager: options.parentServices.settingsManager,
@@ -1255,7 +1261,7 @@ async function resumeSingleBackgroundRun(
 		thinkingLevel: thinking,
 		tools: effectiveTools,
 		agentToolServices: {
-			cwd: options.parentServices.cwd,
+			cwd: childCwd,
 			agentDir: options.parentServices.agentDir,
 			authStorage: options.parentServices.authStorage,
 			settingsManager: options.parentServices.settingsManager,
