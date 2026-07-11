@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+
+- Explore child agents now run an isolated read-only tool profile (fork PR #254)
 - Session crash tombstones (browser-style restore): stale `.live` liveness markers left by a dirty shutdown (crash, SIGKILL, power loss) are preserved as `<session>.jsonl.crashed` tombstones instead of being deleted by the resume picker and the startup sweep. The resume picker badges crashed sessions with a red `✗` (parallel to the green `●` live badge), opening a session clears its tombstone, and the sweep ages out tombstones older than 30 days. Graceful exits — including SIGTERM/SIGHUP from closing a terminal tab — still remove the marker and are never marked crashed. New `listCrashedSessionPaths()` export for resume UIs. Also fixes the vacuously-passing live-badge picker test broken by the Named-filter default (#166): unnamed fixtures were filtered out of the list entirely.
 
 - Footer: include dynamic extension-registered pill output in the whole-footer render memo key and make `FooterComponent.invalidate()` evict memoized lines, so monitor, workflow, agent, and background-task pills repaint as their state changes. Regression in `test/footer-width.test.ts` fails on the prior implementation.
