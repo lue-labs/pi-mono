@@ -71,15 +71,15 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	// the upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
 	// Maps onto the same bundled fork modules so value imports resolve in the
 	// compiled binary (type-only imports already erase at runtime).
-	"@valkyriweb/pi-agent-core": _bundledPiAgentCore,
-	"@valkyriweb/pi-tui": _bundledPiTui,
+	"@earendil-works/pi-agent-core": _bundledPiAgentCore,
+	"@earendil-works/pi-tui": _bundledPiTui,
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
 	// superset of the core entrypoint): existing extensions using the old
 	// global API keep working at runtime until compat is removed.
-	"@valkyriweb/pi-ai": _bundledPiAiCompat,
-	"@valkyriweb/pi-ai/compat": _bundledPiAiCompat,
-	"@valkyriweb/pi-ai/oauth": _bundledPiAiOauth,
-	"@valkyriweb/pi-coding-agent": _bundledPiCodingAgent,
+	"@earendil-works/pi-ai": _bundledPiAiCompat,
+	"@earendil-works/pi-ai/compat": _bundledPiAiCompat,
+	"@earendil-works/pi-ai/oauth": _bundledPiAiOauth,
+	"@earendil-works/pi-coding-agent": _bundledPiCodingAgent,
 	"@mariozechner/pi-agent-core": _bundledPiAgentCore,
 	"@mariozechner/pi-tui": _bundledPiTui,
 	"@mariozechner/pi-ai": _bundledPiAiCompat,
@@ -136,12 +136,12 @@ function getAliases(): Record<string, string> {
 		// upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
 		// Map them onto the fork's @valkyriweb/* entries so value imports resolve
 		// in the bundled binary (type-only imports already erase at runtime).
-		"@valkyriweb/pi-coding-agent": piCodingAgentEntry,
-		"@valkyriweb/pi-agent-core": piAgentCoreEntry,
-		"@valkyriweb/pi-tui": piTuiEntry,
-		"@valkyriweb/pi-ai": piAiCompatEntry,
-		"@valkyriweb/pi-ai/compat": piAiCompatEntry,
-		"@valkyriweb/pi-ai/oauth": piAiOauthEntry,
+		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
+		"@earendil-works/pi-agent-core": piAgentCoreEntry,
+		"@earendil-works/pi-tui": piTuiEntry,
+		"@earendil-works/pi-ai": piAiCompatEntry,
+		"@earendil-works/pi-ai/compat": piAiCompatEntry,
+		"@earendil-works/pi-ai/oauth": piAiOauthEntry,
 		"@mariozechner/pi-coding-agent": piCodingAgentEntry,
 		"@mariozechner/pi-agent-core": piAgentCoreEntry,
 		"@mariozechner/pi-tui": piTuiEntry,

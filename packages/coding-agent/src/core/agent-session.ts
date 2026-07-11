@@ -746,29 +746,6 @@ export class AgentSession {
 		};
 	}
 
-	private _installAgentNextTurnRefresh(): void {
-		const previousPrepareNextTurnWithContext =
-			this.agent.prepareNextTurnWithContext ??
-			(this.agent.prepareNextTurn
-				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
-				: undefined);
-		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
-			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
-			const previousContext = previousSnapshot?.context ?? turn.context;
-
-			return {
-				...previousSnapshot,
-				context: {
-					...previousContext,
-					systemPrompt: this._systemPromptOverride ?? this._baseSystemPrompt,
-					tools: this.agent.state.tools.slice(),
-				},
-				model: this.agent.state.model,
-				thinkingLevel: this.agent.state.thinkingLevel,
-			};
-		};
-	}
-
 	// =========================================================================
 	// Event Subscription
 	// =========================================================================

@@ -29,7 +29,6 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
-import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
@@ -52,7 +51,6 @@ import {
 	clampMaxTokensToContext,
 	MIN_THINKING_BUDGET,
 } from "./simple-options.ts";
-import { transformMessages } from "./transform-messages.ts";
 
 /**
  * Resolve cache retention preference.
@@ -1387,11 +1385,11 @@ function buildParams(
 }
 
 // Normalize tool call IDs to match Anthropic's required pattern and length
-function normalizeToolCallId(id: string): string {
+function _normalizeToolCallId(id: string): string {
 	return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 }
 
-function convertToolResult(
+function _convertToolResult(
 	msg: ToolResultMessage,
 	isOAuthToken: boolean,
 	deferredToolNames: ReadonlySet<string>,
@@ -1435,7 +1433,7 @@ function convertMessages(
 	canonicalToWire?: Map<string, string>,
 ): MessageParam[] {
 	const params: MessageParam[] = [];
-	const loadedToolNames = new Set<string>();
+	const _loadedToolNames = new Set<string>();
 
 	for (let i = 0; i < transformedMessages.length; i++) {
 		const msg = transformedMessages[i];

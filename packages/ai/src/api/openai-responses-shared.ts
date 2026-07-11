@@ -183,8 +183,6 @@ export function parseOpenAIResponsesUsage(usage: ResponsesUsageLike): Usage {
 	};
 }
 
-type OpenAIFunctionTool = Extract<OpenAITool, { type: "function" }>;
-
 // =============================================================================
 // Message conversion
 // =============================================================================

@@ -1862,7 +1862,7 @@ export class DefaultPackageManager implements PackageManager {
 		// Extension packages run inside pi and resolve pi APIs through loader aliases/virtual modules.
 		// Disable peer dependency resolution for managed installs (npm's --legacy-peer-deps, and
 		// equivalent bun/pnpm settings) so package managers do not install or solve host-provided
-		// @valkyriweb/pi-* peers. Stale auto-installed pi peers can otherwise block updates.
+		// @earendil-works/pi-* peers. Stale auto-installed pi peers can otherwise block updates.
 		// Disable npm audit during managed installs; audit metadata is not used here and npm/Arborist
 		// can fail rollback during extension updates after audit work has started.
 		if (packageManagerName === "bun") {
