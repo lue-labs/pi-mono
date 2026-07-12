@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fauxAssistantMessage } from "../src/providers/faux.ts";
+import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "../src/providers/faux.ts";
 import { isRetryableAssistantError } from "../src/utils/retry.ts";
 
 const openAIExplicitRetryMessage =
@@ -34,5 +34,16 @@ describe("provider retry classification", () => {
 			isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" })),
 		).toBe(true);
 		expect(isRetryableAssistantError(fauxAssistantMessage("not an error"))).toBe(false);
+	});
+
+	it("only retries provider errors before assistant output", () => {
+		const error = { stopReason: "error" as const, errorMessage: "terminated" };
+
+		expect(isRetryableAssistantError(fauxAssistantMessage("partial text", error))).toBe(false);
+		expect(isRetryableAssistantError(fauxAssistantMessage(fauxThinking("partial reasoning"), error))).toBe(false);
+		expect(
+			isRetryableAssistantError(fauxAssistantMessage(fauxToolCall("write", { path: "result.txt" }), error)),
+		).toBe(false);
+		expect(isRetryableAssistantError(fauxAssistantMessage([fauxText(""), fauxThinking("")], error))).toBe(true);
 	});
 });
