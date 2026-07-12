@@ -70,11 +70,12 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 		frontier: ["gpt-5.6-sol"],
 		ultra: ["gpt-5.6"],
 	},
+	// Direct Codex does not yet advertise GPT-5.6 in its built-in catalog.
 	"openai-codex": {
-		fast: ["gpt-5.6-luna"],
-		medium: ["gpt-5.6-terra", "gpt-5.3-codex-spark"],
-		frontier: ["gpt-5.6-sol"],
-		ultra: ["gpt-5.6"],
+		fast: ["gpt-5.3-codex-spark"],
+		medium: ["gpt-5.3-codex-spark"],
+		frontier: ["gpt-5.3-codex-spark"],
+		ultra: ["gpt-5.3-codex-spark"],
 	},
 	"azure-openai-responses": {
 		fast: ["gpt-5.6-luna"],
@@ -82,11 +83,12 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 		frontier: ["gpt-5.6-sol"],
 		ultra: ["gpt-5.6"],
 	},
+	// Copilot likewise needs a catalog-backed, non-retired fallback.
 	"github-copilot": {
-		fast: ["gpt-5.6-luna"],
-		medium: ["gpt-5.6-terra"],
-		frontier: ["gpt-5.6-sol"],
-		ultra: ["gpt-5.6"],
+		fast: ["gpt-5.3-codex"],
+		medium: ["gpt-5.3-codex"],
+		frontier: ["gpt-5.3-codex"],
+		ultra: ["gpt-5.3-codex"],
 	},
 	google: {
 		fast: ["gemini-3.1-flash-lite"],
@@ -187,12 +189,12 @@ export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	anthropic: "claude-opus-4-8",
 	openai: "gpt-5.6-sol",
 	"azure-openai-responses": "gpt-5.6-sol",
-	"openai-codex": "gpt-5.6-sol",
+	"openai-codex": "gpt-5.3-codex-spark",
 	nvidia: "nvidia/nemotron-3-super-120b-a12b",
 	deepseek: "deepseek-v4-pro",
 	google: "gemini-3.1-pro-preview",
 	"google-vertex": "gemini-3.1-pro-preview",
-	"github-copilot": "gpt-5.6-sol",
+	"github-copilot": "gpt-5.3-codex",
 	openrouter: "moonshotai/kimi-k2.6",
 	"vercel-ai-gateway": "zai/glm-5.1",
 	xai: "grok-4.20-0309-reasoning",

@@ -163,12 +163,12 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("claude-haiku-4-5");
 	});
 
-	test('"fast" alias resolves openai-codex explore workers to gpt-5.6-luna', () => {
+	test('"fast" alias never retains a retired openai-codex parent', () => {
 		const faux = registerFauxProvider({
 			provider: "openai-codex",
 			models: [
-				{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
-				{ id: "gpt-5.6-luna", name: "GPT 5.6 Luna", reasoning: true },
+				{ id: "gpt-5.4-mini", name: "Retired GPT 5.4 Mini", reasoning: true },
+				{ id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark", reasoning: true },
 			],
 		});
 		registrations.push(faux);
@@ -191,11 +191,11 @@ describe("agent model and thinking selection", () => {
 				baseUrl: model.baseUrl,
 			})),
 		});
-		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.6-sol");
+		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.4-mini");
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "fast" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("openai-codex");
-		expect(selected?.id).toBe("gpt-5.6-luna");
+		expect(selected?.id).toBe("gpt-5.3-codex-spark");
 	});
 
 	test("provider-qualified model refs do not fuzzy-match proxy provider ids", () => {
@@ -236,12 +236,12 @@ describe("agent model and thinking selection", () => {
 		).toThrow(/Unknown or unavailable model: missing-provider\/foo-model/);
 	});
 
-	test('"medium" alias resolves openai-codex workers to gpt-5.6-terra', () => {
+	test('"medium" alias uses the current catalog-backed openai-codex model', () => {
 		const faux = registerFauxProvider({
 			provider: "openai-codex",
 			models: [
-				{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
-				{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
+				{ id: "gpt-5.4", name: "Retired GPT 5.4", reasoning: true },
+				{ id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark", reasoning: true },
 			],
 		});
 		registrations.push(faux);
@@ -264,11 +264,11 @@ describe("agent model and thinking selection", () => {
 				baseUrl: model.baseUrl,
 			})),
 		});
-		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.6-sol");
+		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.4");
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("openai-codex");
-		expect(selected?.id).toBe("gpt-5.6-terra");
+		expect(selected?.id).toBe("gpt-5.3-codex-spark");
 	});
 
 	test('"medium" alias prefers gpt-5.6-terra for clawrouter GPT parents', () => {
