@@ -78,7 +78,9 @@ describe("AgentSession custom-message events", () => {
 			tools: [waitTool],
 			extensionFactories: [
 				(pi) => {
-					pi.on("custom_message", (event) => customTypes.push(event.message.customType));
+					pi.on("custom_message", (event) => {
+						customTypes.push(event.message.customType);
+					});
 				},
 			],
 		});
