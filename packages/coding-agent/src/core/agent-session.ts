@@ -2131,6 +2131,7 @@ export class AgentSession {
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn"; wakeOnIdle?: boolean },
 	): Promise<void> {
+		let landedAtIdle = false;
 		const appMessage = {
 			role: "custom" as const,
 			customType: message.customType,
@@ -2139,8 +2140,11 @@ export class AgentSession {
 			details: message.details,
 			timestamp: Date.now(),
 		} satisfies CustomMessage<T>;
+		const emitCustomMessage = () =>
+			this._extensionRunner.emit({ type: "custom_message" as const, message: appMessage });
 		if (options?.deliverAs === "nextTurn") {
 			this._pendingNextTurnMessages.push(appMessage);
+			await emitCustomMessage();
 		} else if (this.isStreaming || this.isCompacting || this.agent.isProcessing) {
 			// Treat compaction and any in-flight run as streaming-equivalent for delivery
 			// routing. Compaction runs its own LLM calls outside agent.runWithLifecycle(),
@@ -2162,6 +2166,7 @@ export class AgentSession {
 			} else {
 				this.agent.steer(appMessage);
 			}
+			await emitCustomMessage();
 		} else if (options?.triggerTurn) {
 			// Mirror prompt()'s pre-turn compaction check. Without it, harness-driven
 			// turns (e.g. pi-goal continuations via sendCustomMessage({triggerTurn}))
@@ -2223,19 +2228,25 @@ export class AgentSession {
 					this.agent.state.systemPrompt = this._baseSystemPrompt;
 				}
 			}
-			try {
-				await this._runAgentPrompt(extraMessages.length > 0 ? [...extraMessages, appMessage] : appMessage);
-			} catch (err) {
+			const runOutcomePromise = this._runAgentPrompt(
+				extraMessages.length > 0 ? [...extraMessages, appMessage] : appMessage,
+			).then(
+				() => ({ ok: true as const }),
+				(error: unknown) => ({ ok: false as const, error }),
+			);
+			await emitCustomMessage();
+			const runOutcome = await runOutcomePromise;
+			if (!runOutcome.ok) {
 				// Defense-in-depth for a TOCTOU race: two extension callers can both
 				// pass the streaming/compacting/isProcessing gate above, then race on
 				// agent.prompt() — the first wins, the second throws "already
 				// processing". Falling back to steer keeps the message in the active
 				// run instead of dropping it (or surfacing a confusing
 				// "Extension <runtime> error" to the user).
-				if (err instanceof Error && /already processing( a prompt)?/.test(err.message)) {
+				if (runOutcome.error instanceof Error && /already processing( a prompt)?/.test(runOutcome.error.message)) {
 					this.agent.steer(appMessage);
 				} else {
-					throw err;
+					throw runOutcome.error;
 				}
 			}
 		} else {
@@ -2248,8 +2259,10 @@ export class AgentSession {
 			);
 			this._emit({ type: "message_start", message: appMessage });
 			this._emit({ type: "message_end", message: appMessage });
-			if (options?.wakeOnIdle) this._scheduleIdleWake();
+			landedAtIdle = true;
+			await emitCustomMessage();
 		}
+		if (landedAtIdle && options?.wakeOnIdle) this._scheduleIdleWake();
 	}
 
 	/**

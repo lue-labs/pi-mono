@@ -632,6 +632,16 @@ pi.on("message_end", async (event, ctx) => {
 });
 ```
 
+#### custom_message
+
+Fired once when `sendCustomMessage()` accepts a custom message for delivery, whether the session is idle, busy, or starting a turn. Use this event for structured runtime notifications such as background task completion; custom messages are not part of the agent-loop `message_start` / `message_end` lifecycle when delivered while idle.
+
+```typescript
+pi.on("custom_message", async (event, ctx) => {
+  // event.message.customType, event.message.content, event.message.details
+});
+```
+
 #### tool_execution_start / tool_execution_update / tool_execution_end
 
 Fired for tool execution lifecycle updates.
