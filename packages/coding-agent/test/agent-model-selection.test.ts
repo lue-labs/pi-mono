@@ -133,10 +133,9 @@ describe("agent model and thinking selection", () => {
 
 	test('"fast" alias prefers gpt-5.6-luna for clawrouter GPT parents', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
 			{ id: "claude-haiku-4-5", name: "Claude Haiku", reasoning: true },
 			{ id: "gpt-5.6-luna", name: "GPT 5.6 Luna", reasoning: true },
-			{ id: "gpt-5.4-mini", name: "GPT 5.4 Mini", reasoning: true },
 		]);
 		const explore = getBuiltinAgentDefinitions().find((definition) => definition.id === "explore");
 		if (!explore) throw new Error("expected builtin explore agent");
@@ -152,23 +151,24 @@ describe("agent model and thinking selection", () => {
 		expect(warnings).toEqual([]);
 	});
 
-	test('"fast" alias falls back to gpt-5.4-mini when clawrouter Luna is unavailable', () => {
+	test('"fast" alias falls back to Haiku when clawrouter Luna is unavailable', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
-			{ id: "gpt-5.4-mini", name: "GPT 5.4 Mini", reasoning: true },
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
+			{ id: "gpt-5.4-mini", name: "Retired GPT 5.4 Mini", reasoning: true },
+			{ id: "claude-haiku-4-5", name: "Claude Haiku", reasoning: true },
 		]);
 		const explore = getBuiltinAgentDefinitions().find((definition) => definition.id === "explore");
 		if (!explore) throw new Error("expected builtin explore agent");
 		const selected = resolveAgentModel({ agent: explore, parentModel: parent, modelRegistry: registry });
-		expect(selected?.id).toBe("gpt-5.4-mini");
+		expect(selected?.id).toBe("claude-haiku-4-5");
 	});
 
-	test('"fast" alias resolves openai-codex explore workers to gpt-5.4-mini', () => {
+	test('"fast" alias never retains a retired openai-codex parent', () => {
 		const faux = registerFauxProvider({
 			provider: "openai-codex",
 			models: [
-				{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
-				{ id: "gpt-5.4-mini", name: "GPT 5.4 Mini", reasoning: true },
+				{ id: "gpt-5.4-mini", name: "Retired GPT 5.4 Mini", reasoning: true },
+				{ id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark", reasoning: true },
 			],
 		});
 		registrations.push(faux);
@@ -191,11 +191,11 @@ describe("agent model and thinking selection", () => {
 				baseUrl: model.baseUrl,
 			})),
 		});
-		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.5");
+		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.4-mini");
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "fast" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("openai-codex");
-		expect(selected?.id).toBe("gpt-5.4-mini");
+		expect(selected?.id).toBe("gpt-5.3-codex-spark");
 	});
 
 	test("provider-qualified model refs do not fuzzy-match proxy provider ids", () => {
@@ -236,12 +236,12 @@ describe("agent model and thinking selection", () => {
 		).toThrow(/Unknown or unavailable model: missing-provider\/foo-model/);
 	});
 
-	test('"medium" alias resolves openai-codex workers to gpt-5.4', () => {
+	test('"medium" alias uses the current catalog-backed openai-codex model', () => {
 		const faux = registerFauxProvider({
 			provider: "openai-codex",
 			models: [
-				{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
-				{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+				{ id: "gpt-5.4", name: "Retired GPT 5.4", reasoning: true },
+				{ id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark", reasoning: true },
 			],
 		});
 		registrations.push(faux);
@@ -264,19 +264,18 @@ describe("agent model and thinking selection", () => {
 				baseUrl: model.baseUrl,
 			})),
 		});
-		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.5");
+		const parent = registry.getAvailable().find((m) => m.provider === "openai-codex" && m.id === "gpt-5.4");
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("openai-codex");
-		expect(selected?.id).toBe("gpt-5.4");
+		expect(selected?.id).toBe("gpt-5.3-codex-spark");
 	});
 
 	test('"medium" alias prefers gpt-5.6-terra for clawrouter GPT parents', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
 			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
 			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
-			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
@@ -284,22 +283,22 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.6-terra");
 	});
 
-	test('"medium" alias falls back to gpt-5.4 when clawrouter Terra is unavailable', () => {
+	test('"medium" alias falls back to Spark when clawrouter Terra is unavailable', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
-			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
+			{ id: "gpt-5.4", name: "Retired GPT 5.4", reasoning: true },
+			{ id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("clawrouter");
-		expect(selected?.id).toBe("gpt-5.4");
+		expect(selected?.id).toBe("gpt-5.3-codex-spark");
 	});
 
 	test('"medium" alias falls back to claude-sonnet-4-6 when sonnet-5 is unavailable', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "claude-opus-4-8-200k", name: "Claude Opus", reasoning: true },
 			{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", reasoning: true },
-			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
@@ -307,22 +306,22 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("claude-sonnet-4-6");
 	});
 
-	test('"frontier" alias keeps clawrouter GPT parents on gpt-5.5', () => {
+	test('"frontier" alias keeps clawrouter GPT parents on gpt-5.6-sol', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
 			{ id: "claude-opus-4-8-200k", name: "Claude Opus", reasoning: true },
-			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "frontier" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("clawrouter");
-		expect(selected?.id).toBe("gpt-5.5");
+		expect(selected?.id).toBe("gpt-5.6-sol");
 	});
 
 	test('"frontier" alias keeps clawrouter Claude parents on claude-opus-4-8-200k', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
-			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
 			{ id: "claude-opus-4-8-200k", name: "Claude Opus 200k", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "frontier" };
@@ -342,7 +341,7 @@ describe("agent model and thinking selection", () => {
 		expect(claudeSelected?.id).toBe("claude-fable-5-200k");
 
 		const { registry: gptRegistry, parent: gptParent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
 			{ id: "claude-fable-5-200k", name: "Claude Fable 200k", reasoning: true },
 			{ id: "gpt-5.6", name: "GPT 5.6", reasoning: true },
 		]);
@@ -353,7 +352,7 @@ describe("agent model and thinking selection", () => {
 
 	test("qualified tier aliases select from that provider", () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.5", name: "GPT 5.5", reasoning: true },
+			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
 			{ id: "claude-fable-5-200k", name: "Claude Fable 200k", reasoning: true },
 			{ id: "gpt-5.6", name: "GPT 5.6", reasoning: true },
 		]);
@@ -443,7 +442,7 @@ describe("agent model and thinking selection", () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "claude-fable-5", name: "Claude Fable", reasoning: true },
 			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
-			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
+			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
 		]);
 		const selected = resolveAgentModel({
 			agent: getBuiltinAgentDefinitions()[0],
@@ -459,7 +458,6 @@ describe("agent model and thinking selection", () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
 			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
-			{ id: "gpt-5.4", name: "GPT 5.4", reasoning: true },
 		]);
 		const selected = resolveAgentModel({
 			agent: getBuiltinAgentDefinitions()[0],

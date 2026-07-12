@@ -1,8 +1,10 @@
 import type { Model } from "@valkyriweb/pi-ai";
+import { getModels } from "@valkyriweb/pi-ai/compat";
 import { describe, expect, test, vi } from "vitest";
 import {
 	defaultModelPerProvider,
 	findInitialModel,
+	modelTierCandidatesPerProvider,
 	normalizeAutoAliasString,
 	parseModelPattern,
 	resolveCliModel,
@@ -604,17 +606,43 @@ describe("auto alias normalization", () => {
 	});
 
 	test("rejects non-auto and unsupported auto aliases", () => {
-		expect(normalizeAutoAliasString("openai-codex", "gpt-5.5")).toBeUndefined();
+		expect(normalizeAutoAliasString("openai-codex", "gpt-custom")).toBeUndefined();
 		expect(normalizeAutoAliasString("openai", "auto")).toBeUndefined();
 		expect(normalizeAutoAliasString(undefined, "auto")).toBeUndefined();
-		expect(normalizeAutoAliasString("openai-codex", "openai/gpt-5.5")).toBeUndefined();
+		expect(normalizeAutoAliasString("openai-codex", "openai/gpt-custom")).toBeUndefined();
+	});
+});
+
+describe("tier model aliases", () => {
+	test("retired GPT models are never automatic tier candidates", () => {
+		const candidates = Object.values(modelTierCandidatesPerProvider).flatMap((tiers) => Object.values(tiers).flat());
+		expect(candidates.filter((candidate) => /^gpt-5\.(4|5)(?:-|$)/.test(candidate))).toEqual([]);
+	});
+
+	test("built-in OpenAI-family tier candidates exist in their provider catalogs", () => {
+		const providers = ["openai", "azure-openai-responses", "openai-codex", "github-copilot"] as const;
+		for (const provider of providers) {
+			const catalogIds = new Set(getModels(provider).map((model) => model.id));
+			for (const candidate of Object.values(modelTierCandidatesPerProvider[provider]).flat()) {
+				expect(catalogIds.has(candidate), `${provider}/${candidate}`).toBe(true);
+			}
+		}
 	});
 });
 
 describe("default model selection", () => {
-	test("openai defaults track current models", () => {
-		expect(defaultModelPerProvider.openai).toBe("gpt-5.5");
-		expect(defaultModelPerProvider["openai-codex"]).toBe("gpt-5.5");
+	test("openai defaults track current catalog-backed models", () => {
+		expect(defaultModelPerProvider.openai).toBe("gpt-5.6-sol");
+		expect(defaultModelPerProvider["openai-codex"]).toBe("gpt-5.3-codex-spark");
+		expect(defaultModelPerProvider["azure-openai-responses"]).toBe("gpt-5.6-sol");
+		expect(defaultModelPerProvider["github-copilot"]).toBe("gpt-5.3-codex");
+		expect(Object.values(defaultModelPerProvider).filter((model) => /^gpt-5\.(4|5)(?:-|$)/.test(model))).toEqual([]);
+		for (const provider of ["openai", "azure-openai-responses", "openai-codex", "github-copilot"] as const) {
+			expect(
+				getModels(provider).some((model) => model.id === defaultModelPerProvider[provider]),
+				provider,
+			).toBe(true);
+		}
 	});
 
 	test("zai, minimax, cerebras, and ant-ling defaults track current models", () => {

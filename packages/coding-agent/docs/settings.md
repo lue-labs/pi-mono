@@ -43,7 +43,7 @@ Native child agents inherit the parent model and thinking by default. Configure 
   "subagents": {
     "defaults": { "thinking": "off" },
     "providers": {
-      "openai-codex": { "model": "gpt-5.5", "thinking": "medium" },
+      "openai-codex": { "model": "gpt-5.3-codex-spark", "thinking": "medium" },
       "claude-bridge": { "model": "claude-sonnet-4-6", "thinking": "off" }
     }
   }
