@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
 	defaultModelPerProvider,
 	findInitialModel,
+	modelTierCandidatesPerProvider,
 	normalizeAutoAliasString,
 	parseModelPattern,
 	resolveCliModel,
@@ -604,17 +605,27 @@ describe("auto alias normalization", () => {
 	});
 
 	test("rejects non-auto and unsupported auto aliases", () => {
-		expect(normalizeAutoAliasString("openai-codex", "gpt-5.5")).toBeUndefined();
+		expect(normalizeAutoAliasString("openai-codex", "gpt-custom")).toBeUndefined();
 		expect(normalizeAutoAliasString("openai", "auto")).toBeUndefined();
 		expect(normalizeAutoAliasString(undefined, "auto")).toBeUndefined();
-		expect(normalizeAutoAliasString("openai-codex", "openai/gpt-5.5")).toBeUndefined();
+		expect(normalizeAutoAliasString("openai-codex", "openai/gpt-custom")).toBeUndefined();
+	});
+});
+
+describe("tier model aliases", () => {
+	test("retired GPT models are never automatic tier candidates", () => {
+		const candidates = Object.values(modelTierCandidatesPerProvider).flatMap((tiers) => Object.values(tiers).flat());
+		expect(candidates.filter((candidate) => /^gpt-5\.(4|5)(?:-|$)/.test(candidate))).toEqual([]);
 	});
 });
 
 describe("default model selection", () => {
 	test("openai defaults track current models", () => {
-		expect(defaultModelPerProvider.openai).toBe("gpt-5.5");
-		expect(defaultModelPerProvider["openai-codex"]).toBe("gpt-5.5");
+		expect(defaultModelPerProvider.openai).toBe("gpt-5.6-sol");
+		expect(defaultModelPerProvider["openai-codex"]).toBe("gpt-5.6-sol");
+		expect(defaultModelPerProvider["azure-openai-responses"]).toBe("gpt-5.6-sol");
+		expect(defaultModelPerProvider["github-copilot"]).toBe("gpt-5.6-sol");
+		expect(Object.values(defaultModelPerProvider).filter((model) => /^gpt-5\.(4|5)(?:-|$)/.test(model))).toEqual([]);
 	});
 
 	test("zai, minimax, cerebras, and ant-ling defaults track current models", () => {
