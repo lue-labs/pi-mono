@@ -8,7 +8,7 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Changed
 
-- **Agent child rows now keep dispatch-stable member identities.** Single, parallel, and chain members receive `${runId}:${dispatchIndex}` identities before execution; progress ordering and persistent resume generations preserve them. Child `controlId` remains aggregate-scoped until member-scoped controllers exist, preventing display identity from falsely implying row-scoped steering.
+- **Agent child rows now have dispatch-stable identity and member-scoped controls.** Single, parallel, and chain members receive `${runId}:${dispatchIndex}` identities before execution; progress ordering and persistent resume generations preserve them. Live sessions, task-message buffers, steer, interrupt, and cancel are keyed per member, so selecting one parallel child cannot affect a sibling; aggregate controls remain intentional whole-run operations. Durable single-background children can resume through the member ID, while unsupported parallel continuation fails explicitly. A static trailing-task contract reserves standalone `needs input: <specific question>` output for genuine human decisions; it never enters system prompts, tool schemas, or cache keys.
 
 - **Forked named Agent profiles retain role guidance without hidden tool blocking.** `context: "fork"` remains a permissive self-fork with the caller's cache-compatible system/tool prefix; the selected named prompt moves to the trailing task message, and run details warn when ordinary profile tool filtering is bypassed. Existing profile/depth caps on nested Agent access remain enforced. This matches Claude Code's “fork yourself” semantics while keeping Pi's named-profile-plus-fork compatibility.
 

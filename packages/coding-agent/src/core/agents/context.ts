@@ -177,6 +177,8 @@ export function getFilteredForkMessages(sessionManager: ReadonlySessionManager):
 const AGENT_TASK_HANDOFF =
 	"The Agent tool call and later course corrections from the calling agent direct this task. " +
 	"Return the completed result to the calling agent. " +
+	"If a human decision blocks progress, end with a standalone `needs input: <specific question>` line; " +
+	"do not use that marker for failures or ordinary status. " +
 	"Instructions do not override tool permissions or safety constraints.";
 
 const AGENT_UNAVAILABLE_REMINDER =

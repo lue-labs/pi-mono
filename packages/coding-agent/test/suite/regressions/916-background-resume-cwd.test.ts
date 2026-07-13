@@ -70,7 +70,8 @@ describe("agent tool suite: background resume keeps routed task.cwd (#916)", () 
 		expect(initial.runId).toBeTruthy();
 		const runId = initial.runId!;
 		await waitForAgentRecentRun(runId);
-		expect(findAgentRecentRun(runId)?.runs[0]?.memberId).toBe(`${runId}:1`);
+		const memberId = findAgentRecentRun(runId)?.runs[0]?.memberId;
+		expect(memberId).toBe(`${runId}:1`);
 
 		// Turn 2 (resume): the child runs `bash pwd` — assert it still resolves
 		// against routedCwd, not harness.tempDir (the parent cwd).
@@ -79,7 +80,7 @@ describe("agent tool suite: background resume keeps routed task.cwd (#916)", () 
 			fauxAssistantMessage("done checking cwd"),
 		]);
 
-		const resumeResult = await resumeAgentRecentRun(runId, "Run `pwd` and report it");
+		const resumeResult = await resumeAgentRecentRun(memberId!, "Run `pwd` and report it");
 		expect(resumeResult.ok).toBe(true);
 		await waitForAgentRecentRun(runId);
 		expect(findAgentRecentRun(runId)?.runs[0]?.memberId).toBe(`${runId}:1`);

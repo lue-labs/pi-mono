@@ -19,7 +19,9 @@ import {
 	acknowledgeAgentRecentRun,
 	agentRunUiStatus,
 	cancelAgentRecentRun,
+	canResumeAgentRecentRunMember,
 	findAgentRecentRun,
+	findAgentRecentRunMember,
 	injectAgentRecentRun,
 	interruptAgentRecentRun,
 	resumeAgentRecentRun,
@@ -65,6 +67,7 @@ function taskStatusFromRun(run: AgentRecentRun): TaskStatus {
 
 function attentionFor(
 	run: AgentRecentRun,
+	detail: AgentRunDetails | undefined,
 	status: TaskStatus,
 	followsPersistentParent: boolean,
 ): { reason?: AgentAttentionReason; message?: string } {
@@ -72,14 +75,15 @@ function attentionFor(
 	if (followsPersistentParent && run.attentionReason) {
 		return { reason: run.attentionReason, message: run.attentionMessage };
 	}
-	return status === "failed" ? { reason: "failure", message: run.error } : {};
+	if (detail?.attentionReason) return { reason: detail.attentionReason, message: detail.attentionMessage };
+	return status === "failed" ? { reason: "failure", message: detail?.error ?? run.error } : {};
 }
 
 function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, index: number): TaskSnapshot {
 	const followsPersistentParent = run.persistent === true && run.runs.length === 1;
 	const status = followsPersistentParent ? taskStatusFromRun(run) : mapStatus(detail.status);
 	const startedAt = detail.startedAt ?? Date.parse(run.startedAt);
-	const attention = attentionFor(run, status, followsPersistentParent);
+	const attention = attentionFor(run, detail, status, followsPersistentParent);
 	return {
 		id: detail.memberId ?? `${run.id}:${index + 1}`,
 		type: "local_agent",
@@ -93,15 +97,18 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 		attentionMessage: attention.message,
 		startedAt,
 		endedAt: status === "running" || status === "idle" ? undefined : startedAt + detail.durationMs,
-		resumable: Boolean(followsPersistentParent && run.resumable),
+		resumable: Boolean(
+			(detail.memberId && canResumeAgentRecentRunMember(detail.memberId)) ||
+				(followsPersistentParent && run.resumable),
+		),
 		error: detail.error,
-		controlId: run.id,
+		controlId: detail.memberId ?? run.id,
 	};
 }
 
 function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 	const status = taskStatusFromRun(run);
-	const attention = attentionFor(run, status, true);
+	const attention = attentionFor(run, undefined, status, true);
 	return {
 		id: run.id,
 		type: "local_agent",
@@ -123,7 +130,11 @@ function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 
 function lookup(taskId: string): TaskSnapshot | undefined {
 	const run = findAgentRecentRun(taskId);
-	return run ? snapshotFromRun(run) : undefined;
+	if (run) return snapshotFromRun(run);
+	const member = findAgentRecentRunMember(taskId);
+	if (!member) return undefined;
+	const index = member.run.runs.findIndex((detail) => detail.memberId === taskId);
+	return childSnapshotFromRun(member.run, member.detail, index);
 }
 
 /** Best-available result text for one sub-run: final output, else raw, else recent snippets. */
@@ -186,9 +197,10 @@ export const LocalAgentTask: Task = {
 			return toControlResult(taskId, false, "Cannot inject an empty message");
 		}
 		const current = findAgentRecentRun(taskId);
-		if (!current) return toControlResult(taskId, false, `Run not found: ${taskId}`);
+		const member = current ? undefined : findAgentRecentRunMember(taskId);
+		if (!current && !member) return toControlResult(taskId, false, `Run not found: ${taskId}`);
 
-		if (current.status === "running") {
+		if ((current?.status ?? member?.detail.status) === "running") {
 			const injected = await injectAgentRecentRun(taskId, trimmed);
 			return toControlResult(taskId, injected.ok, injected.message);
 		}

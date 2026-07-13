@@ -163,6 +163,9 @@ export interface AgentRunDetails {
 	error?: string;
 	finalOutput?: string;
 	rawOutput?: string;
+	/** Semantic attention explicitly requested by this child, independent of lifecycle. */
+	attentionReason?: AgentAttentionReason;
+	attentionMessage?: string;
 }
 
 export interface AgentToolDetails {

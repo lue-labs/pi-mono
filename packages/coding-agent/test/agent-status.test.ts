@@ -473,6 +473,35 @@ describe("native agent status", () => {
 		expect(resume).toHaveBeenCalledWith("continue");
 		expect(result.ok).toBe(true);
 	});
+
+	test("projects a failed resumed generation onto its running child", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "interrupted",
+			runs: [
+				{
+					...makeRunDetails("interrupted"),
+					memberId: `${run.id}:1`,
+					attentionReason: "user_input",
+					attentionMessage: "Which environment?",
+				},
+			],
+		});
+
+		restartAgentRecentRun(run);
+		failAgentRecentRun(run, new Error("resume setup failed"), 1);
+
+		const failed = listAgentRecentRuns()[0]!;
+		expect(failed.status).toBe("failed");
+		expect(failed.attentionReason).toBe("failure");
+		expect(failed.runs[0]).toMatchObject({
+			status: "failed",
+			error: "resume setup failed",
+			attentionReason: undefined,
+			attentionMessage: undefined,
+		});
+	});
 });
 
 describe("nested sub-agent visibility & transcript", () => {

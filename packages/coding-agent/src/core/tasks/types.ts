@@ -64,15 +64,10 @@ export interface TaskSnapshot {
 	 * `findAgentRecentRun`/`getLiveSession`/`subscribeTaskMessages` directly)
 	 * when it differs from `id`. Defaults to `id` when absent.
 	 *
-	 * Exists because a `children` entry's `id` (e.g. "agent-5:1") is a purely
-	 * informational leaf label for an aggregate/group task such as a parallel
-	 * Agent call — there is no independent adapter or live-session/message-buffer
-	 * registration per child, only per top-level run. A caller that threads a
-	 * child's `id` into a control/zoom operation gets a silent "not found"
-	 * because nothing is ever registered under that exact string. `controlId`
-	 * is the id that IS registered (the owning run/task's own `id`), so
-	 * consumers building rows from flattened `children` can still resolve real
-	 * control/zoom operations without reverse-engineering the leaf id format.
+	 * Aggregate rows use their own id. A child uses its stable member id only
+	 * after the executor has registered a member-scoped controller or live
+	 * session; otherwise it deliberately falls back to its aggregate id rather
+	 * than exposing an unresolvable control target.
 	 */
 	controlId?: string;
 }

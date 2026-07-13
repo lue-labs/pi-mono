@@ -135,7 +135,7 @@ describe("tasks registry — LocalAgentTask adapter", () => {
 
 		const children = LocalAgentTask.snapshot(run.id)?.children;
 		expect(children?.map((child) => child.id)).toEqual([`${run.id}:2`, `${run.id}:1`]);
-		expect(children?.map((child) => child.controlId)).toEqual([run.id, run.id]);
+		expect(children?.map((child) => child.controlId)).toEqual([`${run.id}:2`, `${run.id}:1`]);
 	});
 
 	test("listTasks enumerates registered agent runs", () => {
