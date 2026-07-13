@@ -584,13 +584,23 @@ describe("AgentSession compaction characterization", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.options).toMatchObject({ cacheRetention: "long", maxTokens: 1, maxRetries: 0 });
 		const heartbeatMessages = (calls[0]?.context as Context).messages;
-		const heartbeatImageChars = heartbeatMessages
-			.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
-			.reduce((total, block) => total + (block.type === "image" ? block.data.length : 0), 0);
+		const imageBlocks = (messages: unknown[]) =>
+			messages.flatMap((message) => {
+				const content = (message as { content?: unknown }).content;
+				return Array.isArray(content) ? content : [];
+			});
+		const isImageBlock = (block: unknown): block is { type: "image"; data: string } =>
+			typeof block === "object" &&
+			block !== null &&
+			"type" in block &&
+			block.type === "image" &&
+			"data" in block &&
+			typeof block.data === "string";
+		const heartbeatImageChars = imageBlocks(heartbeatMessages)
+			.filter(isImageBlock)
+			.reduce((total, block) => total + block.data.length, 0);
 		expect(heartbeatImageChars).toBeLessThanOrEqual(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS);
-		const storedImageCount = harness.session.agent.state.messages
-			.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
-			.filter((block) => block.type === "image").length;
+		const storedImageCount = imageBlocks(harness.session.agent.state.messages).filter(isImageBlock).length;
 		expect(storedImageCount).toBe(2);
 	});
 

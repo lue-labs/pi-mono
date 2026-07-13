@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type Model } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, type Model, type ToolResultMessage } from "@valkyriweb/pi-ai";
 import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -567,7 +567,7 @@ describe("AgentSession model and extension characterization", () => {
 		harness.setResponses([
 			(context) => {
 				compactionImageCount = context.messages
-					.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+					.flatMap((message) => (message.role === "toolResult" ? (message as ToolResultMessage).content : []))
 					.filter((block) => block.type === "image").length;
 				return fauxAssistantMessage("summary");
 			},
