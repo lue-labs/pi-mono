@@ -81,7 +81,7 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 	const startedAt = detail.startedAt ?? Date.parse(run.startedAt);
 	const attention = attentionFor(run, status, followsPersistentParent);
 	return {
-		id: `${run.id}:${index + 1}`,
+		id: detail.memberId ?? `${run.id}:${index + 1}`,
 		type: "local_agent",
 		status,
 		description: describeChildRun(detail),

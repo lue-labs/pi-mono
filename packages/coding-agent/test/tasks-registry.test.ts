@@ -115,6 +115,29 @@ describe("tasks registry — LocalAgentTask adapter", () => {
 		expect(child?.controlId).toBe(run.id);
 	});
 
+	test("child snapshots preserve dispatch-time member identity when progress order differs", () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "scout", task: "First" },
+				{ agent: "scout", task: "Second" },
+			],
+			{ background: true },
+		);
+		updateAgentRecentRunProgress(run, {
+			mode: "parallel",
+			status: "running",
+			runs: [
+				{ ...makeRunDetails("running"), memberId: `${run.id}:2`, task: "Second" },
+				{ ...makeRunDetails("running"), memberId: `${run.id}:1`, task: "First" },
+			],
+		});
+
+		const children = LocalAgentTask.snapshot(run.id)?.children;
+		expect(children?.map((child) => child.id)).toEqual([`${run.id}:2`, `${run.id}:1`]);
+		expect(children?.map((child) => child.controlId)).toEqual([run.id, run.id]);
+	});
+
 	test("listTasks enumerates registered agent runs", () => {
 		const a = startAgentRecentRun("single", [{ agent: "scout", task: "A" }], { background: true });
 		const b = startAgentRecentRun("single", [{ agent: "scout", task: "B" }], { background: true });

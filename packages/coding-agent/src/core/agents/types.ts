@@ -132,6 +132,8 @@ export interface AgentSkillInvocationSummary {
 }
 
 export interface AgentRunDetails {
+	/** Stable identity assigned from the task's dispatch position within its aggregate run. */
+	memberId?: string;
 	agent: string;
 	source: AgentSource;
 	task: string;

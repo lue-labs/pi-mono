@@ -5,7 +5,12 @@ import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../../../src/core/agent-session.ts";
 import { executeAgentTool } from "../../../src/core/agents/executor.ts";
-import { clearAgentRecentRunsForTests, resumeAgentRecentRun, waitForAgentRecentRun } from "../../../src/core/agents/status.ts";
+import {
+	clearAgentRecentRunsForTests,
+	findAgentRecentRun,
+	resumeAgentRecentRun,
+	waitForAgentRecentRun,
+} from "../../../src/core/agents/status.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 // Regression for valkyriweb/my-pi#916: a background Agent dispatch routes the
@@ -65,6 +70,7 @@ describe("agent tool suite: background resume keeps routed task.cwd (#916)", () 
 		expect(initial.runId).toBeTruthy();
 		const runId = initial.runId!;
 		await waitForAgentRecentRun(runId);
+		expect(findAgentRecentRun(runId)?.runs[0]?.memberId).toBe(`${runId}:1`);
 
 		// Turn 2 (resume): the child runs `bash pwd` — assert it still resolves
 		// against routedCwd, not harness.tempDir (the parent cwd).
@@ -76,6 +82,7 @@ describe("agent tool suite: background resume keeps routed task.cwd (#916)", () 
 		const resumeResult = await resumeAgentRecentRun(runId, "Run `pwd` and report it");
 		expect(resumeResult.ok).toBe(true);
 		await waitForAgentRecentRun(runId);
+		expect(findAgentRecentRun(runId)?.runs[0]?.memberId).toBe(`${runId}:1`);
 
 		expect(latestChildSession).toBeTruthy();
 		const toolResultText = latestChildSession!.messages

@@ -155,6 +155,7 @@ function isPersistentPark(input: AgentToolExecutionInput): boolean {
 interface RunChildOptions extends AgentExecutorOptions {
 	registry: AgentRegistry;
 	task: NormalizedAgentTaskConfig;
+	memberId: string;
 	toolModel?: string;
 	toolThinking?: ThinkingLevel;
 	chainDir?: string;
@@ -551,6 +552,7 @@ function buildChildRoutingMetadata(options: {
 }
 
 function createInitialRunDetails(options: {
+	memberId: string;
 	agent: AgentDefinition;
 	task: NormalizedAgentTaskConfig;
 	effectiveTools: string[];
@@ -561,6 +563,7 @@ function createInitialRunDetails(options: {
 	startedAt: number;
 }): AgentRunDetails {
 	return {
+		memberId: options.memberId,
 		agent: options.agent.id,
 		source: options.agent.source,
 		task: options.task.task,
@@ -959,6 +962,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	}
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
+		memberId: options.memberId,
 		agent,
 		task: options.task,
 		effectiveTools,
@@ -1296,6 +1300,7 @@ async function resumeSingleBackgroundRun(
 		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
+		memberId: previousRun.memberId ?? `${recentRun.id}:1`,
 		agent,
 		task,
 		effectiveTools,
@@ -1441,12 +1446,13 @@ async function executeAgentToolToCompletion(
 	try {
 		if (input.mode === "chain") {
 			let previous = "";
-			for (const task of input.tasks) {
+			for (const [index, task] of input.tasks.entries()) {
 				const normalized = makeTask({ ...task, task: task.task.replaceAll("{previous}", previous) });
 				const result = await runChild({
 					...options,
 					registry,
 					task: normalized,
+					memberId: `${recentRun.id}:${index + 1}`,
 					toolThinking: input.thinking,
 					chainDir: input.chainDir,
 					progressInput: input,
@@ -1459,11 +1465,12 @@ async function executeAgentToolToCompletion(
 			}
 		} else if (input.mode === "parallel") {
 			const normalizedTasks = input.tasks.map(makeTask);
-			const { results, errors } = await mapWithConcurrency(normalizedTasks, concurrency, async (task) => {
+			const { results, errors } = await mapWithConcurrency(normalizedTasks, concurrency, async (task, index) => {
 				const result = await runChild({
 					...options,
 					registry,
 					task,
+					memberId: `${recentRun.id}:${index + 1}`,
 					toolThinking: input.thinking,
 					chainDir: input.chainDir,
 					progressInput: input,
@@ -1481,6 +1488,7 @@ async function executeAgentToolToCompletion(
 				...options,
 				registry,
 				task: makeTask(input.tasks[0]),
+				memberId: `${recentRun.id}:1`,
 				toolThinking: input.thinking,
 				chainDir: input.chainDir,
 				progressInput: input,

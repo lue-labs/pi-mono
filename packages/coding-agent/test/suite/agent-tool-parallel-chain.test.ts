@@ -42,7 +42,7 @@ describe("agent tool suite: parallel and chain", () => {
 			},
 		]);
 
-		await executeAgentTool(
+		const details = await executeAgentTool(
 			{
 				mode: "chain",
 				tasks: [
@@ -53,6 +53,7 @@ describe("agent tool suite: parallel and chain", () => {
 			executorOptions(harness),
 		);
 
+		expect(details.runs.map((run) => run.memberId)).toEqual([`${details.runId}:1`, `${details.runId}:2`]);
 		expect(childPrompts[1]).toContain("step two uses raw child content");
 		expect(childPrompts[1]).not.toContain("Saved Agent output");
 		expect(await readFile(join(harness.tempDir, "reports", "one.md"), "utf-8")).toBe("raw child content");
@@ -86,6 +87,7 @@ describe("agent tool suite: parallel and chain", () => {
 		);
 
 		expect(childRuns).toBe(2);
-		expect(details.runs).toHaveLength(2);
+		expect(details.runs.map((run) => run.memberId)).toEqual([`${details.runId}:1`, `${details.runId}:2`]);
+		expect(details.runs.map((run) => run.task)).toEqual(["first", "second"]);
 	});
 });
