@@ -311,6 +311,29 @@ describe("native agent status", () => {
 		expect(formatAgentStatus()).toContain("agent-2 single background cancelled");
 	});
 
+	test("cancelling an interrupted parallel run normalizes every child", async () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "scout", task: "Map files" },
+				{ agent: "reviewer", task: "Review files" },
+			],
+			{ background: true },
+		);
+		updateAgentRecentRunProgress(run, {
+			mode: "parallel",
+			status: "running",
+			runs: [makeRunDetails("running"), makeRunDetails("running")],
+		});
+		attachAgentRecentRunController(run.id, { interrupt: vi.fn(), cancel: vi.fn() });
+
+		const interrupted = await interruptAgentRecentRun(run.id);
+		expect(interrupted.run?.runs.map((child) => child.status)).toEqual(["interrupted", "interrupted"]);
+
+		const cancelled = await cancelAgentRecentRun(run.id);
+		expect(cancelled.run?.runs.map((child) => child.status)).toEqual(["cancelled", "cancelled"]);
+	});
+
 	test("formats footer summary for background runs", () => {
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		updateAgentRecentRunProgress(run, {
