@@ -137,14 +137,15 @@ describe("createAgentSession stream options", () => {
 		try {
 			const transformed = await session.agent.transformContext!(messages);
 			const imageChars = transformed
-				.filter((message) => message.role === "toolResult")
-				.flatMap((message) => message.content)
+				.flatMap((message) => (message.role === "toolResult" ? message.content : []))
 				.reduce((total, block) => total + (block.type === "image" ? block.data.length : 0), 0);
 
 			expect(imageChars).toBeLessThanOrEqual(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS);
-			expect(messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(
-				2,
-			);
+			expect(
+				messages
+					.flatMap((message) => (message.role === "toolResult" ? message.content : []))
+					.filter((block) => block.type === "image"),
+			).toHaveLength(2);
 		} finally {
 			session.dispose();
 		}
