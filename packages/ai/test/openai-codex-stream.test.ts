@@ -154,6 +154,71 @@ async function captureCodexRequestBody(
 }
 
 describe("openai-codex streaming", () => {
+	it("supports opaque bearer credentials for generic Codex gateways", async () => {
+		const opaqueBearerCredential = "gateway-opaque-bearer-credential";
+		const encoder = new TextEncoder();
+		let requestUrl: string | undefined;
+		let requestHeaders: Headers | undefined;
+		let requestBody: Record<string, unknown> | undefined;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL, init?: RequestInit) => {
+				requestUrl = typeof input === "string" ? input : input.toString();
+				requestHeaders = new Headers(init?.headers);
+				requestBody = decodeCodexRequestBody(init?.body) ?? undefined;
+				return new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.enqueue(encoder.encode(buildSSEPayload({ status: "completed" })));
+							controller.close();
+						},
+					}),
+					{ status: 200, headers: { "content-type": "text/event-stream" } },
+				);
+			}),
+		);
+		const model: Model<"openai-codex-responses"> = {
+			id: "gateway-codex-model",
+			name: "Gateway Codex model",
+			api: "openai-codex-responses",
+			provider: "arbitrary-codex-gateway",
+			baseUrl: "https://gateway.example/api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128000,
+			maxTokens: 16384,
+			headers: { "ChatGPT-Account-ID": "inherited-account-id" },
+			compat: { sendChatgptAccountId: false },
+		};
+
+		const result = await streamOpenAICodexResponses(
+			model,
+			{
+				systemPrompt: "Gateway system prompt",
+				messages: [{ role: "user", content: "Use the deferred tool", timestamp: 1 }],
+				tools: [
+					{
+						name: "gateway_deferred_tool",
+						description: "A deferred gateway tool",
+						parameters: { type: "object", properties: {} } as Tool["parameters"],
+						deferLoading: true,
+					},
+				],
+			},
+			{ apiKey: opaqueBearerCredential, transport: "sse" },
+		).result();
+
+		expect(result.stopReason).toBe("stop");
+		expect(result.errorMessage).toBeUndefined();
+		expect(requestUrl).toBe("https://gateway.example/api/codex/responses");
+		expect(requestHeaders?.get("Authorization")).toBe(`Bearer ${opaqueBearerCredential}`);
+		expect(requestHeaders?.has("chatgpt-account-id")).toBe(false);
+		const tools = requestBody?.tools as Array<Record<string, unknown>> | undefined;
+		expect(tools?.[0]).toEqual({ type: "tool_search" });
+		expect(tools?.find((tool) => tool.name === "gateway_deferred_tool")?.defer_loading).toBe(true);
+	});
+
 	it("serializes Codex tools deterministically across tool and schema key order", async () => {
 		const lookupA: Tool = {
 			name: "lookup",

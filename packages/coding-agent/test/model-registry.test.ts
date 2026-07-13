@@ -1,7 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AnthropicMessagesCompat, Api, Context, Model, OpenAICompletionsCompat } from "@valkyriweb/pi-ai/compat";
+import type {
+	AnthropicMessagesCompat,
+	Api,
+	Context,
+	Model,
+	OpenAICodexResponsesCompat,
+	OpenAICompletionsCompat,
+} from "@valkyriweb/pi-ai/compat";
 import { getApiProvider } from "@valkyriweb/pi-ai/compat";
 import { getOAuthProvider } from "@valkyriweb/pi-ai/oauth";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -470,6 +477,33 @@ describe("ModelRegistry", () => {
 				preserve_thinking: true,
 				thinking: { $var: "thinking.enabled" },
 			});
+		});
+
+		test("compat schema accepts Codex gateway account-header opt-out", () => {
+			writeRawModelsJson({
+				demo: {
+					baseUrl: "https://gateway.example/api",
+					apiKey: "DEMO_KEY",
+					api: "openai-codex-responses",
+					compat: { sendChatgptAccountId: false },
+					models: [
+						{
+							id: "gateway-codex-model",
+							reasoning: true,
+							input: ["text"],
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+							contextWindow: 128000,
+							maxTokens: 16384,
+						},
+					],
+				},
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const compat = registry.find("demo", "gateway-codex-model")?.compat as OpenAICodexResponsesCompat | undefined;
+
+			expect(registry.getError()).toBeUndefined();
+			expect(compat?.sendChatgptAccountId).toBe(false);
 		});
 
 		test("compat schema accepts Anthropic eager tool input streaming flag", () => {

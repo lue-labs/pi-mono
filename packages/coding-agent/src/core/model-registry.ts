@@ -12,6 +12,7 @@ import {
 	type KnownProvider,
 	type Model,
 	type OAuthProviderInterface,
+	type OpenAICodexResponsesCompat,
 	type OpenAICompletionsCompat,
 	type OpenAIResponsesCompat,
 	registerApiProvider,
@@ -141,6 +142,10 @@ const OpenAIResponsesCompatSchema = Type.Object({
 	supportsLongCacheRetention: Type.Optional(Type.Boolean()),
 });
 
+const OpenAICodexResponsesCompatSchema = Type.Object({
+	sendChatgptAccountId: Type.Optional(Type.Boolean()),
+});
+
 const AnthropicMessagesCompatSchema = Type.Object({
 	supportsEagerToolInputStreaming: Type.Optional(Type.Boolean()),
 	supportsLongCacheRetention: Type.Optional(Type.Boolean()),
@@ -152,6 +157,7 @@ const AnthropicMessagesCompatSchema = Type.Object({
 const ProviderCompatSchema = Type.Union([
 	OpenAICompletionsCompatSchema,
 	OpenAIResponsesCompatSchema,
+	OpenAICodexResponsesCompatSchema,
 	AnthropicMessagesCompatSchema,
 ]);
 
@@ -278,9 +284,21 @@ function mergeCompat(
 ): Model<Api>["compat"] | undefined {
 	if (!overrideCompat) return baseCompat;
 
-	const base = baseCompat as OpenAICompletionsCompat | OpenAIResponsesCompat | AnthropicMessagesCompat | undefined;
-	const override = overrideCompat as OpenAICompletionsCompat | OpenAIResponsesCompat | AnthropicMessagesCompat;
-	const merged = { ...base, ...override } as OpenAICompletionsCompat | OpenAIResponsesCompat | AnthropicMessagesCompat;
+	const base = baseCompat as
+		| OpenAICompletionsCompat
+		| OpenAICodexResponsesCompat
+		| OpenAIResponsesCompat
+		| AnthropicMessagesCompat
+		| undefined;
+	const override = overrideCompat as
+		| OpenAICompletionsCompat
+		| OpenAICodexResponsesCompat
+		| OpenAIResponsesCompat
+		| AnthropicMessagesCompat;
+	const merged = {
+		...base,
+		...override,
+	} as OpenAICompletionsCompat | OpenAICodexResponsesCompat | OpenAIResponsesCompat | AnthropicMessagesCompat;
 
 	const baseCompletions = base as OpenAICompletionsCompat | undefined;
 	const overrideCompletions = override as OpenAICompletionsCompat;

@@ -258,7 +258,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				throw new Error(`No API key for provider: ${model.provider}`);
 			}
 
-			const accountId = extractAccountId(apiKey);
+			const accountId = model.compat?.sendChatgptAccountId === false ? undefined : extractAccountId(apiKey);
 			let body = buildRequestBody(model, context, options);
 			const nextBody = await options?.onPayload?.(body, model);
 			if (nextBody !== undefined) {
@@ -1698,7 +1698,7 @@ function codexPromptCacheKey(
 function buildBaseCodexHeaders(
 	initHeaders: Record<string, string> | undefined,
 	additionalHeaders: ProviderHeaders | undefined,
-	accountId: string,
+	accountId: string | undefined,
 	token: string,
 ): Headers {
 	const headers = new Headers(initHeaders);
@@ -1710,7 +1710,11 @@ function buildBaseCodexHeaders(
 		}
 	}
 	headers.set("Authorization", `Bearer ${token}`);
-	headers.set("chatgpt-account-id", accountId);
+	if (accountId) {
+		headers.set("chatgpt-account-id", accountId);
+	} else {
+		headers.delete("chatgpt-account-id");
+	}
 	headers.set("originator", "pi");
 	const userAgent = _os ? `pi (${_os.platform()} ${_os.release()}; ${_os.arch()})` : "pi (browser)";
 	headers.set("User-Agent", userAgent);
@@ -1720,7 +1724,7 @@ function buildBaseCodexHeaders(
 function buildSSEHeaders(
 	initHeaders: Record<string, string> | undefined,
 	additionalHeaders: ProviderHeaders | undefined,
-	accountId: string,
+	accountId: string | undefined,
 	token: string,
 	sessionId?: string,
 	threadId?: string,
@@ -1746,7 +1750,7 @@ function buildSSEHeaders(
 function buildWebSocketHeaders(
 	initHeaders: Record<string, string> | undefined,
 	additionalHeaders: ProviderHeaders | undefined,
-	accountId: string,
+	accountId: string | undefined,
 	token: string,
 	requestId: string,
 	threadId?: string,
