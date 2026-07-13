@@ -113,20 +113,29 @@ export function replaceOversizedToolResultImages(
 	toolCallId: string,
 ): ToolResultContentBlock[] | undefined {
 	let changed = false;
-	const nextContent = content.map((block, index): ToolResultContentBlock => {
+	const nextContent: ToolResultContentBlock[] = [];
+	for (const [index, block] of content.entries()) {
 		if (block.type !== "image" || block.data.length <= MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS) {
-			return block;
+			nextContent.push(block);
+			continue;
 		}
 
-		changed = true;
 		const artifact = saveToolResultImageArtifact(block, cwd, toolCallId, index);
-		return {
+		if (artifact.relativePath) {
+			changed = true;
+			nextContent.push({
+				type: "text",
+				text: `${TOOL_RESULT_IMAGE_OMITTED} Saved artifact to ${artifact.relativePath}`,
+			});
+			continue;
+		}
+
+		nextContent.push(block, {
 			type: "text",
-			text: artifact.relativePath
-				? `${TOOL_RESULT_IMAGE_OMITTED} Saved artifact to ${artifact.relativePath}`
-				: `${TOOL_RESULT_IMAGE_OMITTED} Artifact save failed: ${artifact.error}`,
-		};
-	});
+			text: `${TOOL_RESULT_IMAGE_OMITTED} Artifact save failed: ${artifact.error}; image retained in session history.`,
+		});
+		changed = true;
+	}
 
 	return changed ? nextContent : undefined;
 }

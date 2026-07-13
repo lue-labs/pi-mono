@@ -14,7 +14,7 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Fixed
 
-- **Provider requests and compaction no longer retain unbounded image payloads.** The SDK now keeps only the newest supported images within a 3 MiB aggregate base64 budget on its transient request context, replacing older images with a short placeholder while preserving durable session history. A single oversized tool-result image is saved under `.pi/tool-artifacts/` and represented by an artifact pointer before storage; all core compaction requests are media-free. No system prompt or tool schema bytes change.
+- **Provider requests and compaction no longer retain unbounded image payloads.** The SDK now keeps only the newest supported images within a 3 MiB aggregate base64 budget on its transient request context, replacing older images with a short placeholder while preserving durable session history. A single oversized tool-result image is saved under `.pi/tool-artifacts/` and represented by an artifact pointer when persistence succeeds; a write failure preserves the image in durable history while the transient budget still omits it. All core compaction requests are media-free. No system prompt or tool schema bytes change.
 
 ## [0.82.0] - 2026-07-11
 

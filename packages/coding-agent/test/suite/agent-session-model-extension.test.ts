@@ -6,7 +6,10 @@ import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { addFilter } from "../../src/core/extensions/extension-hooks.ts";
-import { MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS } from "../../src/core/tool-artifacts.ts";
+import {
+	MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS,
+	replaceOversizedToolResultImages,
+} from "../../src/core/tool-artifacts.ts";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
 
@@ -376,6 +379,20 @@ describe("AgentSession model and extension characterization", () => {
 		expect(providerSawImage).toBe(false);
 		expect(providerText).toContain(".pi/tool-artifacts/image-large-0.png");
 		expect(existsSync(join(harness.tempDir, ".pi", "tool-artifacts", "image-large-0.png"))).toBe(true);
+	});
+
+	it("retains oversized images when artifacts cannot be written", () => {
+		const image = {
+			type: "image" as const,
+			data: "a".repeat(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS + 1),
+			mimeType: "image/png",
+		};
+
+		const result = replaceOversizedToolResultImages([image], "/dev/null", "image-large");
+
+		expect(result?.[0]).toEqual(image);
+		expect(result?.[1]).toMatchObject({ type: "text" });
+		expect(result?.[1]).toMatchObject({ text: expect.stringContaining("image retained in session history") });
 	});
 
 	it("caps oversized tool result text after extension handlers and saves the full text as an artifact", async () => {
