@@ -20,6 +20,7 @@
  * Fork provenance: extracted verbatim from agent-session.ts (fork-delta
  * reforge slice 5b); tier `platform` in pi-fork-patch-inventory.
  */
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { ImageContent, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
@@ -229,18 +230,21 @@ function saveToolResultImageArtifact(
 		const artifactDirectory = resolve(cwd, TOOL_ARTIFACTS_DIR);
 		mkdirSync(artifactDirectory, { recursive: true });
 		const data = Buffer.from(block.data, "base64");
-		for (let collision = 0; collision < 1_000; collision++) {
-			const fileName = collision === 0 ? `${baseName}${extension}` : `${baseName}-${collision}${extension}`;
+		let collisionSuffix: string | undefined;
+		while (true) {
+			const fileName = collisionSuffix ? `${baseName}-${collisionSuffix}${extension}` : `${baseName}${extension}`;
 			const relativePath = `${TOOL_ARTIFACTS_DIR}/${fileName}`;
 			try {
 				writeFileSync(resolve(artifactDirectory, fileName), data, { flag: "wx" });
 				return { relativePath };
 			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+				if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+					collisionSuffix = randomUUID();
+					continue;
+				}
 				return { error: error instanceof Error ? error.message : String(error) };
 			}
 		}
-		return { error: "could not allocate a unique artifact filename" };
 	} catch (error) {
 		return { error: error instanceof Error ? error.message : String(error) };
 	}

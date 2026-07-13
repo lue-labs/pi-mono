@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@valkyriweb/pi-ai";
@@ -355,9 +355,17 @@ describe("AgentSession model and extension characterization", () => {
 		const second = replaceUnsupportedToolResultImages([secondImage], harness.tempDir, "a_b");
 
 		expect(first?.[0]).toMatchObject({ text: expect.stringContaining(".pi/tool-artifacts/a_b-0.bmp") });
-		expect(second?.[0]).toMatchObject({ text: expect.stringContaining(".pi/tool-artifacts/a_b-0-1.bmp") });
+		expect(second?.[0]).toMatchObject({
+			text: expect.stringMatching(/\.pi\/tool-artifacts\/a_b-0-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.bmp/),
+		});
 		expect(readFileSync(join(harness.tempDir, ".pi", "tool-artifacts", "a_b-0.bmp")).toString()).toBe("first-bmp");
-		expect(readFileSync(join(harness.tempDir, ".pi", "tool-artifacts", "a_b-0-1.bmp")).toString()).toBe("second-bmp");
+		const collisionArtifact = readdirSync(join(harness.tempDir, ".pi", "tool-artifacts")).find((name) =>
+			/^a_b-0-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.bmp$/.test(name),
+		);
+		expect(collisionArtifact).toBeDefined();
+		expect(readFileSync(join(harness.tempDir, ".pi", "tool-artifacts", collisionArtifact!)).toString()).toBe(
+			"second-bmp",
+		);
 	});
 
 	it("saves oversized supported tool-result images as artifacts before the next model call", async () => {
