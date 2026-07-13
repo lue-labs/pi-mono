@@ -1,6 +1,6 @@
 {
 	"name": "@valkyriweb/pi-orchestrator",
-	"version": "0.83.4",
+	"version": "0.83.5",
 	"description": "experimental orchestrator package for pi",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -40,7 +40,7 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@valkyriweb/pi-coding-agent": "0.83.4"
+		"@valkyriweb/pi-coding-agent": "0.83.5"
 	},
 	"devDependencies": {
 		"shx": "0.4.0"
