@@ -284,7 +284,7 @@ During a native `agent` tool call, collapsed rendering shows mode, agents, per-c
 
 Child sessions are persisted as normal Pi sessions with the parent session recorded as their parent reference. Inspect them via `/agents-status <run-id>` or the printed session path. Native background resume continues single-child interrupted runs from the persisted child session when the original Pi process still owns the run controller.
 
-Child tools are computed from the parent active tools, requested tools, agent allow/deny lists, and a global recursive `agent` denial. `--tools`, `--no-builtin-tools`, and `--no-tools` continue to set the parent ceiling; children cannot gain tools the parent does not have active.
+Agent task tools are computed from the calling session's active tools, requested tools, profile allow/deny lists, and the configured nesting depth. Fork mode retains inherited tool schemas for cache identity but leaves the Agent engine unbound when the profile or depth denies delegation. `--tools`, `--no-builtin-tools`, and `--no-tools` continue to set the calling-session ceiling; tasks cannot gain tools that are not active there.
 
 ### Tool Options
 

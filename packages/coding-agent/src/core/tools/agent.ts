@@ -57,31 +57,33 @@ const taskSchema = Type.Object({
 		Type.String({ description: "Agent id/name to run (preferred; Claude Code-compatible)" }),
 	),
 	agent: Type.Optional(Type.String({ description: "Legacy alias for subagent_type" })),
-	prompt: Type.Optional(Type.String({ description: "Task for the child agent (preferred)" })),
+	prompt: Type.Optional(Type.String({ description: "Task for the selected Agent profile (preferred)" })),
 	task: Type.Optional(Type.String({ description: "Legacy alias for prompt" })),
 	description: Type.Optional(Type.String({ description: "Short UI label" })),
 	context: Type.Optional(contextModeSchema),
 	extraContext: Type.Optional(
 		Type.String({
 			description:
-				"Additional task-specific context. For explore, prefer a short context packet here instead of inheriting the parent transcript/project context.",
+				"Additional task-specific context. For explore, prefer a short context packet here instead of inheriting the calling session's transcript/project context.",
 		}),
 	),
 	model: Type.Optional(Type.String()),
-	tools: Type.Optional(Type.Array(Type.String())),
+	tools: Type.Optional(Type.Array(Type.String(), { description: "Tool names available to this Agent task" })),
 	thinking: Type.Optional(thinkingSchema),
 	maxOutputTokens: Type.Optional(
 		Type.Number({
 			minimum: 1,
-			description: "Cap the child session's provider output token limit. Can only lower the model's own cap.",
+			description: "Cap this Agent run's provider output token limit. Can only lower the model's own cap.",
 		}),
 	),
-	output: Type.Optional(Type.String({ description: "Path for parent to save final child report" })),
+	output: Type.Optional(
+		Type.String({ description: "Path where the final report should be saved for the calling agent" }),
+	),
 	outputMode: Type.Optional(outputModeSchema),
 	cwd: Type.Optional(
 		Type.String({
 			description:
-				"Working directory for the child session. Relative tool paths resolve against it. Defaults to the parent's cwd. Use an absolute path to run a child in a different repo/directory.",
+				"Working directory for this Agent task. Relative tool paths resolve against it. Defaults to the calling session's cwd. Use an absolute path for a different repo/directory.",
 		}),
 	),
 });
@@ -96,7 +98,7 @@ export const agentToolSchema = Type.Object({
 		Type.String({ description: "Agent id/name to run (preferred; Claude Code-compatible)" }),
 	),
 	agent: Type.Optional(Type.String({ description: "Legacy alias for subagent_type" })),
-	prompt: Type.Optional(Type.String({ description: "Task for the child agent (preferred)" })),
+	prompt: Type.Optional(Type.String({ description: "Task for the selected Agent profile (preferred)" })),
 	task: Type.Optional(Type.String({ description: "Legacy alias for prompt" })),
 	description: Type.Optional(Type.String()),
 	tasks: Type.Optional(Type.Array(taskSchema, { maxItems: 8 })),
@@ -106,16 +108,16 @@ export const agentToolSchema = Type.Object({
 	extraContext: Type.Optional(
 		Type.String({
 			description:
-				"Additional task-specific context. For explore, prefer a short context packet here instead of inheriting the parent transcript/project context.",
+				"Additional task-specific context. For explore, prefer a short context packet here instead of inheriting the calling session's transcript/project context.",
 		}),
 	),
 	model: Type.Optional(Type.String()),
-	tools: Type.Optional(Type.Array(Type.String())),
+	tools: Type.Optional(Type.Array(Type.String(), { description: "Tool names available to this Agent task" })),
 	thinking: Type.Optional(thinkingSchema),
 	maxOutputTokens: Type.Optional(
 		Type.Number({
 			minimum: 1,
-			description: "Cap the child session's provider output token limit. Can only lower the model's own cap.",
+			description: "Cap this Agent run's provider output token limit. Can only lower the model's own cap.",
 		}),
 	),
 	output: Type.Optional(Type.String()),
@@ -123,7 +125,7 @@ export const agentToolSchema = Type.Object({
 	cwd: Type.Optional(
 		Type.String({
 			description:
-				"Working directory for the child session (single mode). Relative tool paths resolve against it. Defaults to the parent's cwd. Use an absolute path to run a child in a different repo/directory.",
+				"Working directory for this Agent task (single mode). Relative tool paths resolve against it. Defaults to the calling session's cwd. Use an absolute path for a different repo/directory.",
 		}),
 	),
 	chainDir: Type.Optional(Type.String({ description: "Base directory for relative chain outputs" })),
@@ -466,8 +468,7 @@ function formatFinalResult(details: AgentToolDetails): string {
 	if (summary) lines.push(summary);
 	const outputs = details.runs
 		.filter(
-			(run) =>
-				run.finalOutput && (!run.outputPath || run.finalOutput !== `Saved child agent output to ${run.outputPath}`),
+			(run) => run.finalOutput && (!run.outputPath || run.finalOutput !== `Saved Agent output to ${run.outputPath}`),
 		)
 		.map((run) => `\n### ${run.agent}\n\n${run.finalOutput}`);
 	if (outputs.length > 0) lines.push(outputs.join("\n"));
@@ -548,7 +549,7 @@ async function confirmProjectAgentsIfNeeded(
 	}
 	const confirmed = await ctx.ui.confirm(
 		"Run project agents?",
-		"Project-local .pi/agents prompts are controlled by this repository and may instruct child agents to use active tools.",
+		"Project-local .pi/agents prompts are controlled by this repository and may instruct Agent runs to use active tools.",
 	);
 	if (!confirmed) {
 		throw new Error("Project agent execution cancelled");
@@ -568,26 +569,17 @@ export function createAgentToolDefinition(
 		label,
 		description:
 			options?.description ??
-			"Launch a built-in or configured Pi child agent. Supports single {subagent_type, prompt}, legacy {agent, task}, parallel {tasks: [{subagent_type, prompt, ...}]}, sequential {chain: [{subagent_type, prompt, ...}]}, background execution, and background run control actions. Pass `tasks` and `chain` as native JSON arrays of task objects; a stringified JSON array is also accepted and parsed.",
+			"Run a Pi Agent task with a selected profile, optionally in parallel, sequentially, or in the background.",
 
-		promptSnippet: "Delegate a task to a child agent with bounded tools",
+		promptSnippet: "Run an Agent task with bounded tools",
 		promptGuidelines: [
-			"Launch a child agent to handle complex, multi-step tasks. Each agent has specific tools and a tailored system prompt — specify it with `subagent_type` and `prompt`; legacy `agent`/`task` are accepted only for compatibility.",
-			"Reach for this when the task matches one of the available agent types, when you have independent work to run in parallel, or when answering would mean reading across several files — delegate it and you keep the conclusion, not the file dumps. For a single-fact lookup where you already know the file, symbol, or value, search directly with `read`/`grep`/`Glob`. Once you've delegated a search, don't also run it yourself — wait for the result.",
-			'Routing rule: **default to `explore`** for any read-only investigation (search, find, where/how/which, investigate, audit, map, trace), including read-only bash inspection. Choose `general` ONLY when the child itself must write files, run mutating bash, or mix search+edit+verify in one run — "open-ended research" alone is not enough.',
-			'For `explore`, omit `context` for the agent\'s isolated default. Only pass `context: "fork"` when the child truly needs the parent transcript; fork is explicit inheritance, not the default research mode. `context: "default"/"slim"/"none"` provide other bounded context shapes.',
-			"Available agents: `explore` — fast read-only search for files, symbols, and code paths with read-only bash (cheap model, no transcript/project context/preloaded skills; specify breadth in `extraContext`: quick | medium | very thorough). `decompose` — read-only splitter for broad/token-heavy work into bounded sub-tasks with evidence requirements. `plan` — read-only architect for implementation strategy and risks on a known requirement. `reviewer` — read-only correctness/regression review with VERDICT line. `worker` — implementation worker for scoped coding tasks with known file paths. `general` — delegated execution for children that must write files, run mutating bash, or mix search+edit+verify in one run; not for pure read-only investigation (use `explore`).",
-			"Read-only agents (`explore`, `decompose`, `plan`, `reviewer`) cannot edit or write. Explore may run executor-enforced read-only bash; the others cannot run bash. Assign all four investigation/review work only, never implementation.",
-			"Brief the agent like a smart colleague who just walked in: explain what you're trying to accomplish and why, describe what you've already ruled out, give enough context that the agent can make judgment calls rather than follow a narrow instruction. Terse command-style prompts produce shallow, generic work. Never delegate understanding — don't write 'based on your findings, fix the bug'; write prompts that prove you understood (file paths, line numbers, what specifically to change).",
-			"When parallel exploration or review is needed, send multiple `agent` tool-use blocks in one assistant message; Pi runs those calls concurrently. Use `tasks[]` only for explicit batched fan-out inside one agent call.",
-			"Up to 8 tasks may run in parallel via `tasks[]` (schema max). Quality over quantity — use the minimum number of agents necessary, usually 1; only fan out when the scope is genuinely uncertain or spans independent areas.",
-			'Pass `tasks` and `chain` as native JSON arrays of task objects, e.g. `{"tasks": [{"subagent_type": "explore", "prompt": "..."}]}`. A stringified JSON array (e.g. `"tasks": "[{...}]"`) is tolerated and auto-parsed, but native arrays are preferred. Each task object requires `subagent_type` and `prompt`; legacy `agent` and `task` are accepted for compatibility. Other fields (`context`, `description`, `extraContext`, `model`, `thinking`, ...) are optional.',
-			"Use `run_in_background:true` (or legacy `background:true`) for long-running delegated work that should continue while you report back; control it with `action`/`status`/`interrupt`/`cancel`/`resume` and `runId`.",
-			"When a background agent finishes you receive an automatic `agent_completion` message with runId, status, summary, result preview, outputPaths, and sessionPaths. Do NOT poll with `agent action=status/detail` while waiting — work on other things, sleep with goal_wait, or hand back to the user. Read sessionPaths or outputPaths on demand if you need the full transcript. A full session transcript can be large; skim or grep it rather than reading it whole if the child ran many tool calls.",
-			"The agent's final message is returned as the tool result; it is not shown to the user — relay what matters in your own words.",
-			"Trust but verify: a child agent's summary describes what it intended to do, not necessarily what it did. Before reporting writer/worker/general output as done, check the actual file changes yourself.",
-			"Do not use agent recursively; child agents cannot call agent.",
-			"To run a child in another directory, pass `cwd` (absolute path) so its relative tool paths resolve there — e.g. exploring a different repo. Reads/greps with absolute paths already work from any cwd, so `cwd` is only needed when you want the child rooted elsewhere.",
+			"Use Agent for complex or multi-file work. For a single known file, symbol, or value, use direct tools instead; do not duplicate an investigation after dispatching it.",
+			"Profiles: `explore` — read-only search with read-only bash; `decompose` — read-only task splitting; `plan` — read-only strategy; `reviewer` — read-only correctness review; `worker` — scoped implementation; `general` — mixed investigation, edits, shell, and verification.",
+			"Write an outcome contract: desired outcome and why; relevant paths and file structure; known or ruled-out context; tools and skills; constraints and acceptance criteria; expected report; and self-verification evidence. State real sequencing invariants, then let the selected model choose its method.",
+			"Run independent tasks in parallel; use `chain` only when later work depends on earlier results.",
+			"Background completion arrives as `agent_completion`; do not poll. The final response returns here, not directly to the user. Validate evidence and inspect claimed file changes.",
+			'Use `context: "fork"` only when the task needs the calling transcript, and `cwd` when it must run in another directory.',
+			"Nested Agent calls are depth-capped; each task receives its effective Agent availability.",
 		],
 		parameters: agentToolSchema,
 		executionMode: "parallel",
@@ -698,8 +690,7 @@ export function createUppercaseAgentToolDefinition(
 		...options,
 		toolName: "Agent",
 		label: "Agent",
-		description:
-			"Launch a Pi child agent, matching Claude Code's native Agent tool. Supports single {subagent_type, prompt}, legacy {agent, task}, parallel {tasks: [{subagent_type, prompt, ...}]}, sequential chain {chain: [{subagent_type, prompt, ...}]}, background execution, and background run control actions.",
+		description: "Run a Pi Agent task through the Claude Code-compatible Agent tool.",
 	});
 }
 
@@ -715,8 +706,7 @@ export function createTaskToolDefinition(
 		...options,
 		toolName: "Task",
 		label: "Task",
-		description:
-			"Launch a Pi child agent through the legacy Task alias. Prefer Claude-style {subagent_type, prompt}; legacy {agent, task} remains supported. Also supports parallel {tasks: [{subagent_type, prompt, ...}]}, sequential chain {chain: [{subagent_type, prompt, ...}]}, background execution, and background run control actions.",
+		description: "Run a Pi Agent task through the legacy Task alias.",
 	});
 }
 

@@ -150,26 +150,31 @@ describe("agent tool", () => {
 			outputMode: "file",
 			content: "final report",
 		});
-		expect(result.displayText).toContain("Saved child agent output");
+		expect(result.displayText).toContain("Saved Agent output");
 		expect(result.rawContent).toBe("final report");
 		expect(result.outputPath).toBe(join(cwd, "reports", "scout.md"));
 		expect(await readFile(result.outputPath ?? "", "utf-8")).toBe("final report");
 	});
 
-	test("tool guidelines nudge parent toward concurrent tool-use blocks", () => {
-		const tool = createAgentToolDefinition(process.cwd());
-		expect(tool.promptGuidelines?.join("\n")).toMatch(/multiple `?agent`? tool-use blocks/);
+	test("tool guidelines allow parallel independent tasks without prescribing separate calls", () => {
+		const guidelines = createAgentToolDefinition(process.cwd()).promptGuidelines?.join("\n") ?? "";
+		expect(guidelines).toContain("Run independent tasks in parallel");
+		expect(guidelines).toContain("use `chain` only when later work depends on earlier results");
+		expect(guidelines).not.toMatch(/multiple `?agent`? tool-use blocks/);
 	});
 
-	test("tool descriptions and guidelines prefer Claude-style Agent shape", () => {
+	test("tool schemas preserve the Claude-style Agent shape and guidance requires outcome contracts", () => {
 		const tools = createAllToolDefinitions(process.cwd());
 		for (const tool of [tools.agent, tools.Agent, tools.Task]) {
-			expect(tool.description).toContain("{subagent_type, prompt}");
-			expect(tool.description).not.toContain("Supports single {agent, task}");
+			expect(tool.parameters.properties).toHaveProperty("subagent_type");
+			expect(tool.parameters.properties).toHaveProperty("prompt");
+			expect(tool.description).toContain("Agent task");
+			expect(tool.description.length).toBeLessThan(150);
 		}
 		const guidelines = createAgentToolDefinition(process.cwd()).promptGuidelines?.join("\n") ?? "";
-		expect(guidelines).toContain('{"tasks": [{"subagent_type": "explore", "prompt": "..."}]}');
-		expect(guidelines).toContain("legacy `agent`/`task`");
+		expect(guidelines).toContain("Write an outcome contract");
+		expect(guidelines).toContain("expected report");
+		expect(guidelines).toContain("self-verification evidence");
 	});
 
 	test("collapsed render shows per-agent work activity", () => {

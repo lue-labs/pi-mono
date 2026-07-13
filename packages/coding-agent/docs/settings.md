@@ -52,7 +52,7 @@ Native child agents inherit the parent model and thinking by default. Configure 
 
 The `agent` tool can still override these per call or per task with `model` and `thinking` (`"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"`). Precedence: explicit task option > agent frontmatter > `subagents.providers[<parent.provider>]` > `subagents.defaults` > parent inheritance.
 
-**Nested delegation (`maxDelegationDepth`).** By default a child agent cannot spawn its own children (`maxDelegationDepth: 0`) — single-layer delegation, matching upstream and keeping the cached prompt prefix byte-stable (a child only gains the `agent` tool when nesting is enabled, so `tools[]` stays cache-stable by default). Raise it to let sub-agents delegate further, up to a hard cap of 16:
+**Nested delegation (`maxDelegationDepth`).** By default an Agent task cannot dispatch another Agent task (`maxDelegationDepth: 0`) — single-layer delegation, matching upstream. Non-fork modes remove Agent from the effective tools; fork mode keeps inherited schemas byte-stable but leaves the Agent engine unbound. Raise the limit to permit profiles that allow Agent to delegate further, up to a hard cap of 16:
 
 ```json
 {
@@ -60,7 +60,7 @@ The `agent` tool can still override these per call or per task with `model` and 
 }
 ```
 
-With `maxDelegationDepth: 5`, delegation nests five levels deep before the runtime gate refuses further nesting. Nested runs are marked in the agents view (`↳L<n>`) alongside their parent run, fan-out `done/total` progress, and an inline transcript of each child's recent tool calls with their results. Because enabling nesting changes a nested child's tool list (it gains `agent`), flip it deliberately for sessions that benefit from recursive fan-out rather than globally.
+With `maxDelegationDepth: 5`, eligible profiles can nest five levels deep before the runtime gate refuses further nesting. Nested runs are marked in the agents view (`↳L<n>`) alongside their parent run, fan-out `done/total` progress, and an inline transcript of each task's recent tool calls with their results. In non-fork modes enabling nesting can add Agent to the effective tool list; fork mode keeps the inherited schema stable and changes only engine availability plus the trailing task reminder. Flip it deliberately for sessions that benefit from recursive fan-out rather than globally.
 
 #### thinkingBudgets
 

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type { Api, Model } from "@valkyriweb/pi-ai";
 import type { AgentHandle, ForkAgentOptions, ForkAgentResult } from "../extensions/types.ts";
@@ -34,6 +35,17 @@ export interface AgentEngineOptions {
 export interface AgentEngineRunOptions {
 	signal?: AbortSignal;
 	onProgress?: (progress: AgentExecutionProgress) => void;
+}
+
+const agentEngineResolverStore = new AsyncLocalStorage<() => AgentEngine>();
+
+/** Bind native Agent/Task execution to the current session without shared-loader state. */
+export function runWithAgentEngineResolver<T>(resolver: () => AgentEngine, fn: () => T): T {
+	return agentEngineResolverStore.run(resolver, fn);
+}
+
+export function getContextAgentEngine(): AgentEngine | undefined {
+	return agentEngineResolverStore.getStore()?.();
 }
 
 export interface AgentEngine {

@@ -106,9 +106,15 @@ export interface CreateAgentSessionOptions {
 	source?: InputSource;
 	/**
 	 * Agent-tool services to bind to the session. Carries the delegation `depth`
-	 * for nested child agents. When omitted, top-level services (depth 0) are built.
+	 * for nested Agent tasks. When omitted, top-level services (depth 0) are built.
 	 */
 	agentToolServices?: AgentToolParentServices;
+	/**
+	 * Leave the Agent execution engine unbound even when top-level services could
+	 * be built. Used when a task keeps an inherited Agent schema for cache identity
+	 * but its selected profile or depth denies execution.
+	 */
+	disableAgentToolServices?: boolean;
 	/**
 	 * Identity of the agent run this session represents, for observability
 	 * correlation. Stamped onto emitted tool events as `agentId`/`parentAgentId`.
@@ -570,9 +576,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		resourceLoader,
 		customTools: options.customTools,
 		modelRegistry,
-		// Honour explicitly-provided services (carry a delegation `depth` for nested
-		// child agents); otherwise default to top-level services (depth 0).
-		agentToolServices: options.agentToolServices ?? { cwd, agentDir, authStorage, settingsManager, modelRegistry },
+		// Honour an explicit disabled state before falling back to top-level services.
+		agentToolServices: options.disableAgentToolServices
+			? undefined
+			: (options.agentToolServices ?? { cwd, agentDir, authStorage, settingsManager, modelRegistry }),
 		agentRunIdentity: options.agentRunIdentity,
 		initialActiveToolNames,
 		allowedToolNames,

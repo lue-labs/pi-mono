@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildChildTaskPrompt } from "../../src/core/agents/context.ts";
+import { buildAgentCourseCorrectionPrompt, buildChildTaskPrompt } from "../../src/core/agents/context.ts";
 import type { AgentTaskConfig } from "../../src/core/agents/types.ts";
 
 const baseTask: AgentTaskConfig = {
@@ -9,32 +9,47 @@ const baseTask: AgentTaskConfig = {
 };
 
 describe("buildChildTaskPrompt", () => {
-	it("prepends a child-agent reminder so subagents know not to call the agent tool", () => {
+	it("frames the task as an Agent tool call and returns the result to the calling agent", () => {
 		const prompt = buildChildTaskPrompt(baseTask);
-		// Reminder lives in the *user message* (not system prompt / not tool
-		// schemas) so fork-mode children keep cache-identity with the parent's
-		// system + tools prefix. The reminder text is the only enforcement
-		// against recursion in fork mode, since fork mode preserves the parent's
-		// tool schemas verbatim for prompt-cache reuse.
-		expect(prompt).toMatch(/<system-reminder>/);
-		expect(prompt).toMatch(/agent.*not available|cannot spawn/i);
-		expect(prompt).toMatch(/<\/system-reminder>/);
-	});
-
-	it("keeps the existing 'Complete this delegated task:' marker after the reminder", () => {
-		const prompt = buildChildTaskPrompt(baseTask);
-		const reminderIdx = prompt.indexOf("</system-reminder>");
-		const markerIdx = prompt.indexOf("Complete this delegated task:");
-		expect(reminderIdx).toBeGreaterThan(-1);
-		expect(markerIdx).toBeGreaterThan(reminderIdx);
+		expect(prompt).toContain("<system-reminder>");
+		expect(prompt).toContain("calling agent");
+		expect(prompt).toContain("## Task from the calling agent");
 		expect(prompt).toContain("do the thing");
+		expect(prompt).toContain("</system-reminder>");
+		expect(prompt).not.toMatch(/\b(child agent|subagent|parent agent|invoker)\b/i);
 	});
 
-	it("includes extraContext when provided, after the task body", () => {
+	it("states when the Agent tool is unavailable despite an inherited schema", () => {
+		const prompt = buildChildTaskPrompt(baseTask);
+		expect(prompt).toMatch(/`agent` tool is not available/i);
+		expect(prompt).toMatch(/schema.*appear/i);
+		expect(prompt).toMatch(/calling agent.*follow-up/i);
+	});
+
+	it("states the remaining depth when nested Agent calls are available", () => {
+		const prompt = buildChildTaskPrompt(baseTask, { canDelegate: true, remaining: 2 });
+		expect(prompt).toMatch(/`agent` tool is available/i);
+		expect(prompt).toContain("2 more nested level(s)");
+		expect(prompt).not.toMatch(/`agent` tool is not available/i);
+		expect(prompt).not.toMatch(/\b(child agent|subagent|parent agent|invoker)\b/i);
+	});
+
+	it("includes extraContext after the task body as context from the calling agent", () => {
 		const prompt = buildChildTaskPrompt({ ...baseTask, extraContext: "be careful with X" });
-		expect(prompt).toContain("Additional context:");
+		expect(prompt).toContain("## Context from the calling agent");
 		expect(prompt).toContain("be careful with X");
-		expect(prompt.indexOf("do the thing")).toBeLessThan(prompt.indexOf("Additional context:"));
+		expect(prompt.indexOf("do the thing")).toBeLessThan(prompt.indexOf("## Context from the calling agent"));
+	});
+
+	it("wraps course corrections with refreshed capability state", () => {
+		const prompt = buildAgentCourseCorrectionPrompt("continue with the new constraint", {
+			canDelegate: true,
+			remaining: 3,
+		});
+		expect(prompt).toContain("## Course correction from the calling agent");
+		expect(prompt).toContain("3 more nested level(s)");
+		expect(prompt).toContain("continue with the new constraint");
+		expect(prompt).not.toMatch(/\b(child agent|subagent|parent agent|invoker)\b/i);
 	});
 
 	it("produces stable bytes across calls with the same input (cache-friendliness)", () => {

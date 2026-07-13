@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Agent task prompts now address the calling agent rather than assigning child/subagent identity, with concise outcome, evidence, and verification contracts plus accurate depth-aware Agent availability on initial and resumed turns. Public tool call shapes remain compatible and fork task guidance stays in trailing user messages for cache preservation.
+
 - Extensions: add a dedicated `custom_message` event for every custom message accepted by `AgentSession.sendCustomMessage()`, including idle background completions that intentionally bypass the agent-loop `message_start` / `message_end` lifecycle. Idle wake scheduling now waits for these observers so completion consumers can finalize durable side effects before the parent continues.
 
 - Fixed: resuming a parked persistent background Agent run (`resumeSingleBackgroundRun`) rebound the child's tool registry (bash/read/write/etc.) to the parent's cwd instead of re-applying the routed `task.cwd`, so a background dispatch's first resumed turn ran outside its intended worktree/dir (valkyriweb/my-pi#916). The initial dispatch already resolved this correctly via `resolveChildCwd`; the resume path now mirrors it.

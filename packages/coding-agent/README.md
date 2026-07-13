@@ -377,7 +377,7 @@ Pi includes a built-in `agent` tool for child-agent delegation. It supports:
 
 Built-in agents: `general`, `worker`, `explore`, `decompose`, `plan`, and `reviewer`. User agents can be added as Markdown files in `~/.pi/agent/agents/*.md`; project agents in `.pi/agents/*.md` require explicit `agentScope: "project"` or `"both"` and confirmation.
 
-Context modes: `default` loads normal project context without the parent transcript, `fork` includes a filtered parent transcript, `slim` omits project context and skills, and `none` keeps only Pi's base prompt plus the selected agent prompt. Agents with `cacheProfile: "stable"` use only their agent prompt as the system prompt so cheap specialists can share a cross-session/cross-cwd cache. Child tools are bounded by the parent's active tools and recursive `agent` calls are denied.
+Context modes: `default` loads normal project context without the calling session transcript, `fork` includes a filtered calling-session transcript, `slim` omits project context and skills, and `none` keeps only Pi's base prompt plus the selected Agent profile prompt. Profiles with `cacheProfile: "stable"` and `context: "none"` use only that prompt as the system prompt so cheap specialists can share a cross-session/cross-cwd cache. Tools are bounded by the calling session's active tools; nested Agent calls are depth-capped and each task receives its effective availability in the trailing user message.
 
 Use `/agents` to list agents and insert a prompt scaffold. Native slash ergonomics also cover:
 

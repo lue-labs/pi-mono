@@ -44,6 +44,7 @@ import {
 	type AgentEngine,
 	type AgentParentSnapshot,
 	createAgentEngine,
+	runWithAgentEngineResolver,
 } from "./agents/engine.ts";
 import type { AgentToolParentServices } from "./agents/executor.ts";
 import type { AgentBackgroundCompletion } from "./agents/types.ts";
@@ -3474,13 +3475,17 @@ export class AgentSession {
 	}
 
 	private _getAgentEngine(): AgentEngine {
+		// Profile/depth denial must fail closed before extension-provided engines are
+		// considered. Keeping the schema visible for fork cache identity does not
+		// grant execution capability.
+		if (!this._agentToolServices) {
+			throw new Error("Agent is not available: agent tool services are not bound to this session");
+		}
 		const processEngine = getExtensionProcessService<AgentEngine>(AGENTS_ENGINE_SERVICE_ID);
 		if (processEngine) return processEngine;
 		const engine = this._extensionRunner.getService<AgentEngine>(AGENTS_ENGINE_SERVICE_ID);
 		if (engine) return engine;
-		const fallbackEngine = this._createAgentEngine();
-		this._extensionRunner.setService(AGENTS_ENGINE_SERVICE_ID, fallbackEngine);
-		return fallbackEngine;
+		return this._createAgentEngine();
 	}
 
 	private async _forkAgentFromExtension(opts: ForkAgentOptions): Promise<ForkAgentResult> {
@@ -3887,6 +3892,27 @@ export class AgentSession {
 		for (const tool of wrappedExtensionTools as AgentTool[]) {
 			toolRegistry.set(tool.name, tool);
 		}
+		// Keep Agent/Task schemas byte-identical in denied fork sessions, but guard
+		// execution in this session's registry before any runtime/process engine can
+		// be resolved. The closure is live for SDK/test consumers that bind services
+		// after construction and isolated when sessions share a ResourceLoader.
+		for (const name of ["agent", "Agent", "Task"]) {
+			const tool = toolRegistry.get(name);
+			if (!tool) continue;
+			const execute = tool.execute;
+			toolRegistry.set(name, {
+				...tool,
+				execute: async (toolCallId, params, signal, onUpdate) => {
+					if (!this._agentToolServices) {
+						throw new Error("Agent is not available: agent tool services are not bound to this session");
+					}
+					return runWithAgentEngineResolver(
+						() => this._getAgentEngine(),
+						() => execute(toolCallId, params, signal, onUpdate),
+					);
+				},
+			});
+		}
 		this._toolRegistry = toolRegistry;
 		// Re-apply post-registration deferral overrides onto the freshly rebuilt
 		// registry + definitions so deferLoading stays forced across every rebuild
@@ -3995,13 +4021,6 @@ export class AgentSession {
 		// Use the runner accessor so built-in hook actions (agents, bashBgJobs,
 		// deferredTools) are dispatched alongside user extensions.
 		const extensionsResult = this._resourceLoader.getExtensionsForRunner();
-		if (
-			this._agentToolServices &&
-			!extensionsResult.runtime.services.has(AGENTS_ENGINE_SERVICE_ID) &&
-			!getExtensionProcessService<AgentEngine>(AGENTS_ENGINE_SERVICE_ID)
-		) {
-			extensionsResult.runtime.services.set(AGENTS_ENGINE_SERVICE_ID, this._createAgentEngine());
-		}
 		if (options.flagValues) {
 			for (const [name, value] of options.flagValues) {
 				extensionsResult.runtime.flagValues.set(name, value);

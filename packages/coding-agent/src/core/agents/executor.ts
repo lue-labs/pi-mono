@@ -14,6 +14,7 @@ import type { SettingsManager } from "../settings-manager.ts";
 import { appendTaskMessage } from "../tasks/messages.ts";
 import { EXPLORE_BASH_POLICY, runWithBashPolicy } from "../tools/bash.ts";
 import {
+	buildAgentCourseCorrectionPrompt,
 	buildAgentSystemAppend,
 	buildChildTaskPrompt,
 	clampThinkingForModel,
@@ -57,10 +58,9 @@ import type {
 	NormalizedAgentTaskConfig,
 } from "./types.ts";
 
-// Tools globally denied to every child regardless of depth. `agent` is NOT here:
-// nested delegation is gated per-depth via `allowAgentDelegation` (computed from
-// `subagents.maxDelegationDepth`) so children below the cap can fan out while the
-// boundary is enforced by withholding the child's engine binding (agentToolServices).
+// Tools globally denied to every Agent task regardless of depth. `agent` is not
+// here: effective-tool resolution and the configured depth cap decide whether it
+// is exposed, and executeAgentTool enforces the cap again at call time.
 const GLOBAL_DENY_TOOLS = new Set<string>();
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
@@ -216,12 +216,15 @@ function normalizeTask(
  * the same capability under an aliased name — e.g. a native-tool override that
  * registers `Read`/`Grep`/`Bash` and exposes deferred tools as `mcp__pi__Find`.
  * Active tool names come from the internal registry (`agent.state.tools[].name`),
- * so case is the only skew; lowercasing makes aliases of the same capability
- * resolve to each other. Without it the allow-list intersection is empty and the
- * child runs with NO tools (model then emits tool calls as literal text, 0 uses).
+ * so lowercasing makes case aliases of the same capability resolve to each
+ * other. Native legacy `Task` is the same delegation capability as `agent` /
+ * `Agent`, so it shares their allow/deny and depth enforcement. Without this
+ * canonicalization the allow-list intersection can be empty, or an alias can
+ * bypass a capability restriction.
  */
 function canonicalToolName(name: string): string {
-	return name.toLowerCase();
+	const canonical = name.toLowerCase();
+	return canonical === "task" ? "agent" : canonical;
 }
 
 /** Read the configured nested-delegation cap (0 = no nesting). Clamped to 16. */
@@ -900,27 +903,34 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	const effectiveModel = applyMaxOutputTokens(model, options.task.maxOutputTokens);
 	// Fork mode (isForkMode is computed above, where it also forces model/thinking
 	// inheritance) governs tool inheritance too:
-	// Use parent's exact tool set — 1:1 inheritance, no GLOBAL_DENY_TOOLS filtering.
-	// Tool schemas must be byte-identical to the parent's API request for a cache hit.
-	// Consequence: the `agent` tool schema stays in the child's tool list, so the
-	// runtime guard against recursive delegation is *prompt-level* via the
-	// CHILD_AGENT_REMINDER prefix injected by buildChildTaskPrompt (mirrors
-	// Claude Code's <system-reminder> pattern). Default/slim modes keep the
-	// hard GLOBAL_DENY_TOOLS filter as defense-in-depth.
+	// Use the parent's exact tool set by default, with no GLOBAL_DENY_TOOLS
+	// filtering. An explicit task-level tools restriction intentionally narrows
+	// the schema list and opts that call out of exact parent-prefix cache reuse.
+	// Consequence: the `agent` schema can remain visible at the depth cap. The
+	// trailing availability reminder states the effective capability, while
+	// executeAgentTool enforces the cap at call time. Other modes also filter the
+	// effective tools through the selected profile.
 	// All other modes: standard agent-definition-based tool resolution.
 	let effectiveTools: string[];
 	let deniedTools: string[];
-	// Nested-delegation gate: a child at `childDepth` may itself delegate only while
-	// under the configured cap. When it may not, we withhold its engine binding
-	// (agentToolServices) below so any `agent` call fails closed.
+	// Nested-delegation gate: a task at `childDepth` may call Agent only while
+	// under the configured cap and only when Agent survives effective-tool
+	// resolution for the selected profile.
 	const callerDepth = options.parentServices.depth ?? 0;
 	const maxDelegationDepth = getMaxDelegationDepth(options.parentServices.settingsManager);
 	const childDepth = callerDepth + 1;
 	const childCanDelegate = canDelegateAtDepth(childDepth, maxDelegationDepth);
+	const profileAllowsAgent = resolveEffectiveTools({
+		parentActiveTools: options.parentActiveTools,
+		agent,
+		allowAgentDelegation: true,
+	}).effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
 	if (isForkMode) {
-		const parentSet = new Set(options.parentActiveTools);
-		effectiveTools = options.task.tools
-			? options.task.tools.filter((t) => parentSet.has(t))
+		const requested = options.task.tools
+			? new Set(options.task.tools.map((tool) => canonicalToolName(tool)))
+			: undefined;
+		effectiveTools = requested
+			? options.parentActiveTools.filter((tool) => requested.has(canonicalToolName(tool)))
 			: [...options.parentActiveTools];
 		deniedTools = [];
 	} else {
@@ -952,9 +962,11 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	// relative tool path resolves against the bad dir (the classic "explore
 	// guessed the wrong cwd" failure).
 	const childCwd = resolveChildCwd(options.task.cwd, options.parentServices.cwd);
+	const taskCanDelegate =
+		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
 	const childPrompt = buildChildTaskPrompt(options.task, {
-		canDelegate: childCanDelegate,
-		remaining: childCanDelegate ? maxDelegationDepth - childDepth : 0,
+		canDelegate: taskCanDelegate,
+		remaining: taskCanDelegate ? maxDelegationDepth - childDepth : 0,
 	});
 	const routingMetadata = requestedAutoModel
 		? buildChildRoutingMetadata({
@@ -986,10 +998,10 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		requestedModel: requestedAutoModel,
 		routingMetadata,
 		tools: effectiveTools,
-		// Record this child's delegation depth on its own agent-tool services. When the
-		// child later calls `agent`, executeAgentTool reads this depth and enforces the
-		// cap (subagents.maxDelegationDepth). Without this the depth would always read 0
-		// and nesting would be unbounded.
+		// Keep Agent schemas inherited by fork mode for cache identity, but bind the
+		// execution engine only when both the selected profile and depth allow Agent.
+		// The depth is threaded so nested calls are enforced again by executeAgentTool.
+		disableAgentToolServices: !taskCanDelegate,
 		agentToolServices: {
 			cwd: childCwd,
 			agentDir: options.parentServices.agentDir,
@@ -997,7 +1009,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 			settingsManager: options.parentServices.settingsManager,
 			modelRegistry: options.parentServices.modelRegistry,
 			depth: childDepth,
-			// Link this child's future delegations back to the run that spawned it.
+			// Link this task's future delegations back to the run that spawned it.
 			parentRunId: options.taskId,
 		},
 		// Telemetry identity: this run is `options.taskId`; its parent is the caller's
@@ -1194,10 +1206,16 @@ async function resumeSingleBackgroundRun(
 		throw new Error(`Unknown agent "${task.agent}". Available agents: ${formatAvailableAgents(registry)}`);
 	}
 
-	const agentDefaults = resolveAgentDefaults({
-		parentModel: options.parentModel,
-		settingsManager: options.parentServices.settingsManager,
-	});
+	// Resume must preserve the original fork contract just like initial dispatch:
+	// parent model/thinking defaults, canonical parent-tool subset, and frozen
+	// system bytes. Only the trailing course-correction message changes.
+	const isForkMode = resolveContextPolicy(task.context).includeTranscript && Boolean(options.parentSystemPrompt);
+	const agentDefaults = isForkMode
+		? undefined
+		: resolveAgentDefaults({
+				parentModel: options.parentModel,
+				settingsManager: options.parentServices.settingsManager,
+			});
 	const warnings: string[] = [];
 	const model = resolveAgentModel({
 		modelReference: task.model,
@@ -1215,23 +1233,43 @@ async function resumeSingleBackgroundRun(
 		parentThinkingLevel: options.parentThinkingLevel,
 		model,
 	});
+	const effectiveModel = applyMaxOutputTokens(model, task.maxOutputTokens);
 	const callerDepth = options.parentServices.depth ?? 0;
 	const maxDelegationDepth = getMaxDelegationDepth(options.parentServices.settingsManager);
 	const childDepth = callerDepth + 1;
 	const childCanDelegate = canDelegateAtDepth(childDepth, maxDelegationDepth);
-	const { effectiveTools, deniedTools } = resolveEffectiveTools({
+	const profileAllowsAgent = resolveEffectiveTools({
 		parentActiveTools: options.parentActiveTools,
 		agent,
-		requestedTools: task.tools,
-		allowAgentDelegation: childCanDelegate,
-	});
+		allowAgentDelegation: true,
+	}).effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
+	let effectiveTools: string[];
+	let deniedTools: string[];
+	if (isForkMode) {
+		const requested = task.tools ? new Set(task.tools.map((tool) => canonicalToolName(tool))) : undefined;
+		effectiveTools = requested
+			? options.parentActiveTools.filter((tool) => requested.has(canonicalToolName(tool)))
+			: [...options.parentActiveTools];
+		deniedTools = [];
+	} else {
+		const resolved = resolveEffectiveTools({
+			parentActiveTools: options.parentActiveTools,
+			agent,
+			requestedTools: task.tools,
+			allowAgentDelegation: childCanDelegate,
+		});
+		effectiveTools = resolved.effectiveTools;
+		deniedTools = resolved.deniedTools;
+	}
+	const taskCanDelegate =
+		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
 		agent,
 		task,
 		effectiveTools,
 		deniedTools,
-		model,
+		model: effectiveModel,
 		thinking,
 		warnings,
 		startedAt,
@@ -1257,9 +1295,10 @@ async function resumeSingleBackgroundRun(
 	const { session } = await createAgentSessionFromServices({
 		services: childServices,
 		sessionManager: childSessionManager,
-		model,
+		model: effectiveModel,
 		thinkingLevel: thinking,
 		tools: effectiveTools,
+		disableAgentToolServices: !taskCanDelegate,
 		agentToolServices: {
 			cwd: childCwd,
 			agentDir: options.parentServices.agentDir,
@@ -1284,12 +1323,27 @@ async function resumeSingleBackgroundRun(
 		},
 		source: "child-agent",
 	});
+	// Reapply the original system-prompt policy after opening the persisted
+	// session. Session creation builds a fresh prompt even though the transcript
+	// comes from the previous run.
+	if (task.systemPrompt) {
+		session.overrideBaseSystemPrompt(task.systemPrompt);
+	} else if (isForkMode && options.parentSystemPrompt) {
+		session.overrideBaseSystemPrompt(options.parentSystemPrompt);
+	} else if (agent.cacheProfile === "stable" && policy.mode === "none") {
+		session.overrideBaseSystemPrompt(buildAgentSystemAppend(agent));
+	}
+
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 
 	const runs: AgentRunDetails[] = [details];
-	const resumePrompt =
+	const courseCorrection =
 		prompt?.trim() ||
-		"Continue the interrupted delegated task from where you left off. Return the final report when done.";
+		"Continue the interrupted Agent task from where you left off. Return the final report when done.";
+	const resumePrompt = buildAgentCourseCorrectionPrompt(courseCorrection, {
+		canDelegate: taskCanDelegate,
+		remaining: taskCanDelegate ? maxDelegationDepth - childDepth : 0,
+	});
 
 	try {
 		await driveChildSession(session, {
@@ -1674,8 +1728,8 @@ export async function executeAgentTool(
 	const delegationCap = getMaxDelegationDepth(options.parentServices.settingsManager);
 	if (!canDelegateAtDepth(callerDepth, delegationCap)) {
 		throw new Error(
-			`Nested agent delegation is not permitted at depth ${callerDepth} ` +
-				`(subagents.maxDelegationDepth = ${delegationCap}). Complete this sub-task yourself and report back.`,
+			`Nested Agent delegation is not permitted at depth ${callerDepth} ` +
+				`(subagents.maxDelegationDepth = ${delegationCap}). Complete the current task and return the result to the calling agent.`,
 		);
 	}
 	const recentRun = startAgentRecentRun(input.mode, input.tasks, {

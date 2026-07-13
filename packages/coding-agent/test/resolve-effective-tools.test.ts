@@ -109,6 +109,23 @@ describe("resolveEffectiveTools capability matching", () => {
 		});
 		expect(effectiveTools).not.toContain("Agent");
 	});
+
+	it("treats native legacy Task as the same denied delegation capability", () => {
+		const { effectiveTools } = resolveEffectiveTools({
+			parentActiveTools: ["Read", "Task"],
+			agent: agent({ tools: "*" }),
+		});
+		expect(effectiveTools).toEqual(["Read"]);
+	});
+
+	it("includes native legacy Task when nested delegation is allowed", () => {
+		const { effectiveTools } = resolveEffectiveTools({
+			parentActiveTools: ["Read", "Task"],
+			agent: agent({ tools: "*" }),
+			allowAgentDelegation: true,
+		});
+		expect(effectiveTools).toEqual(["Read", "Task"]);
+	});
 });
 
 describe("nested-delegation depth gate", () => {

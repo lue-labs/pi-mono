@@ -56,6 +56,7 @@ describe("agent tool suite: context modes", () => {
 		expect(childPrompts[0]).not.toContain("PROJECT APPEND");
 		expect(childPrompts[0]).not.toContain(harness.tempDir);
 		expect(childPrompts[0]).not.toContain("Current date:");
+		expect(childPrompts[0]).not.toMatch(/\b(child agent|subagent|parent agent|invoker)\b/i);
 	});
 
 	it("renders different child system prompts for slim and none", async () => {
@@ -91,5 +92,23 @@ describe("agent tool suite: context modes", () => {
 		expect(childPrompts[0]).toContain("PROJECT APPEND");
 		expect(childPrompts[1]).not.toContain("PROJECT APPEND");
 		expect(childPrompts[0]).not.toBe(childPrompts[1]);
+	});
+
+	it("treats an explicit fork tool restriction as a canonical parent-tool subset", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("restricted fork done")]);
+
+		const details = await executeAgentTool(
+			{
+				mode: "single",
+				tasks: [{ agent: "general", task: "use the restricted tools", context: "fork", tools: ["Agent", "Read"] }],
+			},
+			{ ...executorOptions(harness), parentSystemPrompt: "PARENT PROMPT" },
+		);
+
+		// The explicit restriction intentionally opts out of exact parent-prefix
+		// cache reuse, but keeps the parent's aliases and stable ordering.
+		expect(details.runs[0]?.effectiveTools).toEqual(["read", "agent"]);
 	});
 });

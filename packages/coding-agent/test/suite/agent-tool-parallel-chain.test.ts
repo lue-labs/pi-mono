@@ -54,7 +54,7 @@ describe("agent tool suite: parallel and chain", () => {
 		);
 
 		expect(childPrompts[1]).toContain("step two uses raw child content");
-		expect(childPrompts[1]).not.toContain("Saved child agent output");
+		expect(childPrompts[1]).not.toContain("Saved Agent output");
 		expect(await readFile(join(harness.tempDir, "reports", "one.md"), "utf-8")).toBe("raw child content");
 	});
 

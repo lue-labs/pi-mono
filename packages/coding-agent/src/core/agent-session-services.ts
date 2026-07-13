@@ -71,11 +71,10 @@ export interface CreateAgentSessionFromServicesOptions {
 	customTools?: ToolDefinition[];
 	/** See `CreateAgentSessionOptions.source`. Forwarded as-is. */
 	source?: CreateAgentSessionOptions["source"];
-	/**
-	 * Agent-tool services bound to the child session, enabling it to spawn its own
-	 * child agents. Omit to leave the child unable to delegate (engine unbound).
-	 */
+	/** Agent-tool services bound to the task session, enabling Agent execution. */
 	agentToolServices?: CreateAgentSessionOptions["agentToolServices"];
+	/** Explicitly leave the Agent execution engine unbound. */
+	disableAgentToolServices?: CreateAgentSessionOptions["disableAgentToolServices"];
 	/** Identity of this session's agent run, forwarded to telemetry. See `CreateAgentSessionOptions.agentRunIdentity`. */
 	agentRunIdentity?: CreateAgentSessionOptions["agentRunIdentity"];
 }
@@ -223,6 +222,7 @@ export async function createAgentSessionFromServices(
 		sessionStartEvent: options.sessionStartEvent,
 		source: options.source,
 		agentToolServices: options.agentToolServices,
+		disableAgentToolServices: options.disableAgentToolServices,
 		agentRunIdentity: options.agentRunIdentity,
 	});
 }
