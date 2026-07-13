@@ -2,7 +2,7 @@ import type { AgentTool, AgentToolResult, ThinkingLevel } from "@valkyriweb/pi-a
 import type { Api, Model } from "@valkyriweb/pi-ai";
 import { Container, Spacer, Text } from "@valkyriweb/pi-tui";
 import { type Static, Type } from "typebox";
-import type { AgentEngine } from "../agents/engine.ts";
+import { type AgentEngine, getContextAgentEngine } from "../agents/engine.ts";
 import { type AgentToolParentServices, executeAgentTool } from "../agents/executor.ts";
 import {
 	cancelAgentRecentRun,
@@ -585,7 +585,7 @@ export function createAgentToolDefinition(
 		executionMode: "parallel",
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const normalizedParams = normalizeAgentToolAliases(params);
-			const engine = options?.engine ?? options?.getEngine?.();
+			const engine = options?.engine ?? options?.getEngine?.() ?? getContextAgentEngine();
 			if (normalizedParams.action) return executeAgentControlAction(normalizedParams, engine);
 			await confirmProjectAgentsIfNeeded(normalizedParams, ctx);
 			const mode = normalizeAgentToolMode(normalizedParams);

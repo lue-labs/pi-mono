@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fixed custom `agent`/`Agent`/`Task` aliases failing with `agent tool is unavailable in this runtime` after the session-isolated Agent engine change. Agent tool definitions now fall back to the calling session's execution-scoped engine when an alias has no explicit/runtime engine, preserving extension overrides and profile/depth denial.
+
 - Agent task prompts now address the calling agent rather than assigning child/subagent identity, with concise outcome, evidence, and verification contracts plus accurate depth-aware Agent availability on initial and resumed turns. Public tool call shapes remain compatible and fork task guidance stays in trailing user messages for cache preservation.
 
 - Extensions: add a dedicated `custom_message` event for every custom message accepted by `AgentSession.sendCustomMessage()`, including idle background completions that intentionally bypass the agent-loop `message_start` / `message_end` lifecycle. Idle wake scheduling now waits for these observers so completion consumers can finalize durable side effects before the parent continues.
