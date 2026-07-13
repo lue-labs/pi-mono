@@ -204,8 +204,13 @@ function agentTaskReminder(delegation?: { canDelegate: boolean; remaining: numbe
 export function buildChildTaskPrompt(
 	task: AgentTaskConfig,
 	delegation?: { canDelegate: boolean; remaining: number },
+	roleGuidance?: { agent: string; prompt: string },
 ): string {
-	const parts = [agentTaskReminder(delegation), "", "## Task from the calling agent", "", task.task.trim()];
+	const parts = [agentTaskReminder(delegation)];
+	if (roleGuidance?.prompt.trim()) {
+		parts.push("", `## Selected Agent role: ${roleGuidance.agent}`, "", roleGuidance.prompt.trim());
+	}
+	parts.push("", "## Task from the calling agent", "", task.task.trim());
 	if (task.extraContext?.trim()) {
 		parts.push("", "## Context from the calling agent", "", task.extraContext.trim());
 	}

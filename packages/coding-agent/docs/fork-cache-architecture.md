@@ -32,6 +32,11 @@ their parent unless the caller explicitly supplies a task-level `tools` /
 5. **Depth-aware Agent availability**: the `agent` tool schema stays in the
    fork tool list for cache identity. A trailing `<system-reminder>` states
    whether the configured depth allows another Agent call.
+6. **Named roles are guidance**: `fork` remains a permissive self-fork. When a
+   named profile is selected, its prompt is appended to the trailing task
+   message. If fork bypasses its ordinary tool allow/deny list, the caller is
+   warned that filtering requires `context: "default"`; nested Agent access
+   remains profile- and depth-capped, with no new hidden deny layer.
 
 Without an explicit tool restriction, the only divergence is the per-task user
 directive (built by `buildChildTaskPrompt`), placed at the very tail of the
@@ -84,7 +89,7 @@ message arrays".
 
 | Agent | `defaultContext` | System prompt source | Tools | Cache strategy |
 |---|---|---|---|---|
-| `worker` | `fork` | Parent's rendered bytes | Parent's 1:1 by default; explicit restriction opts out | **Shares prefix with parent + siblings by default** |
+| `worker` | `fork` | Parent's rendered bytes; worker role in trailing task message | Parent's 1:1 by default; explicit restriction opts out | **Shares prefix with parent + siblings by default** |
 | `general` | `default` | Own dedicated | Resolved from agent def | Own cache, no parent share |
 | `explore` | `none` | Own + `cacheProfile: "stable"` | Child-scoped read-only allow-list; installed optional search tools activate | **Stable bytes for a fixed extension set → hits across explore invocations cluster-wide** |
 | `decompose` | `none` | Own + `cacheProfile: "stable"` | Read-only subset | Same as explore |
@@ -163,8 +168,13 @@ subset; only the trailing course-correction message changes:
 
 ## Comparison: Claude Code 2.1.x
 
-Pi's implementation explicitly mirrors CC. Key correspondences (CC source
-mirror at `~/Projects/oss/claude-code-cli-src-code/src/tools/AgentTool/`):
+Pi's implementation explicitly mirrors CC's cache strategy. Claude Code
+2.1.206 treats `subagent_type: "fork"` as “fork yourself”; other named types
+start fresh. Pi additionally permits a named profile with `context: "fork"`
+for compatibility, but keeps it soft: role prompt in the trailing task message,
+caller capabilities preserved, and a warning to use `default` for filtered
+tools. Key cache correspondences (CC source mirror at
+`~/Projects/oss/claude-code-cli-src-code/src/tools/AgentTool/`):
 
 | Pi | Claude Code |
 |---|---|
