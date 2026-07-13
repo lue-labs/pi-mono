@@ -1198,6 +1198,11 @@ export class AgentSession {
 		return this.agent.state.isStreaming;
 	}
 
+	/** Whether a new agent turn can start immediately. */
+	get isIdle(): boolean {
+		return !this.isStreaming && !this.isCompacting && !this.agent.isProcessing;
+	}
+
 	/** Current effective system prompt (includes any per-turn extension modifications) */
 	get systemPrompt(): string {
 		return this.agent.state.systemPrompt;
@@ -2329,10 +2334,10 @@ export class AgentSession {
 
 	/**
 	 * Send a user message to the agent. Always triggers a turn.
-	 * When the agent is streaming, use deliverAs to specify how to queue the message.
+	 * Use deliverAs to choose queueing behavior while Pi is busy; streaming calls require it.
 	 *
 	 * @param content User message content (string or content array)
-	 * @param options.deliverAs Delivery mode when streaming: "steer" or "followUp"
+	 * @param options.deliverAs Delivery mode while busy: "steer" or "followUp"
 	 */
 	async sendUserMessage(
 		content: string | (TextContent | ImageContent)[],
@@ -3754,7 +3759,7 @@ export class AgentSession {
 			},
 			{
 				getModel: () => this.model,
-				isIdle: () => !this.isStreaming,
+				isIdle: () => this.isIdle,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				getSignal: () => this.agent.signal,
 				abort: (reason?: unknown) => {
