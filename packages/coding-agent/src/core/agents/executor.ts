@@ -727,8 +727,11 @@ function findNeedsInputReason(content: unknown): string | undefined {
 						.map((part) => part.text)
 						.join("\n")
 				: "";
+	const lines = text.split("\n");
+	let lastNonblank = lines.length - 1;
+	while (lastNonblank >= 0 && !lines[lastNonblank]?.trim()) lastNonblank -= 1;
 	let fence: { marker: "`" | "~"; length: number } | undefined;
-	for (const line of text.split("\n")) {
+	for (const [index, line] of lines.entries()) {
 		const fenceMatch = /^[ \t]*(`{3,}|~{3,})/.exec(line);
 		if (fenceMatch?.[1]) {
 			const marker = fenceMatch[1][0] as "`" | "~";
@@ -736,7 +739,7 @@ function findNeedsInputReason(content: unknown): string | undefined {
 			else if (marker === fence.marker && fenceMatch[1].length >= fence.length) fence = undefined;
 			continue;
 		}
-		if (fence || /^[ \t]*>/.test(line)) continue;
+		if (fence || /^[ \t]*>/.test(line) || index !== lastNonblank) continue;
 		const match = /^[ \t]*needs input:[ \t]*(\S.*?)[ \t]*$/i.exec(line);
 		if (match?.[1]) return match[1].trim();
 	}
@@ -901,9 +904,9 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		}
 		const finalOutput = extractFinalAssistantText(session.messages);
 		const inputReason = findNeedsInputReason(finalOutput);
+		details.attentionReason = inputReason ? "user_input" : undefined;
+		details.attentionMessage = inputReason;
 		if (inputReason && details.memberId && options.taskId) {
-			details.attentionReason = "user_input";
-			details.attentionMessage = inputReason;
 			markAgentRecentRunMemberNeedsAttention(options.taskId, details.memberId, inputReason);
 		}
 		const output = await writeAgentOutput({

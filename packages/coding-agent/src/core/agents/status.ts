@@ -377,7 +377,13 @@ function markRunStopped(run: AgentRecentRun, status: "interrupted" | "cancelled"
 	run.runs = run.runs.map((child) => {
 		if (child.status !== "running" && !(status === "cancelled" && child.status === "interrupted")) return child;
 		const durationMs = child.startedAt ? Math.max(child.durationMs, stoppedAt - child.startedAt) : child.durationMs;
-		return { ...child, status, durationMs };
+		return {
+			...child,
+			status,
+			durationMs,
+			attentionReason: status === "cancelled" ? undefined : child.attentionReason,
+			attentionMessage: status === "cancelled" ? undefined : child.attentionMessage,
+		};
 	});
 	refreshRunSummary(run, run.runs);
 	if (message) run.error = message;
@@ -422,6 +428,8 @@ function markMemberStopped(
 			status,
 			durationMs: child.startedAt ? Math.max(child.durationMs, stoppedAt - child.startedAt) : child.durationMs,
 			error: message ?? child.error,
+			attentionReason: status === "cancelled" ? undefined : child.attentionReason,
+			attentionMessage: status === "cancelled" ? undefined : child.attentionMessage,
 		};
 	});
 	const hasQueuedParallelMembers = run.mode === "parallel" && run.runs.length < run.tasks.length;

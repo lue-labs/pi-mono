@@ -103,9 +103,8 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 			if (!input.runId) throw new Error(`agent control action ${action} requires runId`);
 			if (action === "inject") {
 				if (!input.message) throw new Error("agent control action inject requires message");
-				await interruptAgentRecentRun(input.runId);
-				const resumed = await resumeAgentRecentRun(input.runId, input.message);
-				return controlDetailsFromRun(resumed.run, resumed.message);
+				const injected = await injectAgentRecentRun(input.runId, input.message);
+				return controlDetailsFromRun(injected.run, injected.message);
 			}
 			const result =
 				action === "interrupt"

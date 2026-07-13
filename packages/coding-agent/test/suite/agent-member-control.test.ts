@@ -314,12 +314,39 @@ describe("agent member-scoped control", () => {
 		expect(getTaskMessages(memberId)).toEqual([]);
 	});
 
-	it("ignores quoted and fenced needs-input examples", async () => {
+	it("clears child input attention when member or aggregate cancellation normalizes it", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("needs input: First decision?"),
+			fauxAssistantMessage("needs input: Second decision?"),
+		]);
+
+		for (const target of ["member", "aggregate"] as const) {
+			const started = await executeAgentTool(
+				{ mode: "single", background: true, tasks: [{ agent: "general", task: `${target} cancellation` }] },
+				executorOptions(harness),
+			);
+			const interrupted = await waitForAgentRecentRun(started.runId!);
+			const memberId = interrupted.runs[0]!.memberId!;
+			const cancelled = await cancelAgentRecentRun(target === "member" ? memberId : interrupted.id);
+
+			expect(cancelled.ok).toBe(true);
+			expect(cancelled.run?.runs[0]).toMatchObject({
+				status: "cancelled",
+				attentionReason: undefined,
+				attentionMessage: undefined,
+			});
+			expect(LocalAgentTask.snapshot(memberId)).toMatchObject({ needsInput: false, needsAttention: false });
+		}
+	});
+
+	it("ignores non-trailing, quoted, and fenced needs-input examples", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage(
-				"> needs input: quoted example\n````text\n~~~\nneeds input: mixed fenced example\n````\nTask complete",
+				"needs input: superseded question\n> needs input: quoted example\n````text\n~~~\nneeds input: mixed fenced example\n````\nTask complete",
 			),
 		]);
 

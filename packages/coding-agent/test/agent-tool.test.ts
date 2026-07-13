@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { writeAgentOutput } from "../src/core/agents/output.ts";
 import {
-	attachAgentRecentRunController,
+	attachAgentRecentRunMemberController,
 	clearAgentRecentRunsForTests,
 	startAgentRecentRun,
 	updateAgentRecentRunProgress,
@@ -244,7 +244,7 @@ describe("agent tool", () => {
 		).rejects.toThrow("Project agents require interactive confirmation");
 	});
 
-	test("action=inject interrupts a running run then resumes with the message", async () => {
+	test("action=inject steers the selected running member without interrupting it", async () => {
 		clearAgentRecentRunsForTests();
 		const dir = await makeTempDir();
 		const sessionPath = join(dir, "child-session.jsonl");
@@ -255,6 +255,7 @@ describe("agent tool", () => {
 			status: "running",
 			runs: [
 				{
+					memberId: `${run.id}:1`,
 					agent: "scout",
 					source: "builtin",
 					task: "Map files",
@@ -279,23 +280,22 @@ describe("agent tool", () => {
 				},
 			],
 		});
-		const interrupt = vi.fn();
-		const resume = vi.fn();
-		attachAgentRecentRunController(run.id, { interrupt, resume });
+		const inject = vi.fn();
+		const memberId = `${run.id}:1`;
+		attachAgentRecentRunMemberController(run.id, memberId, { inject });
 
 		const tool = createAgentToolDefinition(process.cwd());
 		const result = await tool.execute(
 			"tool-inject",
-			{ action: "inject", runId: run.id, message: "check config.ts" } as Parameters<typeof tool.execute>[1],
+			{ action: "inject", runId: memberId, message: "check config.ts" } as Parameters<typeof tool.execute>[1],
 			undefined,
 			undefined,
 			{ hasUI: false } as Parameters<typeof tool.execute>[4],
 		);
 
-		expect(interrupt).toHaveBeenCalledOnce();
-		expect(resume).toHaveBeenCalledWith("check config.ts");
+		expect(inject).toHaveBeenCalledWith("check config.ts");
 		expect(result.content[0]).toMatchObject({ type: "text" });
-		expect((result.content[0] as { text: string }).text).toContain(`Resumed ${run.id}`);
+		expect((result.content[0] as { text: string }).text).toContain(`Queued message for ${memberId}`);
 		expect(result.details?.runId).toBe(run.id);
 		clearAgentRecentRunsForTests();
 	});

@@ -242,8 +242,9 @@ Modes:
 { "tasks": [{ "agent": "scout", "task": "Find models" }, { "agent": "reviewer", "task": "Review API code" }], "concurrency": 2 }
 { "chain": [{ "agent": "scout", "task": "Map the flow" }, { "agent": "plan", "task": "Plan from: {previous}" }] }
 { "agent": "worker", "task": "Run the long migration audit", "background": true }
-{ "action": "interrupt", "runId": "agent-1" }
-{ "action": "resume", "runId": "agent-1", "message": "Continue from the interrupted audit." }
+{ "action": "inject", "runId": "agent-1:2", "message": "Inspect config.ts before finishing." }
+{ "action": "interrupt", "runId": "agent-1:2" }
+{ "action": "resume", "runId": "agent-1:1", "message": "Continue from the interrupted audit." }
 ```
 
 Options include `context` (`default`, `fork`, `slim`, `none`), `model`, `thinking`, `tools`, `output`, `outputMode` (`inline`, `file`, `both`), `chainDir`, `background`, and `agentScope` (`user`, `project`, `both`). Use `default` for a fresh named Agent with its profile-filtered tools. `fork` is a permissive self-fork that preserves the caller transcript, frozen system prompt when available, and tool set; a selected named role is appended as trailing guidance, and Pi warns when fork bypasses ordinary profile tool filtering. Nested Agent availability remains profile- and depth-capped. Built-ins and user agents are available by default; project agents require explicit scope and confirmation.
@@ -278,11 +279,11 @@ Saved chains live in `~/.pi/agent/chains/*.json` or project `.pi/chains/*.json`:
 }
 ```
 
-Project chains override user chains with the same name. `/agents-status` tracks recent native foreground and background child-agent runs. Detail mode shows the child session ref/path, status timeline summary, recent tool calls, invoked skills, usage, errors, output refs, and whether an interrupted background run can be resumed. Background runs also appear in the footer with a `/agents runs` shortcut to the selectable control panel. Pi does not enforce a hard timeout for child agents; background runs are monitored for stalled progress and marked `needs attention` so you can inspect, interrupt, or cancel them from `/agents runs`.
+Project chains override user chains with the same name. `/agents-status` tracks recent native foreground and background child-agent runs. Each child keeps a dispatch-stable member ID such as `agent-1:2`; child-row steer, interrupt, and cancel target only that member, while the aggregate `agent-1` control intentionally targets the whole run. Detail mode shows the child session ref/path, status timeline summary, recent tool calls, invoked skills, usage, errors, output refs, and whether an interrupted background run can be resumed. Background runs also appear in the footer with a `/agents runs` shortcut to the selectable control panel. Pi does not enforce a hard timeout for child agents; background runs are monitored for stalled progress and marked `needs attention` so you can inspect, interrupt, or cancel them from `/agents runs`. Lifecycle and attention are separate: interrupted/failed/stale work never implies a human decision, and only a worker's standalone `needs input: <specific question>` line renders as `needs input`.
 
 During a native `agent` tool call, collapsed rendering shows mode, agents, per-child status, current tool, tool count, compact token usage (`32k tok`), minute-aware duration (`1m 12s`), and session/output refs. Expanded rendering adds recent tools, recent output snippets, invoked/loaded skills, model/thinking, errors, and output paths.
 
-Child sessions are persisted as normal Pi sessions with the parent session recorded as their parent reference. Inspect them via `/agents-status <run-id>` or the printed session path. Native background resume continues single-child interrupted runs from the persisted child session when the original Pi process still owns the run controller.
+Child sessions are persisted as normal Pi sessions with the parent session recorded as their parent reference. Inspect them via `/agents-status <run-id>` or the printed session path. Native background resume continues a durable single-child interrupted run through its member ID when the original Pi process still owns the run controller. Parallel member continuation is not yet durable and fails explicitly instead of falling back to aggregate control.
 
 Non-fork Agent task tools are computed from the calling session's active tools, requested tools, profile allow/deny lists, and the configured nesting depth. Fork mode instead retains inherited tool schemas for cache identity unless the task explicitly narrows them; named profile restrictions are guidance rather than hidden runtime blocks. The Agent engine still remains unbound when the selected profile or depth denies nested delegation. `--tools`, `--no-builtin-tools`, and `--no-tools` continue to set the calling-session ceiling; tasks cannot gain tools that are not active there.
 
