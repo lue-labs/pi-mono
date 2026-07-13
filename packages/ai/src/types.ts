@@ -581,6 +581,8 @@ export interface OpenAICompletionsCompat {
 
 /** Compatibility settings for OpenAI Responses APIs. */
 export interface OpenAIResponsesCompat {
+	/** Reasoning execution mode. `"standard"` is the default and sends no override. */
+	reasoningMode?: "standard" | "pro";
 	/** Whether the provider supports the `developer` role (vs `system`). Default: true. */
 	supportsDeveloperRole?: boolean;
 	/** Whether to send the OpenAI `session_id` cache-affinity header from `options.sessionId` when caching is enabled. Default: true. */
@@ -736,6 +738,8 @@ export interface VercelGatewayRouting {
 // Model interface for the unified model system
 export interface Model<TApi extends Api> {
 	id: string;
+	/** API model ID to send when this local model uses a user-facing alias. */
+	apiModelId?: string;
 	name: string;
 	api: TApi;
 	provider: ProviderId;

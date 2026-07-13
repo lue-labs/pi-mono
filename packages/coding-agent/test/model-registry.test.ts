@@ -240,6 +240,33 @@ describe("ModelRegistry", () => {
 			expect(model?.baseUrl).toBe("https://openrouter.ai/api/v1");
 		});
 
+		test("preserves API model aliases and Responses Pro mode", () => {
+			writeRawModelsJson({
+				clawrouter: {
+					baseUrl: "http://127.0.0.1:8798/v1",
+					apiKey: "test-key",
+					api: "openai-responses",
+					models: [
+						{
+							id: "gpt-5.6-terra-pro",
+							apiModelId: "gpt-5.6-terra",
+							reasoning: true,
+							input: ["text"],
+							cost: { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125 },
+							contextWindow: 372000,
+							maxTokens: 128000,
+							compat: { reasoningMode: "pro" },
+						},
+					],
+				},
+			});
+
+			const model = ModelRegistry.create(authStorage, modelsJsonPath).find("clawrouter", "gpt-5.6-terra-pro");
+
+			expect(model?.apiModelId).toBe("gpt-5.6-terra");
+			expect(model?.compat).toMatchObject({ reasoningMode: "pro" });
+		});
+
 		test("non-built-in provider custom models still require baseUrl", () => {
 			writeRawModelsJson({
 				"my-custom-provider": {

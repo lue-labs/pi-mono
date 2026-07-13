@@ -671,6 +671,9 @@ interface ProviderModelConfig {
   /** Model ID (e.g., "claude-sonnet-4-20250514"). */
   id: string;
 
+  /** API model ID to send when this local model uses a user-facing alias. */
+  apiModelId?: string;
+
   /** Display name (e.g., "Claude 4 Sonnet"). */
   name: string;
 
@@ -721,6 +724,9 @@ interface ProviderModelConfig {
     thinkingFormat?: "openai" | "openrouter" | "deepseek" | "together" | "zai" | "qwen" | "chat-template" | "qwen-chat-template" | "string-thinking" | "ant-ling";
     chatTemplateKwargs?: Record<string, string | number | boolean | null | { "$var": "thinking.enabled" | "thinking.effort"; omitWhenOff?: boolean }>;
     cacheControlFormat?: "anthropic";
+
+    // openai-responses
+    reasoningMode?: "standard" | "pro";
 
     // anthropic-messages
     supportsEagerToolInputStreaming?: boolean;

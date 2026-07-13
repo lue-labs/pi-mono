@@ -62,6 +62,7 @@ function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCo
 		sendSessionIdHeader: model.compat?.sendSessionIdHeader ?? true,
 		supportsLongCacheRetention: model.compat?.supportsLongCacheRetention ?? true,
 		promptCacheApi: model.compat?.promptCacheApi ?? "legacy",
+		reasoningMode: model.compat?.reasoningMode ?? "standard",
 	};
 }
 
@@ -234,7 +235,7 @@ function buildParams(model: Model<"openai-responses">, context: Context, options
 		promptCacheBreakpoints,
 	});
 	const params: ResponseCreateParamsStreaming = {
-		model: model.id,
+		model: model.apiModelId ?? model.id,
 		input: messages,
 		stream: true,
 		prompt_cache_key:
@@ -272,6 +273,7 @@ function buildParams(model: Model<"openai-responses">, context: Context, options
 			params.reasoning = {
 				effort: effort as NonNullable<typeof params.reasoning>["effort"],
 				summary: options?.reasoningSummary || "auto",
+				...(compat.reasoningMode === "pro" ? { mode: "pro" } : {}),
 			};
 			params.include = ["reasoning.encrypted_content"];
 		} else if (model.provider !== "github-copilot" && model.thinkingLevelMap?.off !== null) {

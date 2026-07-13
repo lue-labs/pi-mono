@@ -8,6 +8,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Changed
 
+- **OpenAI Responses models can opt into GPT-5.6 Pro mode without a fake upstream model.** `compat.reasoningMode: "pro"` adds `reasoning.mode: "pro"` beside Pi's independently selected `reasoning.effort`; `apiModelId` lets a local model profile send its canonical API ID. Standard profiles remain byte-identical.
+
 - **Agent tasks now use an outcome-first calling-agent contract instead of child/subagent identity framing.** The universal trailing task message says the Agent tool call and later course corrections direct the work, returns the completed result to the calling agent, and accurately states depth-capped Agent availability. Built-in profile prompts and model-facing Agent tool guidance are substantially shorter: they retain capabilities, constraints, expected evidence, and verification while removing duplicated tool tutorials and procedural search choreography. `Agent`/`Task` call shapes and `subagent_type` remain compatible. Static prompt/tool-description bytes rewarm once on rollout and remain deterministic; fork mode still preserves the calling session's system/tool prefix byte-for-byte.
 
 ## [0.82.0] - 2026-07-11

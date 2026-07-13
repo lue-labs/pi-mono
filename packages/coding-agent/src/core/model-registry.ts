@@ -136,6 +136,7 @@ const OpenAICompletionsCompatSchema = Type.Object({
 });
 
 const OpenAIResponsesCompatSchema = Type.Object({
+	reasoningMode: Type.Optional(Type.Union([Type.Literal("standard"), Type.Literal("pro")])),
 	supportsDeveloperRole: Type.Optional(Type.Boolean()),
 	sendSessionIdHeader: Type.Optional(Type.Boolean()),
 	supportsLongCacheRetention: Type.Optional(Type.Boolean()),
@@ -159,6 +160,7 @@ const ProviderCompatSchema = Type.Union([
 // Most fields are optional with sensible defaults for local models (Ollama, LM Studio, etc.)
 const ModelDefinitionSchema = Type.Object({
 	id: Type.String({ minLength: 1 }),
+	apiModelId: Type.Optional(Type.String({ minLength: 1 })),
 	name: Type.Optional(Type.String({ minLength: 1 })),
 	api: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
@@ -181,6 +183,7 @@ const ModelDefinitionSchema = Type.Object({
 
 // Schema for per-model overrides (all fields optional, merged with built-in model)
 const ModelOverrideSchema = Type.Object({
+	apiModelId: Type.Optional(Type.String({ minLength: 1 })),
 	name: Type.Optional(Type.String({ minLength: 1 })),
 	reasoning: Type.Optional(Type.Boolean()),
 	thinkingLevelMap: Type.Optional(ThinkingLevelMapSchema),
@@ -318,6 +321,7 @@ function applyModelOverride(model: Model<Api>, override: ModelOverride): Model<A
 	const result = { ...model };
 
 	// Simple field overrides
+	if (override.apiModelId !== undefined) result.apiModelId = override.apiModelId;
 	if (override.name !== undefined) result.name = override.name;
 	if (override.reasoning !== undefined) result.reasoning = override.reasoning;
 	if (override.thinkingLevelMap !== undefined) {
@@ -610,6 +614,7 @@ export class ModelRegistry {
 				const defaultCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 				models.push({
 					id: modelDef.id,
+					apiModelId: modelDef.apiModelId,
 					name: modelDef.name ?? modelDef.id,
 					api: api as Api,
 					provider: providerName,
@@ -925,6 +930,7 @@ export class ModelRegistry {
 
 				this.models.push({
 					id: modelDef.id,
+					apiModelId: modelDef.apiModelId,
 					name: modelDef.name,
 					api: api as Api,
 					provider: providerName,
@@ -975,6 +981,7 @@ export interface ProviderConfigInput {
 	oauth?: Omit<OAuthProviderInterface, "id">;
 	models?: Array<{
 		id: string;
+		apiModelId?: string;
 		name: string;
 		api?: Api;
 		baseUrl?: string;

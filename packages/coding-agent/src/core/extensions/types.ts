@@ -1805,6 +1805,8 @@ export interface ProviderConfig {
 export interface ProviderModelConfig {
 	/** Model ID (e.g., "claude-sonnet-4-20250514"). */
 	id: string;
+	/** API model ID to send when this local model uses a user-facing alias. */
+	apiModelId?: string;
 	/** Display name (e.g., "Claude 4 Sonnet"). */
 	name: string;
 	/** API type override for this model. */
