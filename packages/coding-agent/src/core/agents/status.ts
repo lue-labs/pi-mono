@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import type {
+	AgentAttentionReason,
 	AgentExecutionProgress,
 	AgentRunDetails,
 	AgentToolDetails,
@@ -29,6 +30,7 @@ export interface AgentRecentRun {
 	runs: AgentRunDetails[];
 	resumable: boolean;
 	needsAttention: boolean;
+	attentionReason?: AgentAttentionReason;
 	attentionMessage?: string;
 	/** True after the operator dismisses a terminal failure from attention UI. */
 	acknowledged?: boolean;
@@ -244,6 +246,7 @@ function computeRunContentSignature(run: AgentRecentRun): string {
 		execution: run.execution,
 		error: run.error,
 		needsAttention: run.needsAttention,
+		attentionReason: run.attentionReason,
 		attentionMessage: run.attentionMessage,
 		acknowledged: run.acknowledged,
 		resumable: run.resumable,
@@ -277,6 +280,15 @@ function applyRunDetails(
 	if (run.status !== "interrupted") run.resumable = false;
 	if (run.status === "running") {
 		run.needsAttention = false;
+		run.attentionReason = undefined;
+		run.attentionMessage = undefined;
+	} else if (run.status === "failed") {
+		run.needsAttention = !run.acknowledged;
+		run.attentionReason = run.acknowledged ? undefined : "failure";
+		run.attentionMessage = run.acknowledged ? undefined : run.error;
+	} else if (run.status === "completed" || run.status === "cancelled") {
+		run.needsAttention = false;
+		run.attentionReason = undefined;
 		run.attentionMessage = undefined;
 	}
 	if (run.status === "completed" || run.status === "cancelled" || run.status === "failed") {
@@ -298,14 +310,18 @@ function applyRunDetails(
 }
 
 function markRunStopped(run: AgentRecentRun, status: "interrupted" | "cancelled", message?: string): void {
+	const stoppedAt = Date.now();
 	run.status = status;
 	run.parked = false;
 	updateRunTimestamps(run, true);
-	run.runs = run.runs.map((child) =>
-		child.status === "running" || (status === "cancelled" && child.status === "interrupted")
-			? { ...child, status }
-			: child,
-	);
+	run.needsAttention = false;
+	run.attentionReason = undefined;
+	run.attentionMessage = undefined;
+	run.runs = run.runs.map((child) => {
+		if (child.status !== "running" && !(status === "cancelled" && child.status === "interrupted")) return child;
+		const durationMs = child.startedAt ? Math.max(child.durationMs, stoppedAt - child.startedAt) : child.durationMs;
+		return { ...child, status, durationMs };
+	});
 	refreshRunSummary(run, run.runs);
 	if (message) run.error = message;
 	run.resumable = canResumeRun(run);
@@ -397,8 +413,9 @@ export function failAgentRecentRun(run: AgentRecentRun, error: unknown, expected
 	updateRunTimestamps(run, true);
 	run.error = error instanceof Error ? error.message : String(error);
 	run.resumable = false;
-	run.needsAttention = false;
-	run.attentionMessage = undefined;
+	run.needsAttention = true;
+	run.attentionReason = "failure";
+	run.attentionMessage = run.error;
 	liveRunControllers.delete(run.id);
 	notifyAgentRecentRunsChanged();
 	maybeFireTerminal(run);
@@ -444,6 +461,7 @@ export function restartAgentRecentRun(run: AgentRecentRun): void {
 	run.error = undefined;
 	run.resumable = false;
 	run.needsAttention = false;
+	run.attentionReason = undefined;
 	run.attentionMessage = undefined;
 	run.acknowledged = false;
 	run.runs = run.runs.map((child) => (child.status === "interrupted" ? { ...child, status: "running" } : child));
@@ -493,6 +511,7 @@ export function acknowledgeAgentRecentRun(runId: string): AgentRunControlResult 
 	// session/output references so its diagnostics remain inspectable.
 	run.acknowledged = true;
 	run.needsAttention = false;
+	run.attentionReason = undefined;
 	run.attentionMessage = undefined;
 	run.updatedAt = nowIso();
 	notifyAgentRecentRunsChanged();
@@ -556,10 +575,17 @@ export function waitForAgentRecentRun(runId: string): Promise<AgentRecentRun> {
 	});
 }
 
-export function markAgentRecentRunNeedsAttention(run: AgentRecentRun, message: string): void {
-	if (run.status !== "running") return;
-	if (run.needsAttention && run.attentionMessage === message) return;
+export function markAgentRecentRunNeedsAttention(
+	run: AgentRecentRun,
+	message: string,
+	reason: AgentAttentionReason = "stale_progress",
+): void {
+	if (reason === "stale_progress" && run.status !== "running") return;
+	if (reason === "failure" && run.status !== "failed") return;
+	if (reason === "user_input" && run.status !== "running" && run.status !== "interrupted") return;
+	if (run.needsAttention && run.attentionReason === reason && run.attentionMessage === message) return;
 	run.needsAttention = true;
+	run.attentionReason = reason;
 	run.attentionMessage = message;
 	run.updatedAt = nowIso();
 	notifyAgentRecentRunsChanged();

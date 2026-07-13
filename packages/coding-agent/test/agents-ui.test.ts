@@ -311,12 +311,12 @@ describe("agents UI", () => {
 			const factory = fake.panes.get("agents-status");
 			const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
 			const pane = factory!({ requestRender: vi.fn() } as never, theme as never, { requestHide: vi.fn() } as never);
-			expect(pane.render(120).join("\n")).toContain("Needs input");
+			expect(pane.render(120).join("\n")).toContain("Needs attention");
 
 			pane.handleInput?.("d");
 
 			const rendered = pane.render(120).join("\n");
-			expect(rendered).not.toContain("Needs input");
+			expect(rendered).not.toContain("Needs attention");
 			expect(rendered).toContain("Completed");
 			expect(rendered).toContain("missing-model: First");
 		});
@@ -334,7 +334,7 @@ describe("agents UI", () => {
 				background: true,
 			});
 			updateAgentRecentRunProgress(blockedRun, { mode: "single", status: "running", runs: [runDetail("running")] });
-			markAgentRecentRunNeedsAttention(blockedRun, "Should I proceed?");
+			markAgentRecentRunNeedsAttention(blockedRun, "Should I proceed?", "user_input");
 
 			const rendered = renderPane(fake);
 			const needsInputIndex = rendered.indexOf("Needs input");

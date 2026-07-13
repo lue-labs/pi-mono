@@ -10,6 +10,7 @@
  */
 
 export type TaskType = "local_agent" | "local_bash" | "monitor" | "intercom_peer";
+export type TaskAttentionReason = "user_input" | "stale_progress" | "failure";
 
 /**
  * Lifecycle states. Terminal: `completed | failed | cancelled | killed`.
@@ -50,15 +51,12 @@ export interface TaskSnapshot {
 	 * that has no live in-process controller left to attach to.
 	 */
 	sessionPath?: string;
-	/**
-	 * True when this task wants user attention right now: an ordinary (non-
-	 * persistent-parked) interrupted run, a failed run, or a running run that
-	 * flagged `needsAttention`. Persistent single-background forks parked at
-	 * `status: "idle"` are NOT needs-input by default — they're waiting to be
-	 * fed, not stuck. Drives the "needs input" footer/pane bucket, which wins
-	 * over "working" whenever both are non-zero.
-	 */
+	/** True only when the worker explicitly requested a human response. */
 	needsInput?: boolean;
+	/** Orthogonal diagnostic/attention state; lifecycle status alone never implies this. */
+	needsAttention?: boolean;
+	attentionReason?: TaskAttentionReason;
+	attentionMessage?: string;
 	/**
 	 * Id to use for control-plane operations (kill/requestShutdown/injectMessage,
 	 * and any other API that dispatches on a task id — including consumers that

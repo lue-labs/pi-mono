@@ -12,7 +12,12 @@ import {
 } from "../src/core/agents/status.ts";
 import type { AgentRunDetails } from "../src/core/agents/types.ts";
 import { LocalAgentTask } from "../src/core/tasks/local-agent-task.ts";
-import { formatTaskFooterStatus, formatTaskStatus, taskNeedsInput } from "../src/core/tasks/status.ts";
+import {
+	formatTaskFooterStatus,
+	formatTaskStatus,
+	taskNeedsAttention,
+	taskNeedsInput,
+} from "../src/core/tasks/status.ts";
 import { killAllBashBgJobs, spawnBashBackground } from "../src/core/tools/bash.ts";
 
 function runningRunDetail(): AgentRunDetails {
@@ -61,7 +66,7 @@ describe("background task status formatting", () => {
 		expect(formatTaskFooterStatus()).toBe("← for agents");
 	});
 
-	test("interrupted and failed tasks need input unless an adapter explicitly overrides them", () => {
+	test("lifecycle states do not imply semantic input or attention", () => {
 		const task = {
 			id: "external-1",
 			type: "monitor" as const,
@@ -70,9 +75,11 @@ describe("background task status formatting", () => {
 			startedAt: Date.now(),
 			resumable: true,
 		};
-		expect(taskNeedsInput(task)).toBe(true);
-		expect(taskNeedsInput({ ...task, status: "failed" })).toBe(true);
-		expect(taskNeedsInput({ ...task, needsInput: false })).toBe(false);
+		expect(taskNeedsInput(task)).toBe(false);
+		expect(taskNeedsAttention(task)).toBe(false);
+		expect(taskNeedsInput({ ...task, status: "failed" })).toBe(false);
+		expect(taskNeedsInput({ ...task, attentionReason: "user_input" })).toBe(true);
+		expect(taskNeedsAttention({ ...task, attentionReason: "failure", needsAttention: true })).toBe(true);
 	});
 
 	test("idle state: a fully completed run still keeps the hint visible, with no counts", () => {
@@ -98,27 +105,42 @@ describe("background task status formatting", () => {
 		expect(footer).not.toContain("sleep 5");
 	});
 
-	test("needs-input state: an ordinary interrupted agent reports needs input, not idle", async () => {
+	test("an ordinary interrupted agent remains visible without claiming it needs input", async () => {
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
-		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runningRunDetail()] });
+		const detail = { ...runningRunDetail(), startedAt: Date.now() - 1_000 };
+		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [detail] });
 		attachAgentRecentRunController(run.id, { interrupt: async () => {} });
 		await interruptAgentRecentRun(run.id);
 
-		const footer = formatTaskFooterStatus();
-		expect(footer).toBe("1 needs input · ← for agents");
-		expect(footer).not.toContain(run.id);
-		expect(footer).not.toContain("scout");
+		const snapshot = LocalAgentTask.snapshot(run.id);
+		expect(snapshot).toMatchObject({ status: "interrupted", needsInput: false, needsAttention: false });
+		expect(snapshot?.children?.[0]?.endedAt).toBeGreaterThan(snapshot?.children?.[0]?.startedAt ?? 0);
+		expect(formatTaskFooterStatus()).toBe("← for agents");
 	});
 
 	test("attention wins: needs-input takes priority over a simultaneous working count", async () => {
 		spawnBashBackground("sleep 5", bashTempDir);
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runningRunDetail()] });
-		markAgentRecentRunNeedsAttention(run, "Should I proceed?");
+		markAgentRecentRunNeedsAttention(run, "Should I proceed?", "user_input");
 
 		const footer = formatTaskFooterStatus();
 		expect(footer).toBe("1 needs input · ← for agents");
 		expect(footer).not.toContain("working");
+	});
+
+	test("stale progress surfaces as needs attention, not needs input", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runningRunDetail()] });
+		markAgentRecentRunNeedsAttention(run, "No child progress for 10m");
+
+		expect(LocalAgentTask.snapshot(run.id)).toMatchObject({
+			status: "running",
+			needsInput: false,
+			needsAttention: true,
+			attentionReason: "stale_progress",
+		});
+		expect(formatTaskFooterStatus()).toBe("1 needs attention · ← for agents");
 	});
 
 	test("persistent parked forks surface as idle, not needs-input", () => {

@@ -245,12 +245,24 @@ describe("tasks registry — LocalAgentTask adapter", () => {
 		);
 		failAgentRecentRun(run, new Error("Model unavailable before children started"));
 
-		expect(LocalAgentTask.snapshot(run.id)).toMatchObject({ status: "failed", needsInput: true, children: [] });
+		expect(LocalAgentTask.snapshot(run.id)).toMatchObject({
+			status: "failed",
+			needsInput: false,
+			needsAttention: true,
+			attentionReason: "failure",
+			children: [],
+		});
 
 		const result = await LocalAgentTask.acknowledge?.(run.id);
 
 		expect(result?.ok).toBe(true);
-		expect(result?.snapshot).toMatchObject({ id: run.id, status: "failed", needsInput: false, children: [] });
+		expect(result?.snapshot).toMatchObject({
+			id: run.id,
+			status: "failed",
+			needsInput: false,
+			needsAttention: false,
+			children: [],
+		});
 		expect(findAgentRecentRun(run.id)).toMatchObject({ id: run.id, status: "failed", runs: [] });
 	});
 
@@ -270,14 +282,18 @@ describe("tasks registry — LocalAgentTask adapter", () => {
 			runs: [{ ...makeRunDetails("failed"), outputPath }, makeRunDetails("completed")],
 		});
 
-		expect(LocalAgentTask.snapshot(run.id)?.children?.map((child) => child.needsInput)).toEqual([true, false]);
+		expect(LocalAgentTask.snapshot(run.id)?.children?.map((child) => child.needsInput)).toEqual([false, false]);
+		expect(LocalAgentTask.snapshot(run.id)?.children?.map((child) => child.attentionReason)).toEqual([
+			"failure",
+			undefined,
+		]);
 
 		const result = await LocalAgentTask.acknowledge?.(run.id);
 		const repeated = await LocalAgentTask.acknowledge?.(run.id);
 		const stored = findAgentRecentRun(run.id);
 
 		expect(result?.ok).toBe(true);
-		expect(result?.snapshot?.children?.map((child) => child.needsInput)).toEqual([false, false]);
+		expect(result?.snapshot?.children?.map((child) => child.needsAttention)).toEqual([false, false]);
 		expect(repeated).toMatchObject({ ok: true, message: `${run.id} is already dismissed` });
 		expect(stored?.outputPaths).toEqual([outputPath]);
 		expect(stored?.sessionRefs).toHaveLength(2);

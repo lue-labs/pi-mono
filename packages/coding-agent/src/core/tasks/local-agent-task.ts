@@ -24,7 +24,7 @@ import {
 	interruptAgentRecentRun,
 	resumeAgentRecentRun,
 } from "../agents/status.ts";
-import type { AgentRunDetails, AgentToolStatus } from "../agents/types.ts";
+import type { AgentAttentionReason, AgentRunDetails, AgentToolStatus } from "../agents/types.ts";
 import type { Task, TaskControlResult, TaskOutputResult, TaskSnapshot, TaskStatus } from "./types.ts";
 
 function mapStatus(status: AgentToolStatus): TaskStatus {
@@ -63,14 +63,23 @@ function taskStatusFromRun(run: AgentRecentRun): TaskStatus {
 	return status === "idle" ? "idle" : mapStatus(status);
 }
 
-function needsInputFor(run: AgentRecentRun, status: TaskStatus): boolean {
-	return !run.acknowledged && (run.needsAttention || status === "interrupted" || status === "failed");
+function attentionFor(
+	run: AgentRecentRun,
+	status: TaskStatus,
+	followsPersistentParent: boolean,
+): { reason?: AgentAttentionReason; message?: string } {
+	if (run.acknowledged) return {};
+	if (followsPersistentParent && run.attentionReason) {
+		return { reason: run.attentionReason, message: run.attentionMessage };
+	}
+	return status === "failed" ? { reason: "failure", message: run.error } : {};
 }
 
 function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, index: number): TaskSnapshot {
-	const followsPersistentParent = run.persistent && run.runs.length === 1;
+	const followsPersistentParent = run.persistent === true && run.runs.length === 1;
 	const status = followsPersistentParent ? taskStatusFromRun(run) : mapStatus(detail.status);
 	const startedAt = detail.startedAt ?? Date.parse(run.startedAt);
+	const attention = attentionFor(run, status, followsPersistentParent);
 	return {
 		id: `${run.id}:${index + 1}`,
 		type: "local_agent",
@@ -78,14 +87,12 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 		description: describeChildRun(detail),
 		label: run.label ?? detail.agent,
 		sessionPath: detail.sessionPath,
-		needsInput: followsPersistentParent
-			? needsInputFor(run, status)
-			: !run.acknowledged && (status === "interrupted" || status === "failed"),
+		needsInput: attention.reason === "user_input",
+		needsAttention: attention.reason !== undefined,
+		attentionReason: attention.reason,
+		attentionMessage: attention.message,
 		startedAt,
-		endedAt:
-			status === "running" || status === "idle" || status === "interrupted"
-				? undefined
-				: startedAt + detail.durationMs,
+		endedAt: status === "running" || status === "idle" ? undefined : startedAt + detail.durationMs,
 		resumable: Boolean(followsPersistentParent && run.resumable),
 		error: detail.error,
 		controlId: run.id,
@@ -94,6 +101,7 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 
 function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 	const status = taskStatusFromRun(run);
+	const attention = attentionFor(run, status, true);
 	return {
 		id: run.id,
 		type: "local_agent",
@@ -101,7 +109,10 @@ function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 		description: describeRun(run),
 		label: run.label,
 		sessionPath: run.sessionRefs.length === 1 ? run.sessionRefs[0]?.sessionPath : undefined,
-		needsInput: needsInputFor(run, status),
+		needsInput: attention.reason === "user_input",
+		needsAttention: attention.reason !== undefined,
+		attentionReason: attention.reason,
+		attentionMessage: attention.message,
 		startedAt: Date.parse(run.startedAt),
 		endedAt: run.endedAt ? Date.parse(run.endedAt) : undefined,
 		resumable: run.resumable,

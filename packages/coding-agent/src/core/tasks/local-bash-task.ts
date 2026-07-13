@@ -46,9 +46,10 @@ function snapshotFromJob(job: BashBgJob): TaskSnapshot {
 		// Background bash jobs cannot resume once stopped.
 		resumable: false,
 		error: job.error,
-		// A failed background job wants the user's attention, same bucket as a
-		// failed/interrupted agent run in the unified footer/pane.
-		needsInput: job.status === "failed",
+		needsInput: false,
+		needsAttention: job.status === "failed",
+		attentionReason: job.status === "failed" ? "failure" : undefined,
+		attentionMessage: job.status === "failed" ? job.error : undefined,
 	};
 }
 

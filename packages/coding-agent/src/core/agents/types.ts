@@ -4,6 +4,7 @@ import type { Api, Model, Usage } from "@valkyriweb/pi-ai";
 export type AgentSource = "builtin" | "user" | "project";
 export type ContextMode = "default" | "fork" | "slim" | "none";
 export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted";
+export type AgentAttentionReason = "user_input" | "stale_progress" | "failure";
 export type AgentToolMode = "single" | "parallel" | "chain";
 export type AgentToolStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted";
 export type AgentOutputMode = "inline" | "file" | "both";

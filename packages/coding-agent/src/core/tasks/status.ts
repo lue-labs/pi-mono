@@ -10,7 +10,11 @@ function taskTypeLabel(type: TaskType): string {
 }
 
 export function taskNeedsInput(task: TaskSnapshot): boolean {
-	return task.needsInput ?? (task.status === "interrupted" || task.status === "failed");
+	return task.needsInput === true || task.attentionReason === "user_input";
+}
+
+export function taskNeedsAttention(task: TaskSnapshot): boolean {
+	return taskNeedsInput(task) || task.needsAttention === true;
 }
 
 export function taskIsWorking(task: TaskSnapshot): boolean {
@@ -18,7 +22,7 @@ export function taskIsWorking(task: TaskSnapshot): boolean {
 }
 
 function isFooterRelevant(task: TaskSnapshot): boolean {
-	return taskNeedsInput(task) || taskIsWorking(task);
+	return taskNeedsAttention(task) || taskIsWorking(task);
 }
 
 function elapsed(task: TaskSnapshot): string {
@@ -40,6 +44,8 @@ const AGENTS_FOOTER_HINT = "← for agents";
 export function formatTaskFooterStatus(tasks = listTasks()): string {
 	const needsInputCount = tasks.filter(taskNeedsInput).length;
 	if (needsInputCount > 0) return `${needsInputCount} needs input · ${AGENTS_FOOTER_HINT}`;
+	const needsAttentionCount = tasks.filter((task) => taskNeedsAttention(task) && !taskNeedsInput(task)).length;
+	if (needsAttentionCount > 0) return `${needsAttentionCount} needs attention · ${AGENTS_FOOTER_HINT}`;
 	const workingCount = tasks.filter((task) => task.status === "running").length;
 	if (workingCount > 0) return `${workingCount} working · ${AGENTS_FOOTER_HINT}`;
 	return AGENTS_FOOTER_HINT;

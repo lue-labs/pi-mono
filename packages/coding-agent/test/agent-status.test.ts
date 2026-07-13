@@ -269,7 +269,9 @@ describe("native agent status", () => {
 		await interruptAgentRecentRun(run.id);
 
 		expect(agentRunUiStatus(run)).toBe("interrupted");
-		expect(run.needsAttention || run.error).toBeTruthy();
+		expect(run.needsAttention).toBe(false);
+		expect(run.attentionReason).toBeUndefined();
+		expect(run.error).toBe("Interrupted by operator");
 	});
 
 	test("interrupt and cancel update background status", async () => {
@@ -364,8 +366,19 @@ describe("native agent status", () => {
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		markAgentRecentRunNeedsAttention(run, "No child progress for 10m");
 
+		expect(run.attentionReason).toBe("stale_progress");
 		expect(formatAgentFooterStatus()).toContain("needs attention");
 		expect(formatAgentStatus()).toContain("needs-attention: No child progress for 10m");
+	});
+
+	test("records explicit user-input attention independently of lifecycle", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		markAgentRecentRunNeedsAttention(run, "Which environment should I use?", "user_input");
+
+		expect(run.status).toBe("running");
+		expect(run.needsAttention).toBe(true);
+		expect(run.attentionReason).toBe("user_input");
+		expect(run.attentionMessage).toBe("Which environment should I use?");
 	});
 
 	test("fires a terminal listener registered after the transition", () => {
