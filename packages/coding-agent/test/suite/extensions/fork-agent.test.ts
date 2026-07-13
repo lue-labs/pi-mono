@@ -43,18 +43,20 @@ function recordingFactory(record: ContextRecord, label: string) {
  * message contains a stable `Task from the calling agent` marker that survives
  * the calling session's transcript prefix copied in fork mode.
  */
+function messageText(message: Context["messages"][number]): string {
+	if (!("content" in message)) return "";
+	return typeof message.content === "string"
+		? message.content
+		: message.content
+				.filter((part): part is { type: "text"; text: string } => part.type === "text")
+				.map((part) => part.text)
+				.join("\n");
+}
+
 function isChildContext(ctx: Context): boolean {
 	for (let i = ctx.messages.length - 1; i >= 0; i--) {
 		const message = ctx.messages[i];
-		if (message.role !== "user") continue;
-		const text =
-			typeof message.content === "string"
-				? message.content
-				: message.content
-						.filter((part): part is { type: "text"; text: string } => part.type === "text")
-						.map((part) => part.text)
-						.join("\n");
-		return text.includes("## Task from the calling agent");
+		if (message.role === "user") return messageText(message).includes("## Task from the calling agent");
 	}
 	return false;
 }
@@ -183,6 +185,30 @@ describe("ctx.forkAgent", () => {
 		// Proves agentType reached the executor's agent resolver: the explore
 		// profile's stable read-only contract is in the task system prompt.
 		expect(child?.systemPrompt).toContain("read-only investigation");
+	});
+
+	it("keeps named fork profiles as trailing guidance without narrowing inherited tools", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured, { agentType: "reviewer" });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+
+		expect(captured.error).toBeUndefined();
+		const details = await captured.handle!.wait();
+		const child = record.contexts.find(isChildContext);
+		const taskMessage = child?.messages.findLast((message) => message.role === "user");
+		expect(child?.systemPrompt).toBe(captured.parentSystemPrompts[0]);
+		expect(messageText(taskMessage!)).toContain("## Selected Agent role: reviewer");
+		expect(messageText(taskMessage!)).toContain("VERDICT: PASS|FAIL|PARTIAL");
+		expect(details.runs[0]?.effectiveTools).toContain("Bash");
+		expect(details.runs[0]?.warnings).toEqual([
+			expect.stringMatching(/context:"fork".*does not apply.*reviewer.*ordinary tool allow\/deny list/i),
+		]);
 	});
 
 	it("forwards forkAgent({ metadata }) through the fork path without breaking the child run", async () => {
