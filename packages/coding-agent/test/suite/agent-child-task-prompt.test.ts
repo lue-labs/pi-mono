@@ -34,6 +34,18 @@ describe("buildChildTaskPrompt", () => {
 		expect(prompt).not.toMatch(/\b(child agent|subagent|parent agent|invoker)\b/i);
 	});
 
+	it("includes selected role guidance before the calling agent's task", () => {
+		const prompt = buildChildTaskPrompt(baseTask, undefined, {
+			agent: "reviewer",
+			prompt: "Review evidence and end with VERDICT: PASS|FAIL|PARTIAL",
+		});
+		expect(prompt).toContain("## Selected Agent role: reviewer");
+		expect(prompt).toContain("VERDICT: PASS|FAIL|PARTIAL");
+		expect(prompt.indexOf("## Selected Agent role: reviewer")).toBeLessThan(
+			prompt.indexOf("## Task from the calling agent"),
+		);
+	});
+
 	it("includes extraContext after the task body as context from the calling agent", () => {
 		const prompt = buildChildTaskPrompt({ ...baseTask, extraContext: "be careful with X" });
 		expect(prompt).toContain("## Context from the calling agent");

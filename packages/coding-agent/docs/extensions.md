@@ -1093,8 +1093,9 @@ interface AgentHandle {
 
 - `opts.prompt` — first user message delivered to the child.
 - `opts.allowedTools` — restrict the child to a subset of the parent's active tools (intersection is enforced). Omit to inherit the full parent tool set.
+- `opts.agentType` — select a named role. In the default `"fork"` context its prompt is trailing guidance while caller tools stay inherited; Pi warns when that bypasses ordinary profile filtering. Use `context: "default"` when the profile's filtered tool set must apply. Nested Agent availability remains profile- and depth-capped in every context.
 - `opts.model` — defaults to the parent's model. Passing a different model voids the cached prefix and incurs a full reprocess.
-- `opts.context` — defaults to `"fork"`. Use `"slim"` or `"none"` only when you intentionally do not want the parent prompt/transcript prefix.
+- `opts.context` — defaults to `"fork"`, a permissive self-fork. Use `"default"` for a fresh named Agent, or `"slim"` / `"none"` only when you intentionally omit parts of the parent context.
 - `opts.signal` — chained with `ctx.signal`. Aborting routes through `cancelAgentRecentRun`.
 
 ```typescript

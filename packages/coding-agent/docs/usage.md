@@ -246,7 +246,7 @@ Modes:
 { "action": "resume", "runId": "agent-1", "message": "Continue from the interrupted audit." }
 ```
 
-Options include `context` (`default`, `fork`, `slim`, `none`), `model`, `thinking`, `tools`, `output`, `outputMode` (`inline`, `file`, `both`), `chainDir`, `background`, and `agentScope` (`user`, `project`, `both`). Built-ins and user agents are available by default; project agents require explicit scope and confirmation.
+Options include `context` (`default`, `fork`, `slim`, `none`), `model`, `thinking`, `tools`, `output`, `outputMode` (`inline`, `file`, `both`), `chainDir`, `background`, and `agentScope` (`user`, `project`, `both`). Use `default` for a fresh named Agent with its profile-filtered tools. `fork` is a permissive self-fork that preserves the caller transcript, frozen system prompt when available, and tool set; a selected named role is appended as trailing guidance, and Pi warns when fork bypasses ordinary profile tool filtering. Nested Agent availability remains profile- and depth-capped. Built-ins and user agents are available by default; project agents require explicit scope and confirmation.
 
 Interactive slash helpers:
 
@@ -284,7 +284,7 @@ During a native `agent` tool call, collapsed rendering shows mode, agents, per-c
 
 Child sessions are persisted as normal Pi sessions with the parent session recorded as their parent reference. Inspect them via `/agents-status <run-id>` or the printed session path. Native background resume continues single-child interrupted runs from the persisted child session when the original Pi process still owns the run controller.
 
-Agent task tools are computed from the calling session's active tools, requested tools, profile allow/deny lists, and the configured nesting depth. Fork mode retains inherited tool schemas for cache identity but leaves the Agent engine unbound when the profile or depth denies delegation. `--tools`, `--no-builtin-tools`, and `--no-tools` continue to set the calling-session ceiling; tasks cannot gain tools that are not active there.
+Non-fork Agent task tools are computed from the calling session's active tools, requested tools, profile allow/deny lists, and the configured nesting depth. Fork mode instead retains inherited tool schemas for cache identity unless the task explicitly narrows them; named profile restrictions are guidance rather than hidden runtime blocks. The Agent engine still remains unbound when the selected profile or depth denies nested delegation. `--tools`, `--no-builtin-tools`, and `--no-tools` continue to set the calling-session ceiling; tasks cannot gain tools that are not active there.
 
 ### Tool Options
 

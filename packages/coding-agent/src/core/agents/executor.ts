@@ -227,6 +227,12 @@ function canonicalToolName(name: string): string {
 	return canonical === "task" ? "agent" : canonical;
 }
 
+function forkBypassesProfileTools(agent: AgentDefinition): boolean {
+	const hasAllowList = agent.tools !== undefined && agent.tools !== "*";
+	const deniesNonAgentTool = agent.denyTools?.some((tool) => canonicalToolName(tool) !== "agent") ?? false;
+	return hasAllowList || deniesNonAgentTool;
+}
+
 /** Read the configured nested-delegation cap (0 = no nesting). Clamped to 16. */
 export function getMaxDelegationDepth(settingsManager: SettingsManager): number {
 	const raw = settingsManager.getSubagentSettings().maxDelegationDepth;
@@ -858,19 +864,20 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		);
 	}
 
-	// Fork mode = 1:1 cache-identity fork: the child inherits the parent's
-	// transcript (includeTranscript) and we freeze the parent's exact system bytes
-	// below. Such a fork only reuses the parent's warm prompt cache if it also runs
-	// on the parent's model + thinking level, so the settings.subagents provider pin
-	// (the cheap model for explore/general fan-out) must NOT apply here: dropping the
-	// resolved defaults lets model/thinking fall through to the parent unless the
-	// caller passes an explicit task-level override. Non-fork delegations
-	// (default/slim/none context) keep the subagents defaults so they stay cheap.
-	// Without this, a configured subagents model pin silently downgrades every
-	// context:"fork" caller (pi-memory extraction, pi-recap, fusion, suggested-tasks)
-	// off the parent model, cold-writing the whole inherited prefix on each run.
-	const isForkMode =
-		resolveContextPolicy(options.task.context).includeTranscript && Boolean(options.parentSystemPrompt);
+	// Fork mode is a permissive self-fork: it inherits the parent's transcript,
+	// model/thinking, and tools. When frozen parent system bytes are available we
+	// also apply them below for a 1:1 cache-identity fork. Such a fork only reuses
+	// the parent's warm prompt cache if it also runs on the parent's model +
+	// thinking level, so the settings.subagents provider pin (the cheap model for
+	// explore/general fan-out) must NOT apply here: dropping the resolved defaults
+	// lets model/thinking fall through to the parent unless the caller passes an
+	// explicit task-level override. Non-fork delegations (default/slim/none context)
+	// keep the subagents defaults so they stay cheap. Without this, a configured
+	// subagents model pin silently downgrades every context:"fork" caller
+	// (pi-memory extraction, pi-recap, fusion, suggested-tasks) off the parent
+	// model, cold-writing the whole inherited prefix on each run.
+	const isForkMode = resolveContextPolicy(options.task.context).mode === "fork";
+	const inheritedSystemPrompt = isForkMode ? options.parentSystemPrompt : undefined;
 	const agentDefaults = isForkMode
 		? undefined
 		: resolveAgentDefaults({
@@ -884,6 +891,13 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	});
 	const requestedAutoModel = normalizeAgentAutoModelAlias(selectedModelReference);
 	const warnings: string[] = [];
+	if (isForkMode && forkBypassesProfileTools(agent)) {
+		warnings.push(
+			`context:"fork" is a permissive self-fork and does not apply the "${agent.id}" profile's ordinary tool allow/deny list; ` +
+				`it preserves the caller's tools unless this task explicitly narrows them. Use context:"default" for filtered profile tools. ` +
+				"Nested Agent access remains profile- and depth-capped.",
+		);
+	}
 	const model = resolveAgentModel({
 		modelReference: options.task.model,
 		agent,
@@ -964,10 +978,18 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	const childCwd = resolveChildCwd(options.task.cwd, options.parentServices.cwd);
 	const taskCanDelegate =
 		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
-	const childPrompt = buildChildTaskPrompt(options.task, {
-		canDelegate: taskCanDelegate,
-		remaining: taskCanDelegate ? maxDelegationDepth - childDepth : 0,
-	});
+	const roleGuidance =
+		agent.id !== "general" && (isForkMode || Boolean(options.task.systemPrompt))
+			? { agent: agent.id, prompt: buildAgentSystemAppend(agent) }
+			: undefined;
+	const childPrompt = buildChildTaskPrompt(
+		options.task,
+		{
+			canDelegate: taskCanDelegate,
+			remaining: taskCanDelegate ? maxDelegationDepth - childDepth : 0,
+		},
+		roleGuidance,
+	);
 	const routingMetadata = requestedAutoModel
 		? buildChildRoutingMetadata({
 				agent,
@@ -1053,8 +1075,8 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	// message assignment (order doesn't matter for the prompt).
 	if (options.task.systemPrompt) {
 		session.overrideBaseSystemPrompt(options.task.systemPrompt);
-	} else if (isForkMode && options.parentSystemPrompt) {
-		session.overrideBaseSystemPrompt(options.parentSystemPrompt);
+	} else if (inheritedSystemPrompt) {
+		session.overrideBaseSystemPrompt(inheritedSystemPrompt);
 	} else if (agent.cacheProfile === "stable" && policy.mode === "none") {
 		session.overrideBaseSystemPrompt(buildAgentSystemAppend(agent));
 	}
@@ -1207,9 +1229,11 @@ async function resumeSingleBackgroundRun(
 	}
 
 	// Resume must preserve the original fork contract just like initial dispatch:
-	// parent model/thinking defaults, canonical parent-tool subset, and frozen
-	// system bytes. Only the trailing course-correction message changes.
-	const isForkMode = resolveContextPolicy(task.context).includeTranscript && Boolean(options.parentSystemPrompt);
+	// parent model/thinking defaults and the canonical parent-tool subset. Frozen
+	// system bytes are re-applied when available. Only the trailing course-correction
+	// message changes.
+	const isForkMode = resolveContextPolicy(task.context).mode === "fork";
+	const inheritedSystemPrompt = isForkMode ? options.parentSystemPrompt : undefined;
 	const agentDefaults = isForkMode
 		? undefined
 		: resolveAgentDefaults({
@@ -1217,6 +1241,13 @@ async function resumeSingleBackgroundRun(
 				settingsManager: options.parentServices.settingsManager,
 			});
 	const warnings: string[] = [];
+	if (isForkMode && forkBypassesProfileTools(agent)) {
+		warnings.push(
+			`context:"fork" is a permissive self-fork and does not apply the "${agent.id}" profile's ordinary tool allow/deny list; ` +
+				`it preserves the caller's tools unless this task explicitly narrows them. Use context:"default" for filtered profile tools. ` +
+				"Nested Agent access remains profile- and depth-capped.",
+		);
+	}
 	const model = resolveAgentModel({
 		modelReference: task.model,
 		agent,
@@ -1328,8 +1359,8 @@ async function resumeSingleBackgroundRun(
 	// comes from the previous run.
 	if (task.systemPrompt) {
 		session.overrideBaseSystemPrompt(task.systemPrompt);
-	} else if (isForkMode && options.parentSystemPrompt) {
-		session.overrideBaseSystemPrompt(options.parentSystemPrompt);
+	} else if (inheritedSystemPrompt) {
+		session.overrideBaseSystemPrompt(inheritedSystemPrompt);
 	} else if (agent.cacheProfile === "stable" && policy.mode === "none") {
 		session.overrideBaseSystemPrompt(buildAgentSystemAppend(agent));
 	}

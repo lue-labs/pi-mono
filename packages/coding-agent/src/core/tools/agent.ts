@@ -24,12 +24,13 @@ import type { ToolDefinition } from "../extensions/types.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
-const contextModeSchema = Type.Union([
-	Type.Literal("default"),
-	Type.Literal("fork"),
-	Type.Literal("slim"),
-	Type.Literal("none"),
-]);
+const contextModeSchema = Type.Union(
+	[Type.Literal("default"), Type.Literal("fork"), Type.Literal("slim"), Type.Literal("none")],
+	{
+		description:
+			'"default" starts a fresh named Agent with its profile tools; "fork" is a permissive self-fork that preserves the caller transcript, system prompt, and tools.',
+	},
+);
 
 const thinkingSchema = Type.Union([
 	Type.Literal("off"),
@@ -578,7 +579,7 @@ export function createAgentToolDefinition(
 			"Write an outcome contract: desired outcome and why; relevant paths and file structure; known or ruled-out context; tools and skills; constraints and acceptance criteria; expected report; and self-verification evidence. State real sequencing invariants, then let the selected model choose its method.",
 			"Run independent tasks in parallel; use `chain` only when later work depends on earlier results.",
 			"Background completion arrives as `agent_completion`; do not poll. The final response returns here, not directly to the user. Validate evidence and inspect claimed file changes.",
-			'Use `context: "fork"` only when the task needs the calling transcript, and `cwd` when it must run in another directory.',
+			'`context: "fork"` is a permissive self-fork that preserves the caller transcript, system prompt, and tools. Use `context: "default"` for an isolated named profile and its filtered tools; use `cwd` for another directory.',
 			"Nested Agent calls are depth-capped; each task receives its effective Agent availability.",
 		],
 		parameters: agentToolSchema,
