@@ -166,6 +166,52 @@ describe("AgentSession wakeOnIdle", () => {
 		expect(harness.eventsOfType("agent_start")).toHaveLength(1);
 	});
 
+	it("does not race a wake against prompt preflight", async () => {
+		let markInputStarted!: () => void;
+		let releaseInput!: () => void;
+		const inputStarted = new Promise<void>((resolve) => {
+			markInputStarted = resolve;
+		});
+		const inputRelease = new Promise<void>((resolve) => {
+			releaseInput = resolve;
+		});
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("input", async () => {
+						markInputStarted();
+						await inputRelease;
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("user turn reads the notification")]);
+
+		await harness.session.sendCustomMessage(completion("bash_completion"), {
+			deliverAs: "followUp",
+			wakeOnIdle: true,
+		});
+		const prompt = harness.session.prompt("hello");
+		await inputStarted;
+
+		try {
+			await sleep(DEBOUNCE_MS + 150);
+			expect(harness.session.isIdle).toBe(false);
+			expect(idleWakeMessages(harness)).toHaveLength(0);
+			expect(harness.eventsOfType("agent_start")).toHaveLength(0);
+
+			releaseInput();
+			await prompt;
+			await sleep(DEBOUNCE_MS + 150);
+			expect(idleWakeMessages(harness)).toHaveLength(0);
+			expect(harness.eventsOfType("agent_start")).toHaveLength(1);
+		} finally {
+			releaseInput();
+			await prompt.catch(() => {});
+		}
+	});
+
 	it("cancels the pending wake when a turn starts inside the debounce window", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

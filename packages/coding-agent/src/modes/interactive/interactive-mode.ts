@@ -1812,7 +1812,7 @@ export class InteractiveMode {
 				sessionManager: this.sessionManager,
 				modelRegistry: session.modelRegistry,
 				model: session.model,
-				isIdle: () => !session.isStreaming,
+				isIdle: () => session.isIdle,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				signal: session.agent.signal,
 				abort: () => {

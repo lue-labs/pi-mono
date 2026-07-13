@@ -366,7 +366,7 @@ export interface ExtensionContext {
 	modelRegistry: ModelRegistry;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
-	/** Whether the agent is idle (not streaming) */
+	/** Whether no turn-starting call, compaction, or agent run is active. */
 	isIdle(): boolean;
 	/** Whether project-local trust is active for this context. */
 	isProjectTrusted(): boolean;
@@ -1618,7 +1618,7 @@ export interface ExtensionAPI {
 
 	/**
 	 * Send a user message to the agent. Always triggers a turn.
-	 * When the agent is streaming, use deliverAs to specify how to queue the message.
+	 * While streaming, deliverAs is required; other busy windows default to "steer".
 	 */
 	sendUserMessage(
 		content: string | (TextContent | ImageContent)[],

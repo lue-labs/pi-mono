@@ -6,9 +6,9 @@
  * actual user messages that appear in the conversation as if typed by the user.
  *
  * Usage:
- *   /ask What is 2+2?     - Sends a user message (always triggers a turn)
- *   /steer Focus on X     - Sends while streaming with steer delivery
- *   /followup And then?   - Sends while streaming with followUp delivery
+ *   /ask What is 2+2?     - Sends a user message when Pi is idle
+ *   /steer Focus on X     - Sends while Pi is busy with steer delivery
+ *   /followup And then?   - Sends while Pi is busy with followUp delivery
  */
 
 import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
@@ -23,8 +23,8 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// sendUserMessage always triggers a turn when not streaming
-			// If streaming, it will throw (no deliverAs specified)
+			// sendUserMessage starts a turn immediately only when Pi is idle.
+			// Guard busy states here so this command never queues work.
 			if (!ctx.isIdle()) {
 				ctx.ui.notify("Agent is busy. Use /steer or /followup instead.", "warning");
 				return;
@@ -44,10 +44,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (ctx.isIdle()) {
-				// Not streaming, just send normally
+				// Idle: start a turn normally.
 				pi.sendUserMessage(args);
 			} else {
-				// Streaming - use steer to interrupt
+				// Busy: queue with steer delivery.
 				pi.sendUserMessage(args, { deliverAs: "steer" });
 			}
 		},
@@ -63,10 +63,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (ctx.isIdle()) {
-				// Not streaming, just send normally
+				// Idle: start a turn normally.
 				pi.sendUserMessage(args);
 			} else {
-				// Streaming - queue as follow-up
+				// Busy: queue as a follow-up.
 				pi.sendUserMessage(args, { deliverAs: "followUp" });
 				ctx.ui.notify("Follow-up queued", "info");
 			}

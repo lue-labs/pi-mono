@@ -48,6 +48,14 @@ function pendingAssistantToolCall(
 describe("resumability: pending interactive tool call re-presents on resume", () => {
 	it("re-executes and continues when the tool opts in via resumePendingCall", async () => {
 		let executeCalls = 0;
+		let markExecuteStarted!: () => void;
+		let releaseExecute!: () => void;
+		const executeStarted = new Promise<void>((resolve) => {
+			markExecuteStarted = resolve;
+		});
+		const executeRelease = new Promise<void>((resolve) => {
+			releaseExecute = resolve;
+		});
 		const harness = await createHarness({
 			extensionFactories: [
 				(pi) => {
@@ -59,6 +67,8 @@ describe("resumability: pending interactive tool call re-presents on resume", ()
 						resumePendingCall: true,
 						execute: async () => {
 							executeCalls += 1;
+							markExecuteStarted();
+							await executeRelease;
 							return { content: [{ type: "text", text: "Blue" }] };
 						},
 					});
@@ -76,11 +86,17 @@ describe("resumability: pending interactive tool call re-presents on resume", ()
 			// resumed `pi --resume` session loads from disk.
 			harness.session.agent.state.messages = [pendingAssistantToolCall(harness.getModel(), "TestAskUser", "call_1")];
 
-			const resumed = await harness.session.resumePendingInteractiveToolCall();
+			const resume = harness.session.resumePendingInteractiveToolCall();
+			await executeStarted;
+			expect(harness.session.isIdle).toBe(false);
+			releaseExecute();
+
+			const resumed = await resume;
 			expect(resumed).toBe(true);
 			expect(executeCalls).toBe(1);
 
 			await harness.session.agent.waitForIdle();
+			expect(harness.session.isIdle).toBe(true);
 
 			expect(harness.session.messages.map((message) => message.role)).toEqual([
 				"assistant",
@@ -89,6 +105,7 @@ describe("resumability: pending interactive tool call re-presents on resume", ()
 			]);
 			expect(getAssistantTexts(harness)).toContain("Got it: Blue");
 		} finally {
+			releaseExecute();
 			harness.cleanup();
 		}
 	});

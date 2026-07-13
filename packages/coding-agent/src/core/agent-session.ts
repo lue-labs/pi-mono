@@ -527,6 +527,8 @@ export class AgentSession {
 	private _systemPromptOverride?: string;
 	private _source: InputSource = "interactive";
 	private _pendingAutoModelRequest?: PendingAutoModelRequest;
+	/** Session calls that can start or resume a turn, including asynchronous preflight. */
+	private _activeTurnCalls = 0;
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -1198,6 +1200,11 @@ export class AgentSession {
 		return this.agent.state.isStreaming;
 	}
 
+	/** Whether no turn-starting call, compaction, or agent run is active. */
+	get isIdle(): boolean {
+		return this._activeTurnCalls === 0 && !this.isStreaming && !this.isCompacting && !this.agent.isProcessing;
+	}
+
 	/** Current effective system prompt (includes any per-turn extension modifications) */
 	get systemPrompt(): string {
 		return this.agent.state.systemPrompt;
@@ -1302,18 +1309,20 @@ export class AgentSession {
 
 		if (this.agent.state.isStreaming) return false;
 
-		const result = await tool.execute(toolCall.id, toolCall.arguments, undefined, undefined);
-		const toolResultMessage: ToolResultMessage = {
-			role: "toolResult",
-			toolCallId: toolCall.id,
-			toolName: toolCall.name,
-			content: result.content,
-			details: result.details,
-			isError: false,
-			timestamp: Date.now(),
-		};
-		await this.agent.prompt(toolResultMessage);
-		return true;
+		return this._withActiveTurnCall(async () => {
+			const result = await tool.execute(toolCall.id, toolCall.arguments, undefined, undefined);
+			const toolResultMessage: ToolResultMessage = {
+				role: "toolResult",
+				toolCallId: toolCall.id,
+				toolName: toolCall.name,
+				content: result.content,
+				details: result.details,
+				isError: false,
+				timestamp: Date.now(),
+			};
+			await this.agent.prompt(toolResultMessage);
+			return true;
+		});
 	}
 
 	/**
@@ -1665,6 +1674,15 @@ export class AgentSession {
 	// Prompting
 	// =========================================================================
 
+	private async _withActiveTurnCall<T>(operation: () => Promise<T>): Promise<T> {
+		this._activeTurnCalls++;
+		try {
+			return await operation();
+		} finally {
+			this._activeTurnCalls--;
+		}
+	}
+
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		try {
 			// A turn is starting — cancel any pending idle wake. The notification
@@ -1762,6 +1780,10 @@ export class AgentSession {
 	 * @throws Error if no model selected or no API key available (when not streaming)
 	 */
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
+		await this._withActiveTurnCall(() => this._prompt(text, options));
+	}
+
+	private async _prompt(text: string, options?: PromptOptions): Promise<void> {
 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
 		const preflightResult = options?.preflightResult;
 		let messages: AgentMessage[] | undefined;
@@ -2179,87 +2201,92 @@ export class AgentSession {
 			}
 			await emitCustomMessage();
 		} else if (options?.triggerTurn) {
-			// Mirror prompt()'s pre-turn compaction check. Without it, harness-driven
-			// turns (e.g. pi-goal continuations via sendCustomMessage({triggerTurn}))
-			// never hit threshold compaction — context grows unbounded across goal
-			// iterations until hard overflow. Compaction runs first; the custom
-			// message then starts its turn against the compacted context.
-			const lastAssistant = this._findLastAssistantMessage();
-			if (lastAssistant) {
-				if (await this._checkCompaction(lastAssistant, false)) {
-					try {
-						await this.agent.continue();
-						while (await this._handlePostAgentRun()) {
+			await this._withActiveTurnCall(async () => {
+				// Mirror prompt()'s pre-turn compaction check. Without it, harness-driven
+				// turns (e.g. pi-goal continuations via sendCustomMessage({triggerTurn}))
+				// never hit threshold compaction — context grows unbounded across goal
+				// iterations until hard overflow. Compaction runs first; the custom
+				// message then starts its turn against the compacted context.
+				const lastAssistant = this._findLastAssistantMessage();
+				if (lastAssistant) {
+					if (await this._checkCompaction(lastAssistant, false)) {
+						try {
 							await this.agent.continue();
+							while (await this._handlePostAgentRun()) {
+								await this.agent.continue();
+							}
+						} finally {
+							this._flushPendingBashMessages();
 						}
-					} finally {
-						this._flushPendingBashMessages();
 					}
 				}
-			}
-			// Fire before_agent_start so extensions can modify the system prompt for
-			// turns triggered by custom messages — same path as session.prompt()-driven
-			// turns. Without this, e.g. pi-goal's `pendingControlPrompt` (set right
-			// before triggerTurn:true) is never consumed and the model is invoked with
-			// the base system prompt + an opaque custom message it can't see, so it
-			// has no way to know what the goal/objective is.
-			// triggerTurn fires for custom-message-driven turns. These are never
-			// direct user input — the caller is an extension hook (e.g. pi-goal's
-			// pendingControlPrompt). Tag as "extension" so memory hooks skip recall
-			// and persistent-memory inject for these synthetic turns.
-			const beforeStart = this._baseSystemPromptOptions
-				? await this._extensionRunner.emitBeforeAgentStart(
-						"",
-						undefined,
-						this._baseSystemPrompt,
-						this._baseSystemPromptOptions,
-						"extension",
-					)
-				: undefined;
-			const extraMessages: AgentMessage[] = [];
-			if (beforeStart?.messages) {
-				for (const msg of beforeStart.messages) {
-					extraMessages.push({
-						role: "custom",
-						customType: msg.customType,
-						content: msg.content,
-						display: msg.display,
-						details: msg.details,
-						timestamp: Date.now(),
-					});
+				// Fire before_agent_start so extensions can modify the system prompt for
+				// turns triggered by custom messages — same path as session.prompt()-driven
+				// turns. Without this, e.g. pi-goal's `pendingControlPrompt` (set right
+				// before triggerTurn:true) is never consumed and the model is invoked with
+				// the base system prompt + an opaque custom message it can't see, so it
+				// has no way to know what the goal/objective is.
+				// triggerTurn fires for custom-message-driven turns. These are never
+				// direct user input — the caller is an extension hook (e.g. pi-goal's
+				// pendingControlPrompt). Tag as "extension" so memory hooks skip recall
+				// and persistent-memory inject for these synthetic turns.
+				const beforeStart = this._baseSystemPromptOptions
+					? await this._extensionRunner.emitBeforeAgentStart(
+							"",
+							undefined,
+							this._baseSystemPrompt,
+							this._baseSystemPromptOptions,
+							"extension",
+						)
+					: undefined;
+				const extraMessages: AgentMessage[] = [];
+				if (beforeStart?.messages) {
+					for (const msg of beforeStart.messages) {
+						extraMessages.push({
+							role: "custom",
+							customType: msg.customType,
+							content: msg.content,
+							display: msg.display,
+							details: msg.details,
+							timestamp: Date.now(),
+						});
+					}
 				}
-			}
-			if (!this._systemPromptFrozen) {
-				if (beforeStart?.systemPrompt) {
-					// Promote to _baseSystemPrompt for the same reason as in prompt():
-					// one-shot extension injections must persist as the stable prefix.
-					this._baseSystemPrompt = beforeStart.systemPrompt;
-					this.agent.state.systemPrompt = beforeStart.systemPrompt;
-				} else if (this._baseSystemPrompt) {
-					this.agent.state.systemPrompt = this._baseSystemPrompt;
+				if (!this._systemPromptFrozen) {
+					if (beforeStart?.systemPrompt) {
+						// Promote to _baseSystemPrompt for the same reason as in prompt():
+						// one-shot extension injections must persist as the stable prefix.
+						this._baseSystemPrompt = beforeStart.systemPrompt;
+						this.agent.state.systemPrompt = beforeStart.systemPrompt;
+					} else if (this._baseSystemPrompt) {
+						this.agent.state.systemPrompt = this._baseSystemPrompt;
+					}
 				}
-			}
-			const runOutcomePromise = this._runAgentPrompt(
-				extraMessages.length > 0 ? [...extraMessages, appMessage] : appMessage,
-			).then(
-				() => ({ ok: true as const }),
-				(error: unknown) => ({ ok: false as const, error }),
-			);
-			await emitCustomMessage();
-			const runOutcome = await runOutcomePromise;
-			if (!runOutcome.ok) {
-				// Defense-in-depth for a TOCTOU race: two extension callers can both
-				// pass the streaming/compacting/isProcessing gate above, then race on
-				// agent.prompt() — the first wins, the second throws "already
-				// processing". Falling back to steer keeps the message in the active
-				// run instead of dropping it (or surfacing a confusing
-				// "Extension <runtime> error" to the user).
-				if (runOutcome.error instanceof Error && /already processing( a prompt)?/.test(runOutcome.error.message)) {
-					this.agent.steer(appMessage);
-				} else {
-					throw runOutcome.error;
+				const runOutcomePromise = this._runAgentPrompt(
+					extraMessages.length > 0 ? [...extraMessages, appMessage] : appMessage,
+				).then(
+					() => ({ ok: true as const }),
+					(error: unknown) => ({ ok: false as const, error }),
+				);
+				await emitCustomMessage();
+				const runOutcome = await runOutcomePromise;
+				if (!runOutcome.ok) {
+					// Defense-in-depth for a TOCTOU race: two extension callers can both
+					// pass the streaming/compacting/isProcessing gate above, then race on
+					// agent.prompt() — the first wins, the second throws "already
+					// processing". Falling back to steer keeps the message in the active
+					// run instead of dropping it (or surfacing a confusing
+					// "Extension <runtime> error" to the user).
+					if (
+						runOutcome.error instanceof Error &&
+						/already processing( a prompt)?/.test(runOutcome.error.message)
+					) {
+						this.agent.steer(appMessage);
+					} else {
+						throw runOutcome.error;
+					}
 				}
-			}
+			});
 		} else {
 			this.agent.state.messages.push(appMessage);
 			this.sessionManager.appendCustomMessageEntry(
@@ -2298,14 +2325,14 @@ export class AgentSession {
 		this._idleWakeTimer = setTimeout(() => {
 			this._idleWakeTimer = undefined;
 			if (this._disposed) return;
-			// Transient-busy at fire time (streaming, compaction, or an in-flight
-			// turn) must NOT drop the wake: the completion notification is already
+			// Transient-busy at fire time (turn-starting call, compaction, or agent
+			// run) must NOT drop the wake: the completion notification is already
 			// in history, but the turn-trigger would be lost forever. A turn already
 			// in progress has the notification in context and is self-healing, yet a
 			// threshold/overflow compaction overlapping this window rewrites history
 			// and leaves the session idle with an unhandled notification. Re-arm one
 			// debounce window later so the wake survives until genuinely idle.
-			if (this.isStreaming || this.isCompacting || this.agent.isProcessing) {
+			if (!this.isIdle) {
 				this._scheduleIdleWake();
 				return;
 			}
@@ -2329,10 +2356,10 @@ export class AgentSession {
 
 	/**
 	 * Send a user message to the agent. Always triggers a turn.
-	 * When the agent is streaming, use deliverAs to specify how to queue the message.
+	 * While streaming, deliverAs is required; other busy windows default to "steer".
 	 *
 	 * @param content User message content (string or content array)
-	 * @param options.deliverAs Delivery mode when streaming: "steer" or "followUp"
+	 * @param options.deliverAs Delivery mode while busy: "steer" or "followUp"
 	 */
 	async sendUserMessage(
 		content: string | (TextContent | ImageContent)[],
@@ -3754,7 +3781,7 @@ export class AgentSession {
 			},
 			{
 				getModel: () => this.model,
-				isIdle: () => !this.isStreaming,
+				isIdle: () => this.isIdle,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				getSignal: () => this.agent.signal,
 				abort: (reason?: unknown) => {

@@ -1016,7 +1016,7 @@ pi.on("tool_result", async (event, ctx) => {
 
 ### ctx.isIdle() / ctx.abort() / ctx.hasPendingMessages()
 
-Control flow helpers.
+Control flow helpers. `ctx.isIdle()` returns `true` only when Pi can start a new agent turn immediately: no turn-starting call, compaction, or agent run is in flight, including prompt preflight and resumed interactive tools.
 
 ### ctx.shutdown()
 
@@ -1478,17 +1478,17 @@ pi.sendUserMessage([
   { type: "image", source: { type: "base64", mediaType: "image/png", data: "..." } },
 ]);
 
-// During streaming - must specify delivery mode
+// While Pi is busy, choose a queueing mode
 pi.sendUserMessage("Focus on error handling", { deliverAs: "steer" });
 pi.sendUserMessage("And then summarize", { deliverAs: "followUp" });
 ```
 
 **Options:**
-- `deliverAs` - Required when agent is streaming:
+- `deliverAs` - Delivery mode while Pi is busy:
   - `"steer"` - Queues the message for delivery after the current assistant turn finishes executing its tool calls
   - `"followUp"` - Waits for agent to finish all tools
 
-When not streaming, the message is sent immediately and triggers a new turn. When streaming without `deliverAs`, throws an error.
+When idle, the message is sent immediately and triggers a new turn. While streaming, omitting `deliverAs` throws an error. During compaction or prompt lifecycle processing, omitting it defaults to `"steer"` so the message queues safely.
 
 See [send-user-message.ts](../examples/extensions/send-user-message.ts) for a complete example.
 
