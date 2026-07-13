@@ -25,8 +25,8 @@ import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, type SessionContext, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
-import { boundModelFacingContextImages } from "./tool-artifacts.ts";
 import { time } from "./timings.ts";
+import { boundModelFacingContextImages } from "./tool-artifacts.ts";
 import {
 	createBashTool,
 	createCodingTools,

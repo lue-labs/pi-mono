@@ -31,7 +31,8 @@ const MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS = 100_000;
 export const MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS = 3 * 1024 * 1024;
 const TOOL_RESULT_IMAGE_OMITTED =
 	"[Image omitted because it exceeds the model-facing image limit. Refer to the saved artifact.]";
-const CONTEXT_IMAGE_OMITTED = "[Image omitted from this provider request because the aggregate image budget was exceeded.]";
+const CONTEXT_IMAGE_OMITTED =
+	"[Image omitted from this provider request because the aggregate image budget was exceeded.]";
 const COMPACTION_IMAGE_OMITTED = "[Image omitted from compaction context; refer to surrounding text or file paths.]";
 
 type ToolResultContentBlock = TextContent | ImageContent | ToolReferenceContent;

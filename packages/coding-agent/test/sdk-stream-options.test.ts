@@ -142,7 +142,9 @@ describe("createAgentSession stream options", () => {
 				.reduce((total, block) => total + (block.type === "image" ? block.data.length : 0), 0);
 
 			expect(imageChars).toBeLessThanOrEqual(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS);
-			expect(messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(2);
+			expect(messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(
+				2,
+			);
 		} finally {
 			session.dispose();
 		}
