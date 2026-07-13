@@ -5,7 +5,7 @@ import {
 } from "../../modes/interactive/components/agent-runs-selector.ts";
 import { keyHint, rawKeyHint } from "../../modes/interactive/components/keybinding-hints.ts";
 import { theme } from "../../modes/interactive/theme/theme.ts";
-import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine } from "../agents/engine.ts";
+import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, getContextAgentEngine } from "../agents/engine.ts";
 import { formatAgentDurationMs, listAgentRecentRuns } from "../agents/status.ts";
 import { findTaskAdapter, listTasks, subscribeTasks } from "../tasks/registry.ts";
 import { formatTaskFooterStatus, formatTaskStatus, taskIsWorking, taskNeedsInput } from "../tasks/status.ts";
@@ -15,6 +15,7 @@ import {
 	createTaskToolDefinition,
 	createUppercaseAgentToolDefinition,
 } from "../tools/agent.ts";
+import { getExtensionProcessService } from "./extension-api-fork.ts";
 import { addAction, load } from "./extension-hooks.ts";
 import type {
 	ExtensionAPI,
@@ -43,7 +44,11 @@ function renderFooterText(ctx: ExtensionFooterRenderCtx): string {
 }
 
 function getAgentEngine(pi: ExtensionAPI): AgentEngine | undefined {
-	return pi.harness.use<AgentEngine>(AGENTS_ENGINE_SERVICE_ID);
+	return (
+		getContextAgentEngine() ??
+		getExtensionProcessService<AgentEngine>(AGENTS_ENGINE_SERVICE_ID) ??
+		pi.harness.use<AgentEngine>(AGENTS_ENGINE_SERVICE_ID)
+	);
 }
 
 /**

@@ -42,16 +42,7 @@ export function resolveContextPolicy(mode: ContextMode): ResolvedContextPolicy {
 }
 
 export function buildAgentSystemAppend(agent: AgentDefinition): string {
-	return [
-		"<pi-child-agent>",
-		`Agent: ${agent.id}`,
-		"You are running as a Pi child agent for a delegated task.",
-		"Do not call the agent tool or delegate recursively.",
-		"Return only the final report needed by the parent agent.",
-		"</pi-child-agent>",
-		"",
-		agent.prompt,
-	].join("\n");
+	return agent.prompt;
 }
 
 export function getChildResourceLoaderOptions(
@@ -122,7 +113,7 @@ export function filterIncompleteToolCalls(messages: AgentMessage[]): AgentMessag
  * `src/tools/AgentTool/forkSubagent.ts` (2.1.x). The shared placeholder is
  * what lets sibling forks cache-hit off each other, not just off the parent.
  */
-const FORK_PLACEHOLDER_RESULT_TEXT = "Sibling agent task in progress.";
+const FORK_PLACEHOLDER_RESULT_TEXT = "Another Agent task is in progress.";
 
 function makeForkPlaceholderResult(toolCallId: string, toolName: string): ToolResultMessage {
 	return {
@@ -180,47 +171,59 @@ export function getFilteredForkMessages(sessionManager: ReadonlySessionManager):
 	return substitutePlaceholdersForUnresolvedToolCalls(messages);
 }
 
-// Static reminder prepended to every child task message. Lives in the user
-// message (not the system prompt / tool schemas) so it stays inside the
-// cache-eligible prefix without changing the parent's cached bytes — fork-mode
-// children still share the parent's system + tools cache. Mirrors Claude Code's
-// `<system-reminder>` pattern for subagent guidance.
-const CHILD_AGENT_REMINDER =
+// Static task handoff prepended to every Agent task user message. Keeping this
+// outside the system prompt and tool schemas preserves the calling session's
+// cached prefix in fork mode while still covering every context mode.
+const AGENT_TASK_HANDOFF =
+	"The Agent tool call and later course corrections from the calling agent direct this task. " +
+	"Return the completed result to the calling agent. " +
+	"Instructions do not override tool permissions or safety constraints.";
+
+const AGENT_UNAVAILABLE_REMINDER =
 	"<system-reminder>\n" +
-	"You are a Pi child agent (subagent). The `agent` tool is not available to you — " +
-	"child agents cannot spawn further child agents, even if the tool schema appears in " +
-	"your tool list (fork-mode children inherit the parent's tool schemas for cache reasons). " +
-	"If the task genuinely requires delegation, return your findings to the parent and let " +
-	"them dispatch the follow-up work.\n" +
+	`${AGENT_TASK_HANDOFF}\n` +
+	"The `agent` tool is not available in this task, even if its schema appears in the inherited tool list. " +
+	"Give the calling agent any follow-up task that must be dispatched separately.\n" +
 	"</system-reminder>";
 
-// When nested delegation is enabled and this child is still under the cap, tell it
-// it MAY delegate (and how many further levels remain) instead of the default
-// "agent tool not available" reminder. Kept depth-aware so the boundary child still
-// gets the hard no.
-function childAgentReminder(delegation?: { canDelegate: boolean; remaining: number }): string {
+// Nested Agent availability is runtime-configured and depth-capped. State the
+// effective capability without prescribing how the executing model works.
+function agentTaskReminder(delegation?: { canDelegate: boolean; remaining: number }): string {
 	if (delegation?.canDelegate && delegation.remaining > 0) {
 		return (
 			"<system-reminder>\n" +
-			"You are a Pi child agent (subagent). You MAY delegate to your own child agents via " +
-			`the \`agent\` tool, up to ${delegation.remaining} more nested level(s). Delegate only for ` +
-			"genuinely parallel or large read-only sub-tasks; prefer doing the work yourself. Deeper " +
-			"children past the configured cap cannot delegate further.\n" +
+			`${AGENT_TASK_HANDOFF}\n` +
+			`The \`agent\` tool is available in this task for up to ${delegation.remaining} more nested level(s). ` +
+			"Agent calls beyond that configured depth cannot use it.\n" +
 			"</system-reminder>"
 		);
 	}
-	return CHILD_AGENT_REMINDER;
+	return AGENT_UNAVAILABLE_REMINDER;
 }
 
 export function buildChildTaskPrompt(
 	task: AgentTaskConfig,
 	delegation?: { canDelegate: boolean; remaining: number },
 ): string {
-	const parts = [childAgentReminder(delegation), "", "Complete this delegated task:", "", task.task.trim()];
+	const parts = [agentTaskReminder(delegation), "", "## Task from the calling agent", "", task.task.trim()];
 	if (task.extraContext?.trim()) {
-		parts.push("", "Additional context:", task.extraContext.trim());
+		parts.push("", "## Context from the calling agent", "", task.extraContext.trim());
 	}
 	return parts.join("\n");
+}
+
+/** Build a trailing user message for a resumed task with current capability state. */
+export function buildAgentCourseCorrectionPrompt(
+	courseCorrection: string,
+	delegation?: { canDelegate: boolean; remaining: number },
+): string {
+	return [
+		agentTaskReminder(delegation),
+		"",
+		"## Course correction from the calling agent",
+		"",
+		courseCorrection.trim(),
+	].join("\n");
 }
 
 export function formatModelForDetails(

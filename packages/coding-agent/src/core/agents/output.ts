@@ -32,10 +32,10 @@ export async function writeAgentOutput(options: {
 	});
 
 	if (options.outputMode === "file") {
-		return { displayText: `Saved child agent output to ${outputPath}`, rawContent: options.content, outputPath };
+		return { displayText: `Saved Agent output to ${outputPath}`, rawContent: options.content, outputPath };
 	}
 	return {
-		displayText: `${options.content}\n\n[Saved child agent output to ${outputPath}]`,
+		displayText: `${options.content}\n\n[Saved Agent output to ${outputPath}]`,
 		rawContent: options.content,
 		outputPath,
 	};

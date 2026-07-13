@@ -2,9 +2,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "@valkyriweb/pi-ai";
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { clearAgentRecentRunsForTests } from "../../../src/core/agents/status.ts";
+import { hookAgentsTools } from "../../../src/core/extensions/agents.ts";
 import { deleteExtensionProcessServiceForTests } from "../../../src/core/extensions/loader.ts";
 import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, type AgentHandle, type ExtensionAPI } from "../../../src/index.ts";
 import { createHarness, type Harness } from "../harness.ts";
@@ -38,10 +39,9 @@ function recordingFactory(record: ContextRecord, label: string) {
 }
 
 /**
- * Determine whether a context belongs to a forked child agent. Child agents
- * are driven via `buildChildTaskPrompt`, which prefixes the child user message
- * with `Complete this delegated task:`. That marker is stable and survives
- * the parent transcript prefix that fork mode copies in.
+ * Determine whether a context belongs to an Agent-tool fork. The task user
+ * message contains a stable `Task from the calling agent` marker that survives
+ * the calling session's transcript prefix copied in fork mode.
  */
 function isChildContext(ctx: Context): boolean {
 	for (let i = ctx.messages.length - 1; i >= 0; i--) {
@@ -54,7 +54,7 @@ function isChildContext(ctx: Context): boolean {
 						.filter((part): part is { type: "text"; text: string } => part.type === "text")
 						.map((part) => part.text)
 						.join("\n");
-		return text.includes("Complete this delegated task:");
+		return text.includes("## Task from the calling agent");
 	}
 	return false;
 }
@@ -181,9 +181,8 @@ describe("ctx.forkAgent", () => {
 		const child = record.contexts.find(isChildContext);
 		expect(child).toBeDefined();
 		// Proves agentType reached the executor's agent resolver: the explore
-		// definition's stable child-agent append ("Agent: explore") is in the
-		// child's system prompt, not the default general child prompt.
-		expect(child?.systemPrompt).toContain("Agent: explore");
+		// profile's stable read-only contract is in the task system prompt.
+		expect(child?.systemPrompt).toContain("read-only investigation");
 	});
 
 	it("forwards forkAgent({ metadata }) through the fork path without breaking the child run", async () => {
@@ -361,6 +360,54 @@ describe("ctx.forkAgent", () => {
 
 		expect(captured.sessionId).toBe("process-engine");
 		expect(captured.handle?.status).toBe("completed");
+	});
+
+	it("native Agent prefers a process engine installed after session construction", async () => {
+		let runCalls = 0;
+		let seenTools: string[] = [];
+		let harness: Harness;
+		const factory = (pi: ExtensionAPI) => {
+			pi.on("before_agent_start", async () => {
+				const engine: AgentEngine = {
+					snapshot: () => ({
+						activeTools: harness.session.getActiveToolNames(),
+						sessionManager: harness.sessionManager,
+						model: harness.getModel(),
+						thinkingLevel: "off",
+						systemPrompt: harness.session.systemPrompt,
+					}),
+					async run() {
+						runCalls += 1;
+						return { mode: "single", status: "completed", runs: [], background: false };
+					},
+					async control() {
+						return undefined;
+					},
+					async fork() {
+						throw new Error("fork is not expected");
+					},
+				};
+				pi.harness.provide(AGENTS_ENGINE_SERVICE_ID, engine, { scope: "process", replace: true });
+			});
+		};
+		harness = await createHarness({ extensionFactories: [hookAgentsTools, factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.session.setActiveToolsByName(["agent"]);
+		harness.setResponses([
+			(context) => {
+				seenTools = context.tools?.map((tool) => tool.name) ?? [];
+				return fauxAssistantMessage(fauxToolCall("agent", { agent: "general", task: "noop" }), {
+					stopReason: "toolUse",
+				});
+			},
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("use native Agent");
+
+		expect(seenTools).toContain("agent");
+		expect(runCalls).toBe(1);
 	});
 
 	// Uses "Bash" (still core after PR #1C) rather than "Read" (now provided by

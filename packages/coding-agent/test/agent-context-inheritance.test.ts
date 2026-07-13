@@ -122,7 +122,7 @@ describe("agent context inheritance", () => {
 			(m): m is ToolResultMessage => m.role === "toolResult" && m.toolCallId === "call-1",
 		);
 		expect(placeholder).toBeDefined();
-		expect(placeholder?.content).toEqual([{ type: "text", text: "Sibling agent task in progress." }]);
+		expect(placeholder?.content).toEqual([{ type: "text", text: "Another Agent task is in progress." }]);
 		expect(placeholder?.isError).toBe(false);
 		expect(placeholder?.toolName).toBe("agent");
 	});
@@ -169,7 +169,7 @@ describe("agent context inheritance", () => {
 			(m): m is ToolResultMessage => m.role === "toolResult" && m.toolCallId === "agent-call",
 		);
 		expect(agentPlaceholder).toBeDefined();
-		expect(agentPlaceholder?.content).toEqual([{ type: "text", text: "Sibling agent task in progress." }]);
+		expect(agentPlaceholder?.content).toEqual([{ type: "text", text: "Another Agent task is in progress." }]);
 		// real keepResult kept
 		expect(messages).toContain(keepResult);
 		// orphan dropped

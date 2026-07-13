@@ -60,34 +60,42 @@ describe("built-in agent definitions", () => {
 		});
 	});
 
-	test("built-in prompts require structured output", () => {
-		const agents = new Map(getBuiltinAgentDefinitions().map((agent) => [agent.id, agent.prompt]));
-		expect(agents.get("decompose")).toContain("### Decomposition");
-		expect(agents.get("decompose")).toContain("### Execution Shape");
-		expect(agents.get("plan")).toContain("### Critical Files for Implementation");
-		expect(agents.get("explore")).toContain("### Findings");
-		expect(agents.get("explore")).toContain("### Open Questions");
-		expect(agents.get("reviewer")).toContain("VERDICT: PASS|FAIL|PARTIAL");
+	test("built-in prompts are concise, identity-neutral outcome contracts", () => {
+		for (const agent of getBuiltinAgentDefinitions()) {
+			const modelFacingText = `${agent.description}\n${agent.prompt}`;
+			expect(modelFacingText).not.toMatch(/\b(child|subagent|parent|invoker)\b/i);
+			expect(agent.prompt.length).toBeLessThan(1400);
+			expect(agent.prompt).toMatch(/return|report/i);
+			expect(agent.prompt).toMatch(/verify|validation|evidence/i);
+		}
+		expect(getBuiltinAgentDefinitions().find((agent) => agent.id === "reviewer")?.prompt).toContain(
+			"VERDICT: PASS|FAIL|PARTIAL",
+		);
 	});
 
-	test("agent tool guidance lists explore with routing dials", () => {
+	test("agent tool guidance is a concise capability and outcome contract", () => {
 		const agentTool = createAgentToolDefinition("/tmp");
 		const joined = agentTool.promptGuidelines?.join("\n") ?? "";
-		// Routing pair lifted from Claude Code: positive trigger + negative foil.
-		expect(joined).toMatch(/Reach for this when/i);
-		expect(joined).toMatch(/single-fact lookup where you already know/i);
-		// Anti-duplication clause.
-		expect(joined).toMatch(/don't also run it yourself/i);
-		// Explore listed with breadth dial.
-		const exploreLine = agentTool.promptGuidelines?.find(
-			(line) => line.includes("`explore`") && line.includes("no transcript"),
-		);
-		expect(exploreLine).toContain("no transcript/project context/preloaded skills");
-		expect(exploreLine).toContain("read-only bash");
-		expect(exploreLine).toMatch(/quick \| medium \| very thorough/);
-		expect(joined).toMatch(/omit `context` for the agent's isolated default/i);
-		expect(joined).toMatch(/only pass `context: "fork"` when the child truly needs/i);
-		expect(joined).not.toMatch(/reach for fork mode for research or multi-step work/i);
+		const modelFacingText = [
+			agentTool.description,
+			agentTool.promptSnippet,
+			joined,
+			JSON.stringify(agentTool.parameters),
+		].join("\n");
+		expect(modelFacingText).not.toMatch(/\b(child|parent|invoker)\b|\bsubagent\b/i);
+		expect(joined.length).toBeLessThan(3500);
+		expect(joined).toMatch(/desired outcome/i);
+		expect(joined).toMatch(/file structure/i);
+		expect(joined).toMatch(/tools.*skills/i);
+		expect(joined).toMatch(/acceptance criteria/i);
+		expect(joined).toMatch(/expected report/i);
+		expect(joined).toMatch(/self-verif/i);
+		expect(joined).toMatch(/choose.*method|method.*choose/i);
+		expect(joined).toMatch(/single known file, symbol, or value/i);
+		expect(joined).toMatch(/do not duplicate an investigation/i);
+		expect(joined).toMatch(/`explore` — read-only search with read-only bash/i);
+		expect(joined).toMatch(/`context: "fork"` only when the task needs the calling transcript/i);
+		expect(joined).not.toMatch(/≤3 files|explore@fast|worker@medium|Delegation-first/i);
 	});
 
 	test("built-in agent casing aliases resolve when unique", () => {
