@@ -120,7 +120,12 @@ import type { SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
-import { capModelFacingToolResultText, replaceUnsupportedToolResultImages } from "./tool-artifacts.ts";
+import {
+	capModelFacingToolResultText,
+	replaceOversizedToolResultImages,
+	replaceUnsupportedToolResultImages,
+	stripModelFacingContextImages,
+} from "./tool-artifacts.ts";
 
 import { type BashBgJob, type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { allToolNames, createAllToolDefinitions, type ToolName } from "./tools/index.ts";
@@ -684,15 +689,20 @@ export class AgentSession {
 			const postHookContent = hookContent ?? result.content;
 			const normalizedContent = replaceUnsupportedToolResultImages(postHookContent, this._cwd, toolCall.id);
 			const finalContent = normalizedContent ?? postHookContent;
-			const cappedContent = capModelFacingToolResultText(finalContent, this._cwd, toolCall.id, toolCall.name);
+			const imageCappedContent = replaceOversizedToolResultImages(finalContent, this._cwd, toolCall.id);
+			const imageSafeContent = imageCappedContent ?? finalContent;
+			const cappedContent = capModelFacingToolResultText(imageSafeContent, this._cwd, toolCall.id, toolCall.name);
 			const shouldReturnContent =
-				hookContent !== undefined || normalizedContent !== undefined || cappedContent !== undefined;
+				hookContent !== undefined ||
+				normalizedContent !== undefined ||
+				imageCappedContent !== undefined ||
+				cappedContent !== undefined;
 			if (!hookResult && !shouldReturnContent) {
 				return undefined;
 			}
 
 			return {
-				...(shouldReturnContent ? { content: cappedContent ?? finalContent } : {}),
+				...(shouldReturnContent ? { content: cappedContent ?? imageSafeContent } : {}),
 				details: hookResult ? hookResult.details : result.details,
 				isError: hookResult?.isError ?? isError,
 			};
@@ -2843,7 +2853,7 @@ export class AgentSession {
 					env,
 					{
 						systemPrompt: this.systemPrompt,
-						messages: await convertToLlm(this.agent.state.messages),
+						messages: stripModelFacingContextImages(await convertToLlm(this.agent.state.messages)),
 						tools: this.agent.state.tools,
 					},
 				);
@@ -3190,7 +3200,7 @@ export class AgentSession {
 					env,
 					{
 						systemPrompt: this.systemPrompt,
-						messages: await convertToLlm(this.agent.state.messages),
+						messages: stripModelFacingContextImages(await convertToLlm(this.agent.state.messages)),
 						tools: this.agent.state.tools,
 					},
 				);

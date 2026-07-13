@@ -10,6 +10,7 @@ import {
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens } from "../../src/core/compaction/index.ts";
+import { MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS } from "../../src/core/tool-artifacts.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
@@ -548,8 +549,10 @@ describe("AgentSession compaction characterization", () => {
 			cacheTokens: 5_000,
 			timestamp: now,
 		});
+		const imageData = "a".repeat(2 * 1024 * 1024);
 		harness.session.agent.state.messages = [
-			{ role: "user", content: [{ type: "text", text: "before idle" }], timestamp: now - 1000 },
+			{ role: "user", content: [{ type: "image", data: imageData, mimeType: "image/png" }], timestamp: now - 2000 },
+			{ role: "user", content: [{ type: "image", data: imageData, mimeType: "image/png" }], timestamp: now - 1000 },
 			assistant,
 		];
 
@@ -580,6 +583,25 @@ describe("AgentSession compaction characterization", () => {
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.options).toMatchObject({ cacheRetention: "long", maxTokens: 1, maxRetries: 0 });
+		const heartbeatMessages = (calls[0]?.context as Context).messages;
+		const imageBlocks = (messages: unknown[]) =>
+			messages.flatMap((message) => {
+				const content = (message as { content?: unknown }).content;
+				return Array.isArray(content) ? content : [];
+			});
+		const isImageBlock = (block: unknown): block is { type: "image"; data: string } =>
+			typeof block === "object" &&
+			block !== null &&
+			"type" in block &&
+			block.type === "image" &&
+			"data" in block &&
+			typeof block.data === "string";
+		const heartbeatImageChars = imageBlocks(heartbeatMessages)
+			.filter(isImageBlock)
+			.reduce((total, block) => total + block.data.length, 0);
+		expect(heartbeatImageChars).toBeLessThanOrEqual(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS);
+		const storedImageCount = imageBlocks(harness.session.agent.state.messages).filter(isImageBlock).length;
+		expect(storedImageCount).toBe(2);
 	});
 
 	it("skips cache heartbeats for providers outside the allowlist", async () => {

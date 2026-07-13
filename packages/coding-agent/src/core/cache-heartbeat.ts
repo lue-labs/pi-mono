@@ -25,6 +25,7 @@ import type { AgentSessionEvent } from "./agent-session.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { convertToLlm } from "./messages.ts";
 import type { SettingsManager } from "./settings-manager.ts";
+import { boundModelFacingContextImages } from "./tool-artifacts.ts";
 
 const BASE_HEARTBEAT_SESSION_ID = "pi-base-system-prompt-heartbeat";
 const CACHE_HEARTBEAT_MESSAGE = "<system-reminder>Cache heartbeat only. Reply with a single '.'</system-reminder>";
@@ -229,7 +230,7 @@ export class CacheHeartbeatManager {
 		await this._sendCacheHeartbeat(
 			{
 				systemPrompt: this.host.systemPrompt,
-				messages: await convertToLlm(this.host.agent.state.messages),
+				messages: boundModelFacingContextImages(await convertToLlm(this.host.agent.state.messages)),
 				tools: this.host.agent.state.tools,
 				sessionId: this.host.sessionId,
 			},

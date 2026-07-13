@@ -1,11 +1,16 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type Model } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, type Model, type ToolResultMessage } from "@valkyriweb/pi-ai";
 import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { addFilter } from "../../src/core/extensions/extension-hooks.ts";
+import {
+	MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS,
+	replaceOversizedToolResultImages,
+	replaceUnsupportedToolResultImages,
+} from "../../src/core/tool-artifacts.ts";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
 
@@ -332,6 +337,96 @@ describe("AgentSession model and extension characterization", () => {
 		expect(readFileSync(artifactPath).toString()).toBe("fake-bmp-data");
 	});
 
+	it("keeps colliding image artifacts without overwriting durable history", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const firstImage = {
+			type: "image" as const,
+			data: Buffer.from("first-bmp").toString("base64"),
+			mimeType: "image/bmp",
+		};
+		const secondImage = {
+			type: "image" as const,
+			data: Buffer.from("second-bmp").toString("base64"),
+			mimeType: "image/bmp",
+		};
+
+		const first = replaceUnsupportedToolResultImages([firstImage], harness.tempDir, "a/b");
+		const second = replaceUnsupportedToolResultImages([secondImage], harness.tempDir, "a_b");
+
+		expect(first?.[0]).toMatchObject({ text: expect.stringContaining(".pi/tool-artifacts/a_b-0.bmp") });
+		expect(second?.[0]).toMatchObject({
+			text: expect.stringMatching(/\.pi\/tool-artifacts\/a_b-0-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.bmp/),
+		});
+		expect(readFileSync(join(harness.tempDir, ".pi", "tool-artifacts", "a_b-0.bmp")).toString()).toBe("first-bmp");
+		const collisionArtifact = readdirSync(join(harness.tempDir, ".pi", "tool-artifacts")).find((name) =>
+			/^a_b-0-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.bmp$/.test(name),
+		);
+		expect(collisionArtifact).toBeDefined();
+		expect(readFileSync(join(harness.tempDir, ".pi", "tool-artifacts", collisionArtifact!)).toString()).toBe(
+			"second-bmp",
+		);
+	});
+
+	it("saves oversized supported tool-result images as artifacts before the next model call", async () => {
+		const imageTool: AgentTool = {
+			name: "image",
+			label: "Image",
+			description: "Returns a supported image",
+			parameters: Type.Object({}),
+			execute: async () => ({
+				content: [
+					{
+						type: "image",
+						data: "a".repeat(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS + 1),
+						mimeType: "image/png",
+					},
+				],
+				details: {},
+			}),
+		};
+		const harness = await createHarness({ tools: [imageTool] });
+		harnesses.push(harness);
+		let providerSawImage = false;
+		let providerText = "";
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("image", {}, { id: "image-large" })], { stopReason: "toolUse" }),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				providerSawImage =
+					toolResult?.role === "toolResult" && toolResult.content.some((block) => block.type === "image");
+				providerText =
+					toolResult?.role === "toolResult"
+						? toolResult.content
+								.filter((block): block is { type: "text"; text: string } => block.type === "text")
+								.map((block) => block.text)
+								.join("\n")
+						: "";
+				return fauxAssistantMessage("done");
+			},
+		]);
+
+		await harness.session.prompt("inspect image");
+
+		expect(providerSawImage).toBe(false);
+		expect(providerText).toContain(".pi/tool-artifacts/image-large-0.png");
+		expect(existsSync(join(harness.tempDir, ".pi", "tool-artifacts", "image-large-0.png"))).toBe(true);
+	});
+
+	it("retains oversized images when artifacts cannot be written", () => {
+		const image = {
+			type: "image" as const,
+			data: "a".repeat(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS + 1),
+			mimeType: "image/png",
+		};
+
+		const result = replaceOversizedToolResultImages([image], "/dev/null", "image-large");
+
+		expect(result?.[0]).toEqual(image);
+		expect(result?.[1]).toMatchObject({ type: "text" });
+		expect(result?.[1]).toMatchObject({ text: expect.stringContaining("image retained in session history") });
+	});
+
 	it("caps oversized tool result text after extension handlers and saves the full text as an artifact", async () => {
 		const firstLargeText = "x".repeat(60_000);
 		const secondLargeText = "y".repeat(60_000);
@@ -394,6 +489,92 @@ describe("AgentSession model and extension characterization", () => {
 		const artifactPath = join(harness.tempDir, ".pi", "tool-results", "tool-huge-echo.txt");
 		expect(existsSync(artifactPath)).toBe(true);
 		expect(readFileSync(artifactPath, "utf8")).toBe(`${firstLargeText}\n\n${secondLargeText}`);
+	});
+
+	it("bounds aggregate tool-result images in the provider context without mutating session history", async () => {
+		const imageData = "a".repeat(2 * 1024 * 1024);
+		const imageTool: AgentTool = {
+			name: "image",
+			label: "Image",
+			description: "Returns a supported image",
+			parameters: Type.Object({}),
+			execute: async () => ({
+				content: [{ type: "image", data: imageData, mimeType: "image/png" }],
+				details: {},
+			}),
+		};
+		const harness = await createHarness({ tools: [imageTool] });
+		harnesses.push(harness);
+		let providerImageChars = 0;
+		let providerImageToolCallIds: string[] = [];
+		harness.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxToolCall("image", {}, { id: "image-1" }),
+					fauxToolCall("image", {}, { id: "image-2" }),
+					fauxToolCall("image", {}, { id: "image-3" }),
+					fauxToolCall("image", {}, { id: "image-4" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+			(context) => {
+				const toolResults = context.messages.filter((message) => message.role === "toolResult");
+				providerImageChars = toolResults
+					.flatMap((message) => message.content)
+					.reduce((total, block) => total + (block.type === "image" ? block.data.length : 0), 0);
+				providerImageToolCallIds = toolResults
+					.filter((message) => message.content.some((block) => block.type === "image"))
+					.map((message) => message.toolCallId);
+				return fauxAssistantMessage("done");
+			},
+		]);
+
+		await harness.session.prompt("inspect images");
+
+		expect(providerImageChars).toBeLessThanOrEqual(3 * 1024 * 1024);
+		expect(providerImageToolCallIds).toEqual(["image-4"]);
+		const storedImageCount = harness.session.messages
+			.filter((message) => message.role === "toolResult")
+			.flatMap((message) => message.content)
+			.filter((block) => block.type === "image").length;
+		expect(storedImageCount).toBe(4);
+	});
+
+	it("strips images from cache-safe compaction requests", async () => {
+		const imageTool: AgentTool = {
+			name: "image",
+			label: "Image",
+			description: "Returns a supported image",
+			parameters: Type.Object({}),
+			execute: async () => ({
+				content: [{ type: "image", data: "a".repeat(1024), mimeType: "image/png" }],
+				details: {},
+			}),
+		};
+		const harness = await createHarness({
+			tools: [imageTool],
+			settings: { compaction: { keepRecentTokens: 1 } },
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("image", {}, { id: "image-1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("inspect image");
+
+		let compactionImageCount = 0;
+		harness.setResponses([
+			(context) => {
+				compactionImageCount = context.messages
+					.flatMap((message) => (message.role === "toolResult" ? (message as ToolResultMessage).content : []))
+					.filter((block) => block.type === "image").length;
+				return fauxAssistantMessage("summary");
+			},
+		]);
+		await harness.session.compact();
+
+		expect(compactionImageCount).toBe(0);
 	});
 
 	it("allows extension context handlers to modify messages before the LLM call", async () => {

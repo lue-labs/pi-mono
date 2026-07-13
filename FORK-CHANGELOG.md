@@ -12,6 +12,10 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 - **Agent tasks now use an outcome-first calling-agent contract instead of child/subagent identity framing.** The universal trailing task message says the Agent tool call and later course corrections direct the work, returns the completed result to the calling agent, and accurately states depth-capped Agent availability. Built-in profile prompts and model-facing Agent tool guidance are substantially shorter: they retain capabilities, constraints, expected evidence, and verification while removing duplicated tool tutorials and procedural search choreography. `Agent`/`Task` call shapes and `subagent_type` remain compatible. Static prompt/tool-description bytes rewarm once on rollout and remain deterministic; fork mode still preserves the calling session's system/tool prefix byte-for-byte.
 
+### Fixed
+
+- **Provider requests and compaction no longer retain unbounded image payloads.** The SDK and session cache heartbeat now keep only the newest supported images within a 3 MiB aggregate base64 budget on their transient request contexts, replacing older images with a short placeholder while preserving durable session history. A single oversized tool-result image is saved under `.pi/tool-artifacts/` and represented by an artifact pointer when persistence succeeds; a write failure preserves the image in durable history while the transient budget still omits it. All core compaction requests are media-free. No system prompt or tool schema bytes change.
+
 ## [0.82.0] - 2026-07-11
 
 ### Added

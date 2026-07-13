@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentMessage } from "@valkyriweb/pi-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -14,6 +15,7 @@ import { ModelRegistry } from "../src/core/model-registry.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS } from "../src/core/tool-artifacts.ts";
 
 describe("createAgentSession stream options", () => {
 	let tempDir: string;
@@ -112,6 +114,42 @@ describe("createAgentSession stream options", () => {
 			modelRegistry.unregisterProvider(model.provider);
 		}
 	}
+
+	it("bounds aggregate images in the SDK's transient request context", async () => {
+		const model = createModel("openai-responses");
+		const { session } = await createAgentSession({
+			cwd,
+			agentDir,
+			model,
+			settingsManager: SettingsManager.inMemory({}),
+			sessionManager: SessionManager.inMemory(cwd),
+		});
+		const imageData = "a".repeat(2 * 1024 * 1024);
+		const messages = Array.from({ length: 2 }, (_, index) => ({
+			role: "toolResult" as const,
+			toolCallId: `image-${index}`,
+			toolName: "read",
+			content: [{ type: "image" as const, data: imageData, mimeType: "image/png" }],
+			isError: false,
+			timestamp: index,
+		})) as AgentMessage[];
+
+		try {
+			const transformed = await session.agent.transformContext!(messages);
+			const imageChars = transformed
+				.flatMap((message) => (message.role === "toolResult" ? message.content : []))
+				.reduce((total, block) => total + (block.type === "image" ? block.data.length : 0), 0);
+
+			expect(imageChars).toBeLessThanOrEqual(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS);
+			expect(
+				messages
+					.flatMap((message) => (message.role === "toolResult" ? message.content : []))
+					.filter((block) => block.type === "image"),
+			).toHaveLength(2);
+		} finally {
+			session.dispose();
+		}
+	});
 
 	it("forwards httpIdleTimeoutMs as timeoutMs for OpenAI Codex", async () => {
 		const options = await captureStreamOptions("openai-codex-responses", { httpIdleTimeoutMs: 1234 });
