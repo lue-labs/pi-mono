@@ -1016,7 +1016,7 @@ pi.on("tool_result", async (event, ctx) => {
 
 ### ctx.isIdle() / ctx.abort() / ctx.hasPendingMessages()
 
-Control flow helpers. `ctx.isIdle()` returns `true` only when Pi can start a new agent turn immediately: it is not streaming, compacting, or processing prompt lifecycle work.
+Control flow helpers. `ctx.isIdle()` returns `true` only when Pi can start a new agent turn immediately: no turn-starting call, compaction, or agent run is in flight, including prompt preflight and resumed interactive tools.
 
 ### ctx.shutdown()
 
