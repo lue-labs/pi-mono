@@ -10,6 +10,7 @@ import {
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens } from "../../src/core/compaction/index.ts";
+import { MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS } from "../../src/core/tool-artifacts.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
@@ -548,8 +549,10 @@ describe("AgentSession compaction characterization", () => {
 			cacheTokens: 5_000,
 			timestamp: now,
 		});
+		const imageData = "a".repeat(2 * 1024 * 1024);
 		harness.session.agent.state.messages = [
-			{ role: "user", content: [{ type: "text", text: "before idle" }], timestamp: now - 1000 },
+			{ role: "user", content: [{ type: "image", data: imageData, mimeType: "image/png" }], timestamp: now - 2000 },
+			{ role: "user", content: [{ type: "image", data: imageData, mimeType: "image/png" }], timestamp: now - 1000 },
 			assistant,
 		];
 
@@ -580,6 +583,15 @@ describe("AgentSession compaction characterization", () => {
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.options).toMatchObject({ cacheRetention: "long", maxTokens: 1, maxRetries: 0 });
+		const heartbeatMessages = (calls[0]?.context as Context).messages;
+		const heartbeatImageChars = heartbeatMessages
+			.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+			.reduce((total, block) => total + (block.type === "image" ? block.data.length : 0), 0);
+		expect(heartbeatImageChars).toBeLessThanOrEqual(MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS);
+		const storedImageCount = harness.session.agent.state.messages
+			.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+			.filter((block) => block.type === "image").length;
+		expect(storedImageCount).toBe(2);
 	});
 
 	it("skips cache heartbeats for providers outside the allowlist", async () => {
