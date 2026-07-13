@@ -16,6 +16,7 @@
 
 import type { AgentRecentRun } from "../agents/status.ts";
 import {
+	acknowledgeAgentRecentRun,
 	agentRunUiStatus,
 	cancelAgentRecentRun,
 	findAgentRecentRun,
@@ -63,7 +64,7 @@ function taskStatusFromRun(run: AgentRecentRun): TaskStatus {
 }
 
 function needsInputFor(run: AgentRecentRun, status: TaskStatus): boolean {
-	return run.needsAttention || status === "interrupted" || status === "failed";
+	return !run.acknowledged && (run.needsAttention || status === "interrupted" || status === "failed");
 }
 
 function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, index: number): TaskSnapshot {
@@ -79,7 +80,7 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 		sessionPath: detail.sessionPath,
 		needsInput: followsPersistentParent
 			? needsInputFor(run, status)
-			: status === "interrupted" || status === "failed",
+			: !run.acknowledged && (status === "interrupted" || status === "failed"),
 		startedAt,
 		endedAt:
 			status === "running" || status === "idle" || status === "interrupted"
@@ -160,6 +161,11 @@ export const LocalAgentTask: Task = {
 
 	async requestShutdown(taskId) {
 		const result = await interruptAgentRecentRun(taskId);
+		return toControlResult(taskId, result.ok, result.message);
+	},
+
+	async acknowledge(taskId) {
+		const result = acknowledgeAgentRecentRun(taskId);
 		return toControlResult(taskId, result.ok, result.message);
 	},
 

@@ -282,12 +282,19 @@ describe("native agent status", () => {
 			runs: [makeRunDetails("running")],
 		});
 		const interrupt = vi.fn();
-		attachAgentRecentRunController(interruptRun.id, { interrupt, resume: vi.fn() });
+		const interruptCancel = vi.fn();
+		attachAgentRecentRunController(interruptRun.id, { interrupt, cancel: interruptCancel, resume: vi.fn() });
 
 		const interrupted = await interruptAgentRecentRun(interruptRun.id);
 		expect(interrupt).toHaveBeenCalledOnce();
 		expect(interrupted.ok).toBe(true);
+		expect(interrupted.run?.runs[0]?.status).toBe("interrupted");
 		expect(formatAgentStatus()).toContain("agent-1 single background interrupted resumable");
+
+		const interruptedThenCancelled = await cancelAgentRecentRun(interruptRun.id);
+		expect(interruptCancel).toHaveBeenCalledOnce();
+		expect(interruptedThenCancelled.run?.status).toBe("cancelled");
+		expect(interruptedThenCancelled.run?.runs[0]?.status).toBe("cancelled");
 
 		const cancelRun = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		updateAgentRecentRunProgress(cancelRun, {

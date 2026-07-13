@@ -123,6 +123,11 @@ export interface Task {
 	/** Cooperative stop. Status → interrupted, may be resumable. */
 	requestShutdown?: (taskId: string) => Promise<TaskControlResult>;
 	/**
+	 * Clear a terminal task's attention state without deleting its session or
+	 * output artifacts. Unsupported for tasks that still need lifecycle control.
+	 */
+	acknowledge?: (taskId: string) => Promise<TaskControlResult>;
+	/**
 	 * Steer the task with a user message.
 	 *
 	 * v1 `local_agent` implementation: interrupt → resume(message). This means

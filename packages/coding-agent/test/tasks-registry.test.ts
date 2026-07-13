@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	attachAgentRecentRunController,
 	clearAgentRecentRunsForTests,
+	failAgentRecentRun,
+	findAgentRecentRun,
 	finishAgentRecentRun,
 	startAgentRecentRun,
 	updateAgentRecentRunProgress,
@@ -230,6 +232,69 @@ describe("tasks registry — LocalAgentTask adapter", () => {
 		const snap = LocalAgentTask.snapshot(run.id);
 		expect(snap?.status).toBe("completed");
 		expect(snap?.endedAt).toBeGreaterThan(0);
+	});
+
+	test("acknowledge moves a failed pre-start parallel run out of needs input without removing it", async () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "missing-model", task: "First" },
+				{ agent: "missing-model", task: "Second" },
+			],
+			{ background: true },
+		);
+		failAgentRecentRun(run, new Error("Model unavailable before children started"));
+
+		expect(LocalAgentTask.snapshot(run.id)).toMatchObject({ status: "failed", needsInput: true, children: [] });
+
+		const result = await LocalAgentTask.acknowledge?.(run.id);
+
+		expect(result?.ok).toBe(true);
+		expect(result?.snapshot).toMatchObject({ id: run.id, status: "failed", needsInput: false, children: [] });
+		expect(findAgentRecentRun(run.id)).toMatchObject({ id: run.id, status: "failed", runs: [] });
+	});
+
+	test("acknowledge clears failed child attention without removing diagnostic artifacts", async () => {
+		const outputPath = join(tempDir, "failed-review.md");
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "scout", task: "First" },
+				{ agent: "scout", task: "Second" },
+			],
+			{ background: true },
+		);
+		finishAgentRecentRun(run, {
+			mode: "parallel",
+			status: "failed",
+			runs: [{ ...makeRunDetails("failed"), outputPath }, makeRunDetails("completed")],
+		});
+
+		expect(LocalAgentTask.snapshot(run.id)?.children?.map((child) => child.needsInput)).toEqual([true, false]);
+
+		const result = await LocalAgentTask.acknowledge?.(run.id);
+		const repeated = await LocalAgentTask.acknowledge?.(run.id);
+		const stored = findAgentRecentRun(run.id);
+
+		expect(result?.ok).toBe(true);
+		expect(result?.snapshot?.children?.map((child) => child.needsInput)).toEqual([false, false]);
+		expect(repeated).toMatchObject({ ok: true, message: `${run.id} is already dismissed` });
+		expect(stored?.outputPaths).toEqual([outputPath]);
+		expect(stored?.sessionRefs).toHaveLength(2);
+		expect(stored?.sessionRefs[0]).toEqual({
+			agent: "scout",
+			sessionId: "child-session",
+			sessionPath: childSessionPath,
+		});
+	});
+
+	test("acknowledge rejects a non-failed run", async () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Still working" }], { background: true });
+
+		const result = await LocalAgentTask.acknowledge?.(run.id);
+
+		expect(result).toMatchObject({ ok: false, message: `${run.id} is not a failed terminal run (status: running)` });
+		expect(findAgentRecentRun(run.id)).toMatchObject({ status: "running", acknowledged: false });
 	});
 });
 
