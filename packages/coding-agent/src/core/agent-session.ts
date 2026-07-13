@@ -1350,7 +1350,7 @@ export class AgentSession {
 		const activeToolNames =
 			this.model?.provider === "claude-bridge"
 				? syncClaudeBridgeNativeTools(orderedNames, this.model)
-				: this.model?.provider === "openai-codex"
+				: this.model?.api === "openai-codex-responses"
 					? orderedNames.filter((name) => /^[a-zA-Z0-9_-]+$/.test(name))
 					: orderedNames;
 

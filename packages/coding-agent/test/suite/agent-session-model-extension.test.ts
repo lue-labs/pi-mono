@@ -53,6 +53,38 @@ describe("AgentSession model and extension characterization", () => {
 		).toEqual([`${nextModel.provider}/${nextModel.id}`]);
 	});
 
+	it("filters Codex-invalid tool names by API for gateway providers", async () => {
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					for (const name of ["gateway_valid_tool", "gateway.invalid.tool"]) {
+						pi.registerTool({
+							name,
+							label: name,
+							description: `${name} description`,
+							parameters: Type.Object({}),
+							execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+						});
+					}
+				},
+			],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({});
+		const { compat: _compat, ...currentModel } = harness.session.model!;
+		const model: Model<"openai-codex-responses"> = {
+			...currentModel,
+			api: "openai-codex-responses",
+			provider: "arbitrary-codex-gateway",
+		};
+		harness.session.agent.state.model = model;
+
+		harness.session.setActiveToolsByName(["gateway_valid_tool", "gateway.invalid.tool"]);
+
+		expect(harness.session.getActiveToolNames()).toContain("gateway_valid_tool");
+		expect(harness.session.getActiveToolNames()).not.toContain("gateway.invalid.tool");
+	});
+
 	it("pending auto routing emits model events even when it keeps the current concrete model", async () => {
 		const modelEvents: string[] = [];
 		const harness = await createHarness({

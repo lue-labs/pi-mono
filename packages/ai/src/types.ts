@@ -596,6 +596,12 @@ export interface OpenAIResponsesCompat {
 	promptCacheApi?: "legacy" | "breakpoints";
 }
 
+/** Compatibility settings for OpenAI Codex Responses APIs. */
+export interface OpenAICodexResponsesCompat {
+	/** Whether to derive and send the ChatGPT account header. Default: true. */
+	sendChatgptAccountId?: boolean;
+}
+
 /** Compatibility settings for Anthropic Messages-compatible APIs. */
 export interface AnthropicMessagesCompat {
 	/**
@@ -761,9 +767,11 @@ export interface Model<TApi extends Api> {
 		? OpenAICompletionsCompat
 		: TApi extends "openai-responses"
 			? OpenAIResponsesCompat
-			: TApi extends "anthropic-messages"
-				? AnthropicMessagesCompat
-				: never;
+			: TApi extends "openai-codex-responses"
+				? OpenAICodexResponsesCompat
+				: TApi extends "anthropic-messages"
+					? AnthropicMessagesCompat
+					: never;
 }
 
 export interface ImagesModel<TApi extends ImagesApi>
