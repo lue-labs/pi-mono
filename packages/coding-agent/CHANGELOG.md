@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fixed custom `agent`/`Agent`/`Task` aliases failing with `agent tool is unavailable in this runtime` after the session-isolated Agent engine change. Agent tool definitions now fall back to the calling session's execution-scoped engine when an alias has no explicit/runtime engine, preserving extension overrides and profile/depth denial.
+
 - Forked named Agent profiles now retain their role prompt as trailing task guidance while preserving the caller's system/tool cache prefix. Fork remains a permissive self-fork: callers receive a warning when ordinary profile tool filtering is bypassed and can use `context: "default"` when that filtering matters; existing profile/depth caps on nested Agent access remain enforced.
 
 - Agent task prompts now address the calling agent rather than assigning child/subagent identity, with concise outcome, evidence, and verification contracts plus accurate depth-aware Agent availability on initial and resumed turns. Public tool call shapes remain compatible and fork task guidance stays in trailing user messages for cache preservation.
