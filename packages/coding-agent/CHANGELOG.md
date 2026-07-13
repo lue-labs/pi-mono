@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fixed extension `ctx.isIdle()` reporting true during compaction and turn-start lifecycle work, including prompt preflight and resumed interactive tools, so idle-only shortcuts and commands no longer queue work while Pi is busy ([#295](https://github.com/valkyriweb/pi-mono/issues/295)).
+
 - Accept model-registry compatibility flags for opaque Codex gateways to omit ChatGPT account headers, force SSE, and disable zstd request compression.
 
 - Fix Codex tool-name filtering to follow `openai-codex-responses` API selection, including gateway providers, instead of the direct `openai-codex` provider id.
