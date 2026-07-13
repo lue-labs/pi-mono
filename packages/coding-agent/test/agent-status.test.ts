@@ -282,12 +282,19 @@ describe("native agent status", () => {
 			runs: [makeRunDetails("running")],
 		});
 		const interrupt = vi.fn();
-		attachAgentRecentRunController(interruptRun.id, { interrupt, resume: vi.fn() });
+		const interruptCancel = vi.fn();
+		attachAgentRecentRunController(interruptRun.id, { interrupt, cancel: interruptCancel, resume: vi.fn() });
 
 		const interrupted = await interruptAgentRecentRun(interruptRun.id);
 		expect(interrupt).toHaveBeenCalledOnce();
 		expect(interrupted.ok).toBe(true);
+		expect(interrupted.run?.runs[0]?.status).toBe("interrupted");
 		expect(formatAgentStatus()).toContain("agent-1 single background interrupted resumable");
+
+		const interruptedThenCancelled = await cancelAgentRecentRun(interruptRun.id);
+		expect(interruptCancel).toHaveBeenCalledOnce();
+		expect(interruptedThenCancelled.run?.status).toBe("cancelled");
+		expect(interruptedThenCancelled.run?.runs[0]?.status).toBe("cancelled");
 
 		const cancelRun = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		updateAgentRecentRunProgress(cancelRun, {
@@ -302,6 +309,29 @@ describe("native agent status", () => {
 		expect(cancel).toHaveBeenCalledOnce();
 		expect(cancelled.ok).toBe(true);
 		expect(formatAgentStatus()).toContain("agent-2 single background cancelled");
+	});
+
+	test("cancelling an interrupted parallel run normalizes every child", async () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "scout", task: "Map files" },
+				{ agent: "reviewer", task: "Review files" },
+			],
+			{ background: true },
+		);
+		updateAgentRecentRunProgress(run, {
+			mode: "parallel",
+			status: "running",
+			runs: [makeRunDetails("running"), makeRunDetails("running")],
+		});
+		attachAgentRecentRunController(run.id, { interrupt: vi.fn(), cancel: vi.fn() });
+
+		const interrupted = await interruptAgentRecentRun(run.id);
+		expect(interrupted.run?.runs.map((child) => child.status)).toEqual(["interrupted", "interrupted"]);
+
+		const cancelled = await cancelAgentRecentRun(run.id);
+		expect(cancelled.run?.runs.map((child) => child.status)).toEqual(["cancelled", "cancelled"]);
 	});
 
 	test("formats footer summary for background runs", () => {

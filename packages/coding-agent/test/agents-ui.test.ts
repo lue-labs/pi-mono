@@ -1,6 +1,8 @@
+import { setKeybindings } from "@valkyriweb/pi-tui";
 import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	clearAgentRecentRunsForTests,
+	failAgentRecentRun,
 	finishAgentRecentRun,
 	markAgentRecentRunNeedsAttention,
 	startAgentRecentRun,
@@ -10,6 +12,7 @@ import type { AgentRunDetails } from "../src/core/agents/types.ts";
 import { hookAgents, hookAgentsTools, hookAgentsUI } from "../src/core/extensions/agents.ts";
 import { addAction, getActions, load, removeAction } from "../src/core/extensions/extension-hooks.ts";
 import type { ExtensionFooterSpec, ExtensionMainPaneFactory } from "../src/core/extensions/types.ts";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 function createFakePi(options?: { hasMainPane?: (id: string) => boolean; cwd?: string }) {
@@ -69,7 +72,10 @@ function runDetail(status: AgentRunDetails["status"], overrides: Partial<AgentRu
 }
 
 describe("agents UI", () => {
-	beforeAll(() => initTheme(undefined, false));
+	beforeAll(() => {
+		initTheme(undefined, false);
+		setKeybindings(new KeybindingsManager());
+	});
 	beforeEach(() => clearAgentRecentRunsForTests());
 
 	test("registers an activatable background agent status footer", () => {
@@ -287,6 +293,32 @@ describe("agents UI", () => {
 			expect(rendered).not.toContain(run.id);
 			expect(rendered).not.toContain("[local_agent]");
 			expect(rendered).not.toContain("[agent]");
+		});
+
+		test("dismisses a failed pre-start parallel run into Completed without deleting its row", () => {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+			const run = startAgentRecentRun(
+				"parallel",
+				[
+					{ agent: "missing-model", task: "First" },
+					{ agent: "missing-model", task: "Second" },
+				],
+				{ background: true },
+			);
+			failAgentRecentRun(run, new Error("Model unavailable before children started"));
+
+			const factory = fake.panes.get("agents-status");
+			const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
+			const pane = factory!({ requestRender: vi.fn() } as never, theme as never, { requestHide: vi.fn() } as never);
+			expect(pane.render(120).join("\n")).toContain("Needs input");
+
+			pane.handleInput?.("d");
+
+			const rendered = pane.render(120).join("\n");
+			expect(rendered).not.toContain("Needs input");
+			expect(rendered).toContain("Completed");
+			expect(rendered).toContain("missing-model: First");
 		});
 
 		test("needs-input runs are sorted into their own section ahead of working runs", async () => {

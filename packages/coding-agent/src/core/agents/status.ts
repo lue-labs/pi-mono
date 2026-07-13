@@ -30,6 +30,8 @@ export interface AgentRecentRun {
 	resumable: boolean;
 	needsAttention: boolean;
 	attentionMessage?: string;
+	/** True after the operator dismisses a terminal failure from attention UI. */
+	acknowledged?: boolean;
 	error?: string;
 	/**
 	 * True for a `mode:"single"` background run kept alive across turns
@@ -243,6 +245,7 @@ function computeRunContentSignature(run: AgentRecentRun): string {
 		error: run.error,
 		needsAttention: run.needsAttention,
 		attentionMessage: run.attentionMessage,
+		acknowledged: run.acknowledged,
 		resumable: run.resumable,
 		parked: run.parked,
 		outputPaths: run.outputPaths,
@@ -298,7 +301,11 @@ function markRunStopped(run: AgentRecentRun, status: "interrupted" | "cancelled"
 	run.status = status;
 	run.parked = false;
 	updateRunTimestamps(run, true);
-	run.runs = run.runs.map((child) => (child.status === "running" ? { ...child, status } : child));
+	run.runs = run.runs.map((child) =>
+		child.status === "running" || (status === "cancelled" && child.status === "interrupted")
+			? { ...child, status }
+			: child,
+	);
 	refreshRunSummary(run, run.runs);
 	if (message) run.error = message;
 	run.resumable = canResumeRun(run);
@@ -344,6 +351,7 @@ export function startAgentRecentRun(
 		runs: [],
 		resumable: false,
 		needsAttention: false,
+		acknowledged: false,
 		persistent: options?.persistent ?? false,
 		parked: false,
 		label: options?.label,
@@ -437,6 +445,7 @@ export function restartAgentRecentRun(run: AgentRecentRun): void {
 	run.resumable = false;
 	run.needsAttention = false;
 	run.attentionMessage = undefined;
+	run.acknowledged = false;
 	run.runs = run.runs.map((child) => (child.status === "interrupted" ? { ...child, status: "running" } : child));
 	notifyAgentRecentRunsChanged();
 }
@@ -466,6 +475,28 @@ export async function cancelAgentRecentRun(runId: string): Promise<AgentRunContr
 	await controller.cancel();
 	markRunStopped(run, "cancelled", "Cancelled by operator");
 	return { ok: true, message: `Cancelled ${runId}`, run: cloneRecentRun(run) };
+}
+
+export function acknowledgeAgentRecentRun(runId: string): AgentRunControlResult {
+	const run = findMutableRun(runId);
+	if (!run) return { ok: false, message: `Run not found: ${runId}` };
+	if (run.status !== "failed") {
+		return {
+			ok: false,
+			message: `${runId} is not a failed terminal run (status: ${run.status})`,
+			run: cloneRecentRun(run),
+		};
+	}
+	if (run.acknowledged) return { ok: true, message: `${runId} is already dismissed`, run: cloneRecentRun(run) };
+
+	// Deliberately only UI/session bookkeeping: preserve the run record and all
+	// session/output references so its diagnostics remain inspectable.
+	run.acknowledged = true;
+	run.needsAttention = false;
+	run.attentionMessage = undefined;
+	run.updatedAt = nowIso();
+	notifyAgentRecentRunsChanged();
+	return { ok: true, message: `Dismissed ${runId}`, run: cloneRecentRun(run) };
 }
 
 export async function resumeAgentRecentRun(runId: string, prompt?: string): Promise<AgentRunControlResult> {

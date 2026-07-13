@@ -33,6 +33,7 @@ export interface AppKeybindings {
 	"app.agents.interrupt": true;
 	"app.agents.cancel": true;
 	"app.agents.resume": true;
+	"app.agents.dismiss": true;
 	"app.tree.foldOrUp": true;
 	"app.tree.unfoldOrDown": true;
 	"app.tree.editLabel": true;
@@ -118,6 +119,7 @@ export const KEYBINDINGS = {
 	"app.agents.interrupt": { defaultKeys: "i", description: "Interrupt selected background agent run" },
 	"app.agents.cancel": { defaultKeys: "c", description: "Cancel selected background agent run" },
 	"app.agents.resume": { defaultKeys: "r", description: "Resume selected background agent run" },
+	"app.agents.dismiss": { defaultKeys: "d", description: "Dismiss selected failed background agent run" },
 	"app.tree.foldOrUp": {
 		defaultKeys: ["ctrl+left", "alt+left"],
 		description: "Fold tree branch or move up",
