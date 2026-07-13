@@ -25,6 +25,7 @@ import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, type SessionContext, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
+import { boundModelFacingContextImages } from "./tool-artifacts.ts";
 import { time } from "./timings.ts";
 import {
 	createBashTool,
@@ -535,8 +536,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		cacheAffinityKey: undefined,
 		transformContext: async (messages) => {
 			const runner = extensionRunnerRef.current;
-			if (!runner) return messages;
-			return runner.emitContext(messages);
+			const extensionMessages = runner ? await runner.emitContext(messages) : messages;
+			return boundModelFacingContextImages<AgentMessage>(extensionMessages);
 		},
 		steeringMode: settingsManager.getSteeringMode(),
 		followUpMode: settingsManager.getFollowUpMode(),

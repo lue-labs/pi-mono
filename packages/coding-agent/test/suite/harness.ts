@@ -17,6 +17,7 @@ import { ModelRegistry } from "../../src/core/model-registry.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { Settings } from "../../src/core/settings-manager.ts";
 import { SettingsManager } from "../../src/core/settings-manager.ts";
+import { boundModelFacingContextImages } from "../../src/core/tool-artifacts.ts";
 import type { ExtensionFactory, ResourceLoader } from "../../src/index.ts";
 import {
 	type CreateTestExtensionsResultInput,
@@ -162,8 +163,8 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		},
 		transformContext: async (messages: AgentMessage[]) => {
 			const runner = extensionRunnerRef.current;
-			if (!runner) return messages;
-			return runner.emitContext(messages);
+			const extensionMessages = runner ? await runner.emitContext(messages) : messages;
+			return boundModelFacingContextImages<AgentMessage>(extensionMessages);
 		},
 	});
 	const extensionsResult = options.extensionFactories

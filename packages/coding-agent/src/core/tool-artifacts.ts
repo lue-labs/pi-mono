@@ -8,9 +8,14 @@
  * - {@link replaceUnsupportedToolResultImages}: replaces image blocks whose
  *   MIME type Anthropic cannot inline with a text pointer to a saved artifact
  *   under `.pi/tool-artifacts/`.
+ * - {@link replaceOversizedToolResultImages}: saves a single oversized image
+ *   as an artifact before it reaches session history.
+ * - {@link boundModelFacingContextImages}: keeps only the newest images that
+ *   fit a conservative request budget on the transient provider view.
+ * - {@link stripModelFacingContextImages}: removes media from compaction
+ *   contexts while preserving surrounding text and paths.
  *
- * Both return `undefined` when no change is needed so the caller can keep the
- * original content reference (identity-preserving fast path).
+ * All functions preserve their input identity when no change is needed.
  *
  * Fork provenance: extracted verbatim from agent-session.ts (fork-delta
  * reforge slice 5b); tier `platform` in pi-fork-patch-inventory.
@@ -23,6 +28,11 @@ const SUPPORTED_INLINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "i
 const TOOL_ARTIFACTS_DIR = ".pi/tool-artifacts";
 const TOOL_RESULT_TEXT_ARTIFACTS_DIR = ".pi/tool-results";
 const MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS = 100_000;
+export const MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS = 3 * 1024 * 1024;
+const TOOL_RESULT_IMAGE_OMITTED =
+	"[Image omitted because it exceeds the model-facing image limit. Refer to the saved artifact.]";
+const CONTEXT_IMAGE_OMITTED = "[Image omitted from this provider request because the aggregate image budget was exceeded.]";
+const COMPACTION_IMAGE_OMITTED = "[Image omitted from compaction context; refer to surrounding text or file paths.]";
 
 type ToolResultContentBlock = TextContent | ImageContent | ToolReferenceContent;
 
@@ -96,6 +106,83 @@ export function capModelFacingToolResultText(
 	return nextContent;
 }
 
+export function replaceOversizedToolResultImages(
+	content: ToolResultContentBlock[],
+	cwd: string,
+	toolCallId: string,
+): ToolResultContentBlock[] | undefined {
+	let changed = false;
+	const nextContent = content.map((block, index): ToolResultContentBlock => {
+		if (block.type !== "image" || block.data.length <= MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS) {
+			return block;
+		}
+
+		changed = true;
+		const artifact = saveToolResultImageArtifact(block, cwd, toolCallId, index);
+		return {
+			type: "text",
+			text: artifact.relativePath
+				? `${TOOL_RESULT_IMAGE_OMITTED} Saved artifact to ${artifact.relativePath}`
+				: `${TOOL_RESULT_IMAGE_OMITTED} Artifact save failed: ${artifact.error}`,
+		};
+	});
+
+	return changed ? nextContent : undefined;
+}
+
+/**
+ * Bounds images on the transient provider view, retaining newest images first.
+ * Stored session messages are never mutated.
+ */
+export function boundModelFacingContextImages<T extends object>(messages: T[]): T[] {
+	return replaceContextImages(messages, MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS, CONTEXT_IMAGE_OMITTED);
+}
+
+/** Replaces every image only in the compaction request context. */
+export function stripModelFacingContextImages<T extends object>(messages: T[]): T[] {
+	return replaceContextImages(messages, 0, COMPACTION_IMAGE_OMITTED);
+}
+
+function replaceContextImages<T extends object>(messages: T[], imageBudget: number, placeholder: string): T[] {
+	let remainingImageChars = imageBudget;
+	let nextMessages: T[] | undefined;
+
+	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+		const message = messages[messageIndex];
+		const content = "content" in message ? message.content : undefined;
+		if (!Array.isArray(content)) continue;
+
+		let nextContent: unknown[] | undefined;
+		for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
+			const block = content[blockIndex];
+			if (!isImageContent(block)) continue;
+			if (block.data.length <= remainingImageChars) {
+				remainingImageChars -= block.data.length;
+				continue;
+			}
+
+			nextContent ??= [...content];
+			nextContent[blockIndex] = { type: "text", text: placeholder };
+		}
+
+		if (nextContent) {
+			nextMessages ??= messages.slice();
+			nextMessages[messageIndex] = { ...message, content: nextContent } as T;
+		}
+	}
+
+	return nextMessages ?? messages;
+}
+
+function isImageContent(block: unknown): block is ImageContent {
+	return (
+		typeof block === "object" &&
+		block !== null &&
+		(block as { type?: unknown }).type === "image" &&
+		typeof (block as { data?: unknown }).data === "string"
+	);
+}
+
 export function replaceUnsupportedToolResultImages(
 	content: ToolResultContentBlock[],
 	cwd: string,
@@ -108,25 +195,33 @@ export function replaceUnsupportedToolResultImages(
 		}
 
 		changed = true;
-		const relativePath = `${TOOL_ARTIFACTS_DIR}/${sanitizeArtifactName(toolCallId)}-${index}${extensionForMimeType(block.mimeType)}`;
-		const absolutePath = resolve(cwd, relativePath);
-		try {
-			mkdirSync(dirname(absolutePath), { recursive: true });
-			writeFileSync(absolutePath, Buffer.from(block.data, "base64"));
-			return {
-				type: "text",
-				text: `[Unsupported image MIME ${block.mimeType}; saved artifact to ${relativePath}]`,
-			};
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return {
-				type: "text",
-				text: `[Unsupported image MIME ${block.mimeType}; image omitted because artifact save failed: ${message}]`,
-			};
-		}
+		const artifact = saveToolResultImageArtifact(block, cwd, toolCallId, index);
+		return {
+			type: "text",
+			text: artifact.relativePath
+				? `[Unsupported image MIME ${block.mimeType}; saved artifact to ${artifact.relativePath}]`
+				: `[Unsupported image MIME ${block.mimeType}; image omitted because artifact save failed: ${artifact.error}]`,
+		};
 	});
 
 	return changed ? nextContent : undefined;
+}
+
+function saveToolResultImageArtifact(
+	block: ImageContent,
+	cwd: string,
+	toolCallId: string,
+	index: number,
+): { relativePath?: string; error?: string } {
+	const relativePath = `${TOOL_ARTIFACTS_DIR}/${sanitizeArtifactName(toolCallId)}-${index}${extensionForMimeType(block.mimeType)}`;
+	try {
+		const absolutePath = resolve(cwd, relativePath);
+		mkdirSync(dirname(absolutePath), { recursive: true });
+		writeFileSync(absolutePath, Buffer.from(block.data, "base64"));
+		return { relativePath };
+	} catch (error) {
+		return { error: error instanceof Error ? error.message : String(error) };
+	}
 }
 
 function sanitizeArtifactName(value: string): string {
