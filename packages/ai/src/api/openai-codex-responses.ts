@@ -287,7 +287,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// previous_response_id is connection/conversation scoped, so keep local
 			// socket reuse, fallback tracking, and debug stats keyed to the real Pi
 			// session id carried in options.
-			const transportOptions = options;
+			const requestedTransport = options?.transport || "auto";
+			const transport = model.compat?.supportsWebSocketTransport === false ? "sse" : requestedTransport;
+			const transportOptions: OpenAICodexResponsesOptions = { ...options, transport };
 			const sseHeaders = buildSSEHeaders(
 				model.headers,
 				options?.headers,
@@ -296,7 +298,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				codexSessionHeader,
 				codexThreadId,
 			);
-			await writeCodexCacheDebugSnapshot(model, body, options, sseHeaders);
+			await writeCodexCacheDebugSnapshot(model, body, transportOptions, sseHeaders);
 			const websocketHeaders = buildWebSocketHeaders(
 				model.headers,
 				options?.headers,
@@ -308,7 +310,6 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			const bodyJson = JSON.stringify(body);
 			const httpTimeoutMs = normalizeTimeoutMs(options?.timeoutMs);
 			const websocketConnectTimeoutMs = normalizeTimeoutMs(options?.websocketConnectTimeoutMs);
-			const transport = options?.transport || "auto";
 			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(options?.sessionId);
 			if (websocketDisabledForSession) {
 				recordWebSocketSseFallback(options?.sessionId);
@@ -378,9 +379,12 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// Compress the request body once for the SSE path. The Codex backend
 			// decodes Content-Encoding: zstd; the WebSocket transport above sends the
 			// uncompressed JSON frame, matching the official Codex client.
-			const compressedBody = compressRequestBodyZstd(bodyJson);
+			const compressedBody =
+				model.compat?.supportsZstdRequestCompression === false ? null : compressRequestBodyZstd(bodyJson);
 			if (compressedBody) {
 				sseHeaders.set("content-encoding", "zstd");
+			} else {
+				sseHeaders.delete("content-encoding");
 			}
 			const sseBody: Uint8Array | string = compressedBody ?? bodyJson;
 

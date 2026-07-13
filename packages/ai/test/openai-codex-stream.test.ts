@@ -160,12 +160,14 @@ describe("openai-codex streaming", () => {
 		let requestUrl: string | undefined;
 		let requestHeaders: Headers | undefined;
 		let requestBody: Record<string, unknown> | undefined;
+		let requestBodyWasCompressed: boolean | undefined;
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async (input: string | URL, init?: RequestInit) => {
 				requestUrl = typeof input === "string" ? input : input.toString();
 				requestHeaders = new Headers(init?.headers);
 				requestBody = decodeCodexRequestBody(init?.body) ?? undefined;
+				requestBodyWasCompressed = init?.body instanceof Uint8Array;
 				return new Response(
 					new ReadableStream<Uint8Array>({
 						start(controller) {
@@ -188,8 +190,15 @@ describe("openai-codex streaming", () => {
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: 128000,
 			maxTokens: 16384,
-			headers: { "ChatGPT-Account-ID": "inherited-account-id" },
-			compat: { sendChatgptAccountId: false },
+			headers: {
+				"ChatGPT-Account-ID": "inherited-account-id",
+				"Content-Encoding": "inherited-encoding",
+			},
+			compat: {
+				sendChatgptAccountId: false,
+				supportsWebSocketTransport: false,
+				supportsZstdRequestCompression: false,
+			},
 		};
 
 		const result = await streamOpenAICodexResponses(
@@ -206,7 +215,12 @@ describe("openai-codex streaming", () => {
 					},
 				],
 			},
-			{ apiKey: opaqueBearerCredential, transport: "sse" },
+			{
+				apiKey: opaqueBearerCredential,
+				transport: "websocket",
+				websocketConnectTimeoutMs: 10,
+				sessionId: "gateway-session",
+			},
 		).result();
 
 		expect(result.stopReason).toBe("stop");
@@ -214,6 +228,9 @@ describe("openai-codex streaming", () => {
 		expect(requestUrl).toBe("https://gateway.example/api/codex/responses");
 		expect(requestHeaders?.get("Authorization")).toBe(`Bearer ${opaqueBearerCredential}`);
 		expect(requestHeaders?.has("chatgpt-account-id")).toBe(false);
+		expect(requestHeaders?.has("content-encoding")).toBe(false);
+		expect(requestBodyWasCompressed).toBe(false);
+		expect(getOpenAICodexWebSocketDebugStats("gateway-session")).toBeUndefined();
 		const tools = requestBody?.tools as Array<Record<string, unknown>> | undefined;
 		expect(tools?.[0]).toEqual({ type: "tool_search" });
 		expect(tools?.find((tool) => tool.name === "gateway_deferred_tool")?.defer_loading).toBe(true);

@@ -14,6 +14,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Fixed
 
+- **Opaque Codex gateways can opt out of ChatGPT-only transport features.** `OpenAICodexResponsesCompat` now supports model-level `supportsWebSocketTransport:false` and `supportsZstdRequestCompression:false` alongside `sendChatgptAccountId:false`. Gateway models can force SSE, send an uncompressed JSON body, and omit the ChatGPT account header while preserving the native Codex deferred-tool wire contract; direct ChatGPT Codex defaults are unchanged.
+
 - **Provider requests and compaction no longer retain unbounded image payloads.** The SDK and session cache heartbeat now keep only the newest supported images within a 3 MiB aggregate base64 budget on their transient request contexts, replacing older images with a short placeholder while preserving durable session history. A single oversized tool-result image is saved under `.pi/tool-artifacts/` and represented by an artifact pointer when persistence succeeds; a write failure preserves the image in durable history while the transient budget still omits it. All core compaction requests are media-free. No system prompt or tool schema bytes change.
 
 ## [0.82.0] - 2026-07-11

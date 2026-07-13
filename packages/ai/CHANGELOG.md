@@ -9,7 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
-- Fix Codex Responses gateways with opaque bearer credentials: `OpenAICodexResponsesCompat.sendChatgptAccountId: false` preserves bearer authentication while omitting ChatGPT JWT account-ID derivation and the inherited `chatgpt-account-id` header.
+- Fix Codex Responses gateways with opaque bearer credentials and JSON-only transports: `OpenAICodexResponsesCompat` can omit ChatGPT JWT account-ID derivation and inherited headers, force SSE when WebSocket is unsupported, and disable zstd request compression. Direct ChatGPT defaults remain unchanged.
 
 - Fix automatic retries so transient failures remain retryable only before the assistant emits text, thinking, or tool output, preventing duplicate work after a partial response.
 - Add GPT-5.6 prompt-cache breakpoints support: `OpenAIResponsesCompat.promptCacheApi: "breakpoints"` omits the deprecated `prompt_cache_retention` param and emits explicit `prompt_cache_breakpoint` markers on the stable system-prompt prefix (split at `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`) and the previous user message. Default stays `"legacy"`; GPT-5.6 (Sol/Terra/Luna) opts in via the generated catalog. OpenAI SDK bumped to 6.46.0.

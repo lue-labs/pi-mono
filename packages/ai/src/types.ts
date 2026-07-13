@@ -600,6 +600,10 @@ export interface OpenAIResponsesCompat {
 export interface OpenAICodexResponsesCompat {
 	/** Whether to derive and send the ChatGPT account header. Default: true. */
 	sendChatgptAccountId?: boolean;
+	/** Whether the endpoint accepts the Codex WebSocket transport. Default: true. */
+	supportsWebSocketTransport?: boolean;
+	/** Whether SSE request bodies may use Content-Encoding: zstd. Default: true. */
+	supportsZstdRequestCompression?: boolean;
 }
 
 /** Compatibility settings for Anthropic Messages-compatible APIs. */
