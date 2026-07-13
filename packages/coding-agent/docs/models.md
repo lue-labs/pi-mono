@@ -124,10 +124,51 @@ The `baseUrl` is required when adding custom models to the `google-generative-ai
 |-----|-------------|
 | `openai-completions` | OpenAI Chat Completions (most compatible) |
 | `openai-responses` | OpenAI Responses API |
+| `openai-codex-responses` | ChatGPT Codex Responses API, including native deferred tools |
 | `anthropic-messages` | Anthropic Messages API |
 | `google-generative-ai` | Google Generative AI |
 
 Set `api` at provider level (default for all models) or model level (override per model).
+
+### Codex Responses gateway compatibility
+
+Use `openai-codex-responses` only when a gateway implements the ChatGPT Codex wire contract, including native `defer_loading` and `tool_search`. Gateways can opt out of independent ChatGPT transport features with model or provider `compat` flags:
+
+```json
+{
+  "providers": {
+    "codex-gateway": {
+      "baseUrl": "https://gateway.example/v1",
+      "apiKey": "$CODEX_GATEWAY_API_KEY",
+      "api": "openai-codex-responses",
+      "compat": {
+        "sendChatgptAccountId": false,
+        "supportsWebSocketTransport": false,
+        "supportsZstdRequestCompression": false
+      },
+      "models": [
+        {
+          "id": "gateway-codex-model",
+          "name": "Gateway Codex model",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+          "contextWindow": 128000,
+          "maxTokens": 16384
+        }
+      ]
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `sendChatgptAccountId` | Derive and send `chatgpt-account-id` from a ChatGPT JWT. Default: `true`; set `false` for opaque bearer credentials. |
+| `supportsWebSocketTransport` | Allow the ChatGPT Codex WebSocket transport. Default: `true`; set `false` to force SSE for this model even when global transport is `websocket`. |
+| `supportsZstdRequestCompression` | Send zstd-compressed JSON requests. Default: `true`; set `false` for gateways that require an uncompressed JSON body. |
+
+Omitted flags preserve direct ChatGPT defaults. These flags change headers and transport encoding only; they do not change request-level tools or system instructions.
 
 ## Provider Configuration
 

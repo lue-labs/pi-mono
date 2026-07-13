@@ -144,6 +144,8 @@ const OpenAIResponsesCompatSchema = Type.Object({
 
 const OpenAICodexResponsesCompatSchema = Type.Object({
 	sendChatgptAccountId: Type.Optional(Type.Boolean()),
+	supportsWebSocketTransport: Type.Optional(Type.Boolean()),
+	supportsZstdRequestCompression: Type.Optional(Type.Boolean()),
 });
 
 const AnthropicMessagesCompatSchema = Type.Object({

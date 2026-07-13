@@ -485,7 +485,11 @@ describe("ModelRegistry", () => {
 					baseUrl: "https://gateway.example/api",
 					apiKey: "DEMO_KEY",
 					api: "openai-codex-responses",
-					compat: { sendChatgptAccountId: false },
+					compat: {
+						sendChatgptAccountId: false,
+						supportsWebSocketTransport: false,
+						supportsZstdRequestCompression: false,
+					},
 					models: [
 						{
 							id: "gateway-codex-model",
@@ -503,7 +507,11 @@ describe("ModelRegistry", () => {
 			const compat = registry.find("demo", "gateway-codex-model")?.compat as OpenAICodexResponsesCompat | undefined;
 
 			expect(registry.getError()).toBeUndefined();
-			expect(compat?.sendChatgptAccountId).toBe(false);
+			expect(compat).toEqual({
+				sendChatgptAccountId: false,
+				supportsWebSocketTransport: false,
+				supportsZstdRequestCompression: false,
+			});
 		});
 
 		test("compat schema accepts Anthropic eager tool input streaming flag", () => {

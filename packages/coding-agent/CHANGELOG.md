@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Accept model-registry compatibility flags for opaque Codex gateways to omit ChatGPT account headers, force SSE, and disable zstd request compression.
+
 - Fix Codex tool-name filtering to follow `openai-codex-responses` API selection, including gateway providers, instead of the direct `openai-codex` provider id.
 
 - Fixed custom `agent`/`Agent`/`Task` aliases failing with `agent tool is unavailable in this runtime` after the session-isolated Agent engine change. Agent tool definitions now fall back to the calling session's execution-scoped engine when an alias has no explicit/runtime engine, preserving extension overrides and profile/depth denial.
