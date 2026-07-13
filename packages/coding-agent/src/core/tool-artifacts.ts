@@ -223,12 +223,24 @@ function saveToolResultImageArtifact(
 	toolCallId: string,
 	index: number,
 ): { relativePath?: string; error?: string } {
-	const relativePath = `${TOOL_ARTIFACTS_DIR}/${sanitizeArtifactName(toolCallId)}-${index}${extensionForMimeType(block.mimeType)}`;
+	const baseName = `${sanitizeArtifactName(toolCallId)}-${index}`;
+	const extension = extensionForMimeType(block.mimeType);
 	try {
-		const absolutePath = resolve(cwd, relativePath);
-		mkdirSync(dirname(absolutePath), { recursive: true });
-		writeFileSync(absolutePath, Buffer.from(block.data, "base64"));
-		return { relativePath };
+		const artifactDirectory = resolve(cwd, TOOL_ARTIFACTS_DIR);
+		mkdirSync(artifactDirectory, { recursive: true });
+		const data = Buffer.from(block.data, "base64");
+		for (let collision = 0; collision < 1_000; collision++) {
+			const fileName = collision === 0 ? `${baseName}${extension}` : `${baseName}-${collision}${extension}`;
+			const relativePath = `${TOOL_ARTIFACTS_DIR}/${fileName}`;
+			try {
+				writeFileSync(resolve(artifactDirectory, fileName), data, { flag: "wx" });
+				return { relativePath };
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+				return { error: error instanceof Error ? error.message : String(error) };
+			}
+		}
+		return { error: "could not allocate a unique artifact filename" };
 	} catch (error) {
 		return { error: error instanceof Error ? error.message : String(error) };
 	}

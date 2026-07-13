@@ -9,6 +9,7 @@ import { addFilter } from "../../src/core/extensions/extension-hooks.ts";
 import {
 	MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS,
 	replaceOversizedToolResultImages,
+	replaceUnsupportedToolResultImages,
 } from "../../src/core/tool-artifacts.ts";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
@@ -334,6 +335,29 @@ describe("AgentSession model and extension characterization", () => {
 		const artifactPath = join(harness.tempDir, ".pi", "tool-artifacts", "tool-1-0.bmp");
 		expect(existsSync(artifactPath)).toBe(true);
 		expect(readFileSync(artifactPath).toString()).toBe("fake-bmp-data");
+	});
+
+	it("keeps colliding image artifacts without overwriting durable history", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const firstImage = {
+			type: "image" as const,
+			data: Buffer.from("first-bmp").toString("base64"),
+			mimeType: "image/bmp",
+		};
+		const secondImage = {
+			type: "image" as const,
+			data: Buffer.from("second-bmp").toString("base64"),
+			mimeType: "image/bmp",
+		};
+
+		const first = replaceUnsupportedToolResultImages([firstImage], harness.tempDir, "a/b");
+		const second = replaceUnsupportedToolResultImages([secondImage], harness.tempDir, "a_b");
+
+		expect(first?.[0]).toMatchObject({ text: expect.stringContaining(".pi/tool-artifacts/a_b-0.bmp") });
+		expect(second?.[0]).toMatchObject({ text: expect.stringContaining(".pi/tool-artifacts/a_b-0-1.bmp") });
+		expect(readFileSync(join(harness.tempDir, ".pi", "tool-artifacts", "a_b-0.bmp")).toString()).toBe("first-bmp");
+		expect(readFileSync(join(harness.tempDir, ".pi", "tool-artifacts", "a_b-0-1.bmp")).toString()).toBe("second-bmp");
 	});
 
 	it("saves oversized supported tool-result images as artifacts before the next model call", async () => {
