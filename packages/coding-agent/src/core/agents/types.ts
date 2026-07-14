@@ -4,6 +4,7 @@ import type { Api, Model, Usage } from "@valkyriweb/pi-ai";
 export type AgentSource = "builtin" | "user" | "project";
 export type ContextMode = "default" | "fork" | "slim" | "none";
 export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted";
+export type AgentAttentionReason = "user_input" | "stale_progress" | "failure";
 export type AgentToolMode = "single" | "parallel" | "chain";
 export type AgentToolStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted";
 export type AgentOutputMode = "inline" | "file" | "both";
@@ -131,6 +132,8 @@ export interface AgentSkillInvocationSummary {
 }
 
 export interface AgentRunDetails {
+	/** Stable identity assigned from the task's dispatch position within its aggregate run. */
+	memberId?: string;
 	agent: string;
 	source: AgentSource;
 	task: string;
@@ -160,6 +163,9 @@ export interface AgentRunDetails {
 	error?: string;
 	finalOutput?: string;
 	rawOutput?: string;
+	/** Semantic attention explicitly requested by this child, independent of lifecycle. */
+	attentionReason?: AgentAttentionReason;
+	attentionMessage?: string;
 }
 
 export interface AgentToolDetails {

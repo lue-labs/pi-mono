@@ -295,6 +295,24 @@ describe("agents UI", () => {
 			expect(rendered).not.toContain("[agent]");
 		});
 
+		test("groups an ordinary interrupted run separately from completed work", () => {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+			const run = startAgentRecentRun("single", [{ agent: "explore", task: "Paused task" }], {
+				background: true,
+			});
+			updateAgentRecentRunProgress(run, {
+				mode: "single",
+				status: "interrupted",
+				runs: [runDetail("interrupted")],
+			});
+
+			const rendered = renderPane(fake);
+			expect(rendered).toContain("Interrupted");
+			expect(rendered).toContain("Paused task");
+			expect(rendered).not.toContain("Completed");
+		});
+
 		test("dismisses a failed pre-start parallel run into Completed without deleting its row", () => {
 			const fake = createFakePi();
 			hookAgents(fake.pi as never);
@@ -311,14 +329,50 @@ describe("agents UI", () => {
 			const factory = fake.panes.get("agents-status");
 			const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
 			const pane = factory!({ requestRender: vi.fn() } as never, theme as never, { requestHide: vi.fn() } as never);
-			expect(pane.render(120).join("\n")).toContain("Needs input");
+			expect(pane.render(120).join("\n")).toContain("Needs attention");
 
 			pane.handleInput?.("d");
 
 			const rendered = pane.render(120).join("\n");
-			expect(rendered).not.toContain("Needs input");
+			expect(rendered).not.toContain("Needs attention");
 			expect(rendered).toContain("Completed");
 			expect(rendered).toContain("missing-model: First");
+		});
+
+		test("does not dismiss a failed parallel run while a child still needs input", () => {
+			const fake = createFakePi();
+			hookAgents(fake.pi as never);
+			const run = startAgentRecentRun(
+				"parallel",
+				[
+					{ agent: "explore", task: "Choose environment" },
+					{ agent: "reviewer", task: "Review files" },
+				],
+				{ background: true },
+			);
+			updateAgentRecentRunProgress(run, {
+				mode: "parallel",
+				status: "failed",
+				runs: [
+					{
+						...runDetail("interrupted"),
+						memberId: run.runs[0]?.memberId,
+						attentionReason: "user_input",
+						attentionMessage: "Which environment?",
+					},
+					{ ...runDetail("failed"), memberId: run.runs[1]?.memberId, error: "Review failed" },
+				],
+			});
+
+			const factory = fake.panes.get("agents-status");
+			const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value };
+			const pane = factory!({ requestRender: vi.fn() } as never, theme as never, { requestHide: vi.fn() } as never);
+			expect(pane.render(120).join("\n")).toContain("Needs input");
+
+			pane.handleInput?.("d");
+
+			expect(pane.render(120).join("\n")).toContain("Needs input");
+			expect(run.acknowledged).toBe(false);
 		});
 
 		test("needs-input runs are sorted into their own section ahead of working runs", async () => {
@@ -334,7 +388,7 @@ describe("agents UI", () => {
 				background: true,
 			});
 			updateAgentRecentRunProgress(blockedRun, { mode: "single", status: "running", runs: [runDetail("running")] });
-			markAgentRecentRunNeedsAttention(blockedRun, "Should I proceed?");
+			markAgentRecentRunNeedsAttention(blockedRun, "Should I proceed?", "user_input");
 
 			const rendered = renderPane(fake);
 			const needsInputIndex = rendered.indexOf("Needs input");

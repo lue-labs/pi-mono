@@ -10,13 +10,14 @@
  */
 
 export type TaskType = "local_agent" | "local_bash" | "monitor" | "intercom_peer";
+export type TaskAttentionReason = "user_input" | "stale_progress" | "failure";
 
 /**
  * Lifecycle states. Terminal: `completed | failed | cancelled | killed`.
  * `interrupted` is non-terminal — a soft-stopped task that may resume.
- * `idle` is a parked-but-alive task awaiting input (e.g. a persistent
- * single-background fork between turns) — distinct from `interrupted`,
- * which signals the task actually needs the user's attention.
+ * `idle` is a parked-but-alive task awaiting its next turn (e.g. a persistent
+ * single-background fork between turns). `interrupted` is a soft-stopped
+ * lifecycle state; attention remains orthogonal and requires a typed reason.
  */
 export type TaskStatus = "running" | "idle" | "interrupted" | "completed" | "failed" | "cancelled" | "killed";
 
@@ -50,15 +51,12 @@ export interface TaskSnapshot {
 	 * that has no live in-process controller left to attach to.
 	 */
 	sessionPath?: string;
-	/**
-	 * True when this task wants user attention right now: an ordinary (non-
-	 * persistent-parked) interrupted run, a failed run, or a running run that
-	 * flagged `needsAttention`. Persistent single-background forks parked at
-	 * `status: "idle"` are NOT needs-input by default — they're waiting to be
-	 * fed, not stuck. Drives the "needs input" footer/pane bucket, which wins
-	 * over "working" whenever both are non-zero.
-	 */
+	/** True only when the worker explicitly requested a human response. */
 	needsInput?: boolean;
+	/** Orthogonal diagnostic/attention state; lifecycle status alone never implies this. */
+	needsAttention?: boolean;
+	attentionReason?: TaskAttentionReason;
+	attentionMessage?: string;
 	/**
 	 * Id to use for control-plane operations (kill/requestShutdown/injectMessage,
 	 * and any other API that dispatches on a task id — including consumers that
@@ -66,15 +64,10 @@ export interface TaskSnapshot {
 	 * `findAgentRecentRun`/`getLiveSession`/`subscribeTaskMessages` directly)
 	 * when it differs from `id`. Defaults to `id` when absent.
 	 *
-	 * Exists because a `children` entry's `id` (e.g. "agent-5:1") is a purely
-	 * informational leaf label for an aggregate/group task such as a parallel
-	 * Agent call — there is no independent adapter or live-session/message-buffer
-	 * registration per child, only per top-level run. A caller that threads a
-	 * child's `id` into a control/zoom operation gets a silent "not found"
-	 * because nothing is ever registered under that exact string. `controlId`
-	 * is the id that IS registered (the owning run/task's own `id`), so
-	 * consumers building rows from flattened `children` can still resolve real
-	 * control/zoom operations without reverse-engineering the leaf id format.
+	 * Aggregate rows use their own id. A child uses its stable member id only
+	 * after the executor has registered a member-scoped controller or live
+	 * session; otherwise it deliberately falls back to its aggregate id rather
+	 * than exposing an unresolvable control target.
 	 */
 	controlId?: string;
 }
@@ -130,9 +123,9 @@ export interface Task {
 	/**
 	 * Steer the task with a user message.
 	 *
-	 * v1 `local_agent` implementation: interrupt → resume(message). This means
-	 * the message lands at the next turn, not mid-LLM-call. Future layer C may
-	 * promote this to true in-loop drain.
+	 * `local_agent` steers a running member's live session directly. An interrupted
+	 * durable single-member run resumes with the message as its next turn; targets
+	 * without a supported live or resumable controller fail explicitly.
 	 */
 	injectMessage?: (taskId: string, message: string) => Promise<TaskControlResult>;
 }

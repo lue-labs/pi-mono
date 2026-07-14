@@ -1,9 +1,10 @@
 /**
  * Per-task live event ring buffer.
  *
- * The executor sinks normalized events from `session.subscribe()` here, keyed
- * by task id (= AgentRecentRun.id for local_agent tasks). UI consumers can
- * subscribe to render a live transcript for a running child.
+ * The executor sinks normalized events from `session.subscribe()` here. Agent
+ * events are keyed by stable member id and mirrored to the aggregate
+ * `AgentRecentRun.id` for backwards-compatible whole-run subscriptions. UI
+ * consumers can subscribe to render a live transcript for a running child.
  *
  * Bounded: oldest events are evicted past MAX_EVENTS_PER_TASK to keep memory
  * predictable when a child runs for a long time. Full transcript remains on

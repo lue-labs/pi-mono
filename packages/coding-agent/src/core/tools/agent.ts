@@ -9,6 +9,7 @@ import {
 	formatAgentDurationMs,
 	formatAgentStatus,
 	formatAgentTokenCount,
+	injectAgentRecentRun,
 	interruptAgentRecentRun,
 	resumeAgentRecentRun,
 } from "../agents/status.ts";
@@ -495,12 +496,11 @@ async function executeLegacyAgentControlAction(params: AgentToolInput): Promise<
 	if (!params.runId) throw new Error(`agent control action ${params.action} requires runId`);
 	if (params.action === "inject") {
 		if (!params.message) throw new Error("agent control action inject requires message");
-		await interruptAgentRecentRun(params.runId);
-		const resumed = await resumeAgentRecentRun(params.runId, params.message);
+		const injected = await injectAgentRecentRun(params.runId, params.message);
 		const detailText = formatAgentStatus(undefined, params.runId);
 		return {
-			content: [{ type: "text", text: `${resumed.message}\n\n${detailText}` }],
-			details: detailsFromControlResult(resumed),
+			content: [{ type: "text", text: `${injected.message}\n\n${detailText}` }],
+			details: detailsFromControlResult(injected),
 		};
 	}
 	const result =

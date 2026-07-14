@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
+import { evictTaskMessages } from "../tasks/messages.ts";
 import type {
+	AgentAttentionReason,
 	AgentExecutionProgress,
 	AgentRunDetails,
 	AgentToolDetails,
@@ -29,6 +31,7 @@ export interface AgentRecentRun {
 	runs: AgentRunDetails[];
 	resumable: boolean;
 	needsAttention: boolean;
+	attentionReason?: AgentAttentionReason;
 	attentionMessage?: string;
 	/** True after the operator dismisses a terminal failure from attention UI. */
 	acknowledged?: boolean;
@@ -86,6 +89,7 @@ export type AgentRecentRunTerminalListener = (run: AgentRecentRun) => void;
 const MAX_RECENT_RUNS = 25;
 const recentRuns: AgentRecentRun[] = [];
 const liveRunControllers = new Map<string, AgentRecentRunController>();
+const liveMemberControllers = new Map<string, { runId: string; controller: AgentRecentRunController }>();
 const recentRunListeners = new Set<AgentRecentRunsListener>();
 const terminalListeners = new Map<string, AgentRecentRunTerminalListener>();
 // Atomic dedup per run generation. Survives status thrash between lifecycle
@@ -99,6 +103,20 @@ function nowIso(): string {
 	return new Date().toISOString();
 }
 
+function deleteRunControllers(run: AgentRecentRun): void {
+	liveRunControllers.delete(run.id);
+	for (const [memberId, record] of liveMemberControllers) {
+		if (record.runId === run.id) liveMemberControllers.delete(memberId);
+	}
+}
+
+function evictRunMessages(run: AgentRecentRun): void {
+	evictTaskMessages(run.id);
+	for (const child of run.runs) {
+		if (child.memberId) evictTaskMessages(child.memberId);
+	}
+}
+
 function pruneAgentRecentRuns(): void {
 	while (recentRuns.length > MAX_RECENT_RUNS) {
 		let evictIndex = -1;
@@ -110,7 +128,12 @@ function pruneAgentRecentRuns(): void {
 			}
 		}
 		if (evictIndex === -1) break;
-		recentRuns.splice(evictIndex, 1);
+		const [evicted] = recentRuns.splice(evictIndex, 1);
+		if (evicted) {
+			deleteRunControllers(evicted);
+			evictRunMessages(evicted);
+			terminalListeners.delete(evicted.id);
+		}
 	}
 }
 
@@ -172,6 +195,45 @@ function summarizeSessions(runs: AgentRunDetails[]): AgentRecentRun["sessionRefs
 
 function isTerminalStatus(status: AgentToolStatus): boolean {
 	return status !== "running";
+}
+
+function aggregateStatus(fallback: AgentToolStatus, runs: AgentRunDetails[]): AgentToolStatus {
+	if (fallback === "running" || runs.some((child) => child.status === "running")) return "running";
+	if (runs.length === 0) return fallback;
+	if (runs.some((child) => child.status === "failed")) return "failed";
+	if (runs.some((child) => child.status === "cancelled")) return "cancelled";
+	if (runs.some((child) => child.status === "interrupted")) return "interrupted";
+	return "completed";
+}
+
+function userInputAttention(runs: AgentRunDetails[]): string | undefined {
+	return runs.find((child) => child.attentionReason === "user_input")?.attentionMessage;
+}
+
+function refreshRunAttention(run: AgentRecentRun): void {
+	const inputAttention = userInputAttention(run.runs);
+	const failedChild = run.runs.find((child) => child.status === "failed");
+	if (inputAttention && !run.acknowledged) {
+		run.needsAttention = true;
+		run.attentionReason = "user_input";
+		run.attentionMessage = inputAttention;
+	} else if (failedChild && !run.acknowledged) {
+		run.needsAttention = true;
+		run.attentionReason = "failure";
+		run.attentionMessage = failedChild.error ?? run.error;
+	} else if (run.status === "running") {
+		run.needsAttention = false;
+		run.attentionReason = undefined;
+		run.attentionMessage = undefined;
+	} else if (run.status === "failed") {
+		run.needsAttention = !run.acknowledged;
+		run.attentionReason = run.acknowledged ? undefined : "failure";
+		run.attentionMessage = run.acknowledged ? undefined : run.error;
+	} else if (run.status === "completed" || run.status === "cancelled" || run.status === "interrupted") {
+		run.needsAttention = false;
+		run.attentionReason = undefined;
+		run.attentionMessage = undefined;
+	}
 }
 
 // Fire the terminal listener at most once per run generation. Caller must have
@@ -244,6 +306,7 @@ function computeRunContentSignature(run: AgentRecentRun): string {
 		execution: run.execution,
 		error: run.error,
 		needsAttention: run.needsAttention,
+		attentionReason: run.attentionReason,
 		attentionMessage: run.attentionMessage,
 		acknowledged: run.acknowledged,
 		resumable: run.resumable,
@@ -252,6 +315,8 @@ function computeRunContentSignature(run: AgentRecentRun): string {
 		sessionRefs: run.sessionRefs,
 		runs: run.runs.map((r) => ({
 			status: r.status,
+			attentionReason: r.attentionReason,
+			attentionMessage: r.attentionMessage,
 			effectiveTools: r.effectiveTools,
 			deniedTools: r.deniedTools,
 			recentToolCalls: r.recentToolCalls,
@@ -270,17 +335,39 @@ function applyRunDetails(
 	guardUnchanged = false,
 ): void {
 	if (!isExpectedGeneration(run, expectedGeneration)) return;
-	run.status = details.status;
-	run.parked = details.status === "interrupted" && details.parked === true;
-	updateRunTimestamps(run, terminal);
-	refreshRunSummary(run, details.runs);
+	const mergedRuns = details.runs.map((incoming) => {
+		const current = incoming.memberId
+			? run.runs.find((candidate) => candidate.memberId === incoming.memberId)
+			: undefined;
+		return current?.status === "cancelled"
+			? {
+					...incoming,
+					status: "cancelled" as const,
+					error: current.error ?? incoming.error,
+					attentionReason: undefined,
+					attentionMessage: undefined,
+				}
+			: incoming;
+	});
+	run.status =
+		run.status === "cancelled"
+			? "cancelled"
+			: details.parked === true
+				? "interrupted"
+				: aggregateStatus(details.status, mergedRuns);
+	run.parked = run.status === "interrupted" && details.parked === true;
+	updateRunTimestamps(run, terminal && run.status !== "running");
+	refreshRunSummary(run, mergedRuns);
 	if (run.status !== "interrupted") run.resumable = false;
-	if (run.status === "running") {
-		run.needsAttention = false;
-		run.attentionMessage = undefined;
-	}
-	if (run.status === "completed" || run.status === "cancelled" || run.status === "failed") {
-		liveRunControllers.delete(run.id);
+	refreshRunAttention(run);
+	if (
+		run.status === "completed" ||
+		run.status === "cancelled" ||
+		run.status === "failed" ||
+		(run.status === "interrupted" && !run.resumable)
+	) {
+		deleteRunControllers(run);
+		evictRunMessages(run);
 	}
 	if (guardUnchanged) {
 		const nextSignature = computeRunContentSignature(run);
@@ -298,20 +385,31 @@ function applyRunDetails(
 }
 
 function markRunStopped(run: AgentRecentRun, status: "interrupted" | "cancelled", message?: string): void {
+	const stoppedAt = Date.now();
 	run.status = status;
 	run.parked = false;
 	updateRunTimestamps(run, true);
-	run.runs = run.runs.map((child) =>
-		child.status === "running" || (status === "cancelled" && child.status === "interrupted")
-			? { ...child, status }
-			: child,
-	);
+	run.needsAttention = false;
+	run.attentionReason = undefined;
+	run.attentionMessage = undefined;
+	run.runs = run.runs.map((child) => {
+		if (child.status !== "running" && !(status === "cancelled" && child.status === "interrupted")) return child;
+		const durationMs = child.startedAt ? Math.max(child.durationMs, stoppedAt - child.startedAt) : child.durationMs;
+		return {
+			...child,
+			status,
+			durationMs,
+			attentionReason: status === "cancelled" ? undefined : child.attentionReason,
+			attentionMessage: status === "cancelled" ? undefined : child.attentionMessage,
+		};
+	});
 	refreshRunSummary(run, run.runs);
 	if (message) run.error = message;
 	run.resumable = canResumeRun(run);
 	if (status === "cancelled") {
 		run.resumable = false;
-		liveRunControllers.delete(run.id);
+		deleteRunControllers(run);
+		evictRunMessages(run);
 	}
 	notifyAgentRecentRunsChanged();
 	maybeFireTerminal(run);
@@ -319,6 +417,52 @@ function markRunStopped(run: AgentRecentRun, status: "interrupted" | "cancelled"
 
 function findMutableRun(runId: string): AgentRecentRun | undefined {
 	return recentRuns.find((run) => run.id === runId);
+}
+
+function findMutableMember(memberId: string): { run: AgentRecentRun; detail: AgentRunDetails } | undefined {
+	const record = liveMemberControllers.get(memberId);
+	const run = record
+		? findMutableRun(record.runId)
+		: recentRuns.find((candidate) => candidate.runs.some((detail) => detail.memberId === memberId));
+	const detail = run?.runs.find((candidate) => candidate.memberId === memberId);
+	return run && detail ? { run, detail } : undefined;
+}
+
+function markMemberStopped(
+	run: AgentRecentRun,
+	memberId: string,
+	status: "interrupted" | "cancelled",
+	message?: string,
+): void {
+	const stoppedAt = Date.now();
+	run.runs = run.runs.map((child) => {
+		if (
+			child.memberId !== memberId ||
+			(child.status !== "running" && !(status === "cancelled" && child.status === "interrupted"))
+		)
+			return child;
+		return {
+			...child,
+			status,
+			durationMs: child.startedAt ? Math.max(child.durationMs, stoppedAt - child.startedAt) : child.durationMs,
+			error: message ?? child.error,
+			attentionReason: status === "cancelled" ? undefined : child.attentionReason,
+			attentionMessage: status === "cancelled" ? undefined : child.attentionMessage,
+		};
+	});
+	const hasQueuedParallelMembers = run.mode === "parallel" && run.runs.length < run.tasks.length;
+	run.status = hasQueuedParallelMembers ? "running" : aggregateStatus(status, run.runs);
+	run.parked = false;
+	updateRunTimestamps(run, run.status !== "running");
+	refreshRunSummary(run, run.runs);
+	refreshRunAttention(run);
+	run.resumable = run.status === "interrupted" && canResumeRun(run);
+	if (run.status === "cancelled" || (run.status === "interrupted" && !run.resumable)) {
+		deleteRunControllers(run);
+		evictRunMessages(run);
+	}
+	notifyAgentRecentRunsChanged();
+	maybeFireTerminal(run);
 }
 
 export function startAgentRecentRun(
@@ -392,20 +536,61 @@ export function finishAgentRecentRun(
 
 export function failAgentRecentRun(run: AgentRecentRun, error: unknown, expectedGeneration?: number): void {
 	if (!isExpectedGeneration(run, expectedGeneration)) return;
+	const failedAt = Date.now();
+	const failureMessage = error instanceof Error ? error.message : String(error);
 	run.status = "failed";
 	run.parked = false;
+	run.runs = run.runs.map((child) =>
+		child.status === "running"
+			? {
+					...child,
+					status: "failed",
+					durationMs: child.startedAt ? Math.max(child.durationMs, failedAt - child.startedAt) : child.durationMs,
+					error: failureMessage,
+					attentionReason: undefined,
+					attentionMessage: undefined,
+				}
+			: child,
+	);
+	refreshRunSummary(run, run.runs);
 	updateRunTimestamps(run, true);
-	run.error = error instanceof Error ? error.message : String(error);
+	run.error = failureMessage;
 	run.resumable = false;
-	run.needsAttention = false;
-	run.attentionMessage = undefined;
-	liveRunControllers.delete(run.id);
+	run.needsAttention = true;
+	run.attentionReason = "failure";
+	run.attentionMessage = run.error;
+	deleteRunControllers(run);
+	evictRunMessages(run);
 	notifyAgentRecentRunsChanged();
 	maybeFireTerminal(run);
 }
 
 export function attachAgentRecentRunController(runId: string, controller: AgentRecentRunController): void {
 	liveRunControllers.set(runId, controller);
+}
+
+/** Register an executor-owned control handle for one concrete child session. */
+export function attachAgentRecentRunMemberController(
+	runId: string,
+	memberId: string,
+	controller: AgentRecentRunController,
+): void {
+	liveMemberControllers.set(memberId, { runId, controller });
+}
+
+export function detachAgentRecentRunMemberController(memberId: string): void {
+	liveMemberControllers.delete(memberId);
+}
+
+export function canResumeAgentRecentRunMember(memberId: string): boolean {
+	return Boolean(liveMemberControllers.get(memberId)?.controller.resume);
+}
+
+export function findAgentRecentRunMember(
+	memberId: string,
+): { run: AgentRecentRun; detail: AgentRunDetails } | undefined {
+	const member = findMutableMember(memberId);
+	return member ? { run: cloneRecentRun(member.run), detail: cloneRunDetails(member.detail) } : undefined;
 }
 
 export function detachAgentRecentRunController(runId: string): void {
@@ -444,13 +629,34 @@ export function restartAgentRecentRun(run: AgentRecentRun): void {
 	run.error = undefined;
 	run.resumable = false;
 	run.needsAttention = false;
+	run.attentionReason = undefined;
 	run.attentionMessage = undefined;
 	run.acknowledged = false;
-	run.runs = run.runs.map((child) => (child.status === "interrupted" ? { ...child, status: "running" } : child));
+	run.runs = run.runs.map((child) =>
+		child.status === "interrupted"
+			? { ...child, status: "running", attentionReason: undefined, attentionMessage: undefined }
+			: child,
+	);
 	notifyAgentRecentRunsChanged();
 }
 
 export async function interruptAgentRecentRun(runId: string): Promise<AgentRunControlResult> {
+	const member = findMutableMember(runId);
+	if (member) {
+		if (member.detail.status !== "running")
+			return {
+				ok: false,
+				message: `${runId} is not running (status: ${member.detail.status})`,
+				run: cloneRecentRun(member.run),
+			};
+		const controller = liveMemberControllers.get(runId)?.controller;
+		if (!controller?.interrupt)
+			return { ok: false, message: `${runId} is not interruptible`, run: cloneRecentRun(member.run) };
+		await controller.interrupt();
+		if (member.detail.status === "running")
+			markMemberStopped(member.run, runId, "interrupted", "Interrupted by operator");
+		return { ok: true, message: `Interrupted ${runId}`, run: cloneRecentRun(member.run) };
+	}
 	const run = findMutableRun(runId);
 	if (!run) return { ok: false, message: `Run not found: ${runId}` };
 	if (run.status === "interrupted")
@@ -465,14 +671,31 @@ export async function interruptAgentRecentRun(runId: string): Promise<AgentRunCo
 }
 
 export async function cancelAgentRecentRun(runId: string): Promise<AgentRunControlResult> {
+	const member = findMutableMember(runId);
+	if (member) {
+		if (member.detail.status !== "running" && member.detail.status !== "interrupted") {
+			return {
+				ok: false,
+				message: `${runId} is not cancellable (status: ${member.detail.status})`,
+				run: cloneRecentRun(member.run),
+			};
+		}
+		const controller = liveMemberControllers.get(runId)?.controller;
+		if (!controller?.cancel && member.detail.status === "running")
+			return { ok: false, message: `${runId} is not cancellable`, run: cloneRecentRun(member.run) };
+		await controller?.cancel?.();
+		markMemberStopped(member.run, runId, "cancelled", "Cancelled by operator");
+		return { ok: true, message: `Cancelled ${runId}`, run: cloneRecentRun(member.run) };
+	}
 	const run = findMutableRun(runId);
 	if (!run) return { ok: false, message: `Run not found: ${runId}` };
 	if (run.status !== "running" && run.status !== "interrupted") {
 		return { ok: false, message: `${runId} is not cancellable (status: ${run.status})`, run: cloneRecentRun(run) };
 	}
 	const controller = liveRunControllers.get(runId);
-	if (!controller?.cancel) return { ok: false, message: `${runId} is not cancellable`, run: cloneRecentRun(run) };
-	await controller.cancel();
+	if (!controller?.cancel && run.status === "running")
+		return { ok: false, message: `${runId} is not cancellable`, run: cloneRecentRun(run) };
+	await controller?.cancel?.();
 	markRunStopped(run, "cancelled", "Cancelled by operator");
 	return { ok: true, message: `Cancelled ${runId}`, run: cloneRecentRun(run) };
 }
@@ -487,12 +710,16 @@ export function acknowledgeAgentRecentRun(runId: string): AgentRunControlResult 
 			run: cloneRecentRun(run),
 		};
 	}
+	if (run.attentionReason === "user_input") {
+		return { ok: false, message: `${runId} still needs human input`, run: cloneRecentRun(run) };
+	}
 	if (run.acknowledged) return { ok: true, message: `${runId} is already dismissed`, run: cloneRecentRun(run) };
 
 	// Deliberately only UI/session bookkeeping: preserve the run record and all
 	// session/output references so its diagnostics remain inspectable.
 	run.acknowledged = true;
 	run.needsAttention = false;
+	run.attentionReason = undefined;
 	run.attentionMessage = undefined;
 	run.updatedAt = nowIso();
 	notifyAgentRecentRunsChanged();
@@ -500,6 +727,30 @@ export function acknowledgeAgentRecentRun(runId: string): AgentRunControlResult 
 }
 
 export async function resumeAgentRecentRun(runId: string, prompt?: string): Promise<AgentRunControlResult> {
+	const member = findMutableMember(runId);
+	if (member) {
+		if (member.detail.status === "running")
+			return { ok: false, message: `${runId} is already running`, run: cloneRecentRun(member.run) };
+		if (member.run.mode !== "single") {
+			return {
+				ok: false,
+				message: `${runId} cannot resume from ${member.run.mode} mode; re-dispatch it as a single task`,
+				run: cloneRecentRun(member.run),
+			};
+		}
+		if (!member.detail.sessionPath || !existsSync(member.detail.sessionPath)) {
+			return {
+				ok: false,
+				message: `${runId} has no durable child session to resume`,
+				run: cloneRecentRun(member.run),
+			};
+		}
+		const controller = liveMemberControllers.get(runId)?.controller;
+		if (!controller?.resume)
+			return { ok: false, message: `${runId} cannot resume in this process`, run: cloneRecentRun(member.run) };
+		await controller.resume(prompt);
+		return { ok: true, message: `Resumed ${runId}`, run: cloneRecentRun(member.run) };
+	}
 	const run = findMutableRun(runId);
 	if (!run) return { ok: false, message: `Run not found: ${runId}` };
 	if (run.status === "running") return { ok: false, message: `${runId} is already running`, run: cloneRecentRun(run) };
@@ -512,6 +763,21 @@ export async function resumeAgentRecentRun(runId: string, prompt?: string): Prom
 }
 
 export async function injectAgentRecentRun(runId: string, message: string): Promise<AgentRunControlResult> {
+	const member = findMutableMember(runId);
+	if (member) {
+		if (member.detail.status !== "running") {
+			return {
+				ok: false,
+				message: `${runId} is not running (status: ${member.detail.status})`,
+				run: cloneRecentRun(member.run),
+			};
+		}
+		const controller = liveMemberControllers.get(runId)?.controller;
+		if (!controller?.inject)
+			return { ok: false, message: `${runId} is not injectable`, run: cloneRecentRun(member.run) };
+		await controller.inject(message);
+		return { ok: true, message: `Queued message for ${runId}`, run: cloneRecentRun(member.run) };
+	}
 	const run = findMutableRun(runId);
 	if (!run) return { ok: false, message: `Run not found: ${runId}` };
 	if (run.status !== "running")
@@ -556,10 +822,30 @@ export function waitForAgentRecentRun(runId: string): Promise<AgentRecentRun> {
 	});
 }
 
-export function markAgentRecentRunNeedsAttention(run: AgentRecentRun, message: string): void {
-	if (run.status !== "running") return;
-	if (run.needsAttention && run.attentionMessage === message) return;
+export function markAgentRecentRunMemberNeedsAttention(runId: string, memberId: string, message: string): void {
+	const run = findMutableRun(runId);
+	const detail = run?.runs.find((candidate) => candidate.memberId === memberId);
+	if (!run || !detail || run.status !== "running" || detail.status !== "running" || !message.trim()) return;
+	detail.attentionReason = "user_input";
+	detail.attentionMessage = message.trim();
 	run.needsAttention = true;
+	run.attentionReason = "user_input";
+	run.attentionMessage = detail.attentionMessage;
+	run.updatedAt = nowIso();
+	notifyAgentRecentRunsChanged();
+}
+
+export function markAgentRecentRunNeedsAttention(
+	run: AgentRecentRun,
+	message: string,
+	reason: AgentAttentionReason = "stale_progress",
+): void {
+	if (reason === "stale_progress" && run.status !== "running") return;
+	if (reason === "failure" && run.status !== "failed") return;
+	if (reason === "user_input" && run.status !== "running" && run.status !== "interrupted") return;
+	if (run.needsAttention && run.attentionReason === reason && run.attentionMessage === message) return;
+	run.needsAttention = true;
+	run.attentionReason = reason;
 	run.attentionMessage = message;
 	run.updatedAt = nowIso();
 	notifyAgentRecentRunsChanged();
@@ -568,7 +854,9 @@ export function markAgentRecentRunNeedsAttention(run: AgentRecentRun, message: s
 export function clearAgentRecentRunsForTests(): void {
 	recentRuns.length = 0;
 	liveRunControllers.clear();
+	liveMemberControllers.clear();
 	recentRunListeners.clear();
+	terminalListeners.clear();
 	nextRunId = 1;
 }
 

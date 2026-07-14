@@ -120,6 +120,38 @@ describe("background-tasks tools — push notification + explicit output paths",
 		expect(output?.fullOutputPath).toBe("/tmp/agent-output.txt");
 	});
 
+	test("background agent adapter returns one parallel member's output", async () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "scout", task: "Map files" },
+				{ agent: "reviewer", task: "Review files" },
+			],
+			{ background: true },
+		);
+		const memberId = `${run.id}:2`;
+		updateAgentRecentRunProgress(run, {
+			mode: "parallel",
+			status: "completed",
+			runs: [
+				{ ...completedRunDetail("SCOUT RESULT"), memberId: `${run.id}:1` },
+				{
+					...completedRunDetail("REVIEWER RESULT"),
+					agent: "reviewer",
+					memberId,
+					outputPath: "/tmp/reviewer-output.txt",
+				},
+			],
+		});
+
+		const output = await LocalAgentTask.output?.(memberId);
+		expect(output?.text).toContain(`${memberId}: completed`);
+		expect(output?.text).toContain("REVIEWER RESULT");
+		expect(output?.text).not.toContain("SCOUT RESULT");
+		expect(output?.fullOutputPath).toBe("/tmp/reviewer-output.txt");
+		expect(output?.snapshot?.id).toBe(memberId);
+	});
+
 	test("background agent adapter avoids full render for bounded path discovery", async () => {
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		updateAgentRecentRunProgress(run, {

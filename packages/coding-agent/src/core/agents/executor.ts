@@ -11,7 +11,7 @@ import type { ModelRegistry } from "../model-registry.ts";
 import { normalizeAutoAliasString, parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
 import { type ReadonlySessionManager, SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
-import { appendTaskMessage } from "../tasks/messages.ts";
+import { appendTaskMessage, type TaskMessageEvent } from "../tasks/messages.ts";
 import { EXPLORE_BASH_POLICY, runWithBashPolicy } from "../tools/bash.ts";
 import {
 	buildAgentCourseCorrectionPrompt,
@@ -23,19 +23,22 @@ import {
 	getFilteredForkMessages,
 	resolveContextPolicy,
 } from "./context.ts";
-import { registerLiveSession, unregisterLiveSession } from "./live-sessions.ts";
+import { registerLiveSession, registerLiveSessionAlias, unregisterLiveSession } from "./live-sessions.ts";
 import { writeAgentOutput } from "./output.ts";
 import { findAgentDefinition, formatAvailableAgents, loadAgentRegistry } from "./registry.ts";
-import type { AgentRecentRun } from "./status.ts";
+import type { AgentRecentRun, AgentRecentRunController } from "./status.ts";
 import {
 	agentRunUiStatus,
 	attachAgentRecentRunController,
+	attachAgentRecentRunMemberController,
 	attachAgentRecentRunTerminalListener,
+	detachAgentRecentRunMemberController,
 	failAgentRecentRun,
 	finishAgentRecentRun,
 	formatAgentDurationMs,
 	getAgentRecentRunGeneration,
 	markAgentRecentRunBackgrounded,
+	markAgentRecentRunMemberNeedsAttention,
 	markAgentRecentRunNeedsAttention,
 	restartAgentRecentRun,
 	startAgentRecentRun,
@@ -105,6 +108,8 @@ export interface AgentExecutorOptions {
 	abortStatus?: () => AgentToolStatus | undefined;
 	onChildSessionStart?: (session: AgentSession, details: AgentRunDetails) => void;
 	onChildSessionEnd?: (session: AgentSession, details: AgentRunDetails) => void;
+	/** A real child-session handle, scoped to its stable member id. */
+	onMemberController?: (details: AgentRunDetails, controller: AgentRecentRunController) => void;
 	onChildProviderRetry?: (event: { details: AgentRunDetails; activity: string }) => void;
 	/**
 	 * Fired exactly once when a background run reaches a terminal status or a
@@ -155,6 +160,7 @@ function isPersistentPark(input: AgentToolExecutionInput): boolean {
 interface RunChildOptions extends AgentExecutorOptions {
 	registry: AgentRegistry;
 	task: NormalizedAgentTaskConfig;
+	memberId: string;
 	toolModel?: string;
 	toolThinking?: ThinkingLevel;
 	chainDir?: string;
@@ -551,6 +557,7 @@ function buildChildRoutingMetadata(options: {
 }
 
 function createInitialRunDetails(options: {
+	memberId: string;
 	agent: AgentDefinition;
 	task: NormalizedAgentTaskConfig;
 	effectiveTools: string[];
@@ -561,6 +568,7 @@ function createInitialRunDetails(options: {
 	startedAt: number;
 }): AgentRunDetails {
 	return {
+		memberId: options.memberId,
 		agent: options.agent.id,
 		source: options.agent.source,
 		task: options.task.task,
@@ -694,12 +702,86 @@ interface DriveChildSessionOptions extends AgentExecutorOptions {
 	details: AgentRunDetails;
 	startedAt: number;
 	prompt: string;
-	/** Task id (= AgentRecentRun.id) for live message ring buffer in core/tasks. */
+	/** Aggregate AgentRecentRun id for telemetry and the single-member live-session alias. */
 	taskId?: string;
+	memberAbort?: { signal: AbortSignal; status: () => "cancelled" | "interrupted" | undefined };
 }
 
-function getAbortedRunStatus(options: AgentExecutorOptions): "cancelled" | "interrupted" {
-	return options.abortStatus?.() === "interrupted" ? "interrupted" : "cancelled";
+function getAbortedRunStatus(
+	options: Pick<DriveChildSessionOptions, "abortStatus" | "memberAbort">,
+): "cancelled" | "interrupted" {
+	return options.memberAbort?.status() === "interrupted" || options.abortStatus?.() === "interrupted"
+		? "interrupted"
+		: "cancelled";
+}
+
+function findNeedsInputReason(content: unknown): string | undefined {
+	const text =
+		typeof content === "string"
+			? content
+			: Array.isArray(content)
+				? content
+						.filter((part): part is TextContent =>
+							Boolean(part && typeof part === "object" && part.type === "text"),
+						)
+						.map((part) => part.text)
+						.join("\n")
+				: "";
+	const lines = text.split("\n");
+	let lastNonblank = lines.length - 1;
+	while (lastNonblank >= 0 && !lines[lastNonblank]?.trim()) lastNonblank -= 1;
+	let fence: { marker: "`" | "~"; length: number } | undefined;
+	for (const [index, line] of lines.entries()) {
+		const fenceMatch = /^[ \t]*(`{3,}|~{3,})/.exec(line);
+		if (fenceMatch?.[1]) {
+			const marker = fenceMatch[1][0] as "`" | "~";
+			if (!fence) fence = { marker, length: fenceMatch[1].length };
+			else if (marker === fence.marker && fenceMatch[1].length >= fence.length) fence = undefined;
+			continue;
+		}
+		if (fence || /^[ \t]*>/.test(line) || index !== lastNonblank) continue;
+		const match = /^[ \t]*needs input:[ \t]*(\S.*?)[ \t]*$/i.exec(line);
+		if (match?.[1]) return match[1].trim();
+	}
+	return undefined;
+}
+
+function appendAgentTaskMessage(
+	memberId: string | undefined,
+	runId: string | undefined,
+	event: TaskMessageEvent,
+): void {
+	if (memberId) appendTaskMessage(memberId, event);
+	if (runId && runId !== memberId) appendTaskMessage(runId, event);
+}
+
+function createMemberSessionControl(
+	session: AgentSession,
+	memberId: string,
+	runId?: string,
+): {
+	controller: AgentRecentRunController;
+	memberAbort: { signal: AbortSignal; status: () => "cancelled" | "interrupted" | undefined };
+} {
+	let memberAbortStatus: "cancelled" | "interrupted" | undefined;
+	const memberAbort = new AbortController();
+	return {
+		controller: {
+			interrupt: () => {
+				memberAbortStatus = "interrupted";
+				memberAbort.abort();
+			},
+			cancel: () => {
+				memberAbortStatus = "cancelled";
+				memberAbort.abort();
+			},
+			inject: async (message) => {
+				await session.steer(message);
+				appendAgentTaskMessage(memberId, runId, { kind: "user_injected", ts: Date.now(), text: message });
+			},
+		},
+		memberAbort: { signal: memberAbort.signal, status: () => memberAbortStatus },
+	};
 }
 
 async function driveChildSession(session: AgentSession, options: DriveChildSessionOptions): Promise<AgentRunDetails> {
@@ -712,9 +794,15 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 	if (options.signal && !options.signal.aborted) {
 		options.signal.addEventListener("abort", abortChild, { once: true });
 	}
+	if (options.memberAbort && !options.memberAbort.signal.aborted) {
+		options.memberAbort.signal.addEventListener("abort", abortChild, { once: true });
+	}
 
-	const taskId = options.taskId;
-	if (taskId) registerLiveSession(taskId, session);
+	const memberId = details.memberId;
+	if (memberId) registerLiveSession(memberId, session);
+	if (memberId && options.taskId && options.progressInput.mode === "single") {
+		registerLiveSessionAlias(options.taskId, memberId);
+	}
 	const unsubscribe = session.subscribe((event) => {
 		let providerRetryActivity: string | undefined;
 		if (!options.progressRuns.includes(details)) options.progressRuns.push(details);
@@ -722,12 +810,12 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		if (event.type === "message_update" && event.message.role === "assistant") {
 			const snippet = extractTextPreview(event.message.content, 200);
 			if (snippet && appendRunActivitySnippet(details, snippet)) {
-				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: snippet });
+				appendAgentTaskMessage(memberId, options.taskId, { kind: "assistant_text", ts: Date.now(), text: snippet });
 			}
 		}
 		if (event.type === "message_end" && event.message.role === "assistant") {
 			details.usage = event.message.usage;
-			if (taskId) appendTaskMessage(taskId, { kind: "assistant_end", ts: Date.now() });
+			appendAgentTaskMessage(memberId, options.taskId, { kind: "assistant_end", ts: Date.now() });
 		}
 		if (event.type === "tool_execution_start") {
 			details.toolCallCount += 1;
@@ -740,13 +828,12 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 			});
 			details.recentToolCalls = details.recentToolCalls.slice(-8);
 			recordSkillInvocation(details, event.toolName, event.args);
-			if (taskId)
-				appendTaskMessage(taskId, {
-					kind: "tool_start",
-					ts: Date.now(),
-					toolName: event.toolName,
-					argsPreview: details.currentToolArgsPreview,
-				});
+			appendAgentTaskMessage(memberId, options.taskId, {
+				kind: "tool_start",
+				ts: Date.now(),
+				toolName: event.toolName,
+				argsPreview: details.currentToolArgsPreview,
+			});
 		}
 		if (event.type === "tool_execution_end") {
 			const active = details.recentToolCalls.find((tool) => !tool.endedAt && tool.name === event.toolName);
@@ -757,14 +844,13 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 			}
 			details.currentToolName = undefined;
 			details.currentToolArgsPreview = undefined;
-			if (taskId)
-				appendTaskMessage(taskId, {
-					kind: "tool_end",
-					ts: Date.now(),
-					toolName: event.toolName,
-					isError: event.isError,
-					resultPreview: extractTextPreview(event.result.content, 200),
-				});
+			appendAgentTaskMessage(memberId, options.taskId, {
+				kind: "tool_end",
+				ts: Date.now(),
+				toolName: event.toolName,
+				isError: event.isError,
+				resultPreview: extractTextPreview(event.result.content, 200),
+			});
 		}
 		if (event.type === "auto_retry_start") {
 			const activity = formatAutoRetryActivity(event);
@@ -772,13 +858,21 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 			details.currentToolName = undefined;
 			details.currentToolArgsPreview = undefined;
 			if (appendRunActivitySnippet(details, activity)) {
-				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: activity });
+				appendAgentTaskMessage(memberId, options.taskId, {
+					kind: "assistant_text",
+					ts: Date.now(),
+					text: activity,
+				});
 			}
 		}
 		if (event.type === "auto_retry_end" && !event.success) {
 			const activity = formatAutoRetryFailure(event);
 			if (appendRunActivitySnippet(details, activity)) {
-				if (taskId) appendTaskMessage(taskId, { kind: "assistant_text", ts: Date.now(), text: activity });
+				appendAgentTaskMessage(memberId, options.taskId, {
+					kind: "assistant_text",
+					ts: Date.now(),
+					text: activity,
+				});
 			}
 		}
 		emitProgress(options.progressInput, options.progressRuns, options.onProgress);
@@ -786,7 +880,9 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 	});
 
 	try {
-		if (options.signal?.aborted) throw new Error(`Agent run ${getAbortedRunStatus(options)}`);
+		if (options.signal?.aborted || options.memberAbort?.signal.aborted) {
+			throw new Error(`Agent run ${getAbortedRunStatus(options)}`);
+		}
 		// `explore` is gated to read-only bash via an AsyncLocalStorage policy read
 		// by the bash tool. Soft guard, not a sandbox — see EXPLORE_BASH_POLICY.
 		// `source: "child-agent"` tags every in-process delegated run (built-in
@@ -797,8 +893,23 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		// `PI_MEMORY_SUBAGENT=1` env contract for in-process children.
 		const runPrompt = () => session.prompt(options.prompt, { expandPromptTemplates: false, source: "child-agent" });
 		await (details.agent === "explore" ? runWithBashPolicy(EXPLORE_BASH_POLICY, runPrompt) : runPrompt());
-		if (options.signal?.aborted) throw new Error(`Agent run ${getAbortedRunStatus(options)}`);
+		if (options.signal?.aborted || options.memberAbort?.signal.aborted) {
+			throw new Error(`Agent run ${getAbortedRunStatus(options)}`);
+		}
 		const finalOutput = extractFinalAssistantText(session.messages);
+		const inputReason = findNeedsInputReason(finalOutput);
+		if (inputReason && options.progressInput.mode !== "single") {
+			details.attentionReason = undefined;
+			details.attentionMessage = undefined;
+			throw new Error(
+				`Agent ${options.progressInput.mode} mode cannot pause for human input; re-run this member as a single task. Question: ${inputReason}`,
+			);
+		}
+		details.attentionReason = inputReason ? "user_input" : undefined;
+		details.attentionMessage = inputReason;
+		if (inputReason && details.memberId && options.taskId) {
+			markAgentRecentRunMemberNeedsAttention(options.taskId, details.memberId, inputReason);
+		}
 		const output = await writeAgentOutput({
 			cwd: options.parentServices.cwd,
 			output: options.task.output,
@@ -806,7 +917,7 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 			content: finalOutput,
 			chainDir: options.chainDir,
 		});
-		details.status = "completed";
+		details.status = inputReason ? "interrupted" : "completed";
 		refreshRunDetailsFromSession(details, session, startedAt);
 		// Lift child routing failures (auto alias, router unavailable / no decision)
 		// into the parent-facing run warnings so the caller can judge the fallback
@@ -826,13 +937,15 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		details.rawOutput = output.rawContent;
 		return details;
 	} catch (error) {
-		details.status = options.signal?.aborted ? getAbortedRunStatus(options) : "failed";
+		details.status =
+			options.signal?.aborted || options.memberAbort?.signal.aborted ? getAbortedRunStatus(options) : "failed";
 		refreshRunDetailsFromSession(details, session, startedAt);
 		details.error = error instanceof Error ? error.message : String(error);
 		throw Object.assign(new Error(details.error), { details });
 	} finally {
-		if (taskId) unregisterLiveSession(taskId);
+		if (memberId) unregisterLiveSession(memberId);
 		if (options.signal) options.signal.removeEventListener("abort", abortChild);
+		if (options.memberAbort) options.memberAbort.signal.removeEventListener("abort", abortChild);
 		unsubscribe();
 		options.onChildSessionEnd?.(session, details);
 		session.dispose();
@@ -959,6 +1072,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	}
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
+		memberId: options.memberId,
 		agent,
 		task: options.task,
 		effectiveTools,
@@ -1089,11 +1203,15 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 
+	const memberControl = createMemberSessionControl(session, options.memberId, options.taskId);
+	options.onMemberController?.(details, memberControl.controller);
+
 	return driveChildSession(session, {
 		...options,
 		details,
 		startedAt,
 		prompt: childPrompt,
+		memberAbort: memberControl.memberAbort,
 	});
 }
 
@@ -1155,17 +1273,20 @@ function emitProgress(
 	runs: AgentRunDetails[],
 	onProgress?: (progress: AgentExecutionProgress) => void,
 ): void {
+	const hasPendingWork = runs.length < input.tasks.length || runs.some((run) => run.status === "running");
 	onProgress?.({
 		mode: input.mode,
-		status: runs.some((run) => run.status === "failed")
-			? "failed"
-			: runs.some((run) => run.status === "cancelled")
-				? "cancelled"
-				: runs.some((run) => run.status === "interrupted")
-					? "interrupted"
-					: runs.every((run) => run.status === "completed")
-						? "completed"
-						: "running",
+		status: hasPendingWork
+			? "running"
+			: runs.some((run) => run.status === "failed")
+				? "failed"
+				: runs.some((run) => run.status === "cancelled")
+					? "cancelled"
+					: runs.some((run) => run.status === "interrupted")
+						? "interrupted"
+						: runs.every((run) => run.status === "completed")
+							? "completed"
+							: "running",
 		runs: [...runs],
 		concurrency: input.concurrency,
 		chainDir: input.chainDir,
@@ -1296,6 +1417,7 @@ async function resumeSingleBackgroundRun(
 		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
+		memberId: previousRun.memberId ?? `${recentRun.id}:1`,
 		agent,
 		task,
 		effectiveTools,
@@ -1376,6 +1498,11 @@ async function resumeSingleBackgroundRun(
 		remaining: taskCanDelegate ? maxDelegationDepth - childDepth : 0,
 	});
 
+	const memberId = details.memberId ?? `${recentRun.id}:1`;
+	details.memberId = memberId;
+	const memberControl = createMemberSessionControl(session, memberId, recentRun.id);
+	options.onMemberController?.(details, memberControl.controller);
+
 	try {
 		await driveChildSession(session, {
 			...options,
@@ -1387,6 +1514,7 @@ async function resumeSingleBackgroundRun(
 			startedAt,
 			prompt: resumePrompt,
 			taskId: recentRun.id,
+			memberAbort: memberControl.memberAbort,
 		});
 	} catch (error) {
 		const failed = getErrorDetails(error);
@@ -1441,12 +1569,13 @@ async function executeAgentToolToCompletion(
 	try {
 		if (input.mode === "chain") {
 			let previous = "";
-			for (const task of input.tasks) {
+			for (const [index, task] of input.tasks.entries()) {
 				const normalized = makeTask({ ...task, task: task.task.replaceAll("{previous}", previous) });
 				const result = await runChild({
 					...options,
 					registry,
 					task: normalized,
+					memberId: `${recentRun.id}:${index + 1}`,
 					toolThinking: input.thinking,
 					chainDir: input.chainDir,
 					progressInput: input,
@@ -1459,20 +1588,36 @@ async function executeAgentToolToCompletion(
 			}
 		} else if (input.mode === "parallel") {
 			const normalizedTasks = input.tasks.map(makeTask);
-			const { results, errors } = await mapWithConcurrency(normalizedTasks, concurrency, async (task) => {
-				const result = await runChild({
-					...options,
-					registry,
-					task,
-					toolThinking: input.thinking,
-					chainDir: input.chainDir,
-					progressInput: input,
-					progressRuns: runs,
-					taskId: recentRun.id,
-				});
+			const memberOrder = new Map(normalizedTasks.map((_, index) => [`${recentRun.id}:${index + 1}`, index]));
+			const recordResult = (result: AgentRunDetails) => {
 				if (!runs.includes(result)) runs.push(result);
+				runs.sort(
+					(a, b) =>
+						(memberOrder.get(a.memberId ?? "") ?? Number.MAX_SAFE_INTEGER) -
+						(memberOrder.get(b.memberId ?? "") ?? Number.MAX_SAFE_INTEGER),
+				);
 				emitProgress(input, runs, options.onProgress);
-				return result;
+			};
+			const { results, errors } = await mapWithConcurrency(normalizedTasks, concurrency, async (task, index) => {
+				try {
+					const result = await runChild({
+						...options,
+						registry,
+						task,
+						memberId: `${recentRun.id}:${index + 1}`,
+						toolThinking: input.thinking,
+						chainDir: input.chainDir,
+						progressInput: input,
+						progressRuns: runs,
+						taskId: recentRun.id,
+					});
+					recordResult(result);
+					return result;
+				} catch (error) {
+					const details = getErrorDetails(error);
+					if (details) recordResult(details);
+					throw error;
+				}
 			});
 			runs.splice(0, runs.length, ...results);
 			if (errors.length > 0) throw errors[0];
@@ -1481,6 +1626,7 @@ async function executeAgentToolToCompletion(
 				...options,
 				registry,
 				task: makeTask(input.tasks[0]),
+				memberId: `${recentRun.id}:1`,
 				toolThinking: input.thinking,
 				chainDir: input.chainDir,
 				progressInput: input,
@@ -1628,6 +1774,8 @@ async function executeManagedAgentRun(
 			),
 		);
 	};
+	let resumeAggregate: (prompt?: string) => Promise<void>;
+	let resumeInFlight: Promise<void> | undefined;
 	const makeBackgroundOptions = (generation: number): AgentExecutorOptions => ({
 		...options,
 		signal: abortController.signal,
@@ -1662,6 +1810,15 @@ async function executeManagedAgentRun(
 			activeSessions.delete(session);
 			options.onChildSessionEnd?.(session, details);
 		},
+		onMemberController: (details, controller) => {
+			if (!details.memberId) return;
+			attachAgentRecentRunMemberController(recentRun.id, details.memberId, {
+				...controller,
+				resume:
+					input.mode === "single" && input.background === true ? (prompt) => resumeAggregate(prompt) : undefined,
+			});
+			options.onMemberController?.(details, controller);
+		},
 	});
 	const abortActiveSessions = () => {
 		for (const session of activeSessions) {
@@ -1685,6 +1842,29 @@ async function executeManagedAgentRun(
 			() => {},
 		);
 		return completion;
+	};
+
+	resumeAggregate = (prompt) => {
+		if (resumeInFlight) return resumeInFlight;
+		const expectedGeneration = getAgentRecentRunGeneration(recentRun);
+		const operation = (async () => {
+			await activeRunPromise;
+			if (recentRun.status !== "interrupted" || getAgentRecentRunGeneration(recentRun) !== expectedGeneration) {
+				throw new Error(`Agent run ${recentRun.id} is no longer resumable`);
+			}
+			const priorMemberId = recentRun.runs[0]?.memberId;
+			if (priorMemberId) detachAgentRecentRunMemberController(priorMemberId);
+			abortController = new AbortController();
+			abortStatus = undefined;
+			restartAgentRecentRun(recentRun);
+			launch((generation) =>
+				resumeSingleBackgroundRun(input, makeBackgroundOptions(generation), recentRun, generation, prompt),
+			);
+		})();
+		resumeInFlight = operation.finally(() => {
+			resumeInFlight = undefined;
+		});
+		return resumeInFlight;
 	};
 
 	if (!behavior.returnImmediately && options.signal) {
@@ -1713,15 +1893,7 @@ async function executeManagedAgentRun(
 			abortController.abort();
 			await activeRunPromise;
 		},
-		resume: async (prompt) => {
-			await activeRunPromise;
-			abortController = new AbortController();
-			abortStatus = undefined;
-			restartAgentRecentRun(recentRun);
-			launch((generation) =>
-				resumeSingleBackgroundRun(input, makeBackgroundOptions(generation), recentRun, generation, prompt),
-			);
-		},
+		resume: resumeAggregate,
 		inject: async (message) => {
 			const sessions = [...activeSessions];
 			if (sessions.length === 0) throw new Error("No active child session to receive input");

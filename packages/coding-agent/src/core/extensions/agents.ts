@@ -8,7 +8,13 @@ import { theme } from "../../modes/interactive/theme/theme.ts";
 import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, getContextAgentEngine } from "../agents/engine.ts";
 import { formatAgentDurationMs, listAgentRecentRuns } from "../agents/status.ts";
 import { findTaskAdapter, listTasks, subscribeTasks } from "../tasks/registry.ts";
-import { formatTaskFooterStatus, formatTaskStatus, taskIsWorking, taskNeedsInput } from "../tasks/status.ts";
+import {
+	formatTaskFooterStatus,
+	formatTaskStatus,
+	taskIsWorking,
+	taskNeedsAttention,
+	taskNeedsInput,
+} from "../tasks/status.ts";
 import type { TaskSnapshot } from "../tasks/types.ts";
 import {
 	createAgentToolDefinition,
@@ -27,15 +33,15 @@ import type {
 const AGENTS_PANE_ID = "agents-status";
 
 function footerNeedsAttention(): boolean {
-	return listTasks().some(taskNeedsInput);
+	return listTasks().some(taskNeedsAttention);
 }
 
 /**
  * Color the footer pill by state (agents-ux-parity color/attention ask):
- * loud `warning` when something needs attention or an agent failed/
- * interrupted, quiet `dim` while merely running. Previously every state
- * rendered identically (plain, or accent-only-when-selected), so "agents
- * are active" never read distinctly from "an agent needs you".
+ * loud `warning` only when typed attention says an agent needs the user,
+ * quiet `dim` for lifecycle state alone (including running/interrupted).
+ * Previously every state rendered identically (plain, or accent-only when
+ * selected), so "agents are active" never read distinctly from "an agent needs you".
  */
 function renderFooterText(ctx: ExtensionFooterRenderCtx): string {
 	const text = formatTaskFooterStatus();
@@ -103,7 +109,9 @@ const MAX_COMPLETED_PANE_ROWS = 6;
 
 interface PaneTaskGroups {
 	needsInput: TaskSnapshot[];
+	needsAttention: TaskSnapshot[];
 	working: TaskSnapshot[];
+	interrupted: TaskSnapshot[];
 	completed: TaskSnapshot[];
 }
 
@@ -112,27 +120,43 @@ function byNewestStart(a: TaskSnapshot, b: TaskSnapshot): number {
 }
 
 /**
- * Regroups tasks into the three sections the pane renders, needs-input
- * sorted first within its own section and ahead of Working/Completed —
- * mirrors the footer's "attention wins" priority. Completed is bounded to
- * `MAX_COMPLETED_PANE_ROWS` so a long session's history doesn't push the
- * live sections off-screen. "idle" tasks (parked persistent forks) land in
- * Working — they're alive and awaiting their next turn, not finished.
+ * Regroups tasks by orthogonal attention and lifecycle state. Explicit
+ * needs-input rows sort first, then diagnostic attention, working, interrupted,
+ * and completed rows — mirroring the footer's attention priority. Completed is
+ * bounded to `MAX_COMPLETED_PANE_ROWS` so a long session's history doesn't
+ * push the live sections off-screen. "idle" tasks (parked persistent forks)
+ * land in Working — they're alive and awaiting their next turn, not finished.
  */
 function groupPaneTasks(tasks: TaskSnapshot[]): PaneTaskGroups {
 	const needsInput: TaskSnapshot[] = [];
+	const needsAttention: TaskSnapshot[] = [];
 	const working: TaskSnapshot[] = [];
+	const interrupted: TaskSnapshot[] = [];
 	const completed: TaskSnapshot[] = [];
 	for (const task of [...tasks].sort(byNewestStart)) {
 		if (taskNeedsInput(task)) needsInput.push(task);
+		else if (taskNeedsAttention(task)) needsAttention.push(task);
 		else if (taskIsWorking(task)) working.push(task);
+		else if (task.status === "interrupted") interrupted.push(task);
 		else completed.push(task);
 	}
-	return { needsInput, working, completed: completed.slice(0, MAX_COMPLETED_PANE_ROWS) };
+	return {
+		needsInput,
+		needsAttention,
+		working,
+		interrupted,
+		completed: completed.slice(0, MAX_COMPLETED_PANE_ROWS),
+	};
 }
 
 function flattenPaneGroups(groups: PaneTaskGroups): TaskSnapshot[] {
-	return [...groups.needsInput, ...groups.working, ...groups.completed];
+	return [
+		...groups.needsInput,
+		...groups.needsAttention,
+		...groups.working,
+		...groups.interrupted,
+		...groups.completed,
+	];
 }
 
 /**
@@ -147,6 +171,7 @@ function paneRowLabel(task: TaskSnapshot): string {
 
 function paneRowStatusText(task: TaskSnapshot): string {
 	if (taskNeedsInput(task)) return theme.fg("warning", "needs input");
+	if (taskNeedsAttention(task)) return theme.fg("warning", "needs attention");
 	switch (task.status) {
 		case "running":
 			return theme.fg("accent", "working");
@@ -299,7 +324,8 @@ class AgentsPane implements ExtensionMainPaneComponent {
 		}
 		if (kb.matches(data, "app.agents.dismiss")) {
 			const task = this.selectedTask();
-			if (!task || !taskNeedsInput(task) || task.status !== "failed") return;
+			if (!task || !taskNeedsAttention(task) || task.status !== "failed" || task.attentionReason !== "failure")
+				return;
 			const adapter = findTaskAdapter(task.id);
 			void adapter?.acknowledge?.(task.id).then(() => this.tui.requestRender());
 			return;
@@ -333,7 +359,9 @@ class AgentsPane implements ExtensionMainPaneComponent {
 				}
 			};
 			pushSection("Needs input", groups.needsInput);
+			pushSection("Needs attention", groups.needsAttention);
 			pushSection("Working", groups.working);
+			pushSection("Interrupted", groups.interrupted);
 			pushSection("Completed", groups.completed);
 			lines.push(
 				"",

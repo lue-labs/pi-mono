@@ -9,7 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
-- Failed background Agent runs can now be acknowledged from the Agents pane without deleting their status, child/session references, or output references. Acknowledged aggregate and child snapshots leave Needs input, and cancelling an interrupted parent normalizes interrupted children to cancelled so flattened panels do not retain stale attention rows.
+- Failed background Agent runs can now be acknowledged from the Agents pane without deleting their status, child/session references, or output references. Acknowledged aggregate and child snapshots move from Needs attention to Completed; `user_input` questions cannot be dismissed as failures. Cancelling an interrupted parent normalizes interrupted children to cancelled so flattened panels do not retain stale attention rows.
 
 - Fixed extension `ctx.isIdle()` reporting true during compaction and turn-start lifecycle work, including prompt preflight and resumed interactive tools, so idle-only shortcuts and commands no longer queue work while Pi is busy ([#295](https://github.com/valkyriweb/pi-mono/issues/295)).
 
