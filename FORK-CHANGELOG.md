@@ -14,6 +14,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Fixed
 
+- **Persistent child-agent resumes now reuse the initial dispatch preparation contract.** Model/thinking defaults, auto-routed model choices, output caps, tool/depth policy, cwd-bound services, system-prompt policy, and per-run `maxTurns` stay consistent across turns; auto aliases route once and resume the selected model persisted in the child session. ([#277](https://github.com/valkyriweb/pi-mono/issues/277))
+
 - **Extension idle state now remains false across every turn-start and busy window.** `ctx.isIdle()` covers prompt/custom-message preflight, resumed interactive tools, streaming, compaction, and agent processing; idle-only shortcuts can no longer queue work while Pi is busy. Idle-wake scheduling rechecks the same canonical predicate before firing. ([#295](https://github.com/valkyriweb/pi-mono/issues/295))
 
 - **Opaque Codex gateways can opt out of ChatGPT-only transport features.** `OpenAICodexResponsesCompat` now supports model-level `supportsWebSocketTransport:false` and `supportsZstdRequestCompression:false` alongside `sendChatgptAccountId:false`. Gateway models can force SSE, send an uncompressed JSON body, and omit the ChatGPT account header while preserving the native Codex deferred-tool wire contract; direct ChatGPT Codex defaults are unchanged.

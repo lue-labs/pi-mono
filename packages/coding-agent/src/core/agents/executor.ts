@@ -4,7 +4,11 @@ import { isAbsolute, resolve } from "node:path";
 import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type { Api, AssistantMessage, Model, TextContent, Usage } from "@valkyriweb/pi-ai";
 import type { AgentSession } from "../agent-session.ts";
-import { createAgentSessionFromServices, createAgentSessionServices } from "../agent-session-services.ts";
+import {
+	type AgentSessionServices,
+	createAgentSessionFromServices,
+	createAgentSessionServices,
+} from "../agent-session-services.ts";
 import type { AuthStorage } from "../auth-storage.ts";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.ts";
 import type { ModelRegistry } from "../model-registry.ts";
@@ -855,37 +859,56 @@ function applyMaxOutputTokens(
 	return { ...model, maxTokens: maxOutputTokens };
 }
 
-async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
-	if (options.signal?.aborted) throw new Error("Agent tool aborted");
-	const agent = findAgentDefinition(options.registry, options.task.agent);
+interface PreparedChildRunContext {
+	agent: AgentDefinition;
+	inheritedSystemPrompt?: string;
+	requestedAutoModel?: string;
+	routingMetadata?: Record<string, unknown>;
+	childPrompt: string;
+	model: Model<Api> | undefined;
+	thinking: ThinkingLevel;
+	effectiveTools: string[];
+	maxDelegationDepth: number;
+	childDepth: number;
+	taskCanDelegate: boolean;
+	startedAt: number;
+	details: AgentRunDetails;
+	policy: AgentRunDetails["context"];
+	childCwd: string;
+	childServices: AgentSessionServices;
+	agentToolServices: AgentToolParentServices;
+}
+
+/**
+ * Resolve the execution contract shared by initial dispatch and persistent
+ * resume. Keeping fork defaults, model/thinking, output cap, tools/depth, cwd,
+ * and cwd-bound services here prevents either path from silently drifting.
+ */
+async function prepareChildRunContext(options: {
+	registry: AgentRegistry;
+	task: NormalizedAgentTaskConfig;
+	toolThinking?: ThinkingLevel;
+	executor: AgentExecutorOptions;
+}): Promise<PreparedChildRunContext> {
+	const { task, executor } = options;
+	const agent = findAgentDefinition(options.registry, task.agent);
 	if (!agent) {
-		throw new Error(
-			`Unknown agent "${options.task.agent}". Available agents: ${formatAvailableAgents(options.registry)}`,
-		);
+		throw new Error(`Unknown agent "${task.agent}". Available agents: ${formatAvailableAgents(options.registry)}`);
 	}
 
 	// Fork mode is a permissive self-fork: it inherits the parent's transcript,
-	// model/thinking, and tools. When frozen parent system bytes are available we
-	// also apply them below for a 1:1 cache-identity fork. Such a fork only reuses
-	// the parent's warm prompt cache if it also runs on the parent's model +
-	// thinking level, so the settings.subagents provider pin (the cheap model for
-	// explore/general fan-out) must NOT apply here: dropping the resolved defaults
-	// lets model/thinking fall through to the parent unless the caller passes an
-	// explicit task-level override. Non-fork delegations (default/slim/none context)
-	// keep the subagents defaults so they stay cheap. Without this, a configured
-	// subagents model pin silently downgrades every context:"fork" caller
-	// (pi-memory extraction, pi-recap, fusion, suggested-tasks) off the parent
-	// model, cold-writing the whole inherited prefix on each run.
-	const isForkMode = resolveContextPolicy(options.task.context).mode === "fork";
-	const inheritedSystemPrompt = isForkMode ? options.parentSystemPrompt : undefined;
+	// model/thinking, and tools. A cache-sharing fork must bypass the cheap
+	// settings.subagents defaults unless the caller supplies an explicit override.
+	const isForkMode = resolveContextPolicy(task.context).mode === "fork";
+	const inheritedSystemPrompt = isForkMode ? executor.parentSystemPrompt : undefined;
 	const agentDefaults = isForkMode
 		? undefined
 		: resolveAgentDefaults({
-				parentModel: options.parentModel,
-				settingsManager: options.parentServices.settingsManager,
+				parentModel: executor.parentModel,
+				settingsManager: executor.parentServices.settingsManager,
 			});
 	const selectedModelReference = resolveAgentModelReference({
-		modelReference: options.task.model,
+		modelReference: task.model,
 		agent,
 		defaults: agentDefaults,
 	});
@@ -899,68 +922,56 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		);
 	}
 	const model = resolveAgentModel({
-		modelReference: options.task.model,
+		modelReference: task.model,
 		agent,
 		defaults: agentDefaults,
-		parentModel: options.parentModel,
-		modelRegistry: options.parentServices.modelRegistry,
+		parentModel: executor.parentModel,
+		modelRegistry: executor.parentServices.modelRegistry,
 		onWarning: (warning) => warnings.push(warning),
 	});
 	const thinking = resolveAgentThinking({
-		taskThinking: options.task.thinking,
+		taskThinking: task.thinking,
 		toolThinking: options.toolThinking,
 		agent,
 		defaults: agentDefaults,
-		parentThinkingLevel: options.parentThinkingLevel,
+		parentThinkingLevel: executor.parentThinkingLevel,
 		model,
 	});
-	const effectiveModel = applyMaxOutputTokens(model, options.task.maxOutputTokens);
-	// Fork mode (isForkMode is computed above, where it also forces model/thinking
-	// inheritance) governs tool inheritance too:
-	// Use the parent's exact tool set by default, with no GLOBAL_DENY_TOOLS
-	// filtering. An explicit task-level tools restriction intentionally narrows
-	// the schema list and opts that call out of exact parent-prefix cache reuse.
-	// Consequence: the `agent` schema can remain visible at the depth cap. The
-	// trailing availability reminder states the effective capability, while
-	// executeAgentTool enforces the cap at call time. Other modes also filter the
-	// effective tools through the selected profile.
-	// All other modes: standard agent-definition-based tool resolution.
-	let effectiveTools: string[];
-	let deniedTools: string[];
-	// Nested-delegation gate: a task at `childDepth` may call Agent only while
-	// under the configured cap and only when Agent survives effective-tool
-	// resolution for the selected profile.
-	const callerDepth = options.parentServices.depth ?? 0;
-	const maxDelegationDepth = getMaxDelegationDepth(options.parentServices.settingsManager);
+	const effectiveModel = applyMaxOutputTokens(model, task.maxOutputTokens);
+
+	const callerDepth = executor.parentServices.depth ?? 0;
+	const maxDelegationDepth = getMaxDelegationDepth(executor.parentServices.settingsManager);
 	const childDepth = callerDepth + 1;
 	const childCanDelegate = canDelegateAtDepth(childDepth, maxDelegationDepth);
 	const profileAllowsAgent = resolveEffectiveTools({
-		parentActiveTools: options.parentActiveTools,
+		parentActiveTools: executor.parentActiveTools,
 		agent,
 		allowAgentDelegation: true,
 	}).effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
+	let effectiveTools: string[];
+	let deniedTools: string[];
 	if (isForkMode) {
-		const requested = options.task.tools
-			? new Set(options.task.tools.map((tool) => canonicalToolName(tool)))
-			: undefined;
+		const requested = task.tools ? new Set(task.tools.map((tool) => canonicalToolName(tool))) : undefined;
 		effectiveTools = requested
-			? options.parentActiveTools.filter((tool) => requested.has(canonicalToolName(tool)))
-			: [...options.parentActiveTools];
+			? executor.parentActiveTools.filter((tool) => requested.has(canonicalToolName(tool)))
+			: [...executor.parentActiveTools];
 		deniedTools = [];
 	} else {
 		const resolved = resolveEffectiveTools({
-			parentActiveTools: options.parentActiveTools,
+			parentActiveTools: executor.parentActiveTools,
 			agent,
-			requestedTools: options.task.tools,
+			requestedTools: task.tools,
 			allowAgentDelegation: childCanDelegate,
 		});
 		effectiveTools = resolved.effectiveTools;
 		deniedTools = resolved.deniedTools;
 	}
+	const taskCanDelegate =
+		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
 		agent,
-		task: options.task,
+		task,
 		effectiveTools,
 		deniedTools,
 		model: effectiveModel,
@@ -969,21 +980,13 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		startedAt,
 	});
 	const policy = details.context;
-	// Optional cwd override (e.g. a git worktree, or exploring another repo) for
-	// isolated child sessions. Normalize before use: expand a leading `~`, resolve
-	// relative paths against the parent cwd, and validate the target is a real
-	// directory — otherwise a child silently roots somewhere wrong and every
-	// relative tool path resolves against the bad dir (the classic "explore
-	// guessed the wrong cwd" failure).
-	const childCwd = resolveChildCwd(options.task.cwd, options.parentServices.cwd);
-	const taskCanDelegate =
-		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
+	const childCwd = resolveChildCwd(task.cwd, executor.parentServices.cwd);
 	const roleGuidance =
-		agent.id !== "general" && (isForkMode || Boolean(options.task.systemPrompt))
+		agent.id !== "general" && (isForkMode || Boolean(task.systemPrompt))
 			? { agent: agent.id, prompt: buildAgentSystemAppend(agent) }
 			: undefined;
 	const childPrompt = buildChildTaskPrompt(
-		options.task,
+		task,
 		{
 			canDelegate: taskCanDelegate,
 			remaining: taskCanDelegate ? maxDelegationDepth - childDepth : 0,
@@ -991,23 +994,134 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		roleGuidance,
 	);
 	const routingMetadata = requestedAutoModel
-		? buildChildRoutingMetadata({
-				agent,
-				task: options.task,
-				childPrompt,
-				childCwd,
-				effectiveTools,
-				deniedTools,
-			})
+		? buildChildRoutingMetadata({ agent, task, childPrompt, childCwd, effectiveTools, deniedTools })
 		: undefined;
-	const childServices = await createAgentSessionServices({
+	const childRuntimeServices = {
 		cwd: childCwd,
-		agentDir: options.parentServices.agentDir,
-		authStorage: options.parentServices.authStorage,
-		settingsManager: options.parentServices.settingsManager,
-		modelRegistry: options.parentServices.modelRegistry,
+		agentDir: executor.parentServices.agentDir,
+		authStorage: executor.parentServices.authStorage,
+		settingsManager: executor.parentServices.settingsManager,
+		modelRegistry: executor.parentServices.modelRegistry,
+	};
+	const childServices = await createAgentSessionServices({
+		...childRuntimeServices,
 		resourceLoaderOptions: getChildResourceLoaderOptions(policy, agent),
 	});
+
+	return {
+		agent,
+		inheritedSystemPrompt,
+		requestedAutoModel,
+		routingMetadata,
+		childPrompt,
+		model: effectiveModel,
+		thinking,
+		effectiveTools,
+		maxDelegationDepth,
+		childDepth,
+		taskCanDelegate,
+		startedAt,
+		details,
+		policy,
+		childCwd,
+		childServices,
+		agentToolServices: { ...childRuntimeServices, depth: childDepth },
+	};
+}
+
+function resolveResumedChildSessionOptions(options: {
+	sessionManager: SessionManager;
+	prepared: PreparedChildRunContext;
+	maxOutputTokens?: number;
+}): { model: Model<Api> | undefined; thinkingLevel: ThinkingLevel | undefined } {
+	const { prepared } = options;
+	if (!prepared.requestedAutoModel) {
+		return { model: prepared.model, thinkingLevel: prepared.thinking };
+	}
+
+	// Auto aliases route once on the initial turn. Resume the selected model and
+	// thinking level persisted in the child session instead of overriding them
+	// with the alias's concrete fallback seed.
+	const storedModel = options.sessionManager.buildSessionContext().model;
+	const routedModel = storedModel
+		? prepared.childServices.modelRegistry.find(storedModel.provider, storedModel.modelId)
+		: undefined;
+	if (!routedModel) {
+		return { model: prepared.model, thinkingLevel: prepared.thinking };
+	}
+	return {
+		model: applyMaxOutputTokens(routedModel, options.maxOutputTokens),
+		thinkingLevel: undefined,
+	};
+}
+
+function applyChildSessionResolution(options: {
+	session: AgentSession;
+	prepared: PreparedChildRunContext;
+	modelFallbackMessage?: string;
+	modelRoutingFailed?: boolean;
+}): void {
+	const { session, prepared, modelFallbackMessage, modelRoutingFailed } = options;
+	prepared.details.model = formatModelForDetails(session.model ?? prepared.model);
+	prepared.details.thinking = session.thinkingLevel;
+	if (!prepared.requestedAutoModel || !modelFallbackMessage) return;
+
+	const warning = modelRoutingFailed
+		? `${modelFallbackMessage} If this fallback model is wrong for the task, re-run the task with an explicit model override.`
+		: modelFallbackMessage;
+	prepared.details.warnings = [...(prepared.details.warnings ?? []), warning];
+}
+
+function applyChildSessionPolicy(
+	session: AgentSession,
+	task: NormalizedAgentTaskConfig,
+	prepared: PreparedChildRunContext,
+): void {
+	if (task.systemPrompt) {
+		session.overrideBaseSystemPrompt(task.systemPrompt);
+	} else if (prepared.inheritedSystemPrompt) {
+		session.overrideBaseSystemPrompt(prepared.inheritedSystemPrompt);
+	} else if (prepared.agent.cacheProfile === "stable" && prepared.policy.mode === "none") {
+		session.overrideBaseSystemPrompt(buildAgentSystemAppend(prepared.agent));
+	}
+
+	// A model:resolve hook can replace the capped fallback with a registry model.
+	// Reapply the task cap after session creation so routed and resumed turns match.
+	const cappedModel = applyMaxOutputTokens(session.model, task.maxOutputTokens);
+	if (cappedModel && cappedModel !== session.model) {
+		session.agent.state.model = cappedModel;
+	}
+
+	// Each persistent resume creates a fresh AgentSession, so the per-run turn cap
+	// must be restored alongside the prompt policy.
+	if (task.maxTurns !== undefined && task.maxTurns > 0) {
+		session.agent.maxTurns = task.maxTurns;
+	}
+}
+
+async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
+	if (options.signal?.aborted) throw new Error("Agent tool aborted");
+	const prepared = await prepareChildRunContext({
+		registry: options.registry,
+		task: options.task,
+		toolThinking: options.toolThinking,
+		executor: options,
+	});
+	const {
+		requestedAutoModel,
+		routingMetadata,
+		childPrompt,
+		model: effectiveModel,
+		thinking,
+		effectiveTools,
+		taskCanDelegate,
+		startedAt,
+		details,
+		policy,
+		childCwd,
+		childServices,
+		agentToolServices,
+	} = prepared;
 	const childSessionManager = SessionManager.create(childCwd);
 	childSessionManager.newSession({ parentSession: options.parentSessionManager.getSessionFile() });
 	details.sessionId = childSessionManager.getSessionId();
@@ -1025,12 +1139,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		// The depth is threaded so nested calls are enforced again by executeAgentTool.
 		disableAgentToolServices: !taskCanDelegate,
 		agentToolServices: {
-			cwd: childCwd,
-			agentDir: options.parentServices.agentDir,
-			authStorage: options.parentServices.authStorage,
-			settingsManager: options.parentServices.settingsManager,
-			modelRegistry: options.parentServices.modelRegistry,
-			depth: childDepth,
+			...agentToolServices,
 			// Link this task's future delegations back to the run that spawned it.
 			parentRunId: options.taskId,
 		},
@@ -1049,43 +1158,13 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		// input/before_agent_start independently.
 		source: "child-agent",
 	});
-	details.model = formatModelForDetails(session.model ?? effectiveModel);
-	details.thinking = session.thinkingLevel;
-	// Surface child auto-routing notes in the parent-facing run warnings. Add
-	// explicit re-dispatch advice only for true routing failures; successful
-	// semantic-router selections should not look like fallback paths.
-	if (requestedAutoModel && modelFallbackMessage) {
-		const warning = modelRoutingFailed
-			? `${modelFallbackMessage} If this fallback model is wrong for the task, re-run the task with an explicit model override.`
-			: modelFallbackMessage;
-		details.warnings = [...(details.warnings ?? []), warning];
-	}
+	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
 	}
 
-	// System-prompt override priority:
-	//   1. Task-level `systemPrompt` (explicit caller-supplied bytes)
-	//   2. Fork-mode parentSystemPrompt (cache-share with parent's API request)
-	//   3. Stable-profile agent prompt when running with context:"none"
-	//      (cross-session/cross-cwd byte stability)
-	//   4. Otherwise: keep the freshly-built prompt from session creation.
-	// Must run after session creation (which builds a fresh prompt) and after
-	// message assignment (order doesn't matter for the prompt).
-	if (options.task.systemPrompt) {
-		session.overrideBaseSystemPrompt(options.task.systemPrompt);
-	} else if (inheritedSystemPrompt) {
-		session.overrideBaseSystemPrompt(inheritedSystemPrompt);
-	} else if (agent.cacheProfile === "stable" && policy.mode === "none") {
-		session.overrideBaseSystemPrompt(buildAgentSystemAppend(agent));
-	}
-
-	// Hard turn cap for this child run (e.g. bounded extractor forks). Set on the
-	// engine Agent before driving — the loop reads it via createLoopConfig.
-	if (options.task.maxTurns !== undefined && options.task.maxTurns > 0) {
-		session.agent.maxTurns = options.task.maxTurns;
-	}
+	applyChildSessionPolicy(session, options.task, prepared);
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 
@@ -1223,120 +1302,39 @@ async function resumeSingleBackgroundRun(
 	const originalTask = input.tasks[0];
 	const definition = findAgentDefinition(registry, originalTask.agent);
 	const task = normalizeTask(originalTask, input, definition);
-	const agent = findAgentDefinition(registry, task.agent);
-	if (!agent) {
-		throw new Error(`Unknown agent "${task.agent}". Available agents: ${formatAvailableAgents(registry)}`);
-	}
-
-	// Resume must preserve the original fork contract just like initial dispatch:
-	// parent model/thinking defaults and the canonical parent-tool subset. Frozen
-	// system bytes are re-applied when available. Only the trailing course-correction
-	// message changes.
-	const isForkMode = resolveContextPolicy(task.context).mode === "fork";
-	const inheritedSystemPrompt = isForkMode ? options.parentSystemPrompt : undefined;
-	const agentDefaults = isForkMode
-		? undefined
-		: resolveAgentDefaults({
-				parentModel: options.parentModel,
-				settingsManager: options.parentServices.settingsManager,
-			});
-	const warnings: string[] = [];
-	if (isForkMode && forkBypassesProfileTools(agent)) {
-		warnings.push(
-			`context:"fork" is a permissive self-fork and does not apply the "${agent.id}" profile's ordinary tool allow/deny list; ` +
-				`it preserves the caller's tools unless this task explicitly narrows them. Use context:"default" for filtered profile tools. ` +
-				"Nested Agent access remains profile- and depth-capped.",
-		);
-	}
-	const model = resolveAgentModel({
-		modelReference: task.model,
-		agent,
-		defaults: agentDefaults,
-		parentModel: options.parentModel,
-		modelRegistry: options.parentServices.modelRegistry,
-		onWarning: (warning) => warnings.push(warning),
-	});
-	const thinking = resolveAgentThinking({
-		taskThinking: task.thinking,
-		toolThinking: input.thinking,
-		agent,
-		defaults: agentDefaults,
-		parentThinkingLevel: options.parentThinkingLevel,
-		model,
-	});
-	const effectiveModel = applyMaxOutputTokens(model, task.maxOutputTokens);
-	const callerDepth = options.parentServices.depth ?? 0;
-	const maxDelegationDepth = getMaxDelegationDepth(options.parentServices.settingsManager);
-	const childDepth = callerDepth + 1;
-	const childCanDelegate = canDelegateAtDepth(childDepth, maxDelegationDepth);
-	const profileAllowsAgent = resolveEffectiveTools({
-		parentActiveTools: options.parentActiveTools,
-		agent,
-		allowAgentDelegation: true,
-	}).effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
-	let effectiveTools: string[];
-	let deniedTools: string[];
-	if (isForkMode) {
-		const requested = task.tools ? new Set(task.tools.map((tool) => canonicalToolName(tool))) : undefined;
-		effectiveTools = requested
-			? options.parentActiveTools.filter((tool) => requested.has(canonicalToolName(tool)))
-			: [...options.parentActiveTools];
-		deniedTools = [];
-	} else {
-		const resolved = resolveEffectiveTools({
-			parentActiveTools: options.parentActiveTools,
-			agent,
-			requestedTools: task.tools,
-			allowAgentDelegation: childCanDelegate,
-		});
-		effectiveTools = resolved.effectiveTools;
-		deniedTools = resolved.deniedTools;
-	}
-	const taskCanDelegate =
-		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
-	const startedAt = Date.now();
-	const details = createInitialRunDetails({
-		agent,
+	const prepared = await prepareChildRunContext({
+		registry,
 		task,
+		toolThinking: input.thinking,
+		executor: options,
+	});
+	const {
 		effectiveTools,
-		deniedTools,
-		model: effectiveModel,
-		thinking,
-		warnings,
+		maxDelegationDepth,
+		childDepth,
+		taskCanDelegate,
 		startedAt,
-	});
-	const policy = details.context;
-	// Re-apply the routed task.cwd on resume, mirroring the initial dispatch at
-	// resolveChildCwd(options.task.cwd, options.parentServices.cwd) above. Without
-	// this, resuming a parked persistent background run rebinds the child's tool
-	// registry (bash/read/write/etc.) to the parent's cwd, even though the
-	// original dispatch routed the session elsewhere (my-pi issue #916).
-	const childCwd = resolveChildCwd(task.cwd, options.parentServices.cwd);
-	const childServices = await createAgentSessionServices({
-		cwd: childCwd,
-		agentDir: options.parentServices.agentDir,
-		authStorage: options.parentServices.authStorage,
-		settingsManager: options.parentServices.settingsManager,
-		modelRegistry: options.parentServices.modelRegistry,
-		resourceLoaderOptions: getChildResourceLoaderOptions(policy, agent),
-	});
+		details,
+		childServices,
+		agentToolServices,
+	} = prepared;
 	const childSessionManager = SessionManager.open(previousRun.sessionPath);
+	const resumedSelection = resolveResumedChildSessionOptions({
+		sessionManager: childSessionManager,
+		prepared,
+		maxOutputTokens: task.maxOutputTokens,
+	});
 	details.sessionId = childSessionManager.getSessionId();
 	details.sessionPath = childSessionManager.getSessionFile();
-	const { session } = await createAgentSessionFromServices({
+	const { session, modelFallbackMessage, modelRoutingFailed } = await createAgentSessionFromServices({
 		services: childServices,
 		sessionManager: childSessionManager,
-		model: effectiveModel,
-		thinkingLevel: thinking,
+		model: resumedSelection.model,
+		thinkingLevel: resumedSelection.thinkingLevel,
 		tools: effectiveTools,
 		disableAgentToolServices: !taskCanDelegate,
 		agentToolServices: {
-			cwd: childCwd,
-			agentDir: options.parentServices.agentDir,
-			authStorage: options.parentServices.authStorage,
-			settingsManager: options.parentServices.settingsManager,
-			modelRegistry: options.parentServices.modelRegistry,
-			depth: childDepth,
+			...agentToolServices,
 			// Link this child's future delegations back to the run being resumed.
 			parentRunId: recentRun.id,
 		},
@@ -1354,16 +1352,8 @@ async function resumeSingleBackgroundRun(
 		},
 		source: "child-agent",
 	});
-	// Reapply the original system-prompt policy after opening the persisted
-	// session. Session creation builds a fresh prompt even though the transcript
-	// comes from the previous run.
-	if (task.systemPrompt) {
-		session.overrideBaseSystemPrompt(task.systemPrompt);
-	} else if (inheritedSystemPrompt) {
-		session.overrideBaseSystemPrompt(inheritedSystemPrompt);
-	} else if (agent.cacheProfile === "stable" && policy.mode === "none") {
-		session.overrideBaseSystemPrompt(buildAgentSystemAppend(agent));
-	}
+	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
+	applyChildSessionPolicy(session, task, prepared);
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 
