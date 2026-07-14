@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Unified child-agent preparation across initial dispatch and persistent resume so model/thinking defaults, auto-routed model choices, output caps, tool/depth policy, cwd-bound services, and per-run `maxTurns` remain consistent across turns ([#277](https://github.com/valkyriweb/pi-mono/issues/277)).
+
 - Fixed extension `ctx.isIdle()` reporting true during compaction and turn-start lifecycle work, including prompt preflight and resumed interactive tools, so idle-only shortcuts and commands no longer queue work while Pi is busy ([#295](https://github.com/valkyriweb/pi-mono/issues/295)).
 
 - Accept model-registry compatibility flags for opaque Codex gateways to omit ChatGPT account headers, force SSE, and disable zstd request compression.
