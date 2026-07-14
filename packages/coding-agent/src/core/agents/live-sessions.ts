@@ -1,7 +1,8 @@
 /**
- * Module-level registry of live child `AgentSession` objects, keyed by
- * `AgentRecentRun` / task id. Written by `executor.ts` during a child run;
- * read by UI consumers that subscribe to the child's event stream.
+ * Module-level registry of live child `AgentSession` objects, keyed by stable
+ * member id. Single-member runs also register the aggregate run id as an alias;
+ * parallel aggregates intentionally have no session alias. Written by
+ * `executor.ts` during a child run and read by UI event-stream consumers.
  *
  * A separate module (not part of `status.ts`) avoids coupling the pure
  * status store to the session object graph.

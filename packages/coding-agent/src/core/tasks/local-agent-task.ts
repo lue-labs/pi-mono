@@ -167,13 +167,25 @@ export const LocalAgentTask: Task = {
 
 	async output(taskId, options): Promise<TaskOutputResult | undefined> {
 		const run = findAgentRecentRun(taskId);
-		if (!run) return undefined;
-		const outputPath = run.outputPaths[0] ?? run.runs.find((detail) => detail.outputPath)?.outputPath;
+		if (run) {
+			const outputPath = run.outputPaths[0] ?? run.runs.find((detail) => detail.outputPath)?.outputPath;
+			if (options?.maxLines !== undefined && options.maxLines <= 1) {
+				const snapshot = snapshotFromRun(run);
+				return { text: `${snapshot.id}: ${snapshot.status}`, fullOutputPath: outputPath, snapshot };
+			}
+			return { text: renderRunOutput(run), fullOutputPath: outputPath, snapshot: snapshotFromRun(run) };
+		}
+
+		const member = findAgentRecentRunMember(taskId);
+		if (!member) return undefined;
+		const snapshot = lookup(taskId)!;
+		const outputPath = member.detail.outputPath;
 		if (options?.maxLines !== undefined && options.maxLines <= 1) {
-			const snapshot = snapshotFromRun(run);
 			return { text: `${snapshot.id}: ${snapshot.status}`, fullOutputPath: outputPath, snapshot };
 		}
-		return { text: renderRunOutput(run), fullOutputPath: outputPath, snapshot: snapshotFromRun(run) };
+		const text = runOutputText(member.detail);
+		const header = `${snapshot.id}: ${snapshot.status}${member.detail.error ? ` (${member.detail.error})` : ""}`;
+		return { text: `${header}\n\n${text || "(no output yet)"}`, fullOutputPath: outputPath, snapshot };
 	},
 
 	async kill(taskId) {

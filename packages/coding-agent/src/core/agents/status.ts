@@ -210,6 +210,32 @@ function userInputAttention(runs: AgentRunDetails[]): string | undefined {
 	return runs.find((child) => child.attentionReason === "user_input")?.attentionMessage;
 }
 
+function refreshRunAttention(run: AgentRecentRun): void {
+	const inputAttention = userInputAttention(run.runs);
+	const failedChild = run.runs.find((child) => child.status === "failed");
+	if (inputAttention && !run.acknowledged) {
+		run.needsAttention = true;
+		run.attentionReason = "user_input";
+		run.attentionMessage = inputAttention;
+	} else if (failedChild && !run.acknowledged) {
+		run.needsAttention = true;
+		run.attentionReason = "failure";
+		run.attentionMessage = failedChild.error ?? run.error;
+	} else if (run.status === "running") {
+		run.needsAttention = false;
+		run.attentionReason = undefined;
+		run.attentionMessage = undefined;
+	} else if (run.status === "failed") {
+		run.needsAttention = !run.acknowledged;
+		run.attentionReason = run.acknowledged ? undefined : "failure";
+		run.attentionMessage = run.acknowledged ? undefined : run.error;
+	} else if (run.status === "completed" || run.status === "cancelled" || run.status === "interrupted") {
+		run.needsAttention = false;
+		run.attentionReason = undefined;
+		run.attentionMessage = undefined;
+	}
+}
+
 // Fire the terminal listener at most once per run generation. Caller must have
 // already driven `run.status` to a terminal value; we read it for the snapshot.
 function maybeFireTerminal(run: AgentRecentRun): void {
@@ -313,35 +339,27 @@ function applyRunDetails(
 		const current = incoming.memberId
 			? run.runs.find((candidate) => candidate.memberId === incoming.memberId)
 			: undefined;
-		return current?.status === "cancelled" && incoming.status !== "cancelled"
-			? { ...incoming, status: "cancelled" as const, error: current.error ?? incoming.error }
+		return current?.status === "cancelled"
+			? {
+					...incoming,
+					status: "cancelled" as const,
+					error: current.error ?? incoming.error,
+					attentionReason: undefined,
+					attentionMessage: undefined,
+				}
 			: incoming;
 	});
-	run.status = details.parked === true ? "interrupted" : aggregateStatus(details.status, mergedRuns);
+	run.status =
+		run.status === "cancelled"
+			? "cancelled"
+			: details.parked === true
+				? "interrupted"
+				: aggregateStatus(details.status, mergedRuns);
 	run.parked = run.status === "interrupted" && details.parked === true;
 	updateRunTimestamps(run, terminal && run.status !== "running");
 	refreshRunSummary(run, mergedRuns);
 	if (run.status !== "interrupted") run.resumable = false;
-	const inputAttention = userInputAttention(run.runs);
-	if (inputAttention && !run.acknowledged) {
-		run.needsAttention = true;
-		run.attentionReason = "user_input";
-		run.attentionMessage = inputAttention;
-	} else if (run.status === "running") {
-		if (run.attentionReason !== "user_input") {
-			run.needsAttention = false;
-			run.attentionReason = undefined;
-			run.attentionMessage = undefined;
-		}
-	} else if (run.status === "failed") {
-		run.needsAttention = !run.acknowledged;
-		run.attentionReason = run.acknowledged ? undefined : "failure";
-		run.attentionMessage = run.acknowledged ? undefined : run.error;
-	} else if (run.status === "completed" || run.status === "cancelled") {
-		run.needsAttention = false;
-		run.attentionReason = undefined;
-		run.attentionMessage = undefined;
-	}
+	refreshRunAttention(run);
 	if (
 		run.status === "completed" ||
 		run.status === "cancelled" ||
@@ -437,6 +455,7 @@ function markMemberStopped(
 	run.parked = false;
 	updateRunTimestamps(run, run.status !== "running");
 	refreshRunSummary(run, run.runs);
+	refreshRunAttention(run);
 	run.resumable = run.status === "interrupted" && canResumeRun(run);
 	if (run.status === "cancelled" || (run.status === "interrupted" && !run.resumable)) {
 		deleteRunControllers(run);
@@ -691,6 +710,9 @@ export function acknowledgeAgentRecentRun(runId: string): AgentRunControlResult 
 			run: cloneRecentRun(run),
 		};
 	}
+	if (run.attentionReason === "user_input") {
+		return { ok: false, message: `${runId} still needs human input`, run: cloneRecentRun(run) };
+	}
 	if (run.acknowledged) return { ok: true, message: `${runId} is already dismissed`, run: cloneRecentRun(run) };
 
 	// Deliberately only UI/session bookkeeping: preserve the run record and all
@@ -709,6 +731,13 @@ export async function resumeAgentRecentRun(runId: string, prompt?: string): Prom
 	if (member) {
 		if (member.detail.status === "running")
 			return { ok: false, message: `${runId} is already running`, run: cloneRecentRun(member.run) };
+		if (member.run.mode !== "single") {
+			return {
+				ok: false,
+				message: `${runId} cannot resume from ${member.run.mode} mode; re-dispatch it as a single task`,
+				run: cloneRecentRun(member.run),
+			};
+		}
 		if (!member.detail.sessionPath || !existsSync(member.detail.sessionPath)) {
 			return {
 				ok: false,
@@ -796,7 +825,7 @@ export function waitForAgentRecentRun(runId: string): Promise<AgentRecentRun> {
 export function markAgentRecentRunMemberNeedsAttention(runId: string, memberId: string, message: string): void {
 	const run = findMutableRun(runId);
 	const detail = run?.runs.find((candidate) => candidate.memberId === memberId);
-	if (!run || !detail || !message.trim()) return;
+	if (!run || !detail || run.status !== "running" || detail.status !== "running" || !message.trim()) return;
 	detail.attentionReason = "user_input";
 	detail.attentionMessage = message.trim();
 	run.needsAttention = true;

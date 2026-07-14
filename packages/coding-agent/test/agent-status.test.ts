@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
+	acknowledgeAgentRecentRun,
 	agentRunUiStatus,
 	attachAgentRecentRunController,
 	attachAgentRecentRunTerminalListener,
@@ -16,6 +17,7 @@ import {
 	formatAgentTokenCount,
 	interruptAgentRecentRun,
 	listAgentRecentRuns,
+	markAgentRecentRunMemberNeedsAttention,
 	markAgentRecentRunNeedsAttention,
 	restartAgentRecentRun,
 	resumeAgentRecentRun,
@@ -299,10 +301,11 @@ describe("native agent status", () => {
 		expect(interruptedThenCancelled.run?.runs[0]?.status).toBe("cancelled");
 
 		const cancelRun = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		const cancelMemberId = `${cancelRun.id}:0`;
 		updateAgentRecentRunProgress(cancelRun, {
 			mode: "single",
 			status: "running",
-			runs: [makeRunDetails("running")],
+			runs: [{ ...makeRunDetails("running"), memberId: cancelMemberId }],
 		});
 		const cancel = vi.fn();
 		attachAgentRecentRunController(cancelRun.id, { cancel });
@@ -311,6 +314,26 @@ describe("native agent status", () => {
 		expect(cancel).toHaveBeenCalledOnce();
 		expect(cancelled.ok).toBe(true);
 		expect(formatAgentStatus()).toContain("agent-2 single background cancelled");
+
+		const memberId = cancelled.run?.runs[0]?.memberId;
+		expect(memberId).toBe(cancelMemberId);
+		markAgentRecentRunMemberNeedsAttention(cancelRun.id, memberId!, "Which environment?");
+		updateAgentRecentRunProgress(cancelRun, {
+			mode: "single",
+			status: "interrupted",
+			runs: [
+				{
+					...makeRunDetails("interrupted"),
+					memberId,
+					attentionReason: "user_input",
+					attentionMessage: "Which environment?",
+				},
+			],
+		});
+		expect(cancelRun.status).toBe("cancelled");
+		expect(cancelRun.runs[0]?.status).toBe("cancelled");
+		expect(cancelRun.runs[0]?.attentionReason).toBeUndefined();
+		expect(cancelRun.needsAttention).toBe(false);
 	});
 
 	test("cancelling an interrupted parallel run normalizes every child", async () => {
@@ -334,6 +357,43 @@ describe("native agent status", () => {
 
 		const cancelled = await cancelAgentRecentRun(run.id);
 		expect(cancelled.run?.runs.map((child) => child.status)).toEqual(["cancelled", "cancelled"]);
+	});
+
+	test("does not acknowledge a mixed failed run that still needs human input", () => {
+		const run = startAgentRecentRun(
+			"parallel",
+			[
+				{ agent: "scout", task: "Choose environment" },
+				{ agent: "reviewer", task: "Review files" },
+			],
+			{ background: true },
+		);
+		const [inputMemberId, failedMemberId] = run.runs.map((child) => child.memberId);
+		updateAgentRecentRunProgress(run, {
+			mode: "parallel",
+			status: "failed",
+			runs: [
+				{
+					...makeRunDetails("interrupted"),
+					memberId: inputMemberId,
+					attentionReason: "user_input",
+					attentionMessage: "Which environment?",
+				},
+				{
+					...makeRunDetails("failed"),
+					memberId: failedMemberId,
+					error: "Review failed",
+				},
+			],
+		});
+
+		expect(run.status).toBe("failed");
+		expect(run.attentionReason).toBe("user_input");
+		const dismissed = acknowledgeAgentRecentRun(run.id);
+		expect(dismissed.ok).toBe(false);
+		expect(dismissed.message).toContain("still needs human input");
+		expect(run.needsAttention).toBe(true);
+		expect(run.runs[0]?.attentionReason).toBe("user_input");
 	});
 
 	test("formats footer summary for background runs", () => {

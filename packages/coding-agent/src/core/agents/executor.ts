@@ -812,12 +812,6 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 			if (snippet && appendRunActivitySnippet(details, snippet)) {
 				appendAgentTaskMessage(memberId, options.taskId, { kind: "assistant_text", ts: Date.now(), text: snippet });
 			}
-			const inputReason = findNeedsInputReason(event.message.content);
-			if (inputReason && details.memberId && options.taskId) {
-				details.attentionReason = "user_input";
-				details.attentionMessage = inputReason;
-				markAgentRecentRunMemberNeedsAttention(options.taskId, details.memberId, inputReason);
-			}
 		}
 		if (event.type === "message_end" && event.message.role === "assistant") {
 			details.usage = event.message.usage;
@@ -904,6 +898,13 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		}
 		const finalOutput = extractFinalAssistantText(session.messages);
 		const inputReason = findNeedsInputReason(finalOutput);
+		if (inputReason && options.progressInput.mode !== "single") {
+			details.attentionReason = undefined;
+			details.attentionMessage = undefined;
+			throw new Error(
+				`Agent ${options.progressInput.mode} mode cannot pause for human input; re-run this member as a single task. Question: ${inputReason}`,
+			);
+		}
 		details.attentionReason = inputReason ? "user_input" : undefined;
 		details.attentionMessage = inputReason;
 		if (inputReason && details.memberId && options.taskId) {
@@ -1587,21 +1588,36 @@ async function executeAgentToolToCompletion(
 			}
 		} else if (input.mode === "parallel") {
 			const normalizedTasks = input.tasks.map(makeTask);
-			const { results, errors } = await mapWithConcurrency(normalizedTasks, concurrency, async (task, index) => {
-				const result = await runChild({
-					...options,
-					registry,
-					task,
-					memberId: `${recentRun.id}:${index + 1}`,
-					toolThinking: input.thinking,
-					chainDir: input.chainDir,
-					progressInput: input,
-					progressRuns: runs,
-					taskId: recentRun.id,
-				});
+			const memberOrder = new Map(normalizedTasks.map((_, index) => [`${recentRun.id}:${index + 1}`, index]));
+			const recordResult = (result: AgentRunDetails) => {
 				if (!runs.includes(result)) runs.push(result);
+				runs.sort(
+					(a, b) =>
+						(memberOrder.get(a.memberId ?? "") ?? Number.MAX_SAFE_INTEGER) -
+						(memberOrder.get(b.memberId ?? "") ?? Number.MAX_SAFE_INTEGER),
+				);
 				emitProgress(input, runs, options.onProgress);
-				return result;
+			};
+			const { results, errors } = await mapWithConcurrency(normalizedTasks, concurrency, async (task, index) => {
+				try {
+					const result = await runChild({
+						...options,
+						registry,
+						task,
+						memberId: `${recentRun.id}:${index + 1}`,
+						toolThinking: input.thinking,
+						chainDir: input.chainDir,
+						progressInput: input,
+						progressRuns: runs,
+						taskId: recentRun.id,
+					});
+					recordResult(result);
+					return result;
+				} catch (error) {
+					const details = getErrorDetails(error);
+					if (details) recordResult(details);
+					throw error;
+				}
 			});
 			runs.splice(0, runs.length, ...results);
 			if (errors.length > 0) throw errors[0];
@@ -1759,6 +1775,7 @@ async function executeManagedAgentRun(
 		);
 	};
 	let resumeAggregate: (prompt?: string) => Promise<void>;
+	let resumeInFlight: Promise<void> | undefined;
 	const makeBackgroundOptions = (generation: number): AgentExecutorOptions => ({
 		...options,
 		signal: abortController.signal,
@@ -1827,16 +1844,27 @@ async function executeManagedAgentRun(
 		return completion;
 	};
 
-	resumeAggregate = async (prompt) => {
-		await activeRunPromise;
-		const priorMemberId = recentRun.runs[0]?.memberId;
-		if (priorMemberId) detachAgentRecentRunMemberController(priorMemberId);
-		abortController = new AbortController();
-		abortStatus = undefined;
-		restartAgentRecentRun(recentRun);
-		launch((generation) =>
-			resumeSingleBackgroundRun(input, makeBackgroundOptions(generation), recentRun, generation, prompt),
-		);
+	resumeAggregate = (prompt) => {
+		if (resumeInFlight) return resumeInFlight;
+		const expectedGeneration = getAgentRecentRunGeneration(recentRun);
+		const operation = (async () => {
+			await activeRunPromise;
+			if (recentRun.status !== "interrupted" || getAgentRecentRunGeneration(recentRun) !== expectedGeneration) {
+				throw new Error(`Agent run ${recentRun.id} is no longer resumable`);
+			}
+			const priorMemberId = recentRun.runs[0]?.memberId;
+			if (priorMemberId) detachAgentRecentRunMemberController(priorMemberId);
+			abortController = new AbortController();
+			abortStatus = undefined;
+			restartAgentRecentRun(recentRun);
+			launch((generation) =>
+				resumeSingleBackgroundRun(input, makeBackgroundOptions(generation), recentRun, generation, prompt),
+			);
+		})();
+		resumeInFlight = operation.finally(() => {
+			resumeInFlight = undefined;
+		});
+		return resumeInFlight;
 	};
 
 	if (!behavior.returnImmediately && options.signal) {

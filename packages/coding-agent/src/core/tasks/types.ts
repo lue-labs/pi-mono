@@ -15,9 +15,9 @@ export type TaskAttentionReason = "user_input" | "stale_progress" | "failure";
 /**
  * Lifecycle states. Terminal: `completed | failed | cancelled | killed`.
  * `interrupted` is non-terminal — a soft-stopped task that may resume.
- * `idle` is a parked-but-alive task awaiting input (e.g. a persistent
- * single-background fork between turns) — distinct from `interrupted`,
- * which signals the task actually needs the user's attention.
+ * `idle` is a parked-but-alive task awaiting its next turn (e.g. a persistent
+ * single-background fork between turns). `interrupted` is a soft-stopped
+ * lifecycle state; attention remains orthogonal and requires a typed reason.
  */
 export type TaskStatus = "running" | "idle" | "interrupted" | "completed" | "failed" | "cancelled" | "killed";
 
@@ -123,9 +123,9 @@ export interface Task {
 	/**
 	 * Steer the task with a user message.
 	 *
-	 * v1 `local_agent` implementation: interrupt → resume(message). This means
-	 * the message lands at the next turn, not mid-LLM-call. Future layer C may
-	 * promote this to true in-loop drain.
+	 * `local_agent` steers a running member's live session directly. An interrupted
+	 * durable single-member run resumes with the message as its next turn; targets
+	 * without a supported live or resumable controller fail explicitly.
 	 */
 	injectMessage?: (taskId: string, message: string) => Promise<TaskControlResult>;
 }

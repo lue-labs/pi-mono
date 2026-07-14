@@ -9,7 +9,9 @@ import {
 	findAgentRecentRun,
 	injectAgentRecentRun,
 	interruptAgentRecentRun,
+	listAgentRecentRuns,
 	resumeAgentRecentRun,
+	subscribeAgentRecentRuns,
 	waitForAgentRecentRun,
 } from "../../src/core/agents/status.ts";
 import { LocalAgentTask } from "../../src/core/tasks/local-agent-task.ts";
@@ -151,8 +153,8 @@ describe("agent member-scoped control", () => {
 		expect(findAgentRecentRun(runId)?.runs.find((run) => run.memberId === secondMember)?.status).toBe("running");
 		const unsupported = await resumeAgentRecentRun(firstMember, "continue");
 		expect(unsupported.ok).toBe(false);
-		expect(unsupported.message).toMatch(
-			new RegExp(`^${firstMember} (?:cannot resume in this process|has no durable child session)`),
+		expect(unsupported.message).toBe(
+			`${firstMember} cannot resume from parallel mode; re-dispatch it as a single task`,
 		);
 		first.release();
 		await vi.waitFor(() => expect(getLiveSession(firstMember)).toBeUndefined());
@@ -297,9 +299,13 @@ describe("agent member-scoped control", () => {
 		const memberId = terminal.runs[0]!.memberId!;
 		const resumed = deferredResponse("Using staging; task complete");
 		harness.appendResponses([resumed.response]);
-		const answered = await LocalAgentTask.injectMessage?.(memberId, "Use staging");
-		expect(answered?.ok).toBe(true);
+		const resumedResults = await Promise.all([
+			resumeAgentRecentRun(memberId, "Use staging"),
+			resumeAgentRecentRun(terminal.id, "Use staging"),
+		]);
+		expect(resumedResults.every((result) => result.ok)).toBe(true);
 		await vi.waitFor(() => expect(sessions).toHaveLength(2));
+		expect(sessions).toHaveLength(2);
 		const priorSteer = vi.spyOn(sessions[0]!, "steer");
 		const resumedSteer = vi.spyOn(sessions[1]!, "steer");
 		const steered = await LocalAgentTask.injectMessage?.(memberId, "Also preserve audit logs");
@@ -338,10 +344,88 @@ describe("agent member-scoped control", () => {
 				attentionMessage: undefined,
 			});
 			expect(LocalAgentTask.snapshot(memberId)).toMatchObject({ needsInput: false, needsAttention: false });
+			expect(LocalAgentTask.snapshot(interrupted.id)).toMatchObject({ needsInput: false, needsAttention: false });
 		}
 	});
 
-	it("ignores non-trailing, quoted, and fenced needs-input examples", async () => {
+	it("publishes a failed parallel member before a blocked sibling settles", async () => {
+		const blocked = deferredResponse("second done");
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("needs input: Which environment should I use?"), blocked.response]);
+
+		const started = await executeAgentTool(
+			{
+				mode: "parallel",
+				background: true,
+				concurrency: 2,
+				tasks: [
+					{ agent: "general", task: "request unsupported input" },
+					{ agent: "general", task: "remain blocked" },
+				],
+			},
+			executorOptions(harness),
+		);
+		const failedMemberId = `${started.runId}:1`;
+		await vi.waitFor(() => expect(findAgentRecentRun(started.runId!)?.runs[0]?.status).toBe("failed"));
+
+		const inFlight = findAgentRecentRun(started.runId!);
+		expect(inFlight?.status).toBe("running");
+		expect(inFlight).toMatchObject({
+			needsAttention: true,
+			attentionReason: "failure",
+		});
+		expect(LocalAgentTask.snapshot(started.runId!)).toMatchObject({
+			status: "running",
+			needsAttention: true,
+			attentionReason: "failure",
+		});
+		expect(inFlight?.runs.map((run) => run.memberId)).toEqual([`${started.runId}:1`, `${started.runId}:2`]);
+		const injected = await injectAgentRecentRun(failedMemberId, "continue");
+		const interrupted = await interruptAgentRecentRun(failedMemberId);
+		expect(injected.ok).toBe(false);
+		expect(injected.message).toContain("status: failed");
+		expect(interrupted.ok).toBe(false);
+		expect(interrupted.message).toContain("status: failed");
+
+		blocked.release();
+		const terminal = await waitForAgentRecentRun(started.runId!);
+		expect(terminal.status).toBe("failed");
+	});
+
+	it.each(["chain", "parallel"] as const)(
+		"fails %s input requests explicitly instead of creating an unresumable question",
+		async (mode) => {
+			const sessions: AgentSession[] = [];
+			const harness = await createHarness();
+			harnesses.push(harness);
+			harness.setResponses([
+				fauxAssistantMessage("needs input: Which environment should I use?"),
+				fauxAssistantMessage("Task complete"),
+			]);
+
+			const started = await executeAgentTool(
+				{
+					mode,
+					background: true,
+					tasks: [
+						{ agent: "general", task: "choose environment" },
+						{ agent: "general", task: "continue after {previous}" },
+					],
+				},
+				executorOptions(harness, (session) => sessions.push(session)),
+			);
+			const terminal = await waitForAgentRecentRun(started.runId!);
+
+			expect(terminal.status).toBe("failed");
+			expect(terminal.attentionReason).toBe("failure");
+			expect(terminal.error).toContain(`Agent ${mode} mode cannot pause for human input`);
+			expect(terminal.error).toContain("Which environment should I use?");
+			if (mode === "chain") expect(sessions).toHaveLength(1);
+		},
+	);
+
+	it("ignores transient, non-trailing, quoted, and fenced needs-input examples", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		harness.setResponses([
@@ -349,15 +433,23 @@ describe("agent member-scoped control", () => {
 				"needs input: superseded question\n> needs input: quoted example\n````text\n~~~\nneeds input: mixed fenced example\n````\nTask complete",
 			),
 		]);
+		const observedInputAttention: boolean[] = [];
+		const unsubscribe = subscribeAgentRecentRuns(() => {
+			observedInputAttention.push(
+				listAgentRecentRuns().some((run) => run.needsAttention && run.attentionReason === "user_input"),
+			);
+		});
 
 		const started = await executeAgentTool(
 			{ mode: "single", background: true, tasks: [{ agent: "general", task: "document protocol" }] },
 			executorOptions(harness),
 		);
 		const terminal = await waitForAgentRecentRun(started.runId!);
+		unsubscribe();
 
 		expect(terminal.status).toBe("completed");
 		expect(terminal.attentionReason).toBeUndefined();
 		expect(terminal.needsAttention).toBe(false);
+		expect(observedInputAttention).not.toContain(true);
 	});
 });
