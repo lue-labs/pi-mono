@@ -68,13 +68,25 @@ function createSession(options: {
 			thinkingLevel: options.thinkingLevel ?? "off",
 		},
 		isStreaming: options.isStreaming ?? false,
+		extensionRunner: {
+			getRegisteredFooters: () => [],
+		},
+		modelRegistry: {
+			isUsingOAuth: () => options.isUsingOAuth ?? false,
+		},
+		pendingAutoModelAlias: options.pendingAutoModelAlias,
 		sessionManager: {
 			getEntries: () => entries,
 			getBranch: () => options.branchEntries ?? entries,
 			getSessionName: () => options.sessionName,
 			getCwd: () => "/tmp/project",
 		},
-		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
+		getContextUsage: () =>
+			options.contextUsage ?? {
+				contextWindow: 200_000,
+				percent: 12.3,
+				tokens: 24_600,
+			},
 		modelRuntime: {
 			isUsingOAuth: () => false,
 		},
