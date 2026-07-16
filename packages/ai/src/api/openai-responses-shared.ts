@@ -29,8 +29,8 @@ import type {
 	ToolCall,
 	Usage,
 } from "../types.ts";
-import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { stripSystemPromptDynamicBoundary } from "../types.ts";
+import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
@@ -447,19 +447,21 @@ export function convertResponsesTools(tools: readonly Tool[], options?: ConvertR
 	const sourceTools = options?.deterministic
 		? tools.slice().sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description))
 		: tools;
-	return sourceTools.map((tool): OpenAIFunctionTool => ({
-		type: "function",
-		name: tool.name,
-		description: tool.description,
-		parameters: (options?.deterministic ? sortJsonSchemaForCache(tool.parameters) : tool.parameters) as Record<
-			string,
-			unknown
-		>, // TypeBox already generates JSON Schema
-		strict,
-		...(options?.deferLoading || (emitDeferLoading && tool.deferLoading === true && tool.alwaysLoad !== true)
-			? { defer_loading: true }
-			: {}),
-	}));
+	return sourceTools.map(
+		(tool): OpenAIFunctionTool => ({
+			type: "function",
+			name: tool.name,
+			description: tool.description,
+			parameters: (options?.deterministic ? sortJsonSchemaForCache(tool.parameters) : tool.parameters) as Record<
+				string,
+				unknown
+			>, // TypeBox already generates JSON Schema
+			strict,
+			...(options?.deferLoading || (emitDeferLoading && tool.deferLoading === true && tool.alwaysLoad !== true)
+				? { defer_loading: true }
+				: {}),
+		}),
+	);
 }
 
 // =============================================================================

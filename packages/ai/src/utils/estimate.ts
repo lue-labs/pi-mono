@@ -1,4 +1,13 @@
-import type { AssistantMessage, Context, ImageContent, Message, TextContent, Tool, ToolReferenceContent, Usage } from "../types.ts";
+import type {
+	AssistantMessage,
+	Context,
+	ImageContent,
+	Message,
+	TextContent,
+	Tool,
+	ToolReferenceContent,
+	Usage,
+} from "../types.ts";
 
 export interface ContextUsageEstimate {
 	/** Estimated total context tokens. */
@@ -26,7 +35,9 @@ function safeJsonStringify(value: unknown): string {
 	}
 }
 
-function estimateTextAndImageContentChars(content: string | Array<TextContent | ImageContent | ToolReferenceContent>): number {
+function estimateTextAndImageContentChars(
+	content: string | Array<TextContent | ImageContent | ToolReferenceContent>,
+): number {
 	if (typeof content === "string") return content.length;
 
 	let chars = 0;
@@ -42,7 +53,9 @@ export function estimateTextTokens(text: string): number {
 	return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-export function estimateTextAndImageContentTokens(content: string | Array<TextContent | ImageContent | ToolReferenceContent>): number {
+export function estimateTextAndImageContentTokens(
+	content: string | Array<TextContent | ImageContent | ToolReferenceContent>,
+): number {
 	return Math.ceil(estimateTextAndImageContentChars(content) / CHARS_PER_TOKEN);
 }
 

@@ -177,7 +177,8 @@ function parseJsonStringForStructuredSchema(value: unknown, schema: JsonSchemaOb
 	try {
 		const parsed: unknown = JSON.parse(trimmed);
 		if (Array.isArray(parsed) && types.includes("array")) return parsed;
-		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) && types.includes("object")) return parsed;
+		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) && types.includes("object"))
+			return parsed;
 		// Schema doesn't declare a type but value parses cleanly — accept and let downstream validate.
 		if (types.length === 0) return parsed;
 		return value;
