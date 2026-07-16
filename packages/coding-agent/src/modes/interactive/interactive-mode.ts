@@ -48,11 +48,13 @@ import {
 	getAuthPath,
 	getDebugLogPath,
 	getDocsPath,
+	getSessionsDir,
 	getShareViewerUrl,
 	VERSION,
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
+import { formatAgentStatus, subscribeAgentRecentRuns } from "../../core/agents/status.ts";
 import {
 	CACHE_TTL_MS,
 	type CacheMiss,
@@ -75,15 +77,21 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
-import { createCompactionSummaryMessage } from "../../core/messages.ts";
-import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
+import {
+	defaultModelPerProvider,
+	findExactModelReferenceMatch,
+	normalizeAutoAliasString,
+	resolveModelScope,
+} from "../../core/model-resolver.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
+import { SessionLiveness, sweepStaleMarkers } from "../../core/session-liveness.ts";
 import { type SessionEntry, SessionManager, sessionEntryToContextMessages } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
+import { subscribeBashBgJobs, subscribeBashBgTerminal } from "../../core/tools/bash.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
@@ -95,6 +103,7 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import { type AgentCommandsHost, runAgentsCommand, runAgentsDoctorCommand } from "./agent-commands.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -113,13 +122,15 @@ import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
 import { FooterComponent, formatTokens } from "./components/footer.ts";
 import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.ts";
 import { LoginDialogComponent } from "./components/login-dialog.ts";
-import { ModelSelectorComponent } from "./components/model-selector.ts";
+import { memorySavedMessageRenderer } from "./components/memory-saved-message.ts";
+import { isAutoModelAlias, ModelSelectorComponent } from "./components/model-selector.ts";
 import {
 	type AuthSelectorProvider,
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
+import { ServerToolActivityComponent } from "./components/server-tool-activity.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
@@ -194,6 +205,11 @@ function isCustomSessionEntry(item: RenderSessionItem): item is Extract<SessionE
 }
 
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
+const PI_GOAL_STALE_CONTINUATION_ABORT = "pi-goal:stale-queued-continuation-cancelled";
+
+function isSilentAbortMessage(message: AssistantMessage): boolean {
+	return message.stopReason === "aborted" && message.errorMessage === PI_GOAL_STALE_CONTINUATION_ABORT;
+}
 
 function isDeadTerminalError(error: unknown): boolean {
 	if (!error || typeof error !== "object" || !("code" in error)) {
@@ -360,6 +376,8 @@ export class InteractiveMode {
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
+	// Provider-executed (server-side) web tool activity cards: serverToolUse id -> component
+	private serverToolActivities = new Map<string, ServerToolActivityComponent>();
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
@@ -373,6 +391,9 @@ export class InteractiveMode {
 
 	// Agent subscription unsubscribe function
 	private unsubscribe?: () => void;
+	private unsubscribeAgentRuns?: () => void;
+	private unsubscribeBashBgJobs?: () => void;
+	private unsubscribeBashBgTerminal?: () => void;
 	private signalCleanupHandlers: Array<() => void> = [];
 
 	// Track if editor is in bash mode (text starts with !)
@@ -395,6 +416,20 @@ export class InteractiveMode {
 
 	// Shutdown state
 	private shutdownRequested = false;
+
+	// Extension main pane state. The extension runner owns registration; interactive-mode
+	// only mounts/unmounts the selected component in the chat container.
+	private activeMainPane:
+		| {
+				id: string;
+				component: Component & { dispose?(): void; onEscape?(): boolean | undefined };
+				preChildren: Component[];
+		  }
+		| undefined = undefined;
+	private activeOverlay:
+		| { id: string; component: Component & { dispose?(): void }; handle: OverlayHandle }
+		| undefined = undefined;
+	private selectedExtensionFooterId: string | undefined = undefined;
 
 	// Extension UI state
 	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
@@ -552,15 +587,33 @@ export class InteractiveMode {
 						? this.session.scopedModels.map((s) => s.model)
 						: await this.session.modelRuntime.getAvailable();
 
-				if (models.length === 0) return null;
-
 				// Create items with provider/id format
-				const items = models.map((m) => ({
-					id: m.id,
-					provider: m.provider,
-					name: m.name,
-					label: `${m.provider}/${m.id}`,
-				}));
+				const items = [
+					{
+						id: "auto",
+						provider: "clawrouter",
+						name: "Auto (semantic ClawRouter)",
+						label: "clawrouter/auto",
+					},
+					{
+						id: "auto",
+						provider: "claude-bridge",
+						name: "Auto (semantic Claude Bridge)",
+						label: "claude-bridge/auto",
+					},
+					{
+						id: "auto",
+						provider: "openai-codex",
+						name: "Auto (semantic OpenAI Codex)",
+						label: "openai-codex/auto",
+					},
+					...models.map((m) => ({
+						id: m.id,
+						provider: m.provider,
+						name: m.name,
+						label: `${m.provider}/${m.id}`,
+					})),
+				];
 
 				return createFuzzyAutocompleteItems(items, prefix, getModelSearchText, (item) => ({
 					value: item.label,
@@ -673,6 +726,20 @@ export class InteractiveMode {
 		if (this.isInitialized) return;
 
 		this.registerSignalHandlers();
+
+		// Advertise which session file this process has open so other pi instances'
+		// resume pickers can show it as active. Path is read lazily each heartbeat,
+		// covering lazily-created and switched sessions.
+		this.sessionLiveness.start(() => this.sessionManager.getSessionFile());
+
+		// Reap liveness markers left by crashed/killed sessions, off the hot boot
+		// path so a dead-marker backlog cannot grow without bound.
+		const markerSweep = setTimeout(() => {
+			void sweepStaleMarkers(getSessionsDir()).catch(() => {
+				// Best effort; readers still reap markers lazily.
+			});
+		}, 2_000);
+		markerSweep.unref?.();
 
 		// Load changelog (only show new entries, skip for resumed sessions)
 		this.changelogMarkdown = this.getChangelogForDisplay();
@@ -799,6 +866,24 @@ export class InteractiveMode {
 		// Set up git branch watcher (uses provider instead of footer)
 		this.footerDataProvider.onBranchChange(() => {
 			this.ui.requestRender();
+		});
+
+		this.unsubscribeAgentRuns = subscribeAgentRecentRuns(() => {
+			this.footer.invalidate();
+			this.ui.requestRender();
+		});
+
+		this.unsubscribeBashBgJobs = subscribeBashBgJobs(() => {
+			this.footer.invalidate();
+			this.ui.requestRender();
+		});
+
+		// Wake the model when a background bash job finishes naturally, mirroring
+		// the agent background-run completion wake. Scoped to the single main
+		// interactive session (the bg-bash store is process-global, so wiring this
+		// here — not in every forked child session — avoids duplicate notifications).
+		this.unsubscribeBashBgTerminal = subscribeBashBgTerminal((job) => {
+			this.session.emitBashCompletion(job);
 		});
 
 		// Initialize available provider count for footer display
@@ -1609,7 +1694,8 @@ export class InteractiveMode {
 		await this.session.bindExtensions({
 			uiContext,
 			mode: "tui",
-			abortHandler: () => {
+			abortHandler: (reason?: unknown) => {
+				this.session.agent.abort(reason);
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
 			commandContextActions: {
@@ -1676,6 +1762,15 @@ export class InteractiveMode {
 		this.setupAutocompleteProvider();
 
 		const extensionRunner = this.session.extensionRunner;
+		// Deferred extensions register their commands after startup; rebuild the
+		// autocomplete provider so those commands (e.g. /recap) appear in the menu.
+		extensionRunner.onDeferredExtensionsLoaded(() => this.setupAutocompleteProvider());
+		extensionRunner.bindSlotUI({
+			showMainPane: (id, payload) => this.showExtensionMainPane(id, payload),
+			hideMainPane: (id) => this.hideExtensionMainPane(id),
+			showOverlay: (id, payload) => this.showExtensionOverlay(id, payload),
+			hideOverlay: (id) => this.hideExtensionOverlay(id),
+		});
 		this.setupExtensionShortcuts(extensionRunner);
 		this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true });
 		this.showStartupNoticesIfNeeded();
@@ -1737,6 +1832,7 @@ export class InteractiveMode {
 		this.streamingComponent = undefined;
 		this.streamingMessage = undefined;
 		this.pendingTools.clear();
+		this.serverToolActivities.clear();
 		this.renderInitialMessages();
 	}
 
@@ -2090,6 +2186,177 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private showExtensionMainPane(id: string, payload: unknown): void {
+		const factory = this.session.extensionRunner.getRegisteredMainPane(id);
+		if (!factory) return;
+		if (this.activeMainPane) this.hideExtensionMainPane(this.activeMainPane.id);
+		const preChildren = [...this.chatContainer.children];
+		const component = factory(this.ui, theme, {
+			payload,
+			requestHide: () => this.hideExtensionMainPane(id),
+		});
+		this.chatContainer.clear();
+		this.chatContainer.addChild(component);
+		this.activeMainPane = { id, component, preChildren };
+		// Regression fix (agents-ux-parity footer round): panes that own raw
+		// keyboard input must receive focus so their handleInput works (up/down
+		// navigate, enter details/zoom, x stop). Some panes are display-only while
+		// the editor remains the input surface (for example agent zoom, where
+		// submitted editor lines are injected into the child and /exit-zoom exits).
+		// Those panes can opt out with captureInput:false to avoid trapping normal
+		// editor text and extension shortcuts behind a focused component that does
+		// not actually handle them.
+		const focusTarget = component.captureInput === false ? this.editor : component;
+		this.ui.setFocus(focusTarget);
+		this.ui.requestRender();
+	}
+
+	private hideExtensionMainPane(id: string): void {
+		if (!this.activeMainPane || this.activeMainPane.id !== id) return;
+		this.activeMainPane.component.dispose?.();
+		const preChildren = this.activeMainPane.preChildren;
+		this.activeMainPane = undefined;
+		this.chatContainer.clear();
+		for (const child of preChildren) this.chatContainer.addChild(child);
+		this.ui.setFocus(this.editor);
+		this.ui.requestRender();
+	}
+
+	private showExtensionOverlay(id: string, payload: unknown): void {
+		const factory = this.session.extensionRunner.getRegisteredOverlay(id);
+		if (!factory) return;
+		if (this.activeOverlay) this.hideExtensionOverlay(this.activeOverlay.id);
+		const component = factory(this.ui, theme, {
+			payload,
+			requestHide: () => this.hideExtensionOverlay(id),
+		});
+		const handle = this.ui.showOverlay(component);
+		this.activeOverlay = { id, component, handle };
+		this.ui.requestRender();
+	}
+
+	private hideExtensionOverlay(id: string): void {
+		if (!this.activeOverlay || this.activeOverlay.id !== id) return;
+		this.activeOverlay.component.dispose?.();
+		this.activeOverlay.handle.hide();
+		this.activeOverlay = undefined;
+		this.ui.requestRender();
+	}
+
+	private getVisibleExtensionFooterIds(): string[] {
+		return this.session.extensionRunner
+			.getRegisteredFooters()
+			.filter(({ spec }) => spec.visible?.() ?? true)
+			.sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0))
+			.filter(
+				({ spec }) => spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0,
+			)
+			.map(({ id }) => id);
+	}
+
+	private setSelectedExtensionFooterId(id: string | undefined): void {
+		this.selectedExtensionFooterId = id;
+		this.footer.setSelectedExtensionFooterId(id);
+		this.ui.requestRender();
+	}
+
+	private getFooterNavEditorText(): string {
+		return this.editor.getText();
+	}
+
+	private handleEscapeKey(): void {
+		if (this.activeMainPane) {
+			if (this.activeMainPane.component.onEscape?.()) return;
+			this.hideExtensionMainPane(this.activeMainPane.id);
+			return;
+		}
+		if (this.selectedExtensionFooterId) {
+			this.setSelectedExtensionFooterId(undefined);
+			return;
+		}
+		if (this.session.isStreaming) {
+			this.restoreQueuedMessagesToEditor({ abort: true });
+		} else if (this.session.isBashRunning) {
+			this.session.abortBash();
+		} else if (this.isBashMode) {
+			this.editor.setText("");
+			this.isBashMode = false;
+			this.updateEditorBorderColor();
+		} else if (!this.editor.getText().trim()) {
+			// Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
+			const action = this.settingsManager.getDoubleEscapeAction();
+			if (action !== "none") {
+				const now = Date.now();
+				if (now - this.lastEscapeTime < 500) {
+					if (action === "tree") {
+						this.showTreeSelector();
+					} else {
+						this.showUserMessageSelector();
+					}
+					this.lastEscapeTime = 0;
+				} else {
+					this.lastEscapeTime = now;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Core pre-input hook installed on the editor's `onPreInput` seam. Runs
+	 * before extension shortcuts and base editor handling. Composes the
+	 * built-in empty-editor behaviors in priority order: recall a queued
+	 * message on the up arrow, then extension footer navigation. Returns true
+	 * to consume the key.
+	 */
+	private handlePreInput(data: string): boolean {
+		if (this.keybindings.matches(data, "tui.editor.cursorUp") && this.recallQueuedMessageToEditor()) {
+			return true;
+		}
+		return this.handleExtensionFooterNavInput(data);
+	}
+
+	private handleExtensionFooterNavInput(data: string): boolean {
+		const ids = this.getVisibleExtensionFooterIds();
+		if (
+			(matchesKey(data, "up") || matchesKey(data, "down")) &&
+			this.getFooterNavEditorText().trim().length === 0 &&
+			ids.length > 0
+		) {
+			const direction = matchesKey(data, "up") ? "prev" : "next";
+			if (!this.selectedExtensionFooterId) {
+				if (direction === "next") this.setSelectedExtensionFooterId(ids[0]);
+				else this.setSelectedExtensionFooterId(undefined);
+				return true;
+			}
+			const index = ids.indexOf(this.selectedExtensionFooterId);
+			if (index === -1) {
+				this.setSelectedExtensionFooterId(direction === "next" ? ids[0] : undefined);
+				return true;
+			}
+			if (direction === "prev" && index === 0) {
+				this.setSelectedExtensionFooterId(undefined);
+				return true;
+			}
+			if (direction === "next" && index === ids.length - 1) return true;
+			this.setSelectedExtensionFooterId(ids[index + (direction === "next" ? 1 : -1)]);
+			return true;
+		}
+		if ((matchesKey(data, "enter") || data === "\n") && this.getFooterNavEditorText().trim().length === 0) {
+			const footer = this.selectedExtensionFooterId
+				? this.session.extensionRunner
+						.getRegisteredFooters()
+						.find(({ id }) => id === this.selectedExtensionFooterId)
+				: ids.length === 1
+					? this.session.extensionRunner.getRegisteredFooters().find(({ id }) => id === ids[0])
+					: undefined;
+			if (!footer) return false;
+			this.setSelectedExtensionFooterId(undefined);
+			footer?.spec.onActivate({ close: () => this.setSelectedExtensionFooterId(undefined) });
+			return true;
+		}
+		return false;
+	}
+
 	private addExtensionTerminalInputListener(
 		handler: (data: string) => { consume?: boolean; data?: string } | undefined,
 	): () => void {
@@ -2402,6 +2669,19 @@ export class InteractiveMode {
 				if (!customEditor.onExtensionShortcut) {
 					customEditor.onExtensionShortcut = (data: string) => this.defaultEditor.onExtensionShortcut?.(data);
 				}
+				// Footer pill nav (Down/Up cycling, incl. the agents-status pill's
+				// selected-highlight) and queued-message recall both run through
+				// `onPreInput`, wired onto `defaultEditor` in `setupKeyHandlers()`
+				// before any extension has a chance to install a custom editor. Every
+				// other app-level handler here is forwarded to a replacement editor;
+				// `onPreInput` was the one omission, so any extension that calls
+				// `ctx.ui.setEditorComponent` (pi-syntax-input, monitor/idle-return-style
+				// wrappers, etc.) silently broke Up/Down footer nav for the rest of the
+				// session even though Enter kept working (it runs through `onSubmit`,
+				// which *is* forwarded, not `onPreInput`).
+				if (!customEditor.onPreInput) {
+					customEditor.onPreInput = (data: string) => this.defaultEditor.onPreInput?.(data) ?? false;
+				}
 				// Copy action handlers (clear, suspend, model switching, etc.)
 				for (const [action, handler] of this.defaultEditor.actionHandlers) {
 					(customEditor.actionHandlers as Map<string, () => void>).set(action, handler);
@@ -2538,35 +2818,17 @@ export class InteractiveMode {
 	// =========================================================================
 
 	private setupKeyHandlers(): void {
+		// Footer pill navigation runs only through the default editor's `onPreInput`
+		// seam (see handlePreInput). A global ui.addInputListener was registered here
+		// historically, but it ran before the focused component and consumed up/down
+		// even while a focused custom component (e.g. AskUserQuestion) needed those
+		// arrows — hijacking modal navigation. It also pre-empted the up-arrow
+		// queued-message recall it was meant to fall behind. onPreInput only fires
+		// when the default editor is focused, so footer nav stays scoped correctly.
+
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
-		this.defaultEditor.onEscape = () => {
-			if (this.session.isStreaming) {
-				this.restoreQueuedMessagesToEditor({ abort: true });
-			} else if (this.session.isBashRunning) {
-				this.session.abortBash();
-			} else if (this.isBashMode) {
-				this.editor.setText("");
-				this.isBashMode = false;
-				this.updateEditorBorderColor();
-			} else if (!this.editor.getText().trim()) {
-				// Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
-				const action = this.settingsManager.getDoubleEscapeAction();
-				if (action !== "none") {
-					const now = Date.now();
-					if (now - this.lastEscapeTime < 500) {
-						if (action === "tree") {
-							this.showTreeSelector();
-						} else {
-							this.showUserMessageSelector();
-						}
-						this.lastEscapeTime = 0;
-					} else {
-						this.lastEscapeTime = now;
-					}
-				}
-			}
-		};
+		this.defaultEditor.onEscape = () => this.handleEscapeKey();
 
 		// Register app action handlers
 		this.defaultEditor.onAction("app.clear", () => this.handleCtrlC());
@@ -2589,8 +2851,10 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.session.tree", () => this.showTreeSelector());
 		this.defaultEditor.onAction("app.session.fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("app.session.resume", () => this.showSessionSelector());
+		this.defaultEditor.onPreInput = (data: string) => this.handlePreInput(data);
 
 		this.defaultEditor.onChange = (text: string) => {
+			if (text.length > 0 && this.selectedExtensionFooterId) this.setSelectedExtensionFooterId(undefined);
 			const wasBashMode = this.isBashMode;
 			this.isBashMode = text.trimStart().startsWith("!");
 			if (wasBashMode !== this.isBashMode) {
@@ -2633,12 +2897,32 @@ export class InteractiveMode {
 	private setupEditorSubmitHandler(): void {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			text = text.trim();
-			if (!text) return;
+			if (!text) {
+				if (this.handleExtensionFooterNavInput("\r")) return;
+				return;
+			}
 
 			// Handle commands
 			if (text === "/settings") {
 				this.showSettingsSelector();
 				this.editor.setText("");
+				return;
+			}
+			if (text === "/agents-doctor") {
+				this.editor.setText("");
+				await this.handleAgentsDoctorCommand();
+				return;
+			}
+			if (text === "/agents-status" || text.startsWith("/agents-status ")) {
+				this.editor.setText("");
+				const detailId = text.startsWith("/agents-status ") ? text.slice(15).trim() : undefined;
+				this.showStatus(formatAgentStatus(undefined, detailId));
+				return;
+			}
+			if (text === "/agents" || text.startsWith("/agents ")) {
+				const agentArgs = text.startsWith("/agents ") ? text.slice(8).trim() : undefined;
+				this.editor.setText("");
+				await this.handleAgentsCommand(agentArgs);
 				return;
 			}
 			if (text === "/scoped-models") {
@@ -2835,6 +3119,7 @@ export class InteractiveMode {
 		switch (event.type) {
 			case "agent_start":
 				this.pendingTools.clear();
+				this.serverToolActivities.clear();
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -2935,6 +3220,27 @@ export class InteractiveMode {
 							}
 						}
 					}
+
+					// Provider-executed (server-side) web tools surface as display-only
+					// activity events, not content blocks. Render them as a distinct card.
+					const serverEvent = event.assistantMessageEvent;
+					if (serverEvent.type === "server_tool_use") {
+						if (!this.serverToolActivities.has(serverEvent.id)) {
+							const card = new ServerToolActivityComponent({
+								toolName: serverEvent.toolName,
+								query: serverEvent.query,
+								url: serverEvent.url,
+							});
+							this.chatContainer.addChild(card);
+							this.serverToolActivities.set(serverEvent.id, card);
+						}
+					} else if (serverEvent.type === "server_tool_result") {
+						this.serverToolActivities.get(serverEvent.toolUseId)?.setResult({
+							status: serverEvent.status,
+							sources: serverEvent.sources,
+							errorCode: serverEvent.errorCode,
+						});
+					}
 					this.ui.requestRender();
 				}
 				break;
@@ -2944,7 +3250,7 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
-					if (this.streamingMessage.stopReason === "aborted") {
+					if (this.streamingMessage.stopReason === "aborted" && !isSilentAbortMessage(this.streamingMessage)) {
 						const retryAttempt = this.session.retryAttempt;
 						errorMessage =
 							retryAttempt > 0
@@ -2955,16 +3261,20 @@ export class InteractiveMode {
 					this.streamingComponent.updateContent(this.streamingMessage);
 
 					if (this.streamingMessage.stopReason === "aborted" || this.streamingMessage.stopReason === "error") {
-						if (!errorMessage) {
-							errorMessage = this.streamingMessage.errorMessage || "Error";
+						if (isSilentAbortMessage(this.streamingMessage)) {
+							this.pendingTools.clear();
+						} else {
+							if (!errorMessage) {
+								errorMessage = this.streamingMessage.errorMessage || "Error";
+							}
+							for (const [, component] of this.pendingTools.entries()) {
+								component.updateResult({
+									content: [{ type: "text", text: errorMessage }],
+									isError: true,
+								});
+							}
+							this.pendingTools.clear();
 						}
-						for (const [, component] of this.pendingTools.entries()) {
-							component.updateResult({
-								content: [{ type: "text", text: errorMessage }],
-								isError: true,
-							});
-						}
-						this.pendingTools.clear();
 					} else {
 						// Args are now complete - trigger diff computation for edit tools
 						for (const [, component] of this.pendingTools.entries()) {
@@ -3033,6 +3343,7 @@ export class InteractiveMode {
 					this.streamingMessage = undefined;
 				}
 				this.pendingTools.clear();
+				this.serverToolActivities.clear();
 
 				this.ui.requestRender();
 				break;
@@ -3071,15 +3382,13 @@ export class InteractiveMode {
 						this.showStatus("Auto-compaction cancelled");
 					}
 				} else if (event.result) {
+					// The compaction entry is persisted (appendCompaction) before compaction_end is
+					// emitted, so rebuildChatFromMessages() -> buildSessionContext() already renders the
+					// [compaction] summary at the head of the kept tail. Appending a second synthetic
+					// summary here rendered the marker twice, sandwiching the kept recent tail
+					// (regression: see interactive-mode-compaction.test.ts).
 					this.chatContainer.clear();
 					this.rebuildChatFromMessages();
-					this.addMessageToChat(
-						createCompactionSummaryMessage(
-							event.result.summary,
-							event.result.tokensBefore,
-							new Date().toISOString(),
-						),
-					);
 					this.footer.invalidate();
 				} else if (event.errorMessage) {
 					if (event.reason === "manual") {
@@ -3093,6 +3402,11 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 			}
+
+			case "idle_cache_hint":
+				this.showStatus(event.message);
+				this.ui.requestRender();
+				break;
 
 			case "auto_retry_start": {
 				// Set up escape to abort retry
@@ -3200,7 +3514,13 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
-					const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
+					// Extension-registered renderers win; fall back to built-in renderers for
+					// pi's own structured customTypes (e.g. `memory_saved` from
+					// `ctx.transcript.append`) so the TUI styles them without needing an
+					// extension to register a renderer.
+					const extensionRenderer = this.session.extensionRunner.getMessageRenderer(message.customType);
+					const renderer =
+						extensionRenderer ?? (message.customType === "memory_saved" ? memorySavedMessageRenderer : undefined);
 					const component = new CustomMessageComponent(message, renderer, this.getMarkdownThemeWithSettings());
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
@@ -3327,6 +3647,9 @@ export class InteractiveMode {
 						this.chatContainer.addChild(component);
 
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
+							if (isSilentAbortMessage(message)) {
+								continue;
+							}
 							let errorMessage: string;
 							if (message.stopReason === "aborted") {
 								const retryAttempt = this.session.retryAttempt;
@@ -3495,6 +3818,7 @@ export class InteractiveMode {
 	 * repaint the final frame while the process is exiting.
 	 */
 	private isShuttingDown = false;
+	private sessionLiveness = new SessionLiveness();
 
 	private async shutdown(options?: { fromSignal?: boolean }): Promise<void> {
 		if (this.isShuttingDown) return;
@@ -3502,6 +3826,7 @@ export class InteractiveMode {
 		// Keep signal handlers registered until terminal cleanup has completed.
 		// `signal-exit` checks the listener list during the same SIGTERM/SIGHUP
 		// dispatch and re-sends the signal if only its own listeners remain.
+		this.sessionLiveness.stop();
 
 		if (options?.fromSignal) {
 			// Signal-triggered shutdown (SIGTERM/SIGHUP). Emit extension cleanup
@@ -3540,6 +3865,7 @@ export class InteractiveMode {
 	private emergencyTerminalExit(): never {
 		this.isShuttingDown = true;
 		this.unregisterSignalHandlers();
+		this.sessionLiveness.stop();
 		killTrackedDetachedChildren();
 		// The terminal is gone. Do not run normal shutdown because TUI and
 		// extension cleanup can write restore sequences and re-trigger EIO.
@@ -3986,6 +4312,37 @@ export class InteractiveMode {
 		return allQueued.length;
 	}
 
+	/**
+	 * Recall the most recently queued message into the editor for editing.
+	 * Reached from {@link handlePreInput} when the up arrow is pressed. The
+	 * message is removed from the queue as it is lifted into the editor, so
+	 * re-submitting replaces what was queued before, and clearing the editor
+	 * without re-submitting simply drops it from the queue. No-op (returns
+	 * false) when the editor already has text or nothing is queued, so the
+	 * caller can fall through to footer nav / prompt-history navigation.
+	 */
+	private recallQueuedMessageToEditor(): boolean {
+		if (this.editor.getText().length > 0) return false;
+
+		// Messages queued during compaction are the most recent; recall those first.
+		if (this.compactionQueuedMessages.length > 0) {
+			const recalled = this.compactionQueuedMessages.pop();
+			if (recalled) {
+				this.editor.setText(recalled.text);
+				this.updatePendingMessagesDisplay();
+				this.ui.requestRender();
+				return true;
+			}
+		}
+
+		const recalled = this.session.popLastQueuedMessage();
+		if (!recalled) return false;
+		this.editor.setText(recalled.text);
+		this.updatePendingMessagesDisplay();
+		this.ui.requestRender();
+		return true;
+	}
+
 	private queueCompactionMessage(text: string, mode: "steer" | "followUp"): void {
 		this.compactionQueuedMessages.push({ text, mode });
 		this.editor.addToHistory?.(text);
@@ -4059,10 +4416,27 @@ export class InteractiveMode {
 				await this.session.prompt(message.text);
 			}
 
-			// Send first prompt (starts streaming)
-			const promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
-				restoreQueue(error);
-			});
+			// Send first prompt (starts streaming). If the agent is already busy
+			// (compaction tail, agent_end listener phase, or a TOCTOU race), prompt()
+			// throws "Agent is already processing" — route the message into the
+			// steer/follow-up queue instead of failing the whole flush.
+			let promptPromise: Promise<void> = Promise.resolve();
+			if (this.session.isStreaming) {
+				if (firstPrompt.mode === "followUp") {
+					await this.session.followUp(firstPrompt.text);
+				} else {
+					await this.session.steer(firstPrompt.text);
+				}
+			} else {
+				promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
+					if (error instanceof Error && /already processing( a prompt)?/.test(error.message)) {
+						return firstPrompt.mode === "followUp"
+							? this.session.followUp(firstPrompt.text)
+							: this.session.steer(firstPrompt.text);
+					}
+					restoreQueue(error);
+				});
+			}
 
 			// Queue remaining messages
 			for (const message of rest) {
@@ -4293,9 +4667,42 @@ export class InteractiveMode {
 		});
 	}
 
+	/** Fork seam: per-call host adapter for the extracted `/agents` command family. */
+	private agentCommandsHost(): AgentCommandsHost {
+		return {
+			session: this.session,
+			getCwd: () => this.sessionManager.getCwd(),
+			showStatus: (message) => this.showStatus(message),
+			setEditorText: (text) => {
+				this.editor.setText(text);
+				this.ui.setFocus(this.editor);
+			},
+			requestRender: () => this.ui.requestRender(),
+			showSelector: (create) => this.showSelector(create),
+			showExtensionMainPane: (id, payload) => this.showExtensionMainPane(id, payload),
+			showExtensionInput: (title, placeholder) => this.showExtensionInput(title, placeholder),
+		};
+	}
+
+	private async handleAgentsCommand(args?: string): Promise<void> {
+		await runAgentsCommand(this.agentCommandsHost(), args);
+	}
+
+	private async handleAgentsDoctorCommand(): Promise<void> {
+		await runAgentsDoctorCommand(this.agentCommandsHost());
+	}
+
 	private async handleModelCommand(searchTerm?: string): Promise<void> {
 		if (!searchTerm) {
 			this.showModelSelector();
+			return;
+		}
+
+		const autoAlias = this.findAutoModelAlias(searchTerm);
+		if (autoAlias) {
+			this.session.setPendingAutoModelAlias(autoAlias);
+			this.footer.invalidate();
+			this.showStatus(`Model: ${autoAlias} (routes on next prompt)`);
 			return;
 		}
 
@@ -4315,6 +4722,10 @@ export class InteractiveMode {
 		}
 
 		this.showModelSelector(searchTerm);
+	}
+
+	private findAutoModelAlias(searchTerm: string): string | undefined {
+		return normalizeAutoAliasString("clawrouter", searchTerm);
 	}
 
 	private async findExactModelMatch(searchTerm: string): Promise<Model<any> | undefined> {
@@ -4433,6 +4844,14 @@ export class InteractiveMode {
 				this.session.scopedModels,
 				async (model) => {
 					try {
+						if (isAutoModelAlias(model)) {
+							const alias = `${model.provider}/${model.id}`;
+							this.session.setPendingAutoModelAlias(alias);
+							this.footer.invalidate();
+							done();
+							this.showStatus(`Model: ${alias} (routes on next prompt)`);
+							return;
+						}
 						await this.session.setModel(model);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
@@ -4450,6 +4869,7 @@ export class InteractiveMode {
 					this.ui.requestRender();
 				},
 				initialSearchInput,
+				this.session.pendingAutoModelAlias,
 			);
 			return { component: selector, focus: selector };
 		});
@@ -4777,6 +5197,10 @@ export class InteractiveMode {
 			if (result.cancelled) {
 				return result;
 			}
+			this.renderCurrentSessionState();
+			// Move the liveness marker to the newly opened session immediately rather
+			// than waiting for the next heartbeat tick.
+			this.sessionLiveness.sync();
 			this.showStatus("Resumed session");
 			return result;
 		} catch (error: unknown) {
@@ -4794,6 +5218,8 @@ export class InteractiveMode {
 				if (result.cancelled) {
 					return result;
 				}
+				this.renderCurrentSessionState();
+				this.sessionLiveness.sync();
 				this.showStatus("Resumed session in current cwd");
 				return result;
 			}
@@ -5756,7 +6182,7 @@ export class InteractiveMode {
 **Navigation**
 | Key | Action |
 |-----|--------|
-| \`${cursorUp}\` / \`${cursorDown}\` / \`${cursorLeft}\` / \`${cursorRight}\` | Move cursor / browse history |
+| \`${cursorUp}\` / \`${cursorDown}\` / \`${cursorLeft}\` / \`${cursorRight}\` | Move cursor / recall queued message or browse history (Up when empty) |
 | \`${cursorWordLeft}\` / \`${cursorWordRight}\` | Move by word |
 | \`${cursorLineStart}\` | Start of line |
 | \`${cursorLineEnd}\` | End of line |
@@ -5793,7 +6219,7 @@ export class InteractiveMode {
 | \`${externalEditor}\` | Edit message in external editor |
 | \`${copyMessage}\` | Copy last assistant message |
 | \`${followUp}\` | Queue follow-up message |
-| \`${dequeue}\` | Restore queued messages |
+| \`${dequeue}\` | Restore all queued messages to editor |
 | \`${pasteImage}\` | Paste image or text from clipboard |
 | \`/\` | Slash commands |
 | \`!\` | Run bash command |
@@ -5985,6 +6411,14 @@ export class InteractiveMode {
 	}
 
 	private async handleCompactCommand(customInstructions?: string): Promise<void> {
+		const entries = this.sessionManager.getEntries();
+		const messageCount = entries.filter((e) => e.type === "message").length;
+
+		if (messageCount < 2) {
+			this.showWarning("Nothing to compact (no messages yet)");
+			return;
+		}
+
 		this.clearStatusIndicator();
 
 		try {
@@ -6003,6 +6437,20 @@ export class InteractiveMode {
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
+		if (this.unsubscribeAgentRuns) {
+			this.unsubscribeAgentRuns();
+			this.unsubscribeAgentRuns = undefined;
+		}
+		if (this.unsubscribeBashBgJobs) {
+			this.unsubscribeBashBgJobs();
+			this.unsubscribeBashBgJobs = undefined;
+		}
+		if (this.unsubscribeBashBgTerminal) {
+			this.unsubscribeBashBgTerminal();
+			this.unsubscribeBashBgTerminal = undefined;
+		}
+		if (this.activeMainPane) this.hideExtensionMainPane(this.activeMainPane.id);
+		if (this.activeOverlay) this.hideExtensionOverlay(this.activeOverlay.id);
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}
