@@ -1923,8 +1923,7 @@ export class AgentSession {
 				// flag) — session.isStreaming now tracks the whole run
 				// (_isAgentRunActive), which includes the compaction/agent_end windows
 				// where the fork must default to steer instead of throwing.
-				const behavior =
-					options?.streamingBehavior ?? (this.agent.state.isStreaming ? undefined : "steer");
+				const behavior = options?.streamingBehavior ?? (this.agent.state.isStreaming ? undefined : "steer");
 				if (!behavior) {
 					throw new Error(
 						"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",

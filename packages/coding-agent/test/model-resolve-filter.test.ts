@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { AuthStorage } from "../src/core/auth-storage.ts";
 import { addFilter, removeFilter } from "../src/core/extensions/extension-hooks.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createInMemoryModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
 const baseModel = {
@@ -27,6 +29,29 @@ const routedModel = {
 	id: "claude-sonnet-4-6",
 	name: "Sonnet",
 } as unknown as Model<any>;
+
+/** Runtime with configured claude-bridge auth so deferred routing passes the auth gate. */
+async function createBridgeModelRuntime(tempDir: string) {
+	const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+	await authStorage.modify("claude-bridge", async () => ({ type: "api_key", key: "test-key" }));
+	const modelRegistry = await createInMemoryModelRegistry(authStorage);
+	modelRegistry.registerProvider("claude-bridge", {
+		baseUrl: "http://localhost:9100",
+		apiKey: "test-key",
+		api: "anthropic-messages",
+		models: [baseModel, routedModel].map((model) => ({
+			id: model.id,
+			name: model.name,
+			api: model.api,
+			reasoning: model.reasoning,
+			input: model.input,
+			cost: model.cost,
+			contextWindow: model.contextWindow,
+			maxTokens: model.maxTokens,
+		})),
+	});
+	return getModelRuntime(modelRegistry);
+}
 
 describe("model:resolve startup filter", () => {
 	let tempDir: string | undefined;
@@ -112,6 +137,7 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
+			modelRuntime: await createBridgeModelRuntime(tempDir),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "openai-codex/auto",
@@ -150,6 +176,7 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
+			modelRuntime: await createBridgeModelRuntime(tempDir),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
