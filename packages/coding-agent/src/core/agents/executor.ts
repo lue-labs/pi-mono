@@ -1005,7 +1005,10 @@ async function prepareChildRunContext(options: {
 		authStorage: executor.parentServices.authStorage,
 		settingsManager: executor.parentServices.settingsManager,
 		modelRegistry: executor.parentServices.modelRegistry,
-		modelRuntime: executor.parentServices.modelRuntime,
+		// Children must share the parent's model universe; without this,
+		// createAgentSessionServices rebuilds a runtime from disk and auto
+		// routing/auth silently diverge from the parent registry.
+		modelRuntime: executor.parentServices.modelRuntime ?? executor.parentServices.modelRegistry.getRuntime(),
 	};
 	const childServices = await createAgentSessionServices({
 		...childRuntimeServices,

@@ -24,6 +24,15 @@ export class ModelRegistry {
 		this.runtime = runtime;
 	}
 
+	/**
+	 * The runtime backing this facade. Lets callers that only hold the compat
+	 * facade (AgentToolParentServices, tests) rebuild child services on the
+	 * same model universe instead of falling back to a disk-loaded runtime.
+	 */
+	getRuntime(): ModelRuntime {
+		return this.runtime;
+	}
+
 	/** Reload models.json asynchronously. Await before making synchronous registry reads. */
 	refresh(): Promise<void> {
 		return this.runtime.reloadConfig();
