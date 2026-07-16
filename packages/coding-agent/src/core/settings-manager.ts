@@ -190,6 +190,14 @@ export interface Settings {
 	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
 	websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
+	/**
+	 * Per-extension tuning, keyed by extension namespace. Unknown keys survive
+	 * JSON.parse and deep-merge (global ← project) like any nested setting, so
+	 * an extension reads its slice via the `getExtensionConfig` accessor on
+	 * `ExtensionAPI`. Generic and vendor-neutral — values are whatever shape the
+	 * owning extension expects.
+	 */
+	extensionConfig?: Record<string, Record<string, unknown>>;
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -509,6 +517,16 @@ export class SettingsManager {
 
 	getProjectSettings(): Settings {
 		return structuredClone(this.projectSettings);
+	}
+
+	/**
+	 * All `extensionConfig` namespaces from the merged settings (global ←
+	 * project). Returns a cloned plain object keyed by extension namespace; the
+	 * extension runtime carries this so `ExtensionAPI.getExtensionConfig(ns)` can
+	 * index into it. Empty object when no extensionConfig is set.
+	 */
+	getExtensionConfig(): Record<string, unknown> {
+		return structuredClone(this.settings.extensionConfig ?? {});
 	}
 
 	isProjectTrusted(): boolean {
