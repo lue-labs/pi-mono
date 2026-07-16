@@ -12,6 +12,7 @@ import {
 import type { AuthStorage } from "../auth-storage.ts";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.ts";
 import type { ModelRegistry } from "../model-registry.ts";
+import type { ModelRuntime } from "../model-runtime.ts";
 import { normalizeAutoAliasString, parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
 import { type ReadonlySessionManager, SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
@@ -78,6 +79,8 @@ export interface AgentToolParentServices {
 	authStorage: AuthStorage;
 	settingsManager: SettingsManager;
 	modelRegistry: ModelRegistry;
+	/** Canonical model/auth runtime backing modelRegistry; reused by child sessions to avoid rebuilding from disk. */
+	modelRuntime?: ModelRuntime;
 	/**
 	 * Delegation depth of the session that owns these services. Top-level
 	 * interactive session = 0 (or undefined); each nested child increments by 1.
@@ -1002,6 +1005,7 @@ async function prepareChildRunContext(options: {
 		authStorage: executor.parentServices.authStorage,
 		settingsManager: executor.parentServices.settingsManager,
 		modelRegistry: executor.parentServices.modelRegistry,
+		modelRuntime: executor.parentServices.modelRuntime,
 	};
 	const childServices = await createAgentSessionServices({
 		...childRuntimeServices,

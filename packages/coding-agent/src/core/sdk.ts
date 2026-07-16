@@ -581,7 +581,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// Honour an explicit disabled state before falling back to top-level services.
 		agentToolServices: options.disableAgentToolServices
 			? undefined
-			: (options.agentToolServices ?? { cwd, agentDir, authStorage, settingsManager, modelRegistry }),
+			: (options.agentToolServices ?? { cwd, agentDir, authStorage, settingsManager, modelRegistry, modelRuntime }),
 		agentRunIdentity: options.agentRunIdentity,
 		initialActiveToolNames,
 		allowedToolNames,

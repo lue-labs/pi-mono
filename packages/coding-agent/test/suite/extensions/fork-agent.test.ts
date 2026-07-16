@@ -73,6 +73,7 @@ function makeAgentServices(harness: Harness): void {
 			authStorage: typeof harness.authStorage;
 			settingsManager: typeof harness.settingsManager;
 			modelRegistry: typeof harness.session.modelRegistry;
+			modelRuntime: typeof harness.session.modelRuntime;
 		};
 	};
 	internal._agentToolServices = {
@@ -81,6 +82,7 @@ function makeAgentServices(harness: Harness): void {
 		authStorage: harness.authStorage,
 		settingsManager: harness.settingsManager,
 		modelRegistry: harness.session.modelRegistry,
+		modelRuntime: harness.session.modelRuntime,
 	};
 }
 

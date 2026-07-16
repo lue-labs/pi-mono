@@ -15,6 +15,7 @@ function executorOptions(harness: Harness) {
 			authStorage: harness.authStorage,
 			settingsManager: harness.settingsManager,
 			modelRegistry: harness.session.modelRegistry,
+			modelRuntime: harness.session.modelRuntime,
 		},
 		parentActiveTools: ["read", "bash", "edit", "write", "agent"],
 		parentSessionManager: harness.sessionManager,
