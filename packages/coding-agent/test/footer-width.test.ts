@@ -1,7 +1,11 @@
 import { visibleWidth } from "@valkyriweb/pi-tui";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
-import { clearAgentRecentRunsForTests, startAgentRecentRun } from "../src/core/agents/status.ts";
+import {
+	clearAgentRecentRunsForTests,
+	formatAgentFooterStatus,
+	startAgentRecentRun,
+} from "../src/core/agents/status.ts";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
 import { FooterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -69,7 +73,22 @@ function createSession(options: {
 		},
 		isStreaming: options.isStreaming ?? false,
 		extensionRunner: {
-			getRegisteredFooters: () => [],
+			// Mirrors the production agents extension hook (core/extensions/agents.ts)
+			// which contributes the background-agent status pill.
+			getRegisteredFooters: () => {
+				const rendered = formatAgentFooterStatus();
+				if (rendered === undefined) return [];
+				return [
+					{
+						id: "agents-status",
+						extensionPath: "<builtin:hook:agents>",
+						spec: {
+							render: () => rendered,
+							onActivate: () => {},
+						},
+					},
+				];
+			},
 		},
 		modelRegistry: {
 			isUsingOAuth: () => options.isUsingOAuth ?? false,

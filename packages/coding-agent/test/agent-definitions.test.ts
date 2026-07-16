@@ -94,7 +94,7 @@ describe("built-in agent definitions", () => {
 		expect(joined).toMatch(/single known file, symbol, or value/i);
 		expect(joined).toMatch(/do not duplicate an investigation/i);
 		expect(joined).toMatch(/`explore` — read-only search with read-only bash/i);
-		expect(joined).toMatch(/`context: "fork"` only when the task needs the calling transcript/i);
+		expect(joined).toMatch(/`context: "fork"` is a permissive self-fork that preserves the caller transcript/i);
 		expect(joined).not.toMatch(/≤3 files|explore@fast|worker@medium|Delegation-first/i);
 	});
 

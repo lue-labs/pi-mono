@@ -340,8 +340,8 @@ describe("auto-compaction thrashing detector wiring", () => {
 		const s = session as unknown as {
 			_autoCompactDisabledThisSession: boolean;
 			_consecutiveCompactionFailures: number;
-			_modelRegistry: { getApiKeyAndHeaders: (model: unknown) => Promise<unknown> };
-			_getCompactionRequestAuth: (model: unknown) => Promise<unknown>;
+			_modelRuntime: { getAuth: (model: unknown) => Promise<unknown> };
+			_getSummarizationRequestAuth: (model: unknown) => Promise<unknown>;
 			_extensionRunner: {
 				hasHandlers: (type: string) => boolean;
 				emit: (event: { type?: string }) => Promise<unknown>;
@@ -350,8 +350,8 @@ describe("auto-compaction thrashing detector wiring", () => {
 		};
 
 		// Offline auth for both streamFn branches - neither performs any network IO.
-		s._modelRegistry.getApiKeyAndHeaders = async () => ({ ok: true, apiKey: "test-key" });
-		s._getCompactionRequestAuth = async () => ({ apiKey: "test-key" });
+		s._modelRuntime.getAuth = async () => ({ auth: { apiKey: "test-key" } });
+		s._getSummarizationRequestAuth = async () => ({ apiKey: "test-key" });
 
 		// Throw the rate limit from the extension seam - the first call after
 		// compaction_start that avoids any real summarization/network code.
