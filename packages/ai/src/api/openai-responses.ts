@@ -56,10 +56,11 @@ function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEn
 	if (cacheRetention) {
 		return cacheRetention;
 	}
-	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
-		return "long";
+	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
+	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
+		return envRetention;
 	}
-	return "short";
+	return "long";
 }
 
 function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCompat> {
@@ -76,6 +77,9 @@ function getPromptCacheRetention(
 	compat: Required<OpenAIResponsesCompat>,
 	cacheRetention: CacheRetention,
 ): "24h" | undefined {
+	// GPT-5.6+ deprecates prompt_cache_retention in favor of prompt_cache_options.ttl
+	// (default and only value "30m"); omit it entirely on breakpoint-capable models.
+	if (compat.promptCacheApi === "breakpoints") return undefined;
 	return cacheRetention === "long" && compat.supportsLongCacheRetention ? "24h" : undefined;
 }
 
@@ -234,17 +238,24 @@ function createClient(
 
 function buildParams(model: Model<"openai-responses">, context: Context, options?: OpenAIResponsesOptions) {
 	const compat = getCompat(model);
+	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
+	// Explicit breakpoints ride the default implicit mode, so prompt_cache_options is
+	// not sent (mode "implicit" and ttl "30m" are the API defaults). The implicit
+	// latest-message breakpoint replaces the legacy last-user-message anchor.
+	const promptCacheBreakpoints = compat.promptCacheApi === "breakpoints" && cacheRetention !== "none";
 	const toolPlacement = splitDeferredTools(context, compat.supportsToolSearch);
 	const messages = convertResponsesMessages(model, context, OPENAI_TOOL_CALL_PROVIDERS, {
 		deferredTools: toolPlacement.deferred,
+		promptCacheBreakpoints,
 	});
-
-	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 	const params: ResponseCreateParamsStreaming = {
 		model: model.id,
 		input: messages,
 		stream: true,
-		prompt_cache_key: cacheRetention === "none" ? undefined : clampOpenAIPromptCacheKey(options?.sessionId),
+		prompt_cache_key:
+			cacheRetention === "none"
+				? undefined
+				: clampOpenAIPromptCacheKey(options?.cacheAffinityKey ?? options?.sessionId),
 		prompt_cache_retention: getPromptCacheRetention(compat, cacheRetention),
 		store: false,
 	};
