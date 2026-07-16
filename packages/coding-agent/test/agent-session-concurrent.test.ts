@@ -299,15 +299,17 @@ describe("AgentSession concurrent prompt guard", () => {
 		// on isStreaming, fell through to agent.prompt(), and rejected with
 		// "Agent is already processing a prompt" — fatal for un-awaited callers
 		// (extension sendUserMessage), which crashed the whole TUI process.
-		createSession();
+		await createSession();
 
 		const firstPrompt = session.prompt("First message");
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		expect(session.agent.isProcessing).toBe(true);
 
 		// Simulate the busy-but-not-streaming window (compaction, agent_end phase).
+		// session.isStreaming now tracks the whole run (_isAgentRunActive);
+		// the gate's strict/steer split reads the raw agent flag.
 		(session.agent.state as { isStreaming: boolean }).isStreaming = false;
-		expect(session.isStreaming).toBe(false);
+		expect(session.agent.state.isStreaming).toBe(false);
 
 		// Must queue (default steer), not race agent.prompt() and reject.
 		await expect(session.prompt("Second message")).resolves.toBeUndefined();
@@ -321,7 +323,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		// Same window as above via the extension-facing API — the caller that
 		// actually crashed sessions in the wild (idle-return, pi-goal,
 		// suggested-tasks all call pi.sendUserMessage un-awaited).
-		createSession();
+		await createSession();
 
 		const firstPrompt = session.prompt("First message");
 		await new Promise((resolve) => setTimeout(resolve, 10));
@@ -339,7 +341,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		// agent.prompt() (post-compaction resume, extension-triggered turn).
 		// The rejection must be absorbed by queueing, mirroring
 		// sendCustomMessage's fallback, instead of propagating to callers.
-		createSession();
+		await createSession();
 
 		const promptSpy = vi
 			.spyOn(session.agent, "prompt")

@@ -1919,7 +1919,12 @@ export class AgentSession {
 				// Preserve the strict contract while visibly streaming; in the
 				// compaction/setup windows default to steer so the message is
 				// queued and delivered instead of racing or being dropped.
-				const behavior = options?.streamingBehavior ?? (this.isStreaming ? undefined : "steer");
+				// Strict contract only while the LLM is visibly streaming (raw agent
+				// flag) — session.isStreaming now tracks the whole run
+				// (_isAgentRunActive), which includes the compaction/agent_end windows
+				// where the fork must default to steer instead of throwing.
+				const behavior =
+					options?.streamingBehavior ?? (this.agent.state.isStreaming ? undefined : "steer");
 				if (!behavior) {
 					throw new Error(
 						"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
