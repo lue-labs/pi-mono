@@ -1,3 +1,4 @@
+import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 /**
  * Tests for AgentSession concurrent prompt guard.
  */
@@ -17,7 +18,6 @@ import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
-import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import type { BuildSystemPromptOptions } from "../src/core/system-prompt.ts";
@@ -62,7 +62,7 @@ describe("AgentSession concurrent prompt guard", () => {
 	let session: AgentSession;
 	let tempDir: string;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		tempDir = join(tmpdir(), `pi-concurrent-test-${Date.now()}`);
 		mkdirSync(tempDir, { recursive: true });
 	});
@@ -78,7 +78,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		}
 	});
 
-	function createSession() {
+	async function createSession() {
 		const model = pickModel("anthropic");
 		let abortSignal: AbortSignal | undefined;
 
@@ -111,9 +111,9 @@ describe("AgentSession concurrent prompt guard", () => {
 		const sessionManager = SessionManager.inMemory();
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		const modelRegistry = await createModelRegistry(authStorage, tempDir);
 		// Set a runtime API key so validation passes
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
+		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
 
 		session = new AgentSession({
 			agent,
@@ -121,6 +121,7 @@ describe("AgentSession concurrent prompt guard", () => {
 			settingsManager,
 			cwd: tempDir,
 			modelRegistry,
+			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader(),
 		});
 
@@ -128,7 +129,7 @@ describe("AgentSession concurrent prompt guard", () => {
 	}
 
 	it("should throw when prompt() called while streaming", async () => {
-		createSession();
+		await createSession();
 
 		// Start first prompt (don't await, it will block until abort)
 		const firstPrompt = session.prompt("First message");
@@ -150,7 +151,7 @@ describe("AgentSession concurrent prompt guard", () => {
 	});
 
 	it("should allow steer() while streaming", async () => {
-		createSession();
+		await createSession();
 
 		// Start first prompt
 		const firstPrompt = session.prompt("First message");
@@ -166,7 +167,7 @@ describe("AgentSession concurrent prompt guard", () => {
 	});
 
 	it("should allow followUp() while streaming", async () => {
-		createSession();
+		await createSession();
 
 		// Start first prompt
 		const firstPrompt = session.prompt("First message");
@@ -236,8 +237,8 @@ describe("AgentSession concurrent prompt guard", () => {
 		const sessionManager = SessionManager.inMemory();
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
+		const modelRegistry = await createModelRegistry(authStorage, tempDir);
+		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
 
 		const extensionsResult = await createTestExtensionsResult([
 			(pi) => {
@@ -256,6 +257,7 @@ describe("AgentSession concurrent prompt guard", () => {
 			settingsManager,
 			cwd: tempDir,
 			modelRegistry,
+			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader({ extensionsResult }),
 		});
 		session.subscribe((event) => {
@@ -297,15 +299,17 @@ describe("AgentSession concurrent prompt guard", () => {
 		// on isStreaming, fell through to agent.prompt(), and rejected with
 		// "Agent is already processing a prompt" — fatal for un-awaited callers
 		// (extension sendUserMessage), which crashed the whole TUI process.
-		createSession();
+		await createSession();
 
 		const firstPrompt = session.prompt("First message");
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		expect(session.agent.isProcessing).toBe(true);
 
 		// Simulate the busy-but-not-streaming window (compaction, agent_end phase).
+		// session.isStreaming now tracks the whole run (_isAgentRunActive);
+		// the gate's strict/steer split reads the raw agent flag.
 		(session.agent.state as { isStreaming: boolean }).isStreaming = false;
-		expect(session.isStreaming).toBe(false);
+		expect(session.agent.state.isStreaming).toBe(false);
 
 		// Must queue (default steer), not race agent.prompt() and reject.
 		await expect(session.prompt("Second message")).resolves.toBeUndefined();
@@ -319,7 +323,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		// Same window as above via the extension-facing API — the caller that
 		// actually crashed sessions in the wild (idle-return, pi-goal,
 		// suggested-tasks all call pi.sendUserMessage un-awaited).
-		createSession();
+		await createSession();
 
 		const firstPrompt = session.prompt("First message");
 		await new Promise((resolve) => setTimeout(resolve, 10));
@@ -337,7 +341,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		// agent.prompt() (post-compaction resume, extension-triggered turn).
 		// The rejection must be absorbed by queueing, mirroring
 		// sendCustomMessage's fallback, instead of propagating to callers.
-		createSession();
+		await createSession();
 
 		const promptSpy = vi
 			.spyOn(session.agent, "prompt")
@@ -391,8 +395,8 @@ describe("AgentSession concurrent prompt guard", () => {
 		const sessionManager = SessionManager.inMemory();
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
+		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
+		const modelRegistry = await createModelRegistry(authStorage, tempDir);
 
 		session = new AgentSession({
 			agent,
@@ -400,6 +404,7 @@ describe("AgentSession concurrent prompt guard", () => {
 			settingsManager,
 			cwd: tempDir,
 			modelRegistry,
+			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader(),
 		});
 
@@ -448,8 +453,8 @@ describe("AgentSession concurrent prompt guard", () => {
 		const sessionManager = SessionManager.inMemory();
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
+		const modelRegistry = await createModelRegistry(authStorage, tempDir);
+		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
 
 		session = new AgentSession({
 			agent,
@@ -457,6 +462,7 @@ describe("AgentSession concurrent prompt guard", () => {
 			settingsManager,
 			cwd: tempDir,
 			modelRegistry,
+			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader(),
 		});
 
@@ -554,8 +560,8 @@ describe("AgentSession concurrent prompt guard", () => {
 		const sessionManager = SessionManager.inMemory();
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
+		const modelRegistry = await createModelRegistry(authStorage, tempDir);
+		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
 
 		session = new AgentSession({
 			agent,
@@ -563,6 +569,7 @@ describe("AgentSession concurrent prompt guard", () => {
 			settingsManager,
 			cwd: tempDir,
 			modelRegistry,
+			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader(),
 			baseToolsOverride: { dummy: tool },
 		});
@@ -708,8 +715,8 @@ describe("AgentSession concurrent prompt guard", () => {
 		const sessionManager = SessionManager.inMemory();
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
+		const modelRegistry = await createModelRegistry(authStorage, tempDir);
+		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
 
 		session = new AgentSession({
 			agent,
@@ -717,6 +724,7 @@ describe("AgentSession concurrent prompt guard", () => {
 			settingsManager,
 			cwd: tempDir,
 			modelRegistry,
+			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader(),
 			baseToolsOverride: { dummy: tool },
 		});

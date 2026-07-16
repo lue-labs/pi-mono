@@ -72,17 +72,6 @@ function createSession(options: {
 			thinkingLevel: options.thinkingLevel ?? "off",
 		},
 		isStreaming: options.isStreaming ?? false,
-		sessionManager: {
-			getEntries: () => entries,
-			getBranch: () => options.branchEntries ?? entries,
-			getSessionName: () => options.sessionName,
-			getCwd: () => "/tmp/project",
-		},
-		getContextUsage: () => options.contextUsage ?? { tokens: 24_600, contextWindow: 200_000, percent: 12.3 },
-		pendingAutoModelAlias: options.pendingAutoModelAlias,
-		modelRegistry: {
-			isUsingOAuth: () => options.isUsingOAuth ?? false,
-		},
 		extensionRunner: {
 			// Mirrors the production agents extension hook (core/extensions/agents.ts)
 			// which contributes the background-agent status pill.
@@ -100,6 +89,25 @@ function createSession(options: {
 					},
 				];
 			},
+		},
+		modelRegistry: {
+			isUsingOAuth: () => options.isUsingOAuth ?? false,
+		},
+		pendingAutoModelAlias: options.pendingAutoModelAlias,
+		sessionManager: {
+			getEntries: () => entries,
+			getBranch: () => options.branchEntries ?? entries,
+			getSessionName: () => options.sessionName,
+			getCwd: () => "/tmp/project",
+		},
+		getContextUsage: () =>
+			options.contextUsage ?? {
+				contextWindow: 200_000,
+				percent: 12.3,
+				tokens: 24_600,
+			},
+		modelRuntime: {
+			isUsingOAuth: () => false,
 		},
 	};
 

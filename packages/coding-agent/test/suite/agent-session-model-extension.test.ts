@@ -151,7 +151,7 @@ describe("AgentSession model and extension characterization", () => {
 		});
 		try {
 			const codexModel = codex.getModel();
-			harness.authStorage.setRuntimeApiKey(codexModel.provider, "faux-key");
+			await harness.authStorage.modify(codexModel.provider, async () => ({ type: "api_key", key: "faux-key" }));
 			harness.session.modelRegistry.registerProvider(codexModel.provider, {
 				baseUrl: codexModel.baseUrl,
 				apiKey: "faux-key",
@@ -209,6 +209,26 @@ describe("AgentSession model and extension characterization", () => {
 		harness.session.setThinkingLevel("high");
 		expect(harness.session.thinkingLevel).toBe("off");
 		expect(harness.session.cycleThinkingLevel()).toBeUndefined();
+	});
+
+	it("cycles xhigh before max when both are supported", async () => {
+		const harness = await createHarness({ models: [{ id: "faux-1", reasoning: true }] });
+		harnesses.push(harness);
+		harness.getModel().thinkingLevelMap = { xhigh: "xhigh", max: "max" };
+
+		expect(harness.session.getAvailableThinkingLevels()).toEqual([
+			"off",
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		]);
+		harness.session.setThinkingLevel("high");
+		expect(harness.session.cycleThinkingLevel()).toBe("xhigh");
+		expect(harness.session.cycleThinkingLevel()).toBe("max");
+		expect(harness.session.cycleThinkingLevel()).toBe("off");
 	});
 
 	it("throws when setModel is called without configured auth", async () => {

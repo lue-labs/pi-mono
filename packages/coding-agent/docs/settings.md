@@ -29,38 +29,10 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 |---------|------|---------|-------------|
 | `defaultProvider` | string | - | Default provider (e.g., `"anthropic"`, `"openai"`) |
 | `defaultModel` | string | - | Default model ID |
-| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"`, `"adaptive"` |
+| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
+| `showCacheMissNotices` | boolean | `false` | Show transcript notices for significant prompt-cache misses |
 | `thinkingBudgets` | object | - | Custom token budgets per thinking level |
-| `subagents` | object | - | Default native child-agent model/thinking, optionally per parent provider |
-
-#### subagents
-
-Native child agents inherit the parent model and thinking by default. Configure fallback defaults globally or per parent provider:
-
-```json
-{
-  "subagents": {
-    "defaults": { "thinking": "off" },
-    "providers": {
-      "openai-codex": { "model": "gpt-5.3-codex-spark", "thinking": "medium" },
-      "claude-bridge": { "model": "claude-sonnet-4-6", "thinking": "off" }
-    }
-  }
-}
-```
-
-The `agent` tool can still override these per call or per task with `model` and `thinking` (`"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"`). Precedence: explicit task option > agent frontmatter > `subagents.providers[<parent.provider>]` > `subagents.defaults` > parent inheritance.
-
-**Nested delegation (`maxDelegationDepth`).** By default an Agent task cannot dispatch another Agent task (`maxDelegationDepth: 0`) — single-layer delegation, matching upstream. Non-fork modes remove Agent from the effective tools; fork mode keeps inherited schemas byte-stable but leaves the Agent engine unbound. Raise the limit to permit profiles that allow Agent to delegate further, up to a hard cap of 16:
-
-```json
-{
-  "subagents": { "maxDelegationDepth": 5 }
-}
-```
-
-With `maxDelegationDepth: 5`, eligible profiles can nest five levels deep before the runtime gate refuses further nesting. Nested runs are marked in the agents view (`↳L<n>`) alongside their parent run, fan-out `done/total` progress, and an inline transcript of each task's recent tool calls with their results. In non-fork modes enabling nesting can add Agent to the effective tool list; fork mode keeps the inherited schema stable and changes only engine availability plus the trailing task reminder. Flip it deliberately for sessions that benefit from recursive fan-out rather than globally.
 
 #### thinkingBudgets
 
@@ -102,6 +74,10 @@ For VS Code, include `--wait` so pi resumes after the editor exits:
 }
 ```
 
+### Cache Heartbeat
+
+Optional paid background requests can keep prompt-cache prefixes warm. Disabled by default; eligible provider prefixes include `openai-codex/` and `claude-bridge/`. Configure `cacheHeartbeat.enabled`, `intervalMs`, `providers`, `basePrompt`, `sessionPrompt`, and `maxTokens`.
+
 ### Telemetry and update checks
 
 `enableInstallTelemetry` only controls the anonymous install/update ping to `https://pi.dev/api/report-install`. Opting out of telemetry does not disable update checks; Pi can still fetch `https://pi.dev/api/latest-version` to look for the latest version.
@@ -134,52 +110,20 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 }
 ```
 
-### Cache Heartbeat
-
-Optional paid background requests can keep prompt-cache prefixes warm during local working hours. Disabled by default. Only `openai-codex/` and `claude-bridge/` provider models are eligible by default. Real user prompts mark the base prompt cache warm; if that warmth would expire while Pi is still running during work hours, a shared base heartbeat refreshes it after `intervalMs`. Each active session gets at most one idle refresh for its last turn, then naturally expires unless work continues. Rate-limit failures pause further heartbeat calls for that provider/model.
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `cacheHeartbeat.enabled` | boolean | `false` | Enable cache heartbeat requests |
-| `cacheHeartbeat.intervalMs` | number | `3300000` | Idle interval before active-session refresh (55 minutes) |
-| `cacheHeartbeat.providers` | string[] | `["openai-codex/","claude-bridge/"]` | Eligible provider/model prefixes |
-| `cacheHeartbeat.basePrompt` | boolean | `true` | Keep a tiny base-system-prompt cache warm under a shared heartbeat session id after `intervalMs` of no observed base prompt activity |
-| `cacheHeartbeat.sessionPrompt` | boolean | `true` | Refresh active session context once per idle turn |
-| `cacheHeartbeat.maxTokens` | number | `1` | Max output tokens for heartbeat calls |
-| `cacheHeartbeat.rateLimitCooldownMs` | number | `300000` | Provider/model cooldown after rate-limit failures |
-| `cacheHeartbeat.workingHours.start` | string | `"08:00"` | Local start time |
-| `cacheHeartbeat.workingHours.end` | string | `"18:00"` | Local end time |
-| `cacheHeartbeat.workingHours.days` | number[] | `[1,2,3,4,5]` | Local days, Sunday = 0 |
-
-```json
-{
-  "cacheHeartbeat": {
-    "enabled": true,
-    "intervalMs": 3300000,
-    "providers": ["openai-codex/", "claude-bridge/"],
-    "workingHours": { "start": "08:00", "end": "18:00", "days": [1, 2, 3, 4, 5] }
-  }
-}
-```
-
 ### Compaction
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
 | `compaction.reserveTokens` | number | `16384` | Tokens reserved for LLM response |
-| `compaction.triggerTokens` | number | unset | Absolute context-token count where auto-compaction should trigger. When set and the active model's context window is known, Pi derives `reserveTokens` as `contextWindow - triggerTokens`. Falls back to `reserveTokens` if the window is unknown or smaller than `triggerTokens`. |
 | `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
-| `compaction.residentPrune` | boolean | `false` | After successful compaction and when opening/resuming compacted sessions, stub summarized pre-boundary payloads in resident memory without rewriting durable JSONL. Current-version session files plan from raw-line metadata and apply stubs before parsing summarized candidate payload JSON. Can also be enabled with `PI_RESIDENT_SESSION_PRUNE=1`. |
 
 ```json
 {
   "compaction": {
     "enabled": true,
-    "triggerTokens": 180000,
     "reserveTokens": 16384,
-    "keepRecentTokens": 20000,
-    "residentPrune": false
+    "keepRecentTokens": 20000
   }
 }
 ```
@@ -245,7 +189,7 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `shellPath` | string | - | Custom shell path (e.g., for Cygwin on Windows) |
+| `shellPath` | string | - | Custom shell path (e.g., for Cygwin on Windows); supports a leading `~` for the home directory |
 | `shellCommandPrefix` | string | - | Prefix for every bash command (e.g., `"shopt -s expand_aliases"`) |
 | `npmCommand` | string[] | - | Command argv used for npm package lookup/install operations (e.g., `["mise", "exec", "node@20", "--", "npm"]`) |
 
@@ -255,7 +199,7 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 }
 ```
 
-`npmCommand` is used for all npm package-manager operations, including installs, uninstalls, and dependency installs inside git packages. User-scoped npm packages install under `~/.pi/agent/npm/`; project-scoped npm packages install under `.pi/npm/`. Use argv-style entries exactly as the process should be launched. Managed npm package installs pass `--legacy-peer-deps --no-audit`; the peer flag avoids solving host-provided pi peers, and `--no-audit` keeps audit metadata from failing extension refreshes. When `npmCommand` is configured, git package dependency installs use plain `install` to avoid npm-specific flags in wrappers or alternate package managers.
+`npmCommand` is used for all npm package-manager operations, including installs, uninstalls, and dependency installs inside git packages. User-scoped npm packages install under `~/.pi/agent/npm/`; project-scoped npm packages install under `.pi/npm/`. Use argv-style entries exactly as the process should be launched. When `npmCommand` is configured, git package dependency installs use plain `install` to avoid npm-specific flags in wrappers or alternate package managers.
 
 ### Sessions
 
@@ -303,8 +247,6 @@ Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent`. Paths in
 | `enableSkillCommands` | boolean | `true` | Register skills as `/skill:name` commands |
 
 Arrays support glob patterns and exclusions. Use `!pattern` to exclude. Use `+path` to force-include an exact path and `-path` to force-exclude an exact path.
-
-If an extension also stores configuration under a resource key (for example an object-valued `extensions` entry in older/local settings), the package manager treats it as extension configuration, not as local resource paths. This keeps `pi`/`pii` startup tolerant of mixed settings files while path-based resources continue to require arrays.
 
 #### packages
 

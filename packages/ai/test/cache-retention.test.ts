@@ -394,6 +394,34 @@ describe("Cache Retention (PI_CACHE_RETENTION)", () => {
 			expect(capturedPayload.prompt_cache_key).toBe("session-2");
 			expect(capturedPayload.prompt_cache_retention).toBe("24h");
 		});
+
+		// Fork regression guard: the v0.80.7 upstream sync briefly dropped cacheAffinityKey
+		// from prompt_cache_key derivation, silently losing cross-session prompt-cache reuse.
+		it("should prefer cacheAffinityKey over sessionId for prompt_cache_key", async () => {
+			const model = pickModel("openai");
+			let capturedPayload: any = null;
+
+			try {
+				const s = streamOpenAIResponses(model, context, {
+					apiKey: "fake-key",
+					cacheRetention: "long",
+					sessionId: "session-3",
+					cacheAffinityKey: "pi:openai:gpt:affinity-1",
+					onPayload: stopAfterPayload((payload) => {
+						capturedPayload = payload;
+					}),
+				});
+
+				for await (const event of s) {
+					if (event.type === "error") break;
+				}
+			} catch {
+				// Expected to fail
+			}
+
+			expect(capturedPayload).not.toBeNull();
+			expect(capturedPayload.prompt_cache_key).toBe("pi:openai:gpt:affinity-1");
+		});
 	});
 
 	describe("OpenAI Completions Provider", () => {

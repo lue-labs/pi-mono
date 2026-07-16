@@ -2,14 +2,16 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	closeOpenAICodexWebSocketSessions,
 	getOpenAICodexWebSocketDebugStats,
 	resetOpenAICodexWebSocketDebugStats,
 	stream as streamOpenAICodexResponses,
 	streamSimple as streamSimpleOpenAICodexResponses,
 } from "../src/api/openai-codex-responses.ts";
-import type { Context, Model, Tool } from "../src/types.ts";
+import type { Context, Model } from "../src/types.ts";
 
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 
@@ -20,6 +22,7 @@ afterEach(() => {
 	} else {
 		process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 	}
+	closeOpenAICodexWebSocketSessions();
 	resetOpenAICodexWebSocketDebugStats();
 	vi.useRealTimers();
 	vi.restoreAllMocks();
@@ -31,21 +34,6 @@ function mockToken(): string {
 		"utf8",
 	).toString("base64");
 	return `aaa.${payload}.bbb`;
-}
-
-function createCodexModel(): Model<"openai-codex-responses"> {
-	return {
-		id: "gpt-5.5",
-		name: "GPT-5.5 Codex",
-		api: "openai-codex-responses",
-		provider: "openai-codex",
-		baseUrl: "https://chatgpt.com/backend-api",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 400000,
-		maxTokens: 128000,
-	};
 }
 
 function decodeCodexRequestBody(body: RequestInit["body"] | undefined): Record<string, unknown> | null {
@@ -105,290 +93,7 @@ function buildSSEPayload({
 	return `${events.join("\n\n")}\n\n`;
 }
 
-async function captureCodexRequest(
-	context: Context,
-	options: Partial<Parameters<typeof streamOpenAICodexResponses>[2]> = {},
-): Promise<{ body: Record<string, unknown>; headers: Headers }> {
-	const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-	process.env.PI_CODING_AGENT_DIR = tempDir;
-	const token = mockToken();
-	const sse = buildSSEPayload({ status: "completed" });
-	const encoder = new TextEncoder();
-	let capturedBody: Record<string, unknown> | undefined;
-	let capturedHeaders: Headers | undefined;
-	const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-		const url = typeof input === "string" ? input : input.toString();
-		if (url === "https://chatgpt.com/backend-api/codex/responses") {
-			capturedBody = decodeCodexRequestBody(init?.body) ?? undefined;
-			capturedHeaders = new Headers(init?.headers);
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					start(controller) {
-						controller.enqueue(encoder.encode(sse));
-						controller.close();
-					},
-				}),
-				{ status: 200, headers: { "content-type": "text/event-stream" } },
-			);
-		}
-		return new Response("not found", { status: 404 });
-	});
-	vi.stubGlobal("fetch", fetchMock);
-
-	await streamOpenAICodexResponses(createCodexModel(), context, {
-		apiKey: token,
-		transport: "sse",
-		sessionId: "cache-stability-test-session",
-		...options,
-	}).result();
-
-	if (!capturedBody || !capturedHeaders) throw new Error("Codex request was not captured");
-	return { body: capturedBody, headers: capturedHeaders };
-}
-
-async function captureCodexRequestBody(
-	context: Context,
-	options: Partial<Parameters<typeof streamOpenAICodexResponses>[2]> = {},
-): Promise<Record<string, unknown>> {
-	return (await captureCodexRequest(context, options)).body;
-}
-
 describe("openai-codex streaming", () => {
-	it("supports opaque bearer credentials for generic Codex gateways", async () => {
-		const opaqueBearerCredential = "gateway-opaque-bearer-credential";
-		const encoder = new TextEncoder();
-		let requestUrl: string | undefined;
-		let requestHeaders: Headers | undefined;
-		let requestBody: Record<string, unknown> | undefined;
-		let requestBodyWasCompressed: boolean | undefined;
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async (input: string | URL, init?: RequestInit) => {
-				requestUrl = typeof input === "string" ? input : input.toString();
-				requestHeaders = new Headers(init?.headers);
-				requestBody = decodeCodexRequestBody(init?.body) ?? undefined;
-				requestBodyWasCompressed = init?.body instanceof Uint8Array;
-				return new Response(
-					new ReadableStream<Uint8Array>({
-						start(controller) {
-							controller.enqueue(encoder.encode(buildSSEPayload({ status: "completed" })));
-							controller.close();
-						},
-					}),
-					{ status: 200, headers: { "content-type": "text/event-stream" } },
-				);
-			}),
-		);
-		const model: Model<"openai-codex-responses"> = {
-			id: "gateway-codex-model",
-			name: "Gateway Codex model",
-			api: "openai-codex-responses",
-			provider: "arbitrary-codex-gateway",
-			baseUrl: "https://gateway.example/api",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: 16384,
-			headers: {
-				"ChatGPT-Account-ID": "inherited-account-id",
-				"Content-Encoding": "inherited-encoding",
-			},
-			compat: {
-				sendChatgptAccountId: false,
-				supportsWebSocketTransport: false,
-				supportsZstdRequestCompression: false,
-			},
-		};
-
-		const result = await streamOpenAICodexResponses(
-			model,
-			{
-				systemPrompt: "Gateway system prompt",
-				messages: [{ role: "user", content: "Use the deferred tool", timestamp: 1 }],
-				tools: [
-					{
-						name: "gateway_deferred_tool",
-						description: "A deferred gateway tool",
-						parameters: { type: "object", properties: {} } as Tool["parameters"],
-						deferLoading: true,
-					},
-				],
-			},
-			{
-				apiKey: opaqueBearerCredential,
-				transport: "websocket",
-				websocketConnectTimeoutMs: 10,
-				sessionId: "gateway-session",
-			},
-		).result();
-
-		expect(result.stopReason).toBe("stop");
-		expect(result.errorMessage).toBeUndefined();
-		expect(requestUrl).toBe("https://gateway.example/api/codex/responses");
-		expect(requestHeaders?.get("Authorization")).toBe(`Bearer ${opaqueBearerCredential}`);
-		expect(requestHeaders?.has("chatgpt-account-id")).toBe(false);
-		expect(requestHeaders?.has("content-encoding")).toBe(false);
-		expect(requestBodyWasCompressed).toBe(false);
-		expect(getOpenAICodexWebSocketDebugStats("gateway-session")).toBeUndefined();
-		const tools = requestBody?.tools as Array<Record<string, unknown>> | undefined;
-		expect(tools?.[0]).toEqual({ type: "tool_search" });
-		expect(tools?.find((tool) => tool.name === "gateway_deferred_tool")?.defer_loading).toBe(true);
-	});
-
-	it("serializes Codex tools deterministically across tool and schema key order", async () => {
-		const lookupA: Tool = {
-			name: "lookup",
-			description: "Look up a value",
-			parameters: {
-				type: "object",
-				properties: {
-					gamma: { minLength: 1, description: "g", type: "string" },
-					alpha: { type: "string", description: "a" },
-				},
-				required: ["gamma", "alpha"],
-			} as Tool["parameters"],
-		};
-		const lookupB: Tool = {
-			name: "lookup",
-			description: "Look up a value",
-			parameters: {
-				required: ["alpha", "gamma"],
-				properties: {
-					alpha: { description: "a", type: "string" },
-					gamma: { type: "string", description: "g", minLength: 1 },
-				},
-				type: "object",
-			} as Tool["parameters"],
-		};
-		const bashTool: Tool = {
-			name: "bash",
-			description: "Run a command",
-			parameters: {
-				type: "object",
-				properties: { command: { type: "string" } },
-				required: ["command"],
-			} as Tool["parameters"],
-		};
-
-		const baseContext = {
-			systemPrompt: "Stable system prompt",
-			messages: [{ role: "user" as const, content: "Use a tool", timestamp: 1 }],
-		};
-		const bodyA = await captureCodexRequestBody({ ...baseContext, tools: [lookupA, bashTool] });
-		const bodyB = await captureCodexRequestBody({ ...baseContext, tools: [bashTool, lookupB] });
-
-		expect(JSON.stringify(bodyB.tools)).toBe(JSON.stringify(bodyA.tools));
-		expect((bodyA.tools as Array<{ name: string }>).map((tool) => tool.name)).toEqual(["bash", "lookup"]);
-	});
-
-	it("keeps volatile message timestamps out of the Codex tools/instructions prefix", async () => {
-		const tool: Tool = {
-			name: "read",
-			description: "Read a file",
-			parameters: {
-				type: "object",
-				properties: { path: { type: "string" } },
-				required: ["path"],
-			} as Tool["parameters"],
-		};
-		const systemPrompt = "Stable system prompt";
-		const bodyA = await captureCodexRequestBody({
-			systemPrompt,
-			tools: [tool],
-			messages: [{ role: "user", content: "Read one file", timestamp: 1 }],
-		});
-		const bodyB = await captureCodexRequestBody({
-			systemPrompt,
-			tools: [tool],
-			messages: [{ role: "user", content: "Read one file", timestamp: Date.now() }],
-		});
-
-		expect(bodyB.instructions).toBe(bodyA.instructions);
-		expect(JSON.stringify(bodyB.tools)).toBe(JSON.stringify(bodyA.tools));
-	});
-
-	it("uses cache affinity but never forwards prompt_cache_retention (ChatGPT backend rejects it)", async () => {
-		const { body, headers } = await captureCodexRequest(
-			{
-				systemPrompt: "Stable system prompt",
-				messages: [{ role: "user", content: "ping", timestamp: 1 }],
-			},
-			{
-				cacheAffinityKey: "shared-cache-affinity-key",
-				cacheRetention: "long",
-				maxTokens: 1,
-			},
-		);
-		const promptCacheKey = String(body.prompt_cache_key);
-
-		expect(promptCacheKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-		expect(headers.get("session-id")).toBe(promptCacheKey);
-		expect(headers.get("thread-id")).toBe("cache-stability-test-session");
-		expect(headers.get("x-client-request-id")).toBe("cache-stability-test-session");
-		// ChatGPT Codex backend rejects `prompt_cache_retention` ("Unsupported
-		// parameter"); the adapter must never forward it even at cacheRetention:"long".
-		// Affinity is still carried by prompt_cache_key + the session-id header above.
-		expect(body.prompt_cache_retention).toBeUndefined();
-		// Codex backend also rejects max_output_tokens; never forward it either,
-		// even when the caller (e.g. compaction) sets maxTokens.
-		expect(body.max_output_tokens).toBeUndefined();
-	});
-
-	it("shares the Codex affinity session across different messages with the same prefix", async () => {
-		const context = {
-			systemPrompt: "Stable system prompt",
-			tools: [{ name: "read", description: "Read", parameters: { type: "object", properties: {} } } as Tool],
-		};
-		const options = { cacheAffinityKey: "shared-cache-affinity-key", cacheRetention: "long" as const };
-		const first = await captureCodexRequestBody(
-			{ ...context, messages: [{ role: "user", content: "first task", timestamp: 1 }] },
-			options,
-		);
-		const second = await captureCodexRequestBody(
-			{ ...context, messages: [{ role: "user", content: "second task", timestamp: 2 }] },
-			options,
-		);
-
-		expect(second.prompt_cache_key).toBe(first.prompt_cache_key);
-	});
-
-	it("splits the Codex affinity session when the cache affinity changes", async () => {
-		const context = {
-			systemPrompt: "Stable system prompt",
-			messages: [{ role: "user" as const, content: "ping", timestamp: 1 }],
-		};
-		const first = await captureCodexRequestBody(context, {
-			cacheAffinityKey: "affinity-for-cwd-a",
-			cacheRetention: "long",
-		});
-		const second = await captureCodexRequestBody(context, {
-			cacheAffinityKey: "affinity-for-cwd-b",
-			cacheRetention: "long",
-		});
-
-		expect(second.prompt_cache_key).not.toBe(first.prompt_cache_key);
-	});
-
-	it("does not use the shared Codex affinity session when cache retention is disabled", async () => {
-		const { body, headers } = await captureCodexRequest(
-			{
-				systemPrompt: "Stable system prompt",
-				messages: [{ role: "user", content: "ping", timestamp: 1 }],
-			},
-			{
-				cacheAffinityKey: "shared-cache-affinity-key",
-				cacheRetention: "none",
-			},
-		);
-
-		expect(body.prompt_cache_key).toBeUndefined();
-		expect(headers.get("session-id")).toBe("cache-stability-test-session");
-		expect(headers.get("thread-id")).toBe("cache-stability-test-session");
-		expect(headers.get("x-client-request-id")).toBe("cache-stability-test-session");
-		expect(body.prompt_cache_retention).toBeUndefined();
-	});
-
 	it("streams SSE responses into AssistantMessageEventStream", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 		process.env.PI_CODING_AGENT_DIR = tempDir;
@@ -935,6 +640,54 @@ describe("openai-codex streaming", () => {
 		expect(capturedPayload?.prompt_cache_key).toBe("x".repeat(64));
 	});
 
+	it("clamps Codex session-id header to 64 characters", async () => {
+		const token = mockToken();
+		const sessionId = "x".repeat(67);
+		let capturedHeaders: Headers | undefined;
+		const encoder = new TextEncoder();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_input: string | URL, init?: RequestInit) => {
+				capturedHeaders = init?.headers instanceof Headers ? init.headers : undefined;
+				return new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.enqueue(encoder.encode(buildSSEPayload({ status: "completed" })));
+							controller.close();
+						},
+					}),
+					{ status: 200, headers: { "content-type": "text/event-stream" } },
+				);
+			}),
+		);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
+		};
+
+		await streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			transport: "sse",
+			sessionId,
+		}).result();
+
+		expect(capturedHeaders?.get("session-id")).toBe("x".repeat(64));
+		expect(capturedHeaders?.get("x-client-request-id")).toBe("x".repeat(64));
+	});
+
 	it("preserves gpt-5.5 xhigh reasoning effort from simple options", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 		process.env.PI_CODING_AGENT_DIR = tempDir;
@@ -994,6 +747,61 @@ describe("openai-codex streaming", () => {
 		}).result();
 
 		expect(requestedReasoning).toEqual({ effort: "xhigh", summary: "auto" });
+	});
+
+	it("forwards required tool choice", async () => {
+		const token = mockToken();
+		const encoder = new TextEncoder();
+		const sse = buildSSEPayload({ status: "completed" });
+		let requestedToolChoice: unknown;
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_input: string | URL, init?: RequestInit) => {
+				requestedToolChoice = decodeCodexRequestBody(init?.body)?.tool_choice;
+				return new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.enqueue(encoder.encode(sse));
+							controller.close();
+						},
+					}),
+					{ status: 200, headers: { "content-type": "text/event-stream" } },
+				);
+			}),
+		);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.5",
+			name: "GPT-5.5",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+
+		await streamOpenAICodexResponses(
+			model,
+			{
+				messages: [
+					{ role: "user", content: "Do not call ping. Respond with text instead.", timestamp: Date.now() },
+				],
+				tools: [
+					{
+						name: "ping",
+						description: "Ping",
+						parameters: Type.Object({ value: Type.String() }),
+					},
+				],
+			},
+			{ apiKey: token, transport: "sse", toolChoice: "required" },
+		).result();
+
+		expect(requestedToolChoice).toBe("required");
 	});
 
 	it.each(["gpt-5.3-codex", "gpt-5.4", "gpt-5.5"])("clamps %s minimal reasoning effort to low", async (modelId) => {
@@ -1406,109 +1214,6 @@ describe("openai-codex streaming", () => {
 		});
 	});
 
-	it("keeps WebSocket continuation state keyed to the real Pi session when Codex uses shared affinity", async () => {
-		const token = mockToken();
-		let capturedWebSocketHeaders: Record<string, string> | undefined;
-
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
-		);
-
-		class MockWebSocket {
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
-
-			constructor(_url: string, protocols?: string | string[] | { headers?: Record<string, string> }) {
-				if (protocols && typeof protocols === "object" && !Array.isArray(protocols)) {
-					capturedWebSocketHeaders = protocols.headers;
-				}
-				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
-			}
-
-			send(_data: string): void {
-				const events = [
-					{
-						type: "response.output_item.added",
-						item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
-					},
-					{ type: "response.content_part.added", part: { type: "output_text", text: "" } },
-					{ type: "response.output_text.delta", delta: "Hello" },
-					{
-						type: "response.output_item.done",
-						item: {
-							type: "message",
-							id: "msg_1",
-							role: "assistant",
-							status: "completed",
-							content: [{ type: "output_text", text: "Hello" }],
-						},
-					},
-					{
-						type: "response.completed",
-						response: {
-							status: "completed",
-							usage: {
-								input_tokens: 5,
-								output_tokens: 3,
-								total_tokens: 8,
-								input_tokens_details: { cached_tokens: 0 },
-							},
-						},
-					},
-				];
-				queueMicrotask(() => {
-					for (const event of events) this.dispatch("message", { data: JSON.stringify(event) });
-				});
-			}
-
-			close(): void {}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) listener(event);
-			}
-		}
-
-		vi.stubGlobal("WebSocket", MockWebSocket);
-
-		await streamOpenAICodexResponses(
-			createCodexModel(),
-			{
-				systemPrompt: "Stable system prompt",
-				messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
-			},
-			{
-				apiKey: token,
-				sessionId: "real-pi-session",
-				cacheAffinityKey: "shared-cache-affinity-key",
-				transport: "auto",
-			},
-		).result();
-
-		const codexSessionId = capturedWebSocketHeaders?.["session-id"];
-		expect(codexSessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-		expect(codexSessionId).not.toBe("real-pi-session");
-		expect(capturedWebSocketHeaders?.["thread-id"]).toBe("real-pi-session");
-		expect(capturedWebSocketHeaders?.["x-client-request-id"]).toBe("real-pi-session");
-		expect(getOpenAICodexWebSocketDebugStats("real-pi-session")).toMatchObject({
-			cachedContextRequests: 1,
-			fullContextRequests: 1,
-		});
-		expect(codexSessionId ? getOpenAICodexWebSocketDebugStats(codexSessionId) : undefined).toBeUndefined();
-	});
-
 	it("falls back to SSE when websocket connect does not open before the connect timeout", async () => {
 		vi.useFakeTimers();
 		const token = mockToken();
@@ -1845,6 +1550,111 @@ describe("openai-codex streaming", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it("opens a fresh cached websocket before the backend connection age limit", async () => {
+		vi.useFakeTimers();
+		const startedAt = new Date("2026-07-03T00:00:00Z");
+		vi.setSystemTime(startedAt);
+		const token = mockToken();
+		const sentConnectionIds: number[] = [];
+		let connections = 0;
+
+		class MockWebSocket {
+			static OPEN = 1;
+			static CLOSED = 3;
+			readyState = MockWebSocket.OPEN;
+			private readonly connectionId = ++connections;
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+
+			constructor(_url: string, _protocols?: string | string[] | { headers?: Record<string, string> }) {
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(): void {
+				sentConnectionIds.push(this.connectionId);
+				const responseId = `resp_${this.connectionId}`;
+				queueMicrotask(() => {
+					this.dispatch("message", {
+						data: JSON.stringify({
+							type: "response.completed",
+							response: {
+								id: responseId,
+								status: "completed",
+								usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+							},
+						}),
+					});
+				});
+			}
+
+			close(): void {
+				this.readyState = MockWebSocket.CLOSED;
+			}
+
+			private dispatch(type: string, event: unknown): void {
+				for (const listener of this.listeners.get(type) ?? []) {
+					listener(event);
+				}
+			}
+		}
+
+		vi.stubGlobal("WebSocket", MockWebSocket);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+		const sessionId = "aged-ws-session";
+		const firstContext: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
+		};
+
+		const first = await streamOpenAICodexResponses(model, firstContext, {
+			apiKey: token,
+			sessionId,
+			transport: "websocket-cached",
+		}).result();
+		vi.setSystemTime(new Date(startedAt.getTime() + 56 * 60 * 1000));
+		const secondContext: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [...firstContext.messages, first, { role: "user", content: "Now finish", timestamp: 2 }],
+		};
+
+		await streamOpenAICodexResponses(model, secondContext, {
+			apiKey: token,
+			sessionId,
+			transport: "websocket-cached",
+		}).result();
+
+		expect(connections).toBe(2);
+		expect(sentConnectionIds).toEqual([1, 2]);
+		expect(getOpenAICodexWebSocketDebugStats(sessionId)).toMatchObject({
+			connectionsCreated: 2,
+			connectionsReused: 0,
+		});
+	});
+
 	it("sends only response input deltas in websocket-cached mode", async () => {
 		const token = mockToken();
 		const sentBodies: unknown[] = [];
@@ -1987,10 +1797,6 @@ describe("openai-codex streaming", () => {
 			storeTrueRequests: 0,
 			fullContextRequests: 1,
 			deltaRequests: 1,
-			lastInputItems: 1,
-			lastInputBytes: JSON.stringify(secondBody.input).length,
-			lastToolsBytes: 2,
-			lastInstructionsBytes: "You are a helpful assistant.".length,
 			lastDeltaInputItems: 1,
 			lastPreviousResponseId: "resp_1",
 		});

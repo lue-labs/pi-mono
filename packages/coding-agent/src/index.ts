@@ -36,14 +36,11 @@ export {
 } from "./core/agents/status.ts";
 // Auth and model registry
 export {
-	type ApiKeyCredential,
-	type AuthCredential,
-	type AuthStatus,
 	AuthStorage,
 	type AuthStorageBackend,
 	FileAuthStorageBackend,
 	InMemoryAuthStorageBackend,
-	type OAuthCredential,
+	readStoredCredential,
 } from "./core/auth-storage.ts";
 // Compaction
 export {
@@ -76,6 +73,7 @@ export type {
 	AgentEngine,
 	AgentHandle,
 	AgentParentSnapshot,
+	AgentSettledEvent,
 	AgentStartEvent,
 	AgentTelemetry,
 	AgentToolResult,
@@ -85,6 +83,7 @@ export type {
 	BashToolCallEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
+	BeforeProviderHeadersEvent,
 	BeforeProviderRequestEvent,
 	BeforeProviderRequestEventResult,
 	BuildSystemPromptOptions,
@@ -123,6 +122,7 @@ export type {
 	ForkAgentResult,
 	GlobToolCallEvent,
 	GrepToolCallEvent,
+	InlineExtension,
 	InputEvent,
 	InputEventResult,
 	InputSource,
@@ -203,6 +203,11 @@ export {
 	resolveModelScopeWithDiagnostics,
 	type ScopedModel,
 } from "./core/model-resolver.ts";
+export {
+	type CreateModelRuntimeOptions,
+	ModelRuntime,
+	type ModelRuntimeAuthOverrides,
+} from "./core/model-runtime.ts";
 export type {
 	PackageManager,
 	PathMetadata,

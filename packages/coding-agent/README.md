@@ -14,7 +14,7 @@
 
 Pi is a minimal terminal coding harness. Adapt pi to your workflows, not the other way around, without having to fork and modify pi internals. Extend it with TypeScript [Extensions](#extensions), [Skills](#skills), [Prompt Templates](#prompt-templates), and [Themes](#themes). Put your extensions, skills, prompt templates, and themes in [Pi Packages](#pi-packages) and share them with others via npm or git.
 
-Pi ships with powerful defaults and a native `agent` delegation tool. For broader workflow automation, you can ask pi to build what you want or install a third party pi package that matches your workflow.
+Pi ships with powerful defaults but skips features like sub agents and plan mode. Instead, you can ask pi to build what you want or install a third party pi package that matches your workflow.
 
 Pi runs in four modes: interactive, print or JSON, RPC for process integration, and an SDK for embedding in your own apps. See [openclaw/openclaw](https://github.com/openclaw/openclaw) for a real-world SDK integration.
 
@@ -51,7 +51,6 @@ I regularly publish my own `pi-mono` work sessions here:
 - [Customization](#customization)
   - [Prompt Templates](#prompt-templates)
   - [Skills](#skills)
-  - [Native Agents](#native-agents)
   - [Extensions](#extensions)
   - [Themes](#themes)
   - [Pi Packages](#pi-packages)
@@ -163,7 +162,7 @@ The editor can be temporarily replaced by other UI, like built-in `/settings` or
 | Path completion | Tab to complete paths |
 | Multi-line | Shift+Enter (or Ctrl+Enter on Windows Terminal) |
 | External editor | Ctrl+G opens `externalEditor`, `$VISUAL`, `$EDITOR`, Notepad on Windows, or `nano` elsewhere |
-| Images | Ctrl+V to paste (Alt+V on Windows), or drag onto terminal |
+| Clipboard | Ctrl+V to paste an image or text (Alt+V on Windows), or drag images onto terminal |
 | Bash commands | `!command` runs and sends output to LLM, `!!command` runs without sending |
 
 Standard editing keybindings for delete word, undo, etc. See [docs/keybindings.md](docs/keybindings.md).
@@ -191,7 +190,7 @@ Type `/` in the editor to trigger commands. [Extensions](#extensions) can regist
 | `/export [file]` | Export session to HTML or JSONL file |
 | `/import <file>` | Import and resume a session from a JSONL file |
 | `/share` | Upload as private GitHub gist with shareable HTML link |
-| `/reload` | Reload keybindings, extensions, skills, prompts, and context files (themes hot-reload automatically) |
+| `/reload` | Reload keybindings, extensions, skills, prompts, themes, and context files |
 | `/hotkeys` | Show all keyboard shortcuts |
 | `/changelog` | Display version history |
 | `/quit` | Quit pi |
@@ -213,6 +212,7 @@ See `/hotkeys` for the full list. Customize via `~/.pi/agent/keybindings.json`. 
 | Shift+Tab | Cycle thinking level |
 | Ctrl+O | Collapse/expand tool output |
 | Ctrl+T | Collapse/expand thinking blocks |
+| Ctrl+X | Copy the last assistant message |
 
 ### Message Queue
 
@@ -256,6 +256,7 @@ Use `/session` in interactive mode to see the current session ID before reusing 
 
 - Search by typing, fold/unfold and jump between branches with Ctrl+←/Ctrl+→ or Alt+←/Alt+→, page with ←/→
 - Filter modes (Ctrl+O): default → no-tools → user-only → labeled-only → all
+- Press Ctrl+X to copy the selected message
 - Press Shift+L to label entries as bookmarks and Shift+T to toggle label timestamps
 
 **`/fork`** - Create a new session file from a previous user message on the active branch. Opens a selector, copies the active path up to that point, and places the selected prompt in the editor for modification.
@@ -270,13 +271,9 @@ Long sessions can exhaust context windows. Compaction summarizes older messages 
 
 **Manual:** `/compact` or `/compact <custom instructions>`
 
-**Automatic:** Enabled by default. Context overflow compacts immediately and retries. Threshold compaction is lazy: Pi waits until the next prompt before compacting, so finishing a session does not spend tokens on a summary you may never use. Configure via `/settings` or `settings.json`.
+**Automatic:** Enabled by default. Triggers on context overflow (recovers and retries) or when approaching the limit (proactive). Configure via `/settings` or `settings.json`.
 
 Compaction is lossy. The full history remains in the JSONL file; use `/tree` to revisit. Customize compaction behavior via [extensions](#extensions). See [docs/compaction.md](docs/compaction.md) for internals.
-
-### Cache Heartbeat
-
-Optional cache heartbeats can keep prompt-cache prefixes warm during working hours. They are disabled by default because each heartbeat is a paid background LLM call. When enabled, only configured provider/model prefixes are eligible (`openai-codex/` and `claude-bridge/` by default): real prompts mark the base prompt warm, a shared base heartbeat refreshes it after `intervalMs` of idle time, active sessions get one idle refresh for their latest turn, and rate-limit failures pause further heartbeat calls for that provider/model. Configure `cacheHeartbeat` in [docs/settings.md](docs/settings.md).
 
 ---
 
@@ -325,9 +322,7 @@ Pi loads `AGENTS.md` (or `CLAUDE.md`) at startup from:
 
 Use for project instructions (`AGENTS.md`/`CLAUDE.md`), conventions, common commands. All matching files are concatenated.
 
-Context files support Claude-Code-style `@` imports before the system prompt is built. Use `@path`, `@./path`, `@../path`, `@~/path`, or `@/absolute/path` to include another text file. Imports are ignored inside fenced/indented code blocks, inline code, and HTML comments; fragments are stripped (`@docs/rules.md#section`) and escaped spaces are supported (`@docs/my\ file.md`). Missing, duplicate/circular, non-file, or unsupported-extension imports are skipped with diagnostics instead of failing startup.
-
-Disable context file loading with `--no-context-files` (or `-nc`). If you previously used an extension to expand `AGENTS.md` imports, disable it to avoid duplicate behavior.
+Disable context file loading with `--no-context-files` (or `-nc`).
 
 ### System Prompt
 
@@ -365,35 +360,6 @@ Use this skill when the user asks about X.
 
 Place in `~/.pi/agent/skills/`, `~/.agents/skills/`, `.pi/skills/`, or `.agents/skills/` (from `cwd` up through parent directories) or a [pi package](#pi-packages) to share with others. See [docs/skills.md](docs/skills.md).
 
-### Native Agents
-
-Pi includes a built-in `agent` tool for child-agent delegation. It supports:
-
-- single: `{ subagent_type, prompt }` (legacy `{ agent, task }` is still accepted)
-- parallel: `{ tasks: [{ subagent_type, prompt }, ...], concurrency }`
-- chain: `{ chain: [{ subagent_type, prompt: "Use {previous}" }, ...] }`
-- background: `{ subagent_type, prompt, run_in_background: true }`
-- control: `{ action: "status" | "detail" | "interrupt" | "cancel" | "resume" | "inject", runId, message? }` (`message` is required for `inject`)
-
-Built-in agents: `general`, `worker`, `explore`, `decompose`, `plan`, and `reviewer`. User agents can be added as Markdown files in `~/.pi/agent/agents/*.md`; project agents in `.pi/agents/*.md` require explicit `agentScope: "project"` or `"both"` and confirmation.
-
-Context modes: `default` starts a fresh named Agent with normal project context and its profile-filtered tools; `fork` is a permissive self-fork that inherits the calling transcript, frozen system prompt when available, and tools; `slim` omits project context and skills; and `none` keeps only Pi's base prompt plus the selected Agent profile prompt. A named profile used with `fork` receives its role prompt as trailing guidance. When fork bypasses the profile's ordinary tool allow/deny list, Pi warns callers to use `default`; nested Agent availability remains separately profile- and depth-capped. Profiles with `cacheProfile: "stable"` and `context: "none"` use only that prompt as the system prompt so cheap specialists can share a cross-session/cross-cwd cache. Tools stay bounded by the calling session's active tools, and each task receives its effective Agent availability in the trailing user message.
-
-Use `/agents` to list agents and insert a prompt scaffold. Native slash ergonomics also cover:
-
-- `/agents run <agent> -- <task>` - insert a single-agent scaffold
-- `/agents parallel <agent-a>,<agent-b> -- <task>` - insert a native parallel-agent scaffold
-- `/agents run-chain <name> -- <task>` - insert a saved-chain scaffold
-- `/agents list-chains` - list saved chains from `~/.pi/agent/chains/*.json` and `.pi/chains/*.json`
-- `/agents doctor` or `/agents-doctor` - diagnose native agent definitions, tools, models, chains, and runtime services
-- `/agents status` or `/agents-status` - show recent native child-agent runs; pass a run id (for example `/agents-status agent-1`) for per-child details
-- `/agents runs` - open a selectable recent-runs panel with detail, interrupt, cancel, and resume controls
-- `/agents interrupt <run-id>`, `/agents cancel <run-id>`, `/agents resume <run-id> [-- prompt]` - control native background runs
-
-Saved chains are JSON files with `name`, optional `description`, and a native `chain` array of `{ "subagent_type": "...", "prompt": "..." }` steps (legacy `{ "agent": "...", "task": "..." }` still works). Project chains override user chains with the same name.
-
-Migration note: native Pi now covers the core `pi-subagents` affordances used for single/parallel/chain delegation, diagnostics, recent-run status, saved reusable chains, footer visibility, selectable recent-run controls, stalled-run monitoring, and basic background lifecycle control. You can disable or remove `pi-subagents` if you do not need its manager-specific editing screens.
-
 ### Extensions
 
 <p align="center"><img src="docs/images/doom-extension.png" alt="Doom Extension" width="600"></p>
@@ -412,7 +378,7 @@ The default export can also be `async`. pi waits for async extension factories b
 
 **What's possible:**
 - Custom tools (or replace built-in tools entirely)
-- Legacy/reference sub-agent workflows and plan mode
+- Sub-agents and plan mode
 - Custom compaction and summarization
 - Permission gates and path protection
 - Custom editors and UI components
@@ -489,14 +455,12 @@ See [docs/packages.md](docs/packages.md).
 ### SDK
 
 ```typescript
-import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@valkyriweb/pi-coding-agent";
+import { createAgentSession, ModelRuntime, SessionManager } from "@valkyriweb/pi-coding-agent";
 
-const authStorage = AuthStorage.create();
-const modelRegistry = ModelRegistry.create(authStorage);
+const modelRuntime = await ModelRuntime.create();
 const { session } = await createAgentSession({
   sessionManager: SessionManager.inMemory(),
-  authStorage,
-  modelRegistry,
+  modelRuntime,
 });
 
 await session.prompt("What files are in the current directory?");
@@ -526,7 +490,7 @@ Pi is aggressively extensible so it doesn't have to dictate your workflow. Featu
 
 **No MCP.** Build CLI tools with READMEs (see [Skills](#skills)), or build an extension that adds MCP support. [Why?](https://mariozechner.at/posts/2025-11-02-what-if-you-dont-need-mcp/)
 
-**Native agents, not background sub-process orchestration.** Pi includes an in-process `agent` tool for bounded child sessions, parallel runs, chains, diagnostics, recent-run status, saved chains, live child progress (current tool, tool counts, minute-aware duration, compact token usage, skills, session/output refs), durable child session refs, footer visibility, selectable recent-run controls, stalled-run monitoring without a hard timeout, and native background lifecycle control for child-agent runs. Use `/agents runs` for the selector, `/agents-status <run-id>` to inspect details, or `/agents interrupt|cancel|resume <run-id>` for direct background control.
+**No sub-agents.** There's many ways to do this. Spawn pi instances via tmux, or build your own with [extensions](#extensions), or install a package that does it your way.
 
 **No permission popups.** Run in a container, or build your own confirmation flow with [extensions](#extensions) inline with your environment and security requirements.
 
@@ -545,15 +509,6 @@ Read the [blog post](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/) 
 ```bash
 pi [options] [@files...] [messages...]
 ```
-
-### Agent View
-
-```bash
-pi agents                  # Open the Agent View dashboard from pi-agent-view
-pi agents --bg <task>      # Start a detached background task, then show Agent View
-```
-
-`pi agents` is a thin dispatcher; the dashboard lives in the separate `pi-agent-view` package.
 
 ### Package Commands
 
@@ -596,7 +551,7 @@ cat README.md | pi -p "Summarize this text"
 | `--provider <name>` | Provider (anthropic, openai, google, etc.) |
 | `--model <pattern>` | Model pattern or ID (supports `provider/id` and optional `:<thinking>`) |
 | `--api-key <key>` | API key (overrides env vars) |
-| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, `adaptive` |
+| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
 | `--models <patterns>` | Comma-separated patterns for Ctrl+P cycling |
 | `--list-models [search]` | List available models |
 
@@ -622,8 +577,6 @@ cat README.md | pi -p "Summarize this text"
 | `--no-tools`, `-nt` | Disable all tools by default |
 
 Available built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`
-
-`grep` uses ripgrep (`rg`). `find` prefers ripgrep (`rg`) for modification-time-sorted file discovery, then falls back to `bfs`/`fd`. Both default to a 30s timeout and accept `timeout` in seconds up to 300s. For huge trees, narrow `path`/`glob` first; raise `timeout` only for intentional broad searches.
 
 ### Resource Options
 
@@ -728,3 +681,9 @@ MIT
 - [@valkyriweb/pi-ai](https://www.npmjs.com/package/@valkyriweb/pi-ai): Core LLM toolkit
 - [@valkyriweb/pi-agent-core](https://www.npmjs.com/package/@valkyriweb/pi-agent-core): Agent framework
 - [@valkyriweb/pi-tui](https://www.npmjs.com/package/@valkyriweb/pi-tui): Terminal UI components
+
+<p align="center">
+  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
+  <br /><br />
+  <a href="https://exe.dev"><img src="docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
+</p>

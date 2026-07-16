@@ -11,6 +11,7 @@ import * as _bundledPiAgentCore from "@valkyriweb/pi-agent-core";
 import * as _bundledPiAi from "@valkyriweb/pi-ai";
 import * as _bundledPiAiCompat from "@valkyriweb/pi-ai/compat";
 import * as _bundledPiAiOauth from "@valkyriweb/pi-ai/oauth";
+import * as _bundledPiAiProviders from "@valkyriweb/pi-ai/providers/all";
 import type { KeyId } from "@valkyriweb/pi-tui";
 import * as _bundledPiTui from "@valkyriweb/pi-tui";
 import { createJiti } from "jiti/static";
@@ -66,6 +67,7 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	// compiled binary (the bare @valkyriweb/pi-ai root stays the strict core).
 	"@valkyriweb/pi-ai/compat": _bundledPiAiCompat,
 	"@valkyriweb/pi-ai/oauth": _bundledPiAiOauth,
+	"@valkyriweb/pi-ai/providers/all": _bundledPiAiProviders,
 	"@valkyriweb/pi-coding-agent": _bundledPiCodingAgent,
 	// Upstream package-name compatibility for third-party extensions that import
 	// the upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
@@ -79,12 +81,14 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@earendil-works/pi-ai": _bundledPiAiCompat,
 	"@earendil-works/pi-ai/compat": _bundledPiAiCompat,
 	"@earendil-works/pi-ai/oauth": _bundledPiAiOauth,
+	"@earendil-works/pi-ai/providers/all": _bundledPiAiProviders,
 	"@earendil-works/pi-coding-agent": _bundledPiCodingAgent,
 	"@mariozechner/pi-agent-core": _bundledPiAgentCore,
 	"@mariozechner/pi-tui": _bundledPiTui,
 	"@mariozechner/pi-ai": _bundledPiAiCompat,
 	"@mariozechner/pi-ai/compat": _bundledPiAiCompat,
 	"@mariozechner/pi-ai/oauth": _bundledPiAiOauth,
+	"@mariozechner/pi-ai/providers/all": _bundledPiAiProviders,
 	"@mariozechner/pi-coding-agent": _bundledPiCodingAgent,
 };
 
@@ -118,20 +122,21 @@ function getAliases(): Record<string, string> {
 	const piCodingAgentEntry = packageIndex;
 	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@valkyriweb/pi-agent-core");
 	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@valkyriweb/pi-tui");
-	const piAiEntry = resolveWorkspaceOrImport("ai/dist/index.js", "@valkyriweb/pi-ai");
-	// Extensions on upstream/legacy scopes resolve the pi-ai root to the compat
-	// entrypoint (a strict superset of the core entrypoint) so existing extensions
-	// using the old global API keep working at runtime until compat is removed.
+	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
+	// superset of the core entrypoint): existing extensions using the old
+	// global API keep working at runtime until compat is removed.
 	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@valkyriweb/pi-ai/compat");
 	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@valkyriweb/pi-ai/oauth");
+	const piAiProvidersEntry = resolveWorkspaceOrImport("ai/dist/providers/all.js", "@valkyriweb/pi-ai/providers/all");
 
 	_aliases = {
 		"@valkyriweb/pi-coding-agent": piCodingAgentEntry,
 		"@valkyriweb/pi-agent-core": piAgentCoreEntry,
 		"@valkyriweb/pi-tui": piTuiEntry,
-		"@valkyriweb/pi-ai": piAiEntry,
+		"@valkyriweb/pi-ai/providers/all": piAiProvidersEntry,
 		"@valkyriweb/pi-ai/compat": piAiCompatEntry,
 		"@valkyriweb/pi-ai/oauth": piAiOauthEntry,
+		"@valkyriweb/pi-ai": piAiCompatEntry,
 		// Upstream package-name compatibility: third-party extensions import the
 		// upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
 		// Map them onto the fork's @valkyriweb/* entries so value imports resolve
@@ -139,15 +144,17 @@ function getAliases(): Record<string, string> {
 		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
 		"@earendil-works/pi-agent-core": piAgentCoreEntry,
 		"@earendil-works/pi-tui": piTuiEntry,
-		"@earendil-works/pi-ai": piAiCompatEntry,
+		"@earendil-works/pi-ai/providers/all": piAiProvidersEntry,
 		"@earendil-works/pi-ai/compat": piAiCompatEntry,
 		"@earendil-works/pi-ai/oauth": piAiOauthEntry,
+		"@earendil-works/pi-ai": piAiCompatEntry,
 		"@mariozechner/pi-coding-agent": piCodingAgentEntry,
 		"@mariozechner/pi-agent-core": piAgentCoreEntry,
 		"@mariozechner/pi-tui": piTuiEntry,
-		"@mariozechner/pi-ai": piAiCompatEntry,
+		"@mariozechner/pi-ai/providers/all": piAiProvidersEntry,
 		"@mariozechner/pi-ai/compat": piAiCompatEntry,
 		"@mariozechner/pi-ai/oauth": piAiOauthEntry,
+		"@mariozechner/pi-ai": piAiCompatEntry,
 		typebox: typeboxEntry,
 		"typebox/compile": typeboxCompileEntry,
 		"typebox/value": typeboxValueEntry,

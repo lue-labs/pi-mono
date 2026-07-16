@@ -1,8 +1,8 @@
 import type { Model } from "@valkyriweb/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { Args } from "../src/cli/args.ts";
-import type { ModelRegistry } from "../src/core/model-registry.ts";
 import type { ScopedModel } from "../src/core/model-resolver.ts";
+import type { ModelRuntime } from "../src/core/model-runtime.ts";
 import type { SettingsManager } from "../src/core/settings-manager.ts";
 import { buildSessionOptions } from "../src/main.ts";
 
@@ -31,18 +31,18 @@ function settings(defaultProvider: string, defaultModel: string): SettingsManage
 	} as unknown as SettingsManager;
 }
 
-function registry(models: Model<any>[]): ModelRegistry {
+function registry(models: Model<any>[]): ModelRuntime {
 	return {
-		find(provider: string, id: string) {
+		getModel(provider: string, id: string) {
 			return models.find((candidate) => candidate.provider === provider && candidate.id === id);
 		},
-		getAll() {
+		getModels() {
 			return models;
 		},
 		hasConfiguredAuth() {
 			return true;
 		},
-	} as unknown as ModelRegistry;
+	} as unknown as ModelRuntime;
 }
 
 function scoped(...models: Model<any>[]): ScopedModel[] {

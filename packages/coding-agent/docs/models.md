@@ -124,7 +124,6 @@ The `baseUrl` is required when adding custom models to the `google-generative-ai
 |-----|-------------|
 | `openai-completions` | OpenAI Chat Completions (most compatible) |
 | `openai-responses` | OpenAI Responses API |
-| `openai-codex-responses` | ChatGPT Codex Responses API, including native deferred tools |
 | `anthropic-messages` | Anthropic Messages API |
 | `google-generative-ai` | Google Generative AI |
 
@@ -132,43 +131,7 @@ Set `api` at provider level (default for all models) or model level (override pe
 
 ### Codex Responses gateway compatibility
 
-Use `openai-codex-responses` only when a gateway implements the ChatGPT Codex wire contract, including native `defer_loading` and `tool_search`. Gateways can opt out of independent ChatGPT transport features with model or provider `compat` flags:
-
-```json
-{
-  "providers": {
-    "codex-gateway": {
-      "baseUrl": "https://gateway.example/v1",
-      "apiKey": "$CODEX_GATEWAY_API_KEY",
-      "api": "openai-codex-responses",
-      "compat": {
-        "sendChatgptAccountId": false,
-        "supportsWebSocketTransport": false,
-        "supportsZstdRequestCompression": false
-      },
-      "models": [
-        {
-          "id": "gateway-codex-model",
-          "name": "Gateway Codex model",
-          "reasoning": true,
-          "input": ["text"],
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "contextWindow": 128000,
-          "maxTokens": 16384
-        }
-      ]
-    }
-  }
-}
-```
-
-| Field | Description |
-|-------|-------------|
-| `sendChatgptAccountId` | Derive and send `chatgpt-account-id` from a ChatGPT JWT. Default: `true`; set `false` for opaque bearer credentials. |
-| `supportsWebSocketTransport` | Allow the ChatGPT Codex WebSocket transport. Default: `true`; set `false` to force SSE for this model even when global transport is `websocket`. |
-| `supportsZstdRequestCompression` | Send zstd-compressed JSON requests. Default: `true`; set `false` for gateways that require an uncompressed JSON body. |
-
-Omitted flags preserve direct ChatGPT defaults. These flags change headers and transport encoding only; they do not change request-level tools or system instructions.
+Gateways implementing the ChatGPT Codex wire contract may use `openai-codex-responses`. For opaque bearer credentials, set provider/model compatibility flags such as `sendChatgptAccountId: false`; gateways may also disable WebSocket transport or zstd request compression with `supportsWebSocketTransport: false` and `supportsZstdRequestCompression: false`.
 
 ## Provider Configuration
 
@@ -177,10 +140,11 @@ Omitted flags preserve direct ChatGPT defaults. These flags change headers and t
 | `baseUrl` | API endpoint URL |
 | `api` | API type (see above) |
 | `apiKey` | Optional API key config (see value resolution below). Omit it when auth is provided by `/login`/`auth.json` or CLI `--api-key`. |
+| `oauth` | Dynamic OAuth provider type. Currently supports `"radius"`; requires the gateway `baseUrl`. |
 | `headers` | Custom headers (see value resolution below) |
 | `authHeader` | Set `true` to add `Authorization: Bearer <apiKey>` automatically |
 | `models` | Array of model configurations |
-| `modelOverrides` | Per-model overrides for built-in models on this provider |
+| `modelOverrides` | Per-model overrides for built-in or extension-registered models on this provider |
 
 For providers with `models`, non-built-in provider configs need `baseUrl` and an `api` value at either provider or model level. `apiKey` is not required to load the file: models become available when auth is configured through `/login`/`auth.json`, CLI `--api-key`, or provider `apiKey`. If no auth is configured, the models load but stay unavailable in `/model` and `--list-models`.
 
@@ -246,8 +210,30 @@ If your command is slow, expensive, rate-limited, or should keep using a previou
 | `input` | No | `["text"]` | Input types: `["text"]` or `["text", "image"]` |
 | `contextWindow` | No | `128000` | Context window size in tokens |
 | `maxTokens` | No | `16384` | Maximum output tokens |
-| `cost` | No | all zeros | `{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}` (per million tokens) |
+| `cost` | No | all zeros | Per-million-token rates with optional request-wide input pricing tiers |
 | `compat` | No | provider `compat` | Provider compatibility overrides. Merged with provider-level `compat` when both are set. |
+
+A cost tier supplies a complete alternate rate set and applies to the full request when total input usage (`input + cacheRead + cacheWrite`) exceeds `inputTokensAbove`. When multiple tiers match, the highest threshold wins.
+
+```json
+{
+  "cost": {
+    "input": 5,
+    "output": 30,
+    "cacheRead": 0.5,
+    "cacheWrite": 6.25,
+    "tiers": [
+      {
+        "inputTokensAbove": 272000,
+        "input": 10,
+        "output": 45,
+        "cacheRead": 1,
+        "cacheWrite": 12.5
+      }
+    ]
+  }
+}
+```
 
 Current behavior:
 - `/model`, `--list-models`, and the interactive footer display entries by model `id`.
@@ -255,13 +241,13 @@ Current behavior:
 
 ### Thinking Level Map
 
-Use `thinkingLevelMap` on a model to describe model-specific thinking controls. Keys are pi thinking levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, `adaptive`. Ultra is opt-in and maps to the model's maximum native effort; OpenAI Responses sends it as `max`.
+Use `thinkingLevelMap` on a model to describe model-specific thinking controls. Keys are pi thinking levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Maps may contain holes; for example, a model can expose `high` and `max` without exposing `xhigh`.
 
 Values are tristate:
 
 | Value | Meaning |
 |-------|---------|
-| omitted | Level is supported and uses the provider's default mapping |
+| omitted | Standard levels through `high` use the provider's default mapping; extended `xhigh` and `max` levels are unsupported |
 | string | Level is supported and this value is sent to the provider |
 | `null` | Level is unsupported and hidden/skipped/clamped away |
 
@@ -276,7 +262,8 @@ Example for a model that only supports off, high, and max reasoning:
     "low": null,
     "medium": null,
     "high": "high",
-    "xhigh": "max"
+    "xhigh": null,
+    "max": "max"
   }
 }
 ```
@@ -334,7 +321,7 @@ Merge semantics:
 
 ## Per-model Overrides
 
-Use `modelOverrides` to customize specific built-in models without replacing the provider's full model list.
+Use `modelOverrides` to customize built-in models and matching extension-registered models without replacing the provider's full model list.
 
 ```json
 {
@@ -355,10 +342,28 @@ Use `modelOverrides` to customize specific built-in models without replacing the
 }
 ```
 
-`modelOverrides` supports these fields per model: `name`, `reasoning`, `input`, `cost` (partial), `contextWindow`, `maxTokens`, `headers`, `compat`.
+`modelOverrides` supports these fields per model: `name`, `reasoning`, `thinkingLevelMap`, `input`, `cost` (partial), `contextWindow`, `maxTokens`, `headers`, `compat`.
+
+Direct OpenAI GPT-5.6 Sol, Terra, and Luna default to a `272000` context window so requests remain within OpenAI's short-context pricing tier. To opt into OpenAI's 1.05M context window, increase it for each model you use:
+
+```json
+{
+  "providers": {
+    "openai": {
+      "modelOverrides": {
+        "gpt-5.6-sol": {
+          "contextWindow": 1050000
+        }
+      }
+    }
+  }
+}
+```
+
+The override preserves the built-in pricing metadata. Requests with more than 272K total input tokens use GPT-5.6's long-context rates for the entire request. Apply the same override to `gpt-5.6-terra` or `gpt-5.6-luna` when needed.
 
 Behavior notes:
-- `modelOverrides` are applied to built-in provider models.
+- `modelOverrides` are applied to built-in provider models and matching extension-registered provider models.
 - Unknown model IDs are ignored.
 - You can combine provider-level `baseUrl`/`headers` with `modelOverrides`.
 - Overriding `name` changes model matching and secondary detail text only; the footer and primary model lists continue to show the model `id`.
@@ -445,6 +450,8 @@ For providers with partial OpenAI compatibility, use the `compat` field.
 | `thinkingFormat` | Use `reasoning_effort`, `openrouter`, `deepseek`, `together`, `zai`, `qwen`, `chat-template`, or `qwen-chat-template` thinking parameters |
 | `chatTemplateKwargs` | `chat_template_kwargs` values for `thinkingFormat: "chat-template"`; use `{ "$var": "thinking.enabled" }` or `{ "$var": "thinking.effort" }` for pi-controlled thinking values |
 | `cacheControlFormat` | Use Anthropic-style `cache_control` markers on the system prompt, last tool definition, and last user/assistant text content. Currently only `anthropic` is supported. |
+| `sendSessionAffinityHeaders` | For `openai-completions`, send session-affinity headers from the session id when caching is enabled. Default: `false`. |
+| `sessionAffinityFormat` | For `openai-completions` and `openai-responses`, the session-affinity header format: `openai` sends `session_id`/`x-client-request-id` (completions also `x-session-affinity`), `openai-nosession` omits the underscore-containing `session_id` header, `openrouter` sends `x-session-id`. Does not affect the `prompt_cache_key` body param. Default: auto-detected. |
 | `supportsStrictMode` | Include the `strict` field in tool definitions |
 | `supportsLongCacheRetention` | Whether the provider accepts long cache retention when cache retention is `long`: `prompt_cache_retention: "24h"` for OpenAI prompt caching, or `cache_control.ttl: "1h"` when `cacheControlFormat` is `anthropic`. Default: `true`. |
 | `openRouterRouting` | OpenRouter provider routing preferences. This object is sent as-is in the `provider` field of the [OpenRouter API request](https://openrouter.ai/docs/guides/routing/provider-selection). |

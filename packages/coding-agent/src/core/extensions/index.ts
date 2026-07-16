@@ -26,6 +26,7 @@ export type {
 	AfterProviderResponseEvent,
 	AgentEndEvent,
 	AgentHandle,
+	AgentSettledEvent,
 	AgentStartEvent,
 	AgentTelemetry,
 	// Re-exports
@@ -40,6 +41,7 @@ export type {
 	BashToolResultEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
+	BeforeProviderHeadersEvent,
 	BeforeProviderRequestEvent,
 	BeforeProviderRequestEventResult,
 	BuildSystemPromptOptions,
@@ -96,6 +98,7 @@ export type {
 	GlobToolResultEvent,
 	GrepToolCallEvent,
 	GrepToolResultEvent,
+	InlineExtension,
 	// Events - Input
 	InputEvent,
 	InputEventResult,

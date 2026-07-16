@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { AuthStorage } from "../src/core/auth-storage.ts";
 import { addFilter, removeFilter } from "../src/core/extensions/extension-hooks.ts";
-import type { ModelRegistry } from "../src/core/model-registry.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createInMemoryModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
 const baseModel = {
@@ -29,15 +30,27 @@ const routedModel = {
 	name: "Sonnet",
 } as unknown as Model<any>;
 
-function fakeModelRegistry(): ModelRegistry {
-	return {
-		find(provider: string, id: string) {
-			return provider === routedModel.provider && id === routedModel.id ? routedModel : undefined;
-		},
-		hasConfiguredAuth() {
-			return true;
-		},
-	} as unknown as ModelRegistry;
+/** Runtime with configured claude-bridge auth so deferred routing passes the auth gate. */
+async function createBridgeModelRuntime(tempDir: string) {
+	const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+	await authStorage.modify("claude-bridge", async () => ({ type: "api_key", key: "test-key" }));
+	const modelRegistry = await createInMemoryModelRegistry(authStorage);
+	modelRegistry.registerProvider("claude-bridge", {
+		baseUrl: "http://localhost:9100",
+		apiKey: "test-key",
+		api: "anthropic-messages",
+		models: [baseModel, routedModel].map((model) => ({
+			id: model.id,
+			name: model.name,
+			api: model.api,
+			reasoning: model.reasoning,
+			input: model.input,
+			cost: model.cost,
+			contextWindow: model.contextWindow,
+			maxTokens: model.maxTokens,
+		})),
+	});
+	return getModelRuntime(modelRegistry);
 }
 
 describe("model:resolve startup filter", () => {
@@ -65,7 +78,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
@@ -91,7 +103,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
@@ -126,7 +137,7 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
+			modelRuntime: await createBridgeModelRuntime(tempDir),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "openai-codex/auto",
@@ -165,7 +176,7 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
+			modelRuntime: await createBridgeModelRuntime(tempDir),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
@@ -191,7 +202,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
@@ -233,7 +243,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager: SessionManager.inMemory(),
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			requestedModel: "auto",
 			routingMetadata: { promptPreview: "Design an architecture", promptLength: 22, appMode: "print" },
@@ -264,7 +273,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			requestedModel: "clawrouter/auto",
 		});

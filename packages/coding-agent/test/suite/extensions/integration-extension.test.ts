@@ -46,6 +46,7 @@ describe("forkAgent + transcript.append integration", () => {
 				authStorage: typeof harness.authStorage;
 				settingsManager: typeof harness.settingsManager;
 				modelRegistry: typeof harness.session.modelRegistry;
+				modelRuntime: typeof harness.session.modelRuntime;
 			};
 		};
 		internal._agentToolServices = {
@@ -54,6 +55,7 @@ describe("forkAgent + transcript.append integration", () => {
 			authStorage: harness.authStorage,
 			settingsManager: harness.settingsManager,
 			modelRegistry: harness.session.modelRegistry,
+			modelRuntime: harness.session.modelRuntime,
 		};
 
 		harness.setResponses([

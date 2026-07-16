@@ -46,15 +46,15 @@ export interface Args {
 	listModels?: string | true;
 	offline?: boolean;
 	verbose?: boolean;
+	projectTrustOverride?: boolean;
 	/**
-	 * Caller-declared origin of the first prompt. Forwarded into
+	 * Declares the origin of this prompt invocation to extension hooks via
 	 * `session.prompt({ source })` so extension hooks (`before_agent_start`,
-	 * `input`) can distinguish user-driven turns from machine-driven ones.
+	 * etc.) can distinguish interactive/rpc/extension/child-agent runs.
 	 * Replaces the legacy `PI_MEMORY_SUBAGENT=1` env contract: a parent pi
 	 * spawning `pi --print` for a sub-agent run passes `--source child-agent`.
 	 */
 	source?: InputSource;
-	projectTrustOverride?: boolean;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
@@ -244,7 +244,7 @@ export function printHelp(extensionFlags?: ExtensionFlag[]): void {
 					})
 					.join("\n")}\n`
 			: "";
-	console.log(`${chalk.bold(APP_NAME)} - AI coding assistant with read, bash, edit, write, agent tools
+	console.log(`${chalk.bold(APP_NAME)} - AI coding assistant with read, bash, edit, write tools
 
 ${chalk.bold("Usage:")}
   ${APP_NAME} [options] [@files...] [messages...]
@@ -254,12 +254,9 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} remove <source> [-l]      Remove extension source from settings
   ${APP_NAME} uninstall <source> [-l]   Alias for remove
   ${APP_NAME} update [source|self|pi]   Update pi (use --all for pi and extensions)
-  ${APP_NAME} list [--approve|--no-approve]
-                                 List installed extensions from settings
-  ${APP_NAME} config [--no-approve]
-                                 Open TUI to enable/disable package resources
-  ${APP_NAME} agents                    Open Agent View from the pi-agent-view package
-  ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/agents
+  ${APP_NAME} list                      List installed extensions from settings
+  ${APP_NAME} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
+  ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config
 
 ${chalk.bold("Options:")}
   --provider <name>              Provider name (default: google)
@@ -285,12 +282,9 @@ ${chalk.bold("Options:")}
                                  Applies to built-in, extension, and custom tools
   --exclude-tools, -xt <tools>   Comma-separated denylist of tool names to disable
                                  Applies to built-in, extension, and custom tools
-  --thinking <level>             Set thinking level: ${VALID_THINKING_LEVELS.join(", ")}
+  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max, ultra, adaptive
   --extension, -e <path>         Load an extension file (can be used multiple times)
   --no-extensions, -ne           Disable extension discovery (explicit -e paths still work)
-  --source <source>              Declare prompt origin (interactive|rpc|extension|child-agent)
-                                 Use child-agent when spawning pi as a sub-agent so memory
-                                 extensions skip recall/inject for the child's turns
   --skill <path>                 Load a skill file or directory (can be used multiple times)
   --no-skills, -ns               Disable skills discovery and loading
   --prompt-template <path>       Load a prompt template file or directory (can be used multiple times)
@@ -304,6 +298,7 @@ ${chalk.bold("Options:")}
   --approve, -a                  Trust project-local files for this run
   --no-approve, -na              Ignore project-local files for this run
   --offline                      Disable startup network operations (same as PI_OFFLINE=1)
+  --source <source>              Declare prompt origin (interactive|rpc|extension|child-agent)
   --help, -h                     Show this help
   --version, -v                  Show version number
 
@@ -353,7 +348,7 @@ ${chalk.bold("Examples:")}
   ${APP_NAME} --thinking high "Solve this complex problem"
 
   # Read-only mode (no file modifications possible)
-  ${APP_NAME} --tools read,grep,Glob,ls -p "Review the code in src/"
+  ${APP_NAME} --tools read,grep,find,ls -p "Review the code in src/"
 
   # Disable one tool while keeping the rest available
   ${APP_NAME} --exclude-tools ask_question
@@ -414,7 +409,7 @@ ${chalk.bold("Built-in Tool Names:")}
   edit   - Edit files with find/replace
   write  - Write files (creates/overwrites)
   grep   - Search file contents (read-only, off by default)
-  Glob   - Match files by glob pattern (read-only, off by default)
+  find   - Find files by glob pattern (read-only, off by default)
   ls     - List directory contents (read-only, off by default)
 `);
 }

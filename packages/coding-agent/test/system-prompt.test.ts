@@ -106,7 +106,6 @@ describe("buildSystemPrompt", () => {
 			const boundary = prompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
 			expect(boundary).toBeGreaterThan(0);
 			expect(prompt.indexOf("<project_context>")).toBeGreaterThan(boundary);
-			expect(prompt.indexOf("Current date:")).toBeGreaterThan(boundary);
 			expect(prompt.indexOf("Current working directory:")).toBeGreaterThan(boundary);
 		});
 	});

@@ -17,18 +17,7 @@ The editor can be replaced temporarily by built-in UI such as `/settings` or by 
 
 ### Footer cache hit rate
 
-The footer's `cache N%` value is computed from the current session tree's **active branch** after the latest compaction:
-
-```text
-cacheRead / (input + cacheRead + cacheWrite)
-```
-
-Provider usage is normalized before display:
-
-- `claude-bridge` / Anthropic-style providers can report both `cacheRead` and `cacheWrite`; writes are included in the denominator because they are cacheable prompt work that missed and had to be created.
-- `openai-codex` / OpenAI Responses-style providers report cached input as `cacheRead` and normally report `cacheWrite = 0`; `input` is already non-cached input, so `cacheRead / (input + cacheRead)` is the comparable provider-reported cache hit rate.
-
-The footer intentionally ignores abandoned branches from `/tree` or `/fork` navigation. Session-wide diagnostics such as `pi-cache-stats` may show both active-branch and full-tree totals.
+The footer cache percentage uses the active branch after compaction: `cacheRead / (input + cacheRead + cacheWrite)`. Anthropic-style providers such as `claude-bridge` include cache writes in the denominator; OpenAI Responses providers normally report `cacheWrite = 0`.
 
 ### Editor Features
 
@@ -37,6 +26,7 @@ The footer intentionally ignores abandoned branches from `/tree` or `/fork` navi
 | File reference | Type `@` to fuzzy-search project files |
 | Path completion | Press Tab to complete paths |
 | Multi-line input | Shift+Enter, or Ctrl+Enter on Windows Terminal |
+| Copy response | Ctrl+X copies the last assistant message; in `/tree`, it copies the selected message |
 | Images | Paste with Ctrl+V, Alt+V on Windows, or drag into the terminal |
 | Shell command | `!command` runs and sends output to the model |
 | Hidden shell command | `!!command` runs without sending output to the model |
@@ -54,10 +44,6 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/model` | Switch models |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
-| `/agents` | List native child agents, run native agent subcommands, or insert an agent prompt scaffold |
-| `/agents-doctor` | Diagnose native agent definitions, chains, tools, models, and runtime services |
-| `/agents-status [run-id]` | Show recent native child-agent runs, or inspect one run in detail |
-| `/agents runs` | Open a selectable recent-runs panel with background controls |
 | `/resume` | Pick from previous sessions |
 | `/new` | Start a new session |
 | `/name <name>` | Set session display name |
@@ -71,7 +57,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/export [file]` | Export session to HTML or JSONL |
 | `/import <file>` | Import and resume a session from a JSONL file |
 | `/share` | Upload as private GitHub gist with shareable HTML link |
-| `/reload` | Reload keybindings, extensions, skills, prompts, and context files |
+| `/reload` | Reload keybindings, extensions, skills, prompts, themes, and context files |
 | `/hotkeys` | Show all keyboard shortcuts |
 | `/changelog` | Display version history |
 | `/quit` | Quit pi |
@@ -120,11 +106,7 @@ Pi loads `AGENTS.md` or `CLAUDE.md` at startup from:
 - parent directories, walking up from the current working directory
 - the current directory
 
-Use context files for project conventions, commands, safety rules, and preferences.
-
-Context files support native Claude-Code-style `@` imports before the system prompt is built. Use `@path`, `@./path`, `@../path`, `@~/path`, or `@/absolute/path` to include another text file. Pi strips `#fragments`, supports escaped spaces like `@docs/my\ file.md`, and ignores imports inside fenced/indented code blocks, inline code, and HTML comments. Missing, duplicate/circular, non-file, and unsupported-extension imports are skipped with diagnostics.
-
-Disable loading with `--no-context-files` or `-nc`. If you previously installed an extension that patches the system prompt to expand `AGENTS.md` imports, disable it after upgrading to native support.
+Use context files for project conventions, commands, safety rules, and preferences. Disable loading with `--no-context-files` or `-nc`.
 
 ### System Prompt Files
 
@@ -163,15 +145,6 @@ If you use pi for open source work and want to publish sessions for model, promp
 ```bash
 pi [options] [@files...] [messages...]
 ```
-
-### Agent View Command
-
-```bash
-pi agents                  # Open the Agent View dashboard from pi-agent-view
-pi agents --bg <task>      # Start a detached background task, then show Agent View
-```
-
-`pi agents` is a thin core dispatcher. The dashboard UI lives in the separate `pi-agent-view` package; if that package is not installed, Pi prints an install hint instead of loading coding-agent internals.
 
 ### Package Commands
 
@@ -215,7 +188,7 @@ cat README.md | pi -p "Summarize this text"
 | `--provider <name>` | Provider, such as `anthropic`, `openai`, or `google` |
 | `--model <pattern>` | Model pattern or ID; supports `provider/id` and optional `:<thinking>` |
 | `--api-key <key>` | API key, overriding environment variables |
-| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, `adaptive` |
+| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
 | `--models <patterns>` | Comma-separated patterns for Ctrl+P cycling |
 | `--list-models [search]` | List available models |
 
@@ -231,73 +204,16 @@ cat README.md | pi -p "Summarize this text"
 | `--no-session` | Ephemeral mode; do not save |
 | `--name <name>`, `-n <name>` | Set session display name at startup |
 
-## Native Agent Tool
-
-The built-in `agent` tool delegates work to an in-process child `AgentSession` with its own transcript and bounded tools.
-
-Modes:
-
-```json
-{ "agent": "scout", "task": "Find auth-related files" }
-{ "tasks": [{ "agent": "scout", "task": "Find models" }, { "agent": "reviewer", "task": "Review API code" }], "concurrency": 2 }
-{ "chain": [{ "agent": "scout", "task": "Map the flow" }, { "agent": "plan", "task": "Plan from: {previous}" }] }
-{ "agent": "worker", "task": "Run the long migration audit", "background": true }
-{ "action": "interrupt", "runId": "agent-1" }
-{ "action": "resume", "runId": "agent-1", "message": "Continue from the interrupted audit." }
-```
-
-Options include `context` (`default`, `fork`, `slim`, `none`), `model`, `thinking`, `tools`, `output`, `outputMode` (`inline`, `file`, `both`), `chainDir`, `background`, and `agentScope` (`user`, `project`, `both`). Use `default` for a fresh named Agent with its profile-filtered tools. `fork` is a permissive self-fork that preserves the caller transcript, frozen system prompt when available, and tool set; a selected named role is appended as trailing guidance, and Pi warns when fork bypasses ordinary profile tool filtering. Nested Agent availability remains profile- and depth-capped. Built-ins and user agents are available by default; project agents require explicit scope and confirmation.
-
-Interactive slash helpers:
-
-```text
-/agents                         # selector
-/agents run scout -- map auth    # single-agent scaffold
-/agents parallel scout,reviewer -- inspect auth
-/agents run-chain review -- auth flow
-/agents list-chains
-/agents doctor                  # same report as /agents-doctor
-/agents status                  # same report as /agents-status
-/agents runs                    # selectable recent-runs panel
-/agents-status agent-1           # detail view for one native agent run
-/agents interrupt agent-1        # interrupt a running background run; leaves it resumable when possible
-/agents cancel agent-1           # cancel a running/interrupted background run
-/agents resume agent-1 -- continue the audit
-```
-
-Saved chains live in `~/.pi/agent/chains/*.json` or project `.pi/chains/*.json`:
-
-```json
-{
-  "name": "review",
-  "description": "Scout, then review",
-  "chain": [
-    { "agent": "scout", "task": "Map the requested area" },
-    { "agent": "reviewer", "task": "Review this handoff: {previous}" }
-  ]
-}
-```
-
-Project chains override user chains with the same name. `/agents-status` tracks recent native foreground and background child-agent runs. Detail mode shows the child session ref/path, status timeline summary, recent tool calls, invoked skills, usage, errors, output refs, and whether an interrupted background run can be resumed. Background runs also appear in the footer with a `/agents runs` shortcut to the selectable control panel. Pi does not enforce a hard timeout for child agents; background runs are monitored for stalled progress and marked `needs attention` so you can inspect, interrupt, or cancel them from `/agents runs`.
-
-During a native `agent` tool call, collapsed rendering shows mode, agents, per-child status, current tool, tool count, compact token usage (`32k tok`), minute-aware duration (`1m 12s`), and session/output refs. Expanded rendering adds recent tools, recent output snippets, invoked/loaded skills, model/thinking, errors, and output paths.
-
-Child sessions are persisted as normal Pi sessions with the parent session recorded as their parent reference. Inspect them via `/agents-status <run-id>` or the printed session path. Native background resume continues single-child interrupted runs from the persisted child session when the original Pi process still owns the run controller.
-
-Non-fork Agent task tools are computed from the calling session's active tools, requested tools, profile allow/deny lists, and the configured nesting depth. Fork mode instead retains inherited tool schemas for cache identity unless the task explicitly narrows them; named profile restrictions are guidance rather than hidden runtime blocks. The Agent engine still remains unbound when the selected profile or depth denies nested delegation. `--tools`, `--no-builtin-tools`, and `--no-tools` continue to set the calling-session ceiling; tasks cannot gain tools that are not active there.
-
 ### Tool Options
 
 | Option | Description |
 |--------|-------------|
-| `--tools <list>`, `-t <list>` | Allowlist specific built-in, extension, and custom tools, including `agent` |
+| `--tools <list>`, `-t <list>` | Allowlist specific built-in, extension, and custom tools |
 | `--exclude-tools <list>`, `-xt <list>` | Disable specific built-in, extension, and custom tools |
 | `--no-builtin-tools`, `-nbt` | Disable built-in tools but keep extension/custom tools enabled |
 | `--no-tools`, `-nt` | Disable all tools |
 
 Built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`.
-
-`grep` uses ripgrep (`rg`) and `find` uses fd (`fd`) for fast .gitignore-aware traversal. Both default to a 30s timeout and accept `timeout` in seconds up to 300s. For huge trees, narrow `path`/`glob` first; raise `timeout` only for intentional broad searches.
 
 ### Resource Options
 
@@ -392,6 +308,6 @@ pi --exclude-tools ask_question
 
 Pi keeps the core small and pushes workflow-specific behavior into extensions, skills, prompt templates, and packages.
 
-It intentionally does not include built-in MCP, permission popups, plan mode, to-dos, or background bash. Native `agent` covers bounded in-process child sessions, single/parallel/chain delegation, diagnostics, recent status, saved chains, and background lifecycle control for native child-agent runs. Manager editing screens remain extension territory.
+It intentionally does not include built-in MCP, sub-agents, permission popups, plan mode, to-dos, or background bash. You can build or install those workflows as extensions or packages, or use external tools such as containers and tmux.
 
 For the full rationale, read the [blog post](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/).

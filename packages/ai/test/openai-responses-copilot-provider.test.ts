@@ -237,7 +237,7 @@ describe("openai-responses provider defaults", () => {
 			...nonGpt55ResponsesModel,
 			provider: "opencode",
 			baseUrl: "https://proxy.example.com/v1",
-			compat: { sendSessionIdHeader: false },
+			compat: { sessionAffinityFormat: "openai-nosession" },
 		};
 		const captured = await captureOpenAIResponseHeaders({ sessionId: "session-123" }, proxyModel);
 
@@ -269,6 +269,10 @@ describe("openai-responses provider defaults", () => {
 	] as const)(
 		"applies $serviceTier service-tier cost multiplier ($multiplier)",
 		async ({ model, serviceTier, multiplier }) => {
+			// Keep input tokens below gpt-5.5's 272k volume-discount tier threshold
+			// so this test isolates the service-tier multiplier from tiered pricing.
+			const tokenCount = 100_000;
+			const tokenScale = tokenCount / 1_000_000;
 			const sse = `${[
 				`data: ${JSON.stringify({
 					type: "response.completed",
@@ -276,9 +280,9 @@ describe("openai-responses provider defaults", () => {
 						status: "completed",
 						service_tier: serviceTier,
 						usage: {
-							input_tokens: 1000000,
-							output_tokens: 1000000,
-							total_tokens: 2000000,
+							input_tokens: tokenCount,
+							output_tokens: tokenCount,
+							total_tokens: tokenCount * 2,
 							input_tokens_details: { cached_tokens: 0 },
 						},
 					},
@@ -303,9 +307,9 @@ describe("openai-responses provider defaults", () => {
 
 			const result = await stream.result();
 
-			expect(result.usage.cost.input).toBe(model.cost.input * multiplier);
-			expect(result.usage.cost.output).toBe(model.cost.output * multiplier);
-			expect(result.usage.cost.total).toBe((model.cost.input + model.cost.output) * multiplier);
+			expect(result.usage.cost.input).toBe(model.cost.input * multiplier * tokenScale);
+			expect(result.usage.cost.output).toBe(model.cost.output * multiplier * tokenScale);
+			expect(result.usage.cost.total).toBe((model.cost.input + model.cost.output) * multiplier * tokenScale);
 		},
 	);
 });

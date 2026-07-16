@@ -33,6 +33,7 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"502",
 	"503",
 	"504",
+	"524",
 	"service.?unavailable",
 	"server.?error",
 	"internal.?error",
@@ -53,6 +54,7 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"upstream.?connect",
 	"reset before headers",
 	"socket hang up",
+	"socket connection was closed",
 	"timed? out",
 	"timeout",
 	"terminated",
@@ -77,6 +79,9 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"you can retry your request",
 	"try your request again",
 	"please retry your request",
+
+	// gRPC based providers (e.g. NVIDIA NIM)
+	"ResourceExhausted",
 ]);
 
 /**
@@ -86,11 +91,12 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
  *
  * This does not implement retry policy. Callers should first handle context
  * overflow separately, then apply their own retry budget, backoff, and reporting
- * before restarting the assistant turn. Only pre-output errors are safe to
- * restart; providers may still leave empty text/thinking placeholders behind.
+ * before restarting the assistant turn.
  */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	if (message.stopReason !== "error" || !message.errorMessage) return false;
+	// An error after real assistant output is not a transient failure to replay:
+	// retrying would duplicate the partial answer in the transcript.
 	if (
 		message.content.some((block) => {
 			if (block.type === "text") return block.text.length > 0;

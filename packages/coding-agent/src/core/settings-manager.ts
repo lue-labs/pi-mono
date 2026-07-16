@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type { Transport } from "@valkyriweb/pi-ai";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -81,14 +82,6 @@ export interface SubagentSettings {
 	maxDelegationDepth?: number;
 }
 
-export interface MarkdownSettings {
-	codeBlockIndent?: string; // default: "  "
-}
-
-export interface WarningSettings {
-	anthropicExtraUsage?: boolean; // default: true
-}
-
 export interface CacheHeartbeatWorkingHoursSettings {
 	start?: string; // local HH:mm, default: "08:00"
 	end?: string; // local HH:mm, default: "18:00"
@@ -106,6 +99,14 @@ export interface CacheHeartbeatSettings {
 	rateLimitCooldownMs?: number; // default: 5 minutes
 }
 
+export interface MarkdownSettings {
+	codeBlockIndent?: string; // default: "  "
+}
+
+export interface WarningSettings {
+	anthropicExtraUsage?: boolean; // default: true
+}
+
 export type DefaultProjectTrust = "ask" | "always" | "never";
 
 export type TransportSetting = Transport;
@@ -114,11 +115,13 @@ export type TransportSetting = Transport;
  * Package source for npm/git packages.
  * - String form: load all resources from the package
  * - Object form: filter which resources to load
+ * - autoload=false: start empty and only apply explicit resource patterns
  */
 export type PackageSource =
 	| string
 	| {
 			source: string;
+			autoload?: boolean;
 			extensions?: string[];
 			skills?: string[];
 			prompts?: string[];
@@ -128,10 +131,10 @@ export type PackageSource =
 			/**
 			 * Conditional load gate. When set, the package (and all resources it
 			 * provides) is only loaded if the active default model matches one of
-			 * the listed patterns. Patterns use the same glob form as `enabledModels`
-			 * (e.g. `"openai-codex/*"`, `"*sonnet*"`).
+			 * the listed patterns. Patterns use the same glob form as enabledModels
+			 * (e.g. openai-codex/*, *sonnet*).
 			 *
-			 * Evaluated against `defaultProvider/defaultModel` from settings at
+			 * Evaluated against defaultProvider/defaultModel from settings at
 			 * package-resolve time. Mid-session model switches do NOT re-evaluate;
 			 * change settings and reload to switch which packages are active.
 			 */
@@ -142,7 +145,7 @@ export interface Settings {
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
-	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "adaptive";
+	defaultThinkingLevel?: ThinkingLevel;
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -150,9 +153,12 @@ export interface Settings {
 	compaction?: CompactionSettings;
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
+	subagents?: SubagentSettings; // Default model/thinking for native child agents (precedence: explicit task option > agent frontmatter > providers[parent.provider] > defaults > parent inheritance)
+	cacheHeartbeat?: CacheHeartbeatSettings;
 	hideThinkingBlock?: boolean;
+	showCacheMissNotices?: boolean; // default: false - show transcript notices for significant prompt-cache misses
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
-	shellPath?: string; // Custom shell path (e.g., for Cygwin users on Windows)
+	shellPath?: string; // Custom shell path (e.g., for Cygwin users on Windows); supports leading ~ expansion
 	quietStartup?: boolean;
 	defaultProjectTrust?: DefaultProjectTrust; // default: "ask"; global setting only
 	shellCommandPrefix?: string; // Prefix prepended to every bash command (e.g., "shopt -s expand_aliases" for alias support)
@@ -171,7 +177,6 @@ export interface Settings {
 	terminal?: TerminalSettings;
 	images?: ImageSettings;
 	enabledModels?: string[]; // Model patterns for cycling (same format as --models CLI flag)
-	subagents?: SubagentSettings; // Default model/thinking for native child agents (precedence: explicit task option > agent frontmatter > providers[parent.provider] > defaults > parent inheritance)
 	doubleEscapeAction?: "fork" | "tree" | "none"; // Action for double-escape with empty editor (default: "tree")
 	treeFilterMode?: "default" | "no-tools" | "user-only" | "labeled-only" | "all"; // Default filter when opening /tree
 	thinkingBudgets?: ThinkingBudgetsSettings; // Custom token budgets for thinking levels
@@ -181,7 +186,6 @@ export interface Settings {
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
-	cacheHeartbeat?: CacheHeartbeatSettings;
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
 	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
@@ -815,17 +819,7 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getDefaultThinkingLevel():
-		| "off"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max"
-		| "ultra"
-		| "adaptive"
-		| undefined {
+	getDefaultThinkingLevel(): ThinkingLevel | undefined {
 		return this.settings.defaultThinkingLevel;
 	}
 
@@ -838,9 +832,7 @@ export class SettingsManager {
 		return structuredClone(this.settings.subagents ?? {});
 	}
 
-	setDefaultThinkingLevel(
-		level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "adaptive",
-	): void {
+	setDefaultThinkingLevel(level: ThinkingLevel): void {
 		this.globalSettings.defaultThinkingLevel = level;
 		this.markModified("defaultThinkingLevel");
 		this.save();
@@ -994,6 +986,10 @@ export class SettingsManager {
 		return this.settings.hideThinkingBlock ?? false;
 	}
 
+	getShowCacheMissNotices(): boolean {
+		return this.settings.showCacheMissNotices ?? false;
+	}
+
 	getExternalEditorCommand(): string | undefined {
 		const configuredEditor = this.settings.externalEditor;
 		if (typeof configuredEditor === "string" && configuredEditor.trim() !== "") {
@@ -1012,8 +1008,15 @@ export class SettingsManager {
 		this.save();
 	}
 
+	setShowCacheMissNotices(show: boolean): void {
+		this.globalSettings.showCacheMissNotices = show;
+		this.markModified("showCacheMissNotices");
+		this.save();
+	}
+
 	getShellPath(): string | undefined {
-		return this.settings.shellPath;
+		const shellPath = this.settings.shellPath;
+		return shellPath ? normalizePath(shellPath) : shellPath;
 	}
 
 	setShellPath(path: string | undefined): void {

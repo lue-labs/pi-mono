@@ -6,11 +6,13 @@ import type {
 	ResponseInput,
 	ResponseInputContent,
 	ResponseInputImage,
+	ResponseInputItem,
 	ResponseInputText,
 	ResponseOutputItem,
 	ResponseOutputMessage,
 	ResponseReasoningItem,
 	ResponseStreamEvent,
+	ResponseToolSearchOutputItemParam,
 } from "openai/resources/responses/responses.js";
 import { calculateCost } from "../models.ts";
 import type {
@@ -79,6 +81,7 @@ export interface OpenAIResponsesStreamOptions {
 
 export interface ConvertResponsesMessagesOptions {
 	includeSystemPrompt?: boolean;
+	deferredTools?: ReadonlyMap<string, Tool>;
 	/**
 	 * Emit explicit `prompt_cache_breakpoint` markers (GPT-5.6+ prompt-cache API).
 	 * Places one breakpoint at the end of the stable system-prompt prefix (split at
@@ -121,6 +124,8 @@ export interface ConvertResponsesToolsOptions {
 	strict?: boolean | null;
 	/** Sort tools and JSON Schema object keys for byte-stable prompt-cache prefixes. */
 	deterministic?: boolean;
+	/** Force `defer_loading: true` on every tool passed (used for a newly-surfaced deferred-tool batch). */
+	deferLoading?: boolean;
 	/**
 	 * Emit native `defer_loading: true` on tools with `deferLoading && !alwaysLoad`,
 	 * matching Codex CLI's `ResponsesApiTool` shape. The Codex backend honors this
@@ -129,6 +134,8 @@ export interface ConvertResponsesToolsOptions {
 	 */
 	emitDeferLoading?: boolean;
 }
+
+type OpenAIFunctionTool = Extract<OpenAITool, { type: "function" }>;
 
 type ResponsesUsageLike = {
 	input_tokens?: number;
@@ -192,6 +199,7 @@ export function convertResponsesMessages<TApi extends Api>(
 	options?: ConvertResponsesMessagesOptions,
 ): ResponseInput {
 	const messages: ResponseInput = [];
+	const loadedToolNames = new Set<string>();
 
 	const normalizeIdPart = (part: string): string => {
 		const sanitized = part.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -369,7 +377,7 @@ export function convertResponsesMessages<TApi extends Api>(
 
 				output = contentParts;
 			} else {
-				output = sanitizeSurrogates(hasText ? textResult : "(see attached image)");
+				output = sanitizeSurrogates(hasText ? textResult : hasImages ? "(see attached image)" : "(no tool output)");
 			}
 
 			messages.push({
@@ -377,6 +385,32 @@ export function convertResponsesMessages<TApi extends Api>(
 				call_id: callId,
 				output,
 			});
+
+			const deferredTools: Tool[] = [];
+			for (const name of msg.addedToolNames ?? []) {
+				const tool = options?.deferredTools?.get(name);
+				if (!tool || loadedToolNames.has(name)) continue;
+				loadedToolNames.add(name);
+				deferredTools.push(tool);
+			}
+			if (deferredTools.length > 0) {
+				const names = deferredTools.map((tool) => tool.name);
+				const searchCallId = `pi_tool_load_${shortHash(`${msg.toolCallId}:${names.join(",")}`)}`;
+				messages.push({
+					type: "tool_search_call",
+					call_id: searchCallId,
+					execution: "client",
+					status: "completed",
+					arguments: { query: names.join(" "), limit: names.length },
+				} satisfies ResponseInputItem);
+				messages.push({
+					type: "tool_search_output",
+					call_id: searchCallId,
+					execution: "client",
+					status: "completed",
+					tools: convertResponsesTools(deferredTools, { deferLoading: true }),
+				} satisfies ResponseToolSearchOutputItemParam);
+			}
 		}
 		msgIndex++;
 	}
@@ -407,25 +441,27 @@ function sortJsonSchemaForCache(value: unknown): unknown {
 	return out;
 }
 
-export function convertResponsesTools(tools: Tool[], options?: ConvertResponsesToolsOptions): OpenAITool[] {
+export function convertResponsesTools(tools: readonly Tool[], options?: ConvertResponsesToolsOptions): OpenAITool[] {
 	const strict = options?.strict === undefined ? false : options.strict;
 	const emitDeferLoading = options?.emitDeferLoading === true;
 	const sourceTools = options?.deterministic
 		? tools.slice().sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description))
 		: tools;
-	return sourceTools.map((tool) => {
-		const converted: OpenAITool & { defer_loading?: boolean } = {
+	return sourceTools.map(
+		(tool): OpenAIFunctionTool => ({
 			type: "function",
 			name: tool.name,
 			description: tool.description,
-			parameters: (options?.deterministic ? sortJsonSchemaForCache(tool.parameters) : tool.parameters) as any, // TypeBox already generates JSON Schema
+			parameters: (options?.deterministic ? sortJsonSchemaForCache(tool.parameters) : tool.parameters) as Record<
+				string,
+				unknown
+			>, // TypeBox already generates JSON Schema
 			strict,
-		};
-		if (emitDeferLoading && tool.deferLoading === true && tool.alwaysLoad !== true) {
-			converted.defer_loading = true;
-		}
-		return converted;
-	});
+			...(options?.deferLoading || (emitDeferLoading && tool.deferLoading === true && tool.alwaysLoad !== true)
+				? { defer_loading: true }
+				: {}),
+		}),
+	);
 }
 
 // =============================================================================
@@ -448,6 +484,7 @@ export async function processResponsesStream<TApi extends Api>(
 ): Promise<void> {
 	let sawTerminalResponseEvent = false;
 	const outputSlots = new Map<number, ResponsesOutputSlot>();
+	const reasoningBlocksById = new Map<string, ThinkingContent>();
 	const getSlot = <TType extends ResponsesOutputSlot["type"]>(
 		outputIndex: number,
 		type: TType,
@@ -499,10 +536,29 @@ export async function processResponsesStream<TApi extends Api>(
 	const getOrCreateSlot = (outputIndex: number, item: ResponseOutputItem): ResponsesOutputSlot | undefined => {
 		return outputSlots.get(outputIndex) ?? createSlot(outputIndex, item);
 	};
+	// Azure OpenAI can omit reasoning.encrypted_content from response.output_item.done
+	// and provide it only in response.completed.response.output. Backfill the
+	// persisted reasoning signature from the terminal response to keep store:false
+	// multi-turn replay stateless. See https://github.com/earendil-works/pi/issues/6409.
+	const backfillReasoningSignatures = (responseOutput: ResponseOutputItem[]): void => {
+		for (const item of responseOutput) {
+			if (item.type !== "reasoning" || !item.encrypted_content) continue;
+			const block = reasoningBlocksById.get(item.id);
+			if (!block?.thinkingSignature) continue;
+
+			const storedItem = JSON.parse(block.thinkingSignature) as ResponseReasoningItem;
+			if (storedItem.encrypted_content) continue;
+			block.thinkingSignature = JSON.stringify({
+				...storedItem,
+				encrypted_content: item.encrypted_content,
+			});
+		}
+	};
 	const finalizeResponse = (
 		response: Extract<ResponseStreamEvent, { type: "response.completed" | "response.incomplete" }>["response"],
 	): void => {
 		sawTerminalResponseEvent = true;
+		backfillReasoningSignatures(response.output ?? []);
 		if (response?.id) {
 			output.responseId = response.id;
 		}
@@ -616,6 +672,7 @@ export async function processResponsesStream<TApi extends Api>(
 				const contentText = item.content?.map((c) => c.text).join("\n\n") || "";
 				slot.block.thinking = summaryText || contentText || slot.block.thinking;
 				slot.block.thinkingSignature = JSON.stringify(item);
+				reasoningBlocksById.set(item.id, slot.block);
 				stream.push({
 					type: "thinking_end",
 					contentIndex: slot.contentIndex,

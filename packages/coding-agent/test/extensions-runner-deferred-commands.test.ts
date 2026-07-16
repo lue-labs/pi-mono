@@ -22,19 +22,20 @@ import { AuthStorage } from "../src/core/auth-storage.ts";
 import { loadExtensions } from "../src/core/extensions/loader.ts";
 import { ExtensionRunner } from "../src/core/extensions/runner.ts";
 import type { ExtensionActions, ExtensionContextActions, LoadExtensionsResult } from "../src/core/extensions/types.ts";
-import { ModelRegistry } from "../src/core/model-registry.ts";
+import type { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { createModelRegistry } from "./model-runtime-test-utils.ts";
 
 describe("ExtensionRunner deferred extension commands", () => {
 	let tempDir: string;
 	let sessionManager: SessionManager;
 	let modelRegistry: ModelRegistry;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-deferred-commands-"));
 		sessionManager = SessionManager.inMemory();
 		const authStorage = AuthStorage.create(path.join(tempDir, "auth.json"));
-		modelRegistry = ModelRegistry.create(authStorage);
+		modelRegistry = await createModelRegistry(authStorage, tempDir);
 	});
 
 	afterEach(() => {

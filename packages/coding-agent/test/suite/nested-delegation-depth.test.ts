@@ -33,6 +33,7 @@ describe("agent tool suite: nested delegation depth", () => {
 				authStorage: harness.authStorage,
 				settingsManager: harness.settingsManager,
 				modelRegistry: harness.session.modelRegistry,
+				modelRuntime: harness.session.modelRuntime,
 				depth,
 			},
 			parentActiveTools: ["read", "bash", "edit", "write", "agent"],
