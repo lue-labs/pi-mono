@@ -8,8 +8,8 @@ import type {
 	Model,
 	OpenAICodexResponsesCompat,
 	OpenAICompletionsCompat,
-} from "@earendil-works/pi-ai/compat";
-import { getApiProvider, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
+} from "@valkyriweb/pi-ai/compat";
+import { getApiProvider, getSupportedThinkingLevels } from "@valkyriweb/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { clearApiKeyCache, type ModelRegistry, type ProviderConfigInput } from "../src/core/model-registry.ts";

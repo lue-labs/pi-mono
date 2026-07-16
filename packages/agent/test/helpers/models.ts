@@ -9,16 +9,10 @@
  * self-heals across provider drift and throws a descriptive error if nothing matches.
  */
 
-import {
-	type Api,
-	getSupportedThinkingLevels,
-	type KnownProvider,
-	type Model,
-	type ModelThinkingLevel,
-} from "@valkyriweb/pi-ai";
-import { getModels } from "@valkyriweb/pi-ai/compat";
+import { type Api, getSupportedThinkingLevels, type Model, type ModelThinkingLevel } from "@valkyriweb/pi-ai";
+import { type BuiltinProvider, getModels } from "@valkyriweb/pi-ai/compat";
 
-type ProviderModel<TProvider extends KnownProvider> = ReturnType<typeof getModels<TProvider>>[number];
+type ProviderModel<TProvider extends BuiltinProvider> = ReturnType<typeof getModels<TProvider>>[number];
 
 export type ModelPredicate = (model: Model<Api>) => boolean;
 
@@ -43,7 +37,7 @@ export function allOf(...predicates: ModelPredicate[]): ModelPredicate {
  * predicate. Throws if the provider has no matching model so registry drift fails
  * loudly instead of returning an undefined model.
  */
-export function pickModel<TProvider extends KnownProvider>(
+export function pickModel<TProvider extends BuiltinProvider>(
 	provider: TProvider,
 	predicate?: ModelPredicate,
 ): ProviderModel<TProvider> {

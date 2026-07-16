@@ -4,7 +4,6 @@ import { join } from "node:path";
 import type { Model } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { addFilter, removeFilter } from "../src/core/extensions/extension-hooks.ts";
-import type { ModelRegistry } from "../src/core/model-registry.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -28,17 +27,6 @@ const routedModel = {
 	id: "claude-sonnet-4-6",
 	name: "Sonnet",
 } as unknown as Model<any>;
-
-function fakeModelRegistry(): ModelRegistry {
-	return {
-		find(provider: string, id: string) {
-			return provider === routedModel.provider && id === routedModel.id ? routedModel : undefined;
-		},
-		hasConfiguredAuth() {
-			return true;
-		},
-	} as unknown as ModelRegistry;
-}
 
 describe("model:resolve startup filter", () => {
 	let tempDir: string | undefined;
@@ -65,7 +53,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
@@ -91,7 +78,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
@@ -126,7 +112,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "openai-codex/auto",
@@ -165,7 +150,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
@@ -191,7 +175,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			thinkingLevel: "high",
 			requestedModel: "clawrouter/auto",
@@ -233,7 +216,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager: SessionManager.inMemory(),
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			requestedModel: "auto",
 			routingMetadata: { promptPreview: "Design an architecture", promptLength: 22, appMode: "print" },
@@ -264,7 +246,6 @@ describe("model:resolve startup filter", () => {
 			resourceLoader: createTestResourceLoader(),
 			sessionManager,
 			settingsManager: SettingsManager.create(tempDir, tempDir),
-			modelRegistry: fakeModelRegistry(),
 			model: baseModel,
 			requestedModel: "clawrouter/auto",
 		});

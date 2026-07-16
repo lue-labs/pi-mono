@@ -1,4 +1,5 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model } from "@valkyriweb/pi-ai";
+import { getModels } from "@valkyriweb/pi-ai/compat";
 import { describe, expect, test, vi } from "vitest";
 import {
 	defaultModelPerProvider,

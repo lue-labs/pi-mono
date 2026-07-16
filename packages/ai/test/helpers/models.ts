@@ -13,11 +13,11 @@
  * surfaces as a clear, actionable failure rather than an `undefined` model.
  */
 
-import { getModels } from "../../src/compat.ts";
+import { type BuiltinProvider, getModels } from "../../src/compat.ts";
 import { getSupportedThinkingLevels } from "../../src/models.ts";
-import type { Api, KnownProvider, Model, ModelThinkingLevel } from "../../src/types.ts";
+import type { Api, Model, ModelThinkingLevel } from "../../src/types.ts";
 
-type ProviderModel<TProvider extends KnownProvider> = ReturnType<typeof getModels<TProvider>>[number];
+type ProviderModel<TProvider extends BuiltinProvider> = ReturnType<typeof getModels<TProvider>>[number];
 
 export type ModelPredicate = (model: Model<Api>) => boolean;
 
@@ -47,7 +47,7 @@ export function allOf(...predicates: ModelPredicate[]): ModelPredicate {
  * predicate. Throws if the provider has no matching model so registry drift fails
  * loudly instead of returning an undefined model.
  */
-export function pickModel<TProvider extends KnownProvider>(
+export function pickModel<TProvider extends BuiltinProvider>(
 	provider: TProvider,
 	predicate?: ModelPredicate,
 ): ProviderModel<TProvider> {

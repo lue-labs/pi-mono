@@ -151,7 +151,7 @@ describe("AgentSession model and extension characterization", () => {
 		});
 		try {
 			const codexModel = codex.getModel();
-			harness.authStorage.setRuntimeApiKey(codexModel.provider, "faux-key");
+			await harness.authStorage.modify(codexModel.provider, async () => ({ type: "api_key", key: "faux-key" }));
 			harness.session.modelRegistry.registerProvider(codexModel.provider, {
 				baseUrl: codexModel.baseUrl,
 				apiKey: "faux-key",

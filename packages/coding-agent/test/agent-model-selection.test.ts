@@ -3,8 +3,9 @@ import { afterEach, describe, expect, test } from "vitest";
 import { getBuiltinAgentDefinitions } from "../src/core/agents/definitions.ts";
 import { resolveAgentDefaults, resolveAgentModel, resolveAgentThinking } from "../src/core/agents/executor.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
-import { ModelRegistry } from "../src/core/model-registry.ts";
+import type { ModelRegistry } from "../src/core/model-registry.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createInMemoryModelRegistry } from "./model-runtime-test-utils.ts";
 
 const registrations: ReturnType<typeof registerFauxProvider>[] = [];
 
@@ -12,7 +13,7 @@ afterEach(() => {
 	for (const registration of registrations.splice(0)) registration.unregister();
 });
 
-function createRegistry() {
+async function createRegistry() {
 	return createProviderRegistry("anthropic", [
 		{ id: "parent-model", name: "Parent", reasoning: true },
 		{ id: "child-model", name: "Child", reasoning: true },
@@ -41,12 +42,15 @@ function createStaticRegistry(provider: string, models: Array<{ id: string; name
 	};
 }
 
-function createProviderRegistry(provider: string, models: Array<{ id: string; name: string; reasoning: boolean }>) {
+async function createProviderRegistry(
+	provider: string,
+	models: Array<{ id: string; name: string; reasoning: boolean }>,
+) {
 	const faux = registerFauxProvider({ provider, models });
 	registrations.push(faux);
 	const auth = AuthStorage.inMemory();
-	auth.setRuntimeApiKey(provider, "faux-key");
-	const registry = ModelRegistry.inMemory(auth);
+	await auth.modify(provider, async () => ({ type: "api_key", key: "faux-key" }));
+	const registry = await createInMemoryModelRegistry(auth);
 	registry.registerProvider(provider, {
 		baseUrl: faux.getModel().baseUrl,
 		apiKey: "faux-key",
@@ -68,8 +72,8 @@ function createProviderRegistry(provider: string, models: Array<{ id: string; na
 }
 
 describe("agent model and thinking selection", () => {
-	test("task model overrides parent and definition", () => {
-		const { registry, parent } = createRegistry();
+	test("task model overrides parent and definition", async () => {
+		const { registry, parent } = await createRegistry();
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "parent-model" };
 		const selected = resolveAgentModel({
 			modelReference: "child-model",
@@ -80,22 +84,22 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("child-model");
 	});
 
-	test("definition model applies when task/tool do not override", () => {
-		const { registry, parent } = createRegistry();
+	test("definition model applies when task/tool do not override", async () => {
+		const { registry, parent } = await createRegistry();
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "child-model" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.id).toBe("child-model");
 	});
 
-	test('"fast" alias resolves to the parent provider mapped fast model', () => {
-		const { registry, parent } = createRegistry();
+	test('"fast" alias resolves to the parent provider mapped fast model', async () => {
+		const { registry, parent } = await createRegistry();
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "fast" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.id).toBe("claude-haiku-4-5");
 		expect(selected?.provider).toBe("anthropic");
 	});
 
-	test('"fast" alias resolves clawrouter explore workers to claude-haiku-4-5', () => {
+	test('"fast" alias resolves clawrouter explore workers to claude-haiku-4-5', async () => {
 		const faux = registerFauxProvider({
 			provider: "clawrouter",
 			models: [
@@ -105,8 +109,8 @@ describe("agent model and thinking selection", () => {
 		});
 		registrations.push(faux);
 		const auth = AuthStorage.inMemory();
-		auth.setRuntimeApiKey("clawrouter", "faux-key");
-		const registry = ModelRegistry.inMemory(auth);
+		await auth.modify("clawrouter", async () => ({ type: "api_key", key: "faux-key" }));
+		const registry = await createInMemoryModelRegistry(auth);
 		registry.registerProvider("clawrouter", {
 			baseUrl: faux.getModel().baseUrl,
 			apiKey: "faux-key",
@@ -163,7 +167,7 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("claude-haiku-4-5");
 	});
 
-	test('"fast" alias never retains a retired openai-codex parent', () => {
+	test('"fast" alias never retains a retired openai-codex parent', async () => {
 		const faux = registerFauxProvider({
 			provider: "openai-codex",
 			models: [
@@ -173,8 +177,8 @@ describe("agent model and thinking selection", () => {
 		});
 		registrations.push(faux);
 		const auth = AuthStorage.inMemory();
-		auth.setRuntimeApiKey("openai-codex", "faux-key");
-		const registry = ModelRegistry.inMemory(auth);
+		await auth.modify("openai-codex", async () => ({ type: "api_key", key: "faux-key" }));
+		const registry = await createInMemoryModelRegistry(auth);
 		registry.registerProvider("openai-codex", {
 			baseUrl: faux.getModel().baseUrl,
 			apiKey: "faux-key",
@@ -198,15 +202,15 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.3-codex-spark");
 	});
 
-	test("provider-qualified model refs do not fuzzy-match proxy provider ids", () => {
+	test("provider-qualified model refs do not fuzzy-match proxy provider ids", async () => {
 		const faux = registerFauxProvider({
 			provider: "kilo",
 			models: [{ id: "missing-provider/foo-model", name: "Proxy Model via Kilo", reasoning: true }],
 		});
 		registrations.push(faux);
 		const auth = AuthStorage.inMemory();
-		auth.setRuntimeApiKey("kilo", "faux-key");
-		const registry = ModelRegistry.inMemory(auth);
+		await auth.modify("kilo", async () => ({ type: "api_key", key: "faux-key" }));
+		const registry = await createInMemoryModelRegistry(auth);
 		registry.registerProvider("kilo", {
 			baseUrl: faux.getModel().baseUrl,
 			apiKey: "faux-key",
@@ -236,7 +240,7 @@ describe("agent model and thinking selection", () => {
 		).toThrow(/Unknown or unavailable model: missing-provider\/foo-model/);
 	});
 
-	test('"medium" alias uses the current catalog-backed openai-codex model', () => {
+	test('"medium" alias uses the current catalog-backed openai-codex model', async () => {
 		const faux = registerFauxProvider({
 			provider: "openai-codex",
 			models: [
@@ -246,8 +250,8 @@ describe("agent model and thinking selection", () => {
 		});
 		registrations.push(faux);
 		const auth = AuthStorage.inMemory();
-		auth.setRuntimeApiKey("openai-codex", "faux-key");
-		const registry = ModelRegistry.inMemory(auth);
+		await auth.modify("openai-codex", async () => ({ type: "api_key", key: "faux-key" }));
+		const registry = await createInMemoryModelRegistry(auth);
 		registry.registerProvider("openai-codex", {
 			baseUrl: faux.getModel().baseUrl,
 			apiKey: "faux-key",
@@ -362,7 +366,7 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.6");
 	});
 
-	test('"medium" alias resolves clawrouter workers to claude-sonnet-5', () => {
+	test('"medium" alias resolves clawrouter workers to claude-sonnet-5', async () => {
 		const faux = registerFauxProvider({
 			provider: "clawrouter",
 			models: [
@@ -372,8 +376,8 @@ describe("agent model and thinking selection", () => {
 		});
 		registrations.push(faux);
 		const auth = AuthStorage.inMemory();
-		auth.setRuntimeApiKey("clawrouter", "faux-key");
-		const registry = ModelRegistry.inMemory(auth);
+		await auth.modify("clawrouter", async () => ({ type: "api_key", key: "faux-key" }));
+		const registry = await createInMemoryModelRegistry(auth);
 		registry.registerProvider("clawrouter", {
 			baseUrl: faux.getModel().baseUrl,
 			apiKey: "faux-key",
@@ -397,7 +401,7 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("claude-sonnet-5");
 	});
 
-	test('"fast" alias falls back to parent when provider has no mapped fast model', () => {
+	test('"fast" alias falls back to parent when provider has no mapped fast model', async () => {
 		// Re-register faux under a provider name with no fastModelPerProvider entry.
 		const faux = registerFauxProvider({
 			provider: "opencode",
@@ -405,8 +409,8 @@ describe("agent model and thinking selection", () => {
 		});
 		registrations.push(faux);
 		const auth = AuthStorage.inMemory();
-		auth.setRuntimeApiKey("opencode", "faux-key");
-		const registry = ModelRegistry.inMemory(auth);
+		await auth.modify("opencode", async () => ({ type: "api_key", key: "faux-key" }));
+		const registry = await createInMemoryModelRegistry(auth);
 		registry.registerProvider("opencode", {
 			baseUrl: faux.getModel().baseUrl,
 			apiKey: "faux-key",
@@ -482,8 +486,8 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("parent-model");
 	});
 
-	test("invalid model errors", () => {
-		const { registry, parent } = createRegistry();
+	test("invalid model errors", async () => {
+		const { registry, parent } = await createRegistry();
 		expect(() =>
 			resolveAgentModel({
 				modelReference: "missing-model",
@@ -494,8 +498,8 @@ describe("agent model and thinking selection", () => {
 		).toThrow("Unknown or unavailable model");
 	});
 
-	test("thinking precedence clamps unsupported off to the lowest supported level", () => {
-		const { registry } = createRegistry();
+	test("thinking precedence clamps unsupported off to the lowest supported level", async () => {
+		const { registry } = await createRegistry();
 		const reasoningModel = registry.getAvailable().find((model) => model.id === "child-model");
 		const plainModel = registry.getAvailable().find((model) => model.id === "plain-model");
 		if (!reasoningModel) throw new Error("expected reasoning model");
@@ -511,8 +515,8 @@ describe("agent model and thinking selection", () => {
 	});
 
 	// Subagents precedence layer: settings.subagents.defaults / providers[parent.provider].
-	test("settings.subagents defaults apply when task and definition both inherit", () => {
-		const { registry, parent } = createRegistry();
+	test("settings.subagents defaults apply when task and definition both inherit", async () => {
+		const { registry, parent } = await createRegistry();
 		const selected = resolveAgentModel({
 			agent: getBuiltinAgentDefinitions()[0],
 			defaults: { model: "provider-default-model" },
@@ -522,8 +526,8 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("provider-default-model");
 	});
 
-	test("explicit task model overrides settings.subagents defaults", () => {
-		const { registry, parent } = createRegistry();
+	test("explicit task model overrides settings.subagents defaults", async () => {
+		const { registry, parent } = await createRegistry();
 		const selected = resolveAgentModel({
 			modelReference: "child-model",
 			agent: getBuiltinAgentDefinitions()[0],
@@ -534,8 +538,8 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("child-model");
 	});
 
-	test("agent frontmatter model overrides settings.subagents defaults", () => {
-		const { registry, parent } = createRegistry();
+	test("agent frontmatter model overrides settings.subagents defaults", async () => {
+		const { registry, parent } = await createRegistry();
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "child-model" };
 		const selected = resolveAgentModel({
 			agent,
@@ -546,8 +550,8 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("child-model");
 	});
 
-	test("resolveAgentDefaults reads settings.subagents end-to-end (defaults + provider override)", () => {
-		const { parent } = createRegistry();
+	test("resolveAgentDefaults reads settings.subagents end-to-end (defaults + provider override)", async () => {
+		const { parent } = await createRegistry();
 		if (!parent) throw new Error("createRegistry must yield a parent model");
 		const settings = SettingsManager.inMemory({
 			subagents: {
@@ -563,15 +567,15 @@ describe("agent model and thinking selection", () => {
 		expect(resolved.thinking).toBe("low");
 	});
 
-	test("resolveAgentDefaults returns empty selection when no settings.subagents config", () => {
-		const { parent } = createRegistry();
+	test("resolveAgentDefaults returns empty selection when no settings.subagents config", async () => {
+		const { parent } = await createRegistry();
 		const settings = SettingsManager.inMemory({});
 		const resolved = resolveAgentDefaults({ parentModel: parent, settingsManager: settings });
 		expect(resolved).toEqual({});
 	});
 
-	test("settings.subagents thinking default applies and can be overridden by task", () => {
-		const { registry } = createRegistry();
+	test("settings.subagents thinking default applies and can be overridden by task", async () => {
+		const { registry } = await createRegistry();
 		const model = registry.getAvailable().find((candidate) => candidate.id === "child-model");
 		const agent = getBuiltinAgentDefinitions()[0];
 		expect(

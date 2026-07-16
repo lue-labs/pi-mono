@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ModelRegistry } from "../src/core/model-registry.ts";
+import type { ModelRuntime } from "../src/core/model-runtime.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -36,10 +36,10 @@ const bridgeModel = {
 	api: "anthropic-messages",
 } as unknown as Model<any>;
 
-function fakeModelRegistry(): ModelRegistry {
+function fakeModelRuntime(): ModelRuntime {
 	const models = [sparkModel, codexModel, bridgeModel];
 	return {
-		find(provider: string, id: string) {
+		getModel(provider: string, id: string) {
 			return models.find((model) => model.provider === provider && model.id === id);
 		},
 		getAvailable() {
@@ -48,7 +48,7 @@ function fakeModelRegistry(): ModelRegistry {
 		hasConfiguredAuth() {
 			return true;
 		},
-	} as unknown as ModelRegistry;
+	} as unknown as ModelRuntime;
 }
 
 describe("settings-default auto routing", () => {
@@ -77,7 +77,7 @@ describe("settings-default auto routing", () => {
 				defaultModel: "auto",
 				defaultThinkingLevel: "high",
 			}),
-			modelRegistry: fakeModelRegistry(),
+			modelRuntime: fakeModelRuntime(),
 			noTools: "all",
 		});
 
@@ -98,7 +98,7 @@ describe("settings-default auto routing", () => {
 				defaultProvider: "clawrouter",
 				defaultModel: "claude-opus-4-8-200k",
 			}),
-			modelRegistry: fakeModelRegistry(),
+			modelRuntime: fakeModelRuntime(),
 			noTools: "all",
 		});
 
@@ -123,7 +123,7 @@ describe("settings-default auto routing", () => {
 				defaultProvider: "openai-codex",
 				defaultModel: "auto",
 			}),
-			modelRegistry: fakeModelRegistry(),
+			modelRuntime: fakeModelRuntime(),
 			model: bridgeModel,
 			noTools: "all",
 		});
@@ -150,7 +150,7 @@ describe("settings-default auto routing", () => {
 				defaultProvider: "openai-codex",
 				defaultModel: "auto",
 			}),
-			modelRegistry: fakeModelRegistry(),
+			modelRuntime: fakeModelRuntime(),
 			noTools: "all",
 		});
 
@@ -170,7 +170,7 @@ describe("settings-default auto routing", () => {
 				defaultProvider: "openai-codex",
 				defaultModel: "auto",
 			}),
-			modelRegistry: fakeModelRegistry(),
+			modelRuntime: fakeModelRuntime(),
 			scopedModels: [{ model: bridgeModel }],
 			noTools: "all",
 		});
@@ -190,7 +190,7 @@ describe("settings-default auto routing", () => {
 				defaultProvider: "openai-codex",
 				defaultModel: "auto",
 			}),
-			modelRegistry: fakeModelRegistry(),
+			modelRuntime: fakeModelRuntime(),
 			requestedModel: "pi-fork/auto",
 			deferRequestedModelResolution: true,
 			noTools: "all",

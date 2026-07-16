@@ -1,10 +1,11 @@
-import { Agent } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
+import { Agent } from "@valkyriweb/pi-agent-core";
+import type { AssistantMessage, Usage } from "@valkyriweb/pi-ai";
 import { describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { pickModel } from "./helpers/models.ts";
 import { createInMemoryModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
@@ -53,6 +54,7 @@ async function createSession() {
 	const sessionManager = SessionManager.inMemory();
 	const authStorage = AuthStorage.inMemory();
 	await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
+	const modelRegistry = await createInMemoryModelRegistry(authStorage);
 	const session = new AgentSession({
 		agent: new Agent({
 			getApiKey: () => "test-key",
@@ -66,7 +68,8 @@ async function createSession() {
 		sessionManager,
 		settingsManager,
 		cwd: process.cwd(),
-		modelRuntime: getModelRuntime(await createInMemoryModelRegistry(authStorage)),
+		modelRegistry,
+		modelRuntime: getModelRuntime(modelRegistry),
 		resourceLoader: createTestResourceLoader(),
 	});
 

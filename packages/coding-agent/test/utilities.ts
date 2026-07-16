@@ -6,9 +6,9 @@ import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Agent } from "@earendil-works/pi-agent-core";
-import type { OAuthCredentials } from "@earendil-works/pi-ai";
-import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import { Agent } from "@valkyriweb/pi-agent-core";
+import type { OAuthCredentials } from "@valkyriweb/pi-ai";
+import { builtinProviders } from "@valkyriweb/pi-ai/providers/all";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createEventBus } from "../src/core/event-bus.ts";
@@ -268,6 +268,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
 		sessionManager,
 		settingsManager,
 		cwd: tempDir,
+		modelRegistry,
 		modelRuntime: getModelRuntime(modelRegistry),
 		resourceLoader: createTestResourceLoader(),
 	});

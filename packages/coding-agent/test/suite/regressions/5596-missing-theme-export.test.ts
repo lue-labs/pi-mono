@@ -67,6 +67,7 @@ describe("regression #5596: missing configured theme export", () => {
 			sessionManager,
 			settingsManager,
 			cwd: tempDir,
+			modelRegistry,
 			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader(),
 		});

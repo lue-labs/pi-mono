@@ -18,10 +18,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession, type AgentSessionEvent } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { COMPACTION_FAILURE_TRIP_COUNT } from "../src/core/compaction/index.ts";
-import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { pickModel } from "./helpers/models.ts";
+import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
 function createMockUsage(input: number, output: number) {
@@ -61,7 +61,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 		session?.dispose();
 	});
 
-	function createSession(contextWindow: number) {
+	async function createSession(contextWindow: number) {
 		const baseModel = pickModel("anthropic");
 		const model = { ...baseModel, contextWindow };
 
@@ -77,7 +77,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 		const sessionManager = SessionManager.inMemory(tempDir);
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage);
+		const modelRegistry = await createModelRegistry(authStorage, tempDir);
 
 		session = new AgentSession({
 			agent,
@@ -85,6 +85,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 			settingsManager,
 			cwd: tempDir,
 			modelRegistry,
+			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader(),
 		});
 
@@ -92,7 +93,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 	}
 
 	it("failure circuit breaker short-circuits BEFORE the rapid-refill check runs", async () => {
-		const { session } = createSession(200000);
+		const { session } = await createSession(200000);
 		const events: AgentSessionEvent[] = [];
 		session.subscribe((event) => events.push(event));
 
@@ -123,7 +124,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 	});
 
 	it("consecutive compaction failures trip the breaker and disable auto-compaction for the session", async () => {
-		const { session, sessionManager } = createSession(200000);
+		const { session, sessionManager } = await createSession(200000);
 		const events: AgentSessionEvent[] = [];
 		session.subscribe((event) => events.push(event));
 
@@ -183,7 +184,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 	it("fixed-prefix-overflow guard skips compaction with a distinct message when the prefix alone exceeds the threshold", async () => {
 		// A tiny contextWindow guarantees contextWindow - reserveTokens is <= 0,
 		// so any non-empty system prompt trips the guard before any auth/network call.
-		const { session } = createSession(100);
+		const { session } = await createSession(100);
 		const events: AgentSessionEvent[] = [];
 		session.subscribe((event) => events.push(event));
 
@@ -204,7 +205,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 	});
 
 	it("rapid-refill trip emits the thrashing message and resets the streak", async () => {
-		const { session, sessionManager, model } = createSession(200000);
+		const { session, sessionManager, model } = await createSession(200000);
 		const events: AgentSessionEvent[] = [];
 		session.subscribe((event) => events.push(event));
 
@@ -235,7 +236,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 	});
 
 	it("transient provider failures (rate limits) never count toward the failure breaker", async () => {
-		const { session, sessionManager } = createSession(200000);
+		const { session, sessionManager } = await createSession(200000);
 		const events: AgentSessionEvent[] = [];
 		session.subscribe((event) => events.push(event));
 
@@ -273,7 +274,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 	});
 
 	it("a transient failure neither increments nor resets a real-failure streak", async () => {
-		const { session, sessionManager } = createSession(200000);
+		const { session, sessionManager } = await createSession(200000);
 		const events: AgentSessionEvent[] = [];
 		session.subscribe((event) => events.push(event));
 
@@ -323,7 +324,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 	});
 
 	it("a rate-limited attempt after compaction_start emits a distinct transient message and keeps retrying enabled", async () => {
-		const { session, sessionManager, model } = createSession(200000);
+		const { session, sessionManager, model } = await createSession(200000);
 		const events: AgentSessionEvent[] = [];
 		session.subscribe((event) => events.push(event));
 

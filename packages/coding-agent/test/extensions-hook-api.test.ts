@@ -16,8 +16,8 @@ import {
 } from "../src/core/extensions/extension-hooks.ts";
 import { ExtensionRunner } from "../src/core/extensions/runner.ts";
 import type { LoadExtensionsResult } from "../src/core/extensions/types.ts";
-import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { createModelRegistry } from "./model-runtime-test-utils.ts";
 import { assistantMsg, createTestExtensionsResult, userMsg } from "./utilities.ts";
 
 describe("extension hooks API", () => {
@@ -40,7 +40,8 @@ describe("extension hooks API", () => {
 		fs.rmSync(tempDir, { recursive: true, force: true });
 	});
 
-	function createRunner(result: LoadExtensionsResult): ExtensionRunner {
+	async function createRunner(result: LoadExtensionsResult): Promise<ExtensionRunner> {
+		const modelRegistry = await createModelRegistry(AuthStorage.create(path.join(tempDir, "auth.json")), tempDir);
 		return new ExtensionRunner(
 			result.extensions,
 			result.deferredExtensions,
@@ -48,7 +49,7 @@ describe("extension hooks API", () => {
 			result.eventBus,
 			tempDir,
 			SessionManager.inMemory(),
-			ModelRegistry.create(AuthStorage.create(path.join(tempDir, "auth.json"))),
+			modelRegistry,
 		);
 	}
 
@@ -133,7 +134,7 @@ describe("extension hooks API", () => {
 		result.runtime.extensionConfig = {
 			"test-extension": { suffix: " configured" },
 		};
-		const runner = createRunner(result);
+		const runner = await createRunner(result);
 
 		const promptResult = await runner.emitBeforeAgentStart("hello", undefined, "base", systemPromptOptions());
 
@@ -172,7 +173,7 @@ describe("extension hooks API", () => {
 			],
 			tempDir,
 		);
-		const runner = createRunner(result);
+		const runner = await createRunner(result);
 
 		expect(await runner.emitBeforeProviderRequest({ base: true })).toEqual({
 			base: true,
@@ -252,7 +253,7 @@ describe("extension hooks API", () => {
 				],
 				tempDir,
 			);
-			const runner = createRunner(result);
+			const runner = await createRunner(result);
 			const first = userMsg("stable prefix");
 			const staleRecall = {
 				role: "custom" as const,
@@ -306,7 +307,7 @@ describe("extension hooks API", () => {
 				],
 				tempDir,
 			);
-			const runner = createRunner(result);
+			const runner = await createRunner(result);
 
 			expect(await runner.emitBeforeProviderRequest(stablePayload)).toEqual(stablePayload);
 			expect(await runner.emitBeforeProviderRequest(stablePayload)).toEqual(stablePayload);
@@ -328,7 +329,7 @@ describe("extension hooks API", () => {
 				],
 				tempDir,
 			);
-			const runner = createRunner(result);
+			const runner = await createRunner(result);
 
 			const first = await runner.emitBeforeAgentStart(
 				"turn one",
@@ -371,7 +372,7 @@ describe("extension hooks API", () => {
 				],
 				tempDir,
 			);
-			const runner = createRunner(result);
+			const runner = await createRunner(result);
 
 			const first = await runner.emitMessageEnd({ type: "message_end", message: assistantMsg("base") });
 			const second = await runner.emitMessageEnd({ type: "message_end", message: assistantMsg("base") });
