@@ -6,6 +6,10 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ## [Unreleased]
 
+### Fixed
+
+- **Restored fork-specific behavior dropped by the upstream sync merge.** AGENTS.md/CLAUDE.md `@file` import expansion (diagnostics, `parentPath`, realpath-based symlink dedup, project-trust gating) is rewired back into `DefaultResourceLoader.getAgentsFiles()`; settings-persisted `auto` model defaults (`defaultProvider`/`defaultModel: "auto"`) once again surface as a deferred `requestedModel` alias instead of silently landing on the first scoped/available model; the `--source` CLI flag (extension/session input-source override) is back in `parseArgs`; and the `radius` provider is restored to `KnownProvider`. No behavior beyond what the merge unintentionally removed.
+
 ### Changed
 
 - **Forked named Agent profiles retain role guidance without hidden tool blocking.** `context: "fork"` remains a permissive self-fork with the caller's cache-compatible system/tool prefix; the selected named prompt moves to the trailing task message, and run details warn when ordinary profile tool filtering is bypassed. Existing profile/depth caps on nested Agent access remain enforced. This matches Claude Code's “fork yourself” semantics while keeping Pi's named-profile-plus-fork compatibility.
