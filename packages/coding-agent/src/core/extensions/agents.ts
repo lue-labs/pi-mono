@@ -297,6 +297,13 @@ class AgentsPane implements ExtensionMainPaneComponent {
 			this.tui.requestRender();
 			return;
 		}
+		if (kb.matches(data, "app.agents.dismiss")) {
+			const task = this.selectedTask();
+			if (!task || !taskNeedsInput(task) || task.status !== "failed") return;
+			const adapter = findTaskAdapter(task.id);
+			void adapter?.acknowledge?.(task.id).then(() => this.tui.requestRender());
+			return;
+		}
 		if (data === "x") {
 			const task = this.selectedTask();
 			if (!task) return;
@@ -335,6 +342,8 @@ class AgentsPane implements ExtensionMainPaneComponent {
 					keyHint("tui.select.confirm", "open") +
 					"  " +
 					rawKeyHint("x", "stop") +
+					"  " +
+					keyHint("app.agents.dismiss", "dismiss failed") +
 					"  " +
 					keyHint("tui.select.cancel", "close"),
 			);
