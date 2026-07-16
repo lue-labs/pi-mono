@@ -1,19 +1,10 @@
 {
-<<<<<<< HEAD
 	"name": "@valkyriweb/pi-coding-agent-install",
 	"version": "0.83.5",
 	"private": true,
 	"description": "Lockfile root used by the Pi installer and updater.",
 	"dependencies": {
 		"@valkyriweb/pi-coding-agent": "0.83.5"
-=======
-	"name": "@earendil-works/pi-coding-agent-install",
-	"version": "0.80.7",
-	"private": true,
-	"description": "Lockfile root used by the Pi installer and updater.",
-	"dependencies": {
-		"@earendil-works/pi-coding-agent": "0.80.7"
->>>>>>> upstream/main
 	},
 	"overrides": {
 		"rimraf": "6.1.2",

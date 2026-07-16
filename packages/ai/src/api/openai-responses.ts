@@ -68,6 +68,7 @@ function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCo
 		sessionAffinityFormat: model.compat?.sessionAffinityFormat ?? detectSessionAffinityFormat(model),
 		supportsLongCacheRetention: model.compat?.supportsLongCacheRetention ?? true,
 		supportsToolSearch: model.compat?.supportsToolSearch ?? false,
+		promptCacheApi: model.compat?.promptCacheApi ?? "legacy",
 	};
 }
 

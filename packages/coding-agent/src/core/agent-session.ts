@@ -113,7 +113,7 @@ import { getExtensionProcessService } from "./extensions/loader.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { ForkAgentOptions, ForkAgentResult, TranscriptEntry } from "./extensions/types.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
-import { ModelRegistry } from "./model-registry.ts";
+import type { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
@@ -794,29 +794,6 @@ export class AgentSession {
 		};
 	}
 
-	private _installAgentNextTurnRefresh(): void {
-		const previousPrepareNextTurnWithContext =
-			this.agent.prepareNextTurnWithContext ??
-			(this.agent.prepareNextTurn
-				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
-				: undefined);
-		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
-			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
-			const previousContext = previousSnapshot?.context ?? turn.context;
-
-			return {
-				...previousSnapshot,
-				context: {
-					...previousContext,
-					systemPrompt: this._systemPromptOverride ?? this._baseSystemPrompt,
-					tools: this.agent.state.tools.slice(),
-				},
-				model: this.agent.state.model,
-				thinkingLevel: this.agent.state.thinkingLevel,
-			};
-		};
-	}
-
 	// =========================================================================
 	// Event Subscription
 	// =========================================================================
@@ -1302,11 +1279,6 @@ export class AgentSession {
 	}
 
 	/** Whether the session has no active agent run, retry, auto-compaction, or queued continuation. */
-	get isIdle(): boolean {
-		return !this._isAgentRunActive;
-	}
-
-	/** Whether no turn-starting call, compaction, or agent run is active. */
 	get isIdle(): boolean {
 		return this._activeTurnCalls === 0 && !this.isStreaming && !this.isCompacting && !this.agent.isProcessing;
 	}

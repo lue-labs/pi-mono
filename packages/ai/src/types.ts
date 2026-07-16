@@ -90,12 +90,16 @@ export interface ThinkingBudgets {
 	low?: number;
 	medium?: number;
 	high?: number;
+	ultra?: number;
+	adaptive?: number;
 }
 
 // Base options all providers share
 export type CacheRetention = "none" | "short" | "long";
 
 export type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
+
+export type SessionAffinityFormat = "openai" | "openai-nosession" | "openrouter";
 
 /** Provider-scoped environment overrides. Values take precedence over process.env. */
 export type ProviderEnv = Record<string, string>;
@@ -412,6 +416,12 @@ export interface ToolResultMessage<TDetails = any> {
 	toolName: string;
 	content: (TextContent | ImageContent | ToolReferenceContent)[]; // Supports text, images, and provider-native tool references
 	details?: TDetails;
+	/**
+	 * Names from `Context.tools` that became available after this result.
+	 * Providers with native deferred tool loading use this as the load point;
+	 * other providers ignore it and use `Context.tools` normally.
+	 */
+	addedToolNames?: string[];
 	isError: boolean;
 	timestamp: number; // Unix timestamp in milliseconds
 }
@@ -575,6 +585,8 @@ export interface OpenAICompletionsCompat {
 	cacheControlFormat?: "anthropic";
 	/** Whether to send known session-affinity headers (`session_id`, `x-client-request-id`, `x-session-affinity`) from `options.sessionId` when caching is enabled. Default: false. */
 	sendSessionAffinityHeaders?: boolean;
+	/** Session-affinity header format. Default: auto-detected. */
+	sessionAffinityFormat?: SessionAffinityFormat;
 	/** Whether the provider supports long prompt cache retention (`prompt_cache_retention: "24h"` or Anthropic-style `cache_control.ttl: "1h"`, depending on format). Default: true. */
 	supportsLongCacheRetention?: boolean;
 }
@@ -583,10 +595,12 @@ export interface OpenAICompletionsCompat {
 export interface OpenAIResponsesCompat {
 	/** Whether the provider supports the `developer` role (vs `system`). Default: true. */
 	supportsDeveloperRole?: boolean;
-	/** Whether to send the OpenAI `session_id` cache-affinity header from `options.sessionId` when caching is enabled. Default: true. */
-	sendSessionIdHeader?: boolean;
+	/** Session-affinity header format. Default: auto-detected. */
+	sessionAffinityFormat?: SessionAffinityFormat;
 	/** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
 	supportsLongCacheRetention?: boolean;
+	/** Whether the model supports client-executed tool search for deferred tools. Default: false. */
+	supportsToolSearch?: boolean;
 	/**
 	 * Prompt-cache API generation. `"legacy"` (default) sends `prompt_cache_retention`;
 	 * `"breakpoints"` (GPT-5.6+) omits the deprecated retention field and marks explicit
@@ -602,6 +616,8 @@ export interface OpenAICodexResponsesCompat {
 	sendChatgptAccountId?: boolean;
 	/** Whether the endpoint accepts the Codex WebSocket transport. Default: true. */
 	supportsWebSocketTransport?: boolean;
+	/** Whether the model supports client-executed tool search for deferred tools. Default: false. */
+	supportsToolSearch?: boolean;
 	/** Whether SSE request bodies may use Content-Encoding: zstd. Default: true. */
 	supportsZstdRequestCompression?: boolean;
 }
@@ -620,6 +636,8 @@ export interface AnthropicMessagesCompat {
 	supportsLongCacheRetention?: boolean;
 	/** Whether the provider supports native deferred tool schemas (`defer_loading`) and tool references. Default: true. */
 	supportsDeferredTools?: boolean;
+	/** Whether the provider supports deferred tool references in tool results. Default: true. */
+	supportsToolReferences?: boolean;
 	/**
 	 * Whether to send the `x-session-affinity` header from `options.sessionId`
 	 * when caching is enabled. Required for providers like Fireworks that use
@@ -743,6 +761,21 @@ export interface VercelGatewayRouting {
 	order?: string[];
 }
 
+export interface ModelCostRates {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
+export interface ModelCostTier extends ModelCostRates {
+	inputTokensAbove: number;
+}
+
+export interface ModelCost extends ModelCostRates {
+	tiers?: ModelCostTier[];
+}
+
 // Model interface for the unified model system
 export interface Model<TApi extends Api> {
 	id: string;
@@ -757,12 +790,7 @@ export interface Model<TApi extends Api> {
 	 */
 	thinkingLevelMap?: ThinkingLevelMap;
 	input: ("text" | "image")[];
-	cost: {
-		input: number; // $/million tokens
-		output: number; // $/million tokens
-		cacheRead: number; // $/million tokens
-		cacheWrite: number; // $/million tokens
-	};
+	cost: ModelCost;
 	contextWindow: number;
 	maxTokens: number;
 	headers?: Record<string, string>;
