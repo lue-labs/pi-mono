@@ -67,6 +67,7 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	// compiled binary (the bare @valkyriweb/pi-ai root stays the strict core).
 	"@valkyriweb/pi-ai/compat": _bundledPiAiCompat,
 	"@valkyriweb/pi-ai/oauth": _bundledPiAiOauth,
+	"@valkyriweb/pi-ai/providers/all": _bundledPiAiProviders,
 	"@valkyriweb/pi-coding-agent": _bundledPiCodingAgent,
 	// Upstream package-name compatibility for third-party extensions that import
 	// the upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
