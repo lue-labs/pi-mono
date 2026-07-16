@@ -42,6 +42,7 @@ import type {
 } from "../types.ts";
 import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { combineAbortSignals } from "../utils/abort-signals.ts";
+import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import {
 	appendAssistantMessageDiagnostic,
 	createAssistantMessageDiagnostic,
@@ -281,7 +282,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// ChatGPT Codex keys server-side prefix caching on the session-id header.
 			// Keep thread-id / x-client-request-id tied to the real Pi session while
 			// routing same-shape requests through the shared affinity session-id.
-			const codexThreadId = options?.sessionId;
+			const codexThreadId = clampOpenAIPromptCacheKey(options?.sessionId);
 			const codexSessionHeader = cacheAffinitySessionId;
 			// Provider-visible Codex session-id may be shared across same-shape sessions
 			// for prefix-cache reuse. Local WebSocket continuation state is different:
@@ -549,8 +550,15 @@ function buildRequestBody(
 	context: Context,
 	options?: OpenAICodexResponsesOptions,
 ): RequestBody {
+	// Client-side tool search (same mechanism as openai-responses.ts): supported
+	// Codex models can defer a tool's definition until the tool result that
+	// surfaces it, keeping the cached prompt prefix stable. Unsupported models
+	// fall back to sending every tool immediately.
+	const supportsToolSearch = model.compat?.supportsToolSearch ?? false;
+	const toolPlacement = splitDeferredTools(context, supportsToolSearch);
 	const messages = convertResponsesMessages(model, context, CODEX_TOOL_CALL_PROVIDERS, {
 		includeSystemPrompt: false,
+		deferredTools: toolPlacement.deferred,
 	});
 
 	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
@@ -585,14 +593,16 @@ function buildRequestBody(
 		body.service_tier = options.serviceTier;
 	}
 
-	if (context.tools && context.tools.length > 0) {
+	if (toolPlacement.immediate.length > 0) {
 		// Codex backend understands `defer_loading: true` natively (see Codex CLI
 		// `ResponsesApiTool` in codex-rs/tools/src/responses_api.rs). Emission is
 		// byte-stable per tool definition so prompt-cache prefix bytes are
-		// unaffected; deferred tools that activate later are surfaced via Pi's
-		// `tool_search` fallback active-list mutation (no client-side roundtrip
-		// via the OpenAI API).
-		const convertedTools = convertResponsesTools(context.tools, {
+		// unaffected; explicitly-marked deferred tools (`tool.deferLoading`) are
+		// surfaced via Pi's `tool_search` fallback active-list mutation (no
+		// client-side roundtrip via the OpenAI API). Message-anchored deferral
+		// (client-side, gated by `supportsToolSearch`) is handled separately by
+		// `toolPlacement`/`convertResponsesMessages` above.
+		const convertedTools = convertResponsesTools(toolPlacement.immediate, {
 			strict: null,
 			deterministic: true,
 			emitDeferLoading: true,
@@ -854,6 +864,7 @@ async function* parseSSE(response: Response, signal?: AbortSignal): AsyncGenerat
 
 const OPENAI_BETA_RESPONSES_WEBSOCKETS = "responses_websockets=2026-02-06";
 const SESSION_WEBSOCKET_CACHE_TTL_MS = 5 * 60 * 1000;
+const SESSION_WEBSOCKET_MAX_AGE_MS = 55 * 60 * 1000;
 
 type WebSocketEventType = "open" | "message" | "error" | "close";
 type WebSocketListener = (event: unknown) => void;
@@ -874,6 +885,7 @@ interface CachedWebSocketContinuationState {
 interface CachedWebSocketConnection {
 	socket: WebSocketLike;
 	busy: boolean;
+	createdAt: number;
 	idleTimer?: ReturnType<typeof setTimeout>;
 	continuation?: CachedWebSocketContinuationState;
 }
@@ -1044,6 +1056,10 @@ function isWebSocketReusable(socket: WebSocketLike): boolean {
 	return readyState === undefined || readyState === 1;
 }
 
+function isWebSocketSessionExpired(entry: CachedWebSocketConnection): boolean {
+	return Date.now() - entry.createdAt >= SESSION_WEBSOCKET_MAX_AGE_MS;
+}
+
 function closeWebSocketSilently(socket: WebSocketLike, code = 1000, reason = "done"): void {
 	try {
 		socket.close(code, reason);
@@ -1167,7 +1183,10 @@ async function acquireWebSocket(
 			clearTimeout(cached.idleTimer);
 			cached.idleTimer = undefined;
 		}
-		if (!cached.busy && isWebSocketReusable(cached.socket)) {
+		if (!cached.busy && isWebSocketSessionExpired(cached)) {
+			closeWebSocketSilently(cached.socket, 1000, "connection_age_limit");
+			websocketSessionCache.delete(sessionId);
+		} else if (!cached.busy && isWebSocketReusable(cached.socket)) {
 			cached.busy = true;
 			return {
 				socket: cached.socket,
@@ -1201,7 +1220,7 @@ async function acquireWebSocket(
 	}
 
 	const socket = await connectWebSocket(url, headers, signal, connectTimeoutMs, env);
-	const entry: CachedWebSocketConnection = { socket, busy: true };
+	const entry: CachedWebSocketConnection = { socket, busy: true, createdAt: Date.now() };
 	websocketSessionCache.set(sessionId, entry);
 	return {
 		socket,
@@ -1739,14 +1758,15 @@ function buildSSEHeaders(
 	headers.set("accept", "text/event-stream");
 	headers.set("content-type", "application/json");
 
-	if (sessionId) {
-		headers.set("session-id", sessionId);
+	const clampedSessionId = clampOpenAIPromptCacheKey(sessionId);
+	if (clampedSessionId) {
+		headers.set("session-id", clampedSessionId);
 	}
 	if (threadId) {
 		headers.set("thread-id", threadId);
 		headers.set("x-client-request-id", threadId);
-	} else if (sessionId) {
-		headers.set("x-client-request-id", sessionId);
+	} else if (clampedSessionId) {
+		headers.set("x-client-request-id", clampedSessionId);
 	}
 
 	return headers;

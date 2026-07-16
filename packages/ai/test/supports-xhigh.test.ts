@@ -59,14 +59,17 @@ describe("getSupportedThinkingLevels", () => {
 		(modelId) => {
 			const model = getModel("openai", modelId);
 			expect(model).toBeDefined();
+			// sol/terra additionally opt into the fork's "ultra" tier; luna does not.
+			// "minimal" is explicitly mapped to null for all three, so it is excluded.
+			const hasUltra = modelId !== "gpt-5.6-luna";
 			expect(getSupportedThinkingLevels(model!)).toEqual([
 				"off",
-				"minimal",
 				"low",
 				"medium",
 				"high",
 				"xhigh",
 				"max",
+				...(hasUltra ? ["ultra"] : []),
 			]);
 		},
 	);

@@ -274,6 +274,7 @@ function buildParams(model: Model<"openai-responses">, context: Context, options
 
 	if (toolPlacement.immediate.length > 0) {
 		params.tools = convertResponsesTools(toolPlacement.immediate);
+		params.parallel_tool_calls = true;
 	}
 
 	if (options?.toolChoice !== undefined) {

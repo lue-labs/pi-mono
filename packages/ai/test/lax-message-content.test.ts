@@ -59,7 +59,12 @@ describe("lax message content handling", () => {
 
 		const result = transformMessages(messages, makeTextOnlyModel());
 
-		expect(result).toHaveLength(3);
+		// The null-content user message normalizes to [] (no crash) but is then
+		// dropped by the fork's hasVisibleUserContent filter (fork-owned; see
+		// transform-messages.ts): invisible/empty hook-style user turns must not
+		// interrupt tool_use -> toolResult adjacency, so only the assistant and
+		// toolResult messages remain.
+		expect(result).toHaveLength(2);
 		for (const msg of result) {
 			expect(msg.content).toEqual([]);
 		}

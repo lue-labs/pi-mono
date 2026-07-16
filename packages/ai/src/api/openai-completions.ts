@@ -558,14 +558,18 @@ function buildParams(
 ) {
 	const messages = convertMessages(model, context, compat);
 	const cacheControl = getCompatCacheControl(compat, cacheRetention);
+	// OpenRouter session affinity uses the x-session-id header instead of
+	// prompt_cache_key (which OpenRouter doesn't interpret the same way).
+	const supportsPromptCacheKey = compat.sessionAffinityFormat !== "openrouter";
 
 	const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
 		model: model.id,
 		messages,
 		stream: true,
 		prompt_cache_key:
-			(model.baseUrl.includes("api.openai.com") && cacheRetention !== "none") ||
-			(cacheRetention === "long" && compat.supportsLongCacheRetention)
+			supportsPromptCacheKey &&
+			((model.baseUrl.includes("api.openai.com") && cacheRetention !== "none") ||
+				(cacheRetention === "long" && compat.supportsLongCacheRetention))
 				? clampOpenAIPromptCacheKey(options?.sessionId)
 				: undefined,
 		prompt_cache_retention: cacheRetention === "long" && compat.supportsLongCacheRetention ? "24h" : undefined,

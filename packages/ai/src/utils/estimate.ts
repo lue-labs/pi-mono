@@ -130,10 +130,37 @@ function isMessageArray(value: Context | readonly Message[]): value is readonly 
 	return Array.isArray(value);
 }
 
+/**
+ * A usage anchor is trusted only while it plausibly reflects the messages still
+ * present. After compaction the retained assistant message keeps its
+ * pre-compaction `usage.totalTokens`, which counts messages that were dropped -
+ * a stale anchor that over-counts the real context by multiples. Trusting it
+ * collapses the available output budget in `clampMaxTokensToContext` and
+ * truncates (or empties) the next turn. When the anchored estimate exceeds a
+ * fresh recount of the current messages + prefix by more than this factor, the
+ * anchor is treated as stale and the recount is used instead. The factor is
+ * generous because the char/4 recount under-counts real tokenization; only a
+ * compaction-scale mismatch trips it.
+ */
+const STALE_USAGE_RECOUNT_FACTOR = 2;
+
+/**
+ * Absolute floor an anchored estimate must clear before it is even considered
+ * for staleness. Compaction-stale anchors are always large (a pre-compaction
+ * budget in the tens-to-hundreds-of-thousands range); small anchors can
+ * legitimately dwarf a char/4 recount of a short conversation (system prompt
+ * and protocol overhead the recount cannot see), so applying the ratio check
+ * below this floor would misfire on ordinary short conversations.
+ */
+const STALE_USAGE_MIN_TOKENS = 5_000;
+
 export function estimateContextTokens(context: Context | readonly Message[]): ContextUsageEstimate {
 	if (isMessageArray(context)) return estimateMessages(context);
 
 	const estimate = estimateMessages(context.messages);
+	const prefixTokens =
+		(context.systemPrompt ? estimateTextTokens(context.systemPrompt) : 0) + estimateToolsTokens(context.tools);
+
 	if (estimate.lastUsageIndex !== null) {
 		const addedNames = new Set(
 			context.messages
@@ -142,16 +169,28 @@ export function estimateContextTokens(context: Context | readonly Message[]): Co
 				.flatMap((message) => message.addedToolNames ?? []),
 		);
 		const addedToolTokens = estimateToolsTokens(context.tools?.filter((tool) => addedNames.has(tool.name)));
-		return {
+		const anchored = {
 			tokens: estimate.tokens + addedToolTokens,
 			usageTokens: estimate.usageTokens,
 			trailingTokens: estimate.trailingTokens + addedToolTokens,
 			lastUsageIndex: estimate.lastUsageIndex,
 		};
-	}
 
-	const prefixTokens =
-		(context.systemPrompt ? estimateTextTokens(context.systemPrompt) : 0) + estimateToolsTokens(context.tools);
+		// `anchored.tokens` (usage.totalTokens already includes the system + tools
+		// prefix) is compared against an independent recount of everything currently
+		// in context. A wide gap means the anchor still counts messages that
+		// compaction dropped - use the recount instead of the stale usage total.
+		let recountTokens = prefixTokens;
+		for (const message of context.messages) recountTokens += estimateMessageTokens(message);
+		if (
+			anchored.tokens > STALE_USAGE_MIN_TOKENS &&
+			recountTokens > 0 &&
+			anchored.tokens > recountTokens * STALE_USAGE_RECOUNT_FACTOR
+		) {
+			return { tokens: recountTokens, usageTokens: 0, trailingTokens: recountTokens, lastUsageIndex: null };
+		}
+		return anchored;
+	}
 
 	return {
 		tokens: estimate.tokens + prefixTokens,
