@@ -13,6 +13,10 @@ type TimingLabel = "main" | "extensions";
 
 const timingNamespaces = new Map<TimingLabel, TimingNamespace>();
 
+export function timingsEnabled(): boolean {
+	return ENABLED;
+}
+
 export function resetTimings(namespace: TimingLabel = "main"): void {
 	if (!ENABLED) return;
 	timingNamespaces.set(namespace, { timings: [], lastTime: Date.now() });
@@ -31,6 +35,18 @@ export function time(label: string, namespace: TimingLabel = "main"): void {
 	timingNamespace.lastTime = now;
 }
 
+/**
+ * Record an explicit duration (e.g. a whole per-extension load) without
+ * consuming elapsed time since the namespace's lastTime.
+ */
+export function recordTiming(label: string, ms: number, namespace: TimingLabel = "main"): void {
+	if (!ENABLED) return;
+	if (!timingNamespaces.has(namespace)) {
+		resetTimings(namespace);
+	}
+	timingNamespaces.get(namespace)!.timings.push({ label, ms });
+}
+
 function printTimingGroup(title: string, timings: TimingNamespace["timings"]): void {
 	const printableTimings = timings.filter((timing) => timing.ms >= 0);
 	if (printableTimings.length === 0) return;
@@ -45,6 +61,10 @@ function printTimingGroup(title: string, timings: TimingNamespace["timings"]): v
 export function printTimings(): void {
 	if (!ENABLED) return;
 	for (const [namespace, timingNamespace] of timingNamespaces) {
-		printTimingGroup(`Startup Timings: ${namespace}`, timingNamespace.timings);
+		const orderedTimings =
+			namespace === "extensions"
+				? [...timingNamespace.timings].sort((a, b) => b.ms - a.ms)
+				: timingNamespace.timings;
+		printTimingGroup(`Startup Timings: ${namespace}`, orderedTimings);
 	}
 }

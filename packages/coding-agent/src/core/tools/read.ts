@@ -1,7 +1,7 @@
 import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Api, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
-import { Text } from "@earendil-works/pi-tui";
+import type { AgentTool } from "@valkyriweb/pi-agent-core";
+import type { Api, ImageContent, Model, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
+import { Text } from "@valkyriweb/pi-tui";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
 import { type Static, Type } from "typebox";
@@ -15,12 +15,25 @@ import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/type
 import { resolveReadPathAsync, resolveToCwd } from "./path-utils.ts";
 import { getTextOutput, renderToolPath, replaceTabs, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
+import {
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	FULL_TRUNCATION,
+	formatSize,
+	type TruncationResult,
+	truncateHead,
+} from "./truncate.ts";
 
 const readSchema = Type.Object({
 	path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
 	offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
 	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
+	full: Type.Optional(
+		Type.Boolean({
+			description:
+				"Return the entire file with no line/byte truncation. Use only when you genuinely need the whole file in one call instead of paging with offset/limit. Defaults to false.",
+		}),
+	),
 });
 
 export type ReadToolInput = Static<typeof readSchema>;
@@ -56,6 +69,8 @@ const defaultReadOperations: ReadOperations = {
 };
 
 export interface ReadToolOptions {
+	toolName?: "read" | "Read";
+	label?: string;
 	/** Whether to auto-resize images to 2000x2000 max. Default: true */
 	autoResizeImages?: boolean;
 	/** Custom operations for file reading. Default: local filesystem */
@@ -71,9 +86,9 @@ function formatReadLineRange(args: ReadRenderArgs | undefined, theme: Theme): st
 	return theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 }
 
-function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string): string {
+function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, label: string, cwd: string): string {
 	const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
-	return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${formatReadLineRange(args, theme)}`;
+	return `${theme.fg("toolTitle", theme.bold(label))} ${pathDisplay}${formatReadLineRange(args, theme)}`;
 }
 
 function trimTrailingEmptyLines(lines: string[]): string[] {
@@ -141,6 +156,7 @@ function formatCompactReadCall(
 	classification: CompactReadClassification,
 	args: ReadRenderArgs | undefined,
 	theme: Theme,
+	label: string,
 ): string {
 	const expandHint = theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`);
 	if (classification.kind === "skill") {
@@ -153,7 +169,7 @@ function formatCompactReadCall(
 	}
 
 	return (
-		theme.fg("toolTitle", theme.bold(`read ${classification.kind}`)) +
+		theme.fg("toolTitle", theme.bold(`${label} ${classification.kind}`)) +
 		" " +
 		theme.fg("accent", classification.label) +
 		formatReadLineRange(args, theme) +
@@ -163,7 +179,7 @@ function formatCompactReadCall(
 
 function formatReadResult(
 	args: ReadRenderArgs | undefined,
-	result: { content: (TextContent | ImageContent)[]; details?: ReadToolDetails },
+	result: { content: (TextContent | ImageContent | ToolReferenceContent)[]; details?: ReadToolDetails },
 	options: ToolRenderResultOptions,
 	theme: Theme,
 	showImages: boolean,
@@ -206,16 +222,23 @@ export function createReadToolDefinition(
 ): ToolDefinition<typeof readSchema, ReadToolDetails | undefined> {
 	const autoResizeImages = options?.autoResizeImages ?? true;
 	const ops = options?.operations ?? defaultReadOperations;
+	const toolName = options?.toolName ?? "read";
+	const label = options?.label ?? "Read";
 	return {
-		name: "read",
-		label: "read",
-		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
+		name: toolName,
+		label,
+		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Pass full:true to read the entire file in one call when you genuinely need all of it.`,
 		promptSnippet: "Read file contents",
-		promptGuidelines: ["Use read to examine files instead of cat or sed."],
+		promptGuidelines: [
+			"Use read to examine files instead of cat or sed.",
+			"Read only the region you need: when you already know which part of a file is relevant, pass offset/limit instead of reading the whole file. Reserve full reads for when you genuinely need the entire file.",
+			"Track line counts from read results and never request an offset greater than the file's reported total lines.",
+		],
+		executionMode: "parallel",
 		parameters: readSchema,
 		async execute(
 			_toolCallId,
-			{ path, offset, limit }: { path: string; offset?: number; limit?: number },
+			{ path, offset, limit, full }: { path: string; offset?: number; limit?: number; full?: boolean },
 			signal?: AbortSignal,
 			_onUpdate?,
 			ctx?,
@@ -270,49 +293,74 @@ export function createReadToolDefinition(
 								// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
 								const startLine = offset ? Math.max(0, offset - 1) : 0;
 								const startLineDisplay = startLine + 1;
+								const requestedEndLineDisplay =
+									limit !== undefined ? startLineDisplay + Math.max(0, limit) - 1 : undefined;
 								// Check if offset is out of bounds.
 								if (startLine >= allLines.length) {
-									throw new Error(`Offset ${offset} is beyond end of file (${allLines.length} lines total)`);
-								}
-								let selectedContent: string;
-								let userLimitedLines: number | undefined;
-								// If limit is specified by the user, honor it first. Otherwise truncateHead decides.
-								if (limit !== undefined) {
-									const endLine = Math.min(startLine + limit, allLines.length);
-									selectedContent = allLines.slice(startLine, endLine).join("\n");
-									userLimitedLines = endLine - startLine;
+									const fallbackLimit = Math.min(Math.max(1, limit ?? 20), totalFileLines);
+									const fallbackOffset = Math.max(1, totalFileLines - fallbackLimit + 1);
+									const rangeText = requestedEndLineDisplay ? `-${requestedEndLineDisplay}` : "";
+									const fallbackText =
+										totalFileLines > 0
+											? ` Last valid offset is ${totalFileLines}. To inspect the file end, read with offset=${fallbackOffset}${limit !== undefined ? `, limit=${fallbackLimit}` : ""}.`
+											: " The file is empty.";
+									content = [
+										{
+											type: "text",
+											text: `Requested lines ${startLineDisplay}${rangeText}, but ${path} has only ${totalFileLines} lines.${fallbackText}`,
+										},
+									];
 								} else {
-									selectedContent = allLines.slice(startLine).join("\n");
-								}
-								// Apply truncation, respecting both line and byte limits.
-								const truncation = truncateHead(selectedContent);
-								let outputText: string;
-								if (truncation.firstLineExceedsLimit) {
-									// First line alone exceeds the byte limit. Point the model at a bash fallback.
-									const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
-									outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-									details = { truncation };
-								} else if (truncation.truncated) {
-									// Truncation occurred. Build an actionable continuation notice.
-									const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
-									const nextOffset = endLineDisplay + 1;
-									outputText = truncation.content;
-									if (truncation.truncatedBy === "lines") {
-										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
+									let selectedContent: string;
+									let userLimitedLines: number | undefined;
+									// If limit is specified by the user, honor it first. Otherwise truncateHead decides.
+									if (limit !== undefined) {
+										const endLine = Math.min(startLine + limit, allLines.length);
+										selectedContent = allLines.slice(startLine, endLine).join("\n");
+										userLimitedLines = endLine - startLine;
 									} else {
-										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+										selectedContent = allLines.slice(startLine).join("\n");
 									}
-									details = { truncation };
-								} else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
-									// User-specified limit stopped early, but the file still has more content.
-									const remaining = allLines.length - (startLine + userLimitedLines);
-									const nextOffset = startLine + userLimitedLines + 1;
-									outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
-								} else {
-									// No truncation and no remaining user-limited content.
-									outputText = truncation.content;
+									// Apply truncation, respecting both line and byte limits.
+									const truncation = truncateHead(selectedContent, full ? FULL_TRUNCATION : undefined);
+									let outputText: string;
+									if (truncation.firstLineExceedsLimit) {
+										// First line alone exceeds the byte limit. Point the model at a bash fallback.
+										const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
+										outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
+										details = { truncation };
+									} else if (truncation.truncated) {
+										// Truncation occurred. Build an actionable continuation notice.
+										const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+										const nextOffset = endLineDisplay + 1;
+										outputText = truncation.content;
+										if (truncation.truncatedBy === "lines") {
+											outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
+										} else {
+											outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+										}
+										details = { truncation };
+									} else if (
+										userLimitedLines !== undefined &&
+										startLine + userLimitedLines < allLines.length
+									) {
+										// User-specified limit stopped early, but the file still has more content.
+										const remaining = allLines.length - (startLine + userLimitedLines);
+										const nextOffset = startLine + userLimitedLines + 1;
+										outputText = `${truncation.content}\n\n[${remaining} more lines in file (${totalFileLines} lines total). Use offset=${nextOffset} to continue.]`;
+									} else if (
+										requestedEndLineDisplay !== undefined &&
+										requestedEndLineDisplay > totalFileLines
+									) {
+										outputText = `${truncation.content}\n\n[End of file: requested through line ${requestedEndLineDisplay}, file has ${totalFileLines} lines.]`;
+									} else if (offset !== undefined || limit !== undefined) {
+										outputText = `${truncation.content}\n\n[End of file: file has ${totalFileLines} lines.]`;
+									} else {
+										// No truncation, explicit range, or remaining user-limited content.
+										outputText = truncation.content;
+									}
+									content = [{ type: "text", text: outputText }];
 								}
-								content = [{ type: "text", text: outputText }];
 							}
 
 							if (aborted) return;
@@ -331,8 +379,8 @@ export function createReadToolDefinition(
 			const classification = !context.expanded ? getCompactReadClassification(args, context.cwd) : undefined;
 			text.setText(
 				classification
-					? formatCompactReadCall(classification, args, theme)
-					: formatReadCall(args, theme, context.cwd),
+					? formatCompactReadCall(classification, args, theme, label)
+					: formatReadCall(args, theme, label, context.cwd),
 			);
 			return text;
 		},

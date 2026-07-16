@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import {
 	type EditorTheme,
 	getCapabilities,
@@ -8,7 +8,7 @@ import {
 	type RgbColor,
 	type SelectListTheme,
 	type SettingsListTheme,
-} from "@earendil-works/pi-tui";
+} from "@valkyriweb/pi-tui";
 import chalk from "chalk";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
@@ -420,7 +420,10 @@ export class Theme {
 			case "xhigh":
 				return (str: string) => this.fg("thinkingXhigh", str);
 			case "max":
+			case "ultra":
 				return (str: string) => this.fg("thinkingMax", str);
+			case "adaptive":
+				return (str: string) => this.fg("thinkingHigh", str);
 			default:
 				return (str: string) => this.fg("thinkingOff", str);
 		}
@@ -797,7 +800,7 @@ export function getDefaultTheme(): string {
 // ============================================================================
 
 // Use globalThis to share theme across module loaders (tsx + jiti in dev mode)
-const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
+const THEME_KEY = Symbol.for("@valkyriweb/pi-coding-agent:theme");
 const THEME_KEY_OLD = Symbol.for("@mariozechner/pi-coding-agent:theme");
 
 // Export theme as a getter that reads from globalThis

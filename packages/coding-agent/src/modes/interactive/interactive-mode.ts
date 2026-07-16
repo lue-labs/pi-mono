@@ -7,9 +7,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import type { AssistantMessage, ImageContent, Message, Model } from "@earendil-works/pi-ai/compat";
+import type { AgentMessage } from "@valkyriweb/pi-agent-core";
+import type { AuthEvent, AuthPrompt } from "@valkyriweb/pi-ai";
+import type { AssistantMessage, ImageContent, Message, Model } from "@valkyriweb/pi-ai/compat";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -20,7 +20,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	SlashCommand,
-} from "@earendil-works/pi-tui";
+} from "@valkyriweb/pi-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -37,7 +37,7 @@ import {
 	TruncatedText,
 	TUI,
 	visibleWidth,
-} from "@earendil-works/pi-tui";
+} from "@valkyriweb/pi-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import {
@@ -1754,39 +1754,54 @@ export class InteractiveMode {
 		const shortcuts = extensionRunner.getShortcuts(this.keybindings.getEffectiveConfig());
 		if (shortcuts.size === 0) return;
 
-		// Create a context for shortcut handlers
-		const createContext = (): ExtensionContext => ({
-			ui: this.createExtensionUIContext(),
-			mode: "tui",
-			hasUI: true,
-			cwd: this.sessionManager.getCwd(),
-			sessionManager: this.sessionManager,
-			modelRegistry: extensionRunner.getModelRegistry(),
-			model: this.session.model,
-			isIdle: () => this.session.isIdle,
-			isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
-			signal: this.session.agent.signal,
-			abort: () => {
-				this.restoreQueuedMessagesToEditor({ abort: true });
-			},
-			hasPendingMessages: () => this.session.pendingMessageCount > 0,
-			shutdown: () => {
-				this.shutdownRequested = true;
-			},
-			getContextUsage: () => this.session.getContextUsage(),
-			compact: (options) => {
-				void (async () => {
-					try {
-						const result = await this.session.compact(options?.customInstructions);
-						options?.onComplete?.(result);
-					} catch (error) {
-						const err = error instanceof Error ? error : new Error(String(error));
-						options?.onError?.(err);
-					}
-				})();
-			},
-			getSystemPrompt: () => this.session.systemPrompt,
-		});
+		// Create a context for shortcut handlers.
+		// The runner already owns canonical wiring for forkAgent / transcript so we
+		// delegate to a runner-built context for those two slots; the rest mirrors
+		// the live interactive bindings (UI, cwd, etc.) used by shortcut handlers.
+		const session = this.session;
+		const createContext = (): ExtensionContext => {
+			const runnerCtx = extensionRunner.createContext();
+			return {
+				ui: this.createExtensionUIContext(),
+				mode: "tui",
+				hasUI: true,
+				cwd: this.sessionManager.getCwd(),
+				source: runnerCtx.source,
+				sessionManager: this.sessionManager,
+				modelRegistry: session.modelRegistry,
+				model: session.model,
+				isIdle: () => session.isIdle,
+				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
+				signal: session.agent.signal,
+				abort: () => {
+					this.restoreQueuedMessagesToEditor({ abort: true });
+				},
+				requestStopAfterTurn: (reason) => runnerCtx.requestStopAfterTurn(reason),
+				hasPendingMessages: () => session.pendingMessageCount > 0,
+				shutdown: () => {
+					this.shutdownRequested = true;
+				},
+				reload: async () => {
+					await this.handleReloadCommand();
+				},
+				getContextUsage: () => session.getContextUsage(),
+				compact: (options) => {
+					void (async () => {
+						try {
+							const result = await session.compact(options?.customInstructions);
+							options?.onComplete?.(result);
+						} catch (error) {
+							const err = error instanceof Error ? error : new Error(String(error));
+							options?.onError?.(err);
+						}
+					})();
+				},
+				getSystemPrompt: () => session.systemPrompt,
+				getEffectiveSystemPrompt: () => session.getEffectiveSystemPrompt(),
+				forkAgent: (opts) => runnerCtx.forkAgent(opts),
+				transcript: runnerCtx.transcript,
+			};
+		};
 
 		// Set up the extension shortcut handler on the default editor
 		this.defaultEditor.onExtensionShortcut = (data: string) => {

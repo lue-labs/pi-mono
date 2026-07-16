@@ -2,10 +2,10 @@
  * CLI argument parsing and help display
  */
 
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
-import type { ExtensionFlag } from "../core/extensions/types.ts";
+import type { ExtensionFlag, InputSource } from "../core/extensions/types.ts";
 
 export type Mode = "text" | "json" | "rpc";
 
@@ -47,6 +47,14 @@ export interface Args {
 	offline?: boolean;
 	verbose?: boolean;
 	projectTrustOverride?: boolean;
+	/**
+	 * Declares the origin of this prompt invocation to extension hooks via
+	 * `session.prompt({ source })` so extension hooks (`before_agent_start`,
+	 * etc.) can distinguish interactive/rpc/extension/child-agent runs.
+	 * Replaces the legacy `PI_MEMORY_SUBAGENT=1` env contract: a parent pi
+	 * spawning `pi --print` for a sub-agent run passes `--source child-agent`.
+	 */
+	source?: InputSource;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
@@ -54,10 +62,16 @@ export interface Args {
 	diagnostics: Array<{ type: "warning" | "error"; message: string }>;
 }
 
-const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "adaptive"] as const;
 
 export function isValidThinkingLevel(level: string): level is ThinkingLevel {
 	return VALID_THINKING_LEVELS.includes(level as ThinkingLevel);
+}
+
+const VALID_INPUT_SOURCES = ["interactive", "rpc", "extension", "child-agent"] as const;
+
+function isValidInputSource(value: string): value is InputSource {
+	return (VALID_INPUT_SOURCES as readonly string[]).includes(value);
 }
 
 export function parseArgs(args: string[]): Args {
@@ -183,6 +197,16 @@ export function parseArgs(args: string[]): Args {
 			result.projectTrustOverride = false;
 		} else if (arg === "--offline") {
 			result.offline = true;
+		} else if (arg === "--source" && i + 1 < args.length) {
+			const value = args[++i];
+			if (isValidInputSource(value)) {
+				result.source = value;
+			} else {
+				result.diagnostics.push({
+					type: "warning",
+					message: `Invalid --source "${value}". Valid values: ${VALID_INPUT_SOURCES.join(", ")}`,
+				});
+			}
 		} else if (arg.startsWith("@")) {
 			result.fileArgs.push(arg.slice(1)); // Remove @ prefix
 		} else if (arg.startsWith("--")) {
@@ -274,6 +298,7 @@ ${chalk.bold("Options:")}
   --approve, -a                  Trust project-local files for this run
   --no-approve, -na              Ignore project-local files for this run
   --offline                      Disable startup network operations (same as PI_OFFLINE=1)
+  --source <source>              Declare prompt origin (interactive|rpc|extension|child-agent)
   --help, -h                     Show this help
   --version, -v                  Show version number
 

@@ -2,8 +2,10 @@
  * Extension system for lifecycle events and custom tools.
  */
 
+export { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, type AgentParentSnapshot } from "../agents/engine.ts";
 export type { SlashCommandInfo, SlashCommandSource } from "../slash-commands.ts";
 export type { SourceInfo } from "../source-info.ts";
+export { BASH_BG_JOBS_SERVICE_ID } from "./bash-bg-jobs.ts";
 export {
 	createExtensionRuntime,
 	discoverAndLoadExtensions,
@@ -12,6 +14,7 @@ export {
 } from "./loader.ts";
 export type {
 	ExtensionErrorListener,
+	ExtensionSlotUIActions,
 	ForkHandler,
 	NavigateTreeHandler,
 	NewSessionHandler,
@@ -22,8 +25,10 @@ export { ExtensionRunner } from "./runner.ts";
 export type {
 	AfterProviderResponseEvent,
 	AgentEndEvent,
+	AgentHandle,
 	AgentSettledEvent,
 	AgentStartEvent,
+	AgentTelemetry,
 	// Re-exports
 	AgentToolResult,
 	AgentToolUpdateCallback,
@@ -70,20 +75,27 @@ export type {
 	ExtensionEvent,
 	ExtensionFactory,
 	ExtensionFlag,
+	ExtensionFooterSpec,
 	ExtensionHandler,
+	ExtensionMainPaneAPI,
+	ExtensionMainPaneFactory,
 	ExtensionMode,
+	ExtensionOverlayAPI,
+	ExtensionOverlayFactory,
 	// Runtime
 	ExtensionRuntime,
 	ExtensionShortcut,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
 	ExtensionWidgetOptions,
-	FindToolCallEvent,
-	FindToolResultEvent,
+	ForkAgentOptions,
+	ForkAgentResult,
 	GetActiveToolsHandler,
 	GetAllToolsHandler,
 	GetCommandsHandler,
 	GetThinkingLevelHandler,
+	GlobToolCallEvent,
+	GlobToolResultEvent,
 	GrepToolCallEvent,
 	GrepToolResultEvent,
 	InlineExtension,
@@ -142,6 +154,7 @@ export type {
 	SetLabelHandler,
 	SetModelHandler,
 	SetThinkingLevelHandler,
+	TelemetryEvent,
 	TerminalInputHandler,
 	// Events - Tool
 	ToolCallEvent,
@@ -158,6 +171,8 @@ export type {
 	ToolRenderResultOptions,
 	ToolResultEvent,
 	ToolResultEventResult,
+	TranscriptApi,
+	TranscriptEntry,
 	TreePreparation,
 	TurnEndEvent,
 	TurnStartEvent,
@@ -174,7 +189,7 @@ export {
 	defineTool,
 	isBashToolResult,
 	isEditToolResult,
-	isFindToolResult,
+	isGlobToolResult,
 	isGrepToolResult,
 	isLsToolResult,
 	isReadToolResult,

@@ -1,17 +1,20 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Transport } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
+import type { Transport } from "@valkyriweb/pi-ai";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
+import type { ExtensionLoadMode } from "./extensions/types.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
+	triggerTokens?: number; // absolute context-token threshold; when set and contextWindow is known, derives reserveTokens as (contextWindow - triggerTokens)
 	keepRecentTokens?: number; // default: 20000
+	residentPrune?: boolean; // default: false - stub summarized payloads in resident memory after successful compaction
 }
 
 export interface BranchSummarySettings {
@@ -51,6 +54,51 @@ export interface ThinkingBudgetsSettings {
 	high?: number;
 }
 
+export type SubagentThinkingSetting =
+	| "inherit"
+	| "off"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max"
+	| "ultra";
+
+export interface SubagentDefaultSettings {
+	model?: string;
+	thinking?: SubagentThinkingSetting;
+}
+
+export interface SubagentSettings {
+	defaults?: SubagentDefaultSettings;
+	providers?: Record<string, SubagentDefaultSettings>;
+	/**
+	 * Maximum nested delegation depth for the `agent` tool (children spawning
+	 * their own children). Top-level delegation is always allowed; this caps how
+	 * many further levels a child may nest. 0 (default) = no nesting, preserving
+	 * upstream single-layer behaviour. Capped at 16.
+	 */
+	maxDelegationDepth?: number;
+}
+
+export interface CacheHeartbeatWorkingHoursSettings {
+	start?: string; // local HH:mm, default: "08:00"
+	end?: string; // local HH:mm, default: "18:00"
+	days?: number[]; // local day numbers, 0=Sunday; default: Monday-Friday
+}
+
+export interface CacheHeartbeatSettings {
+	enabled?: boolean; // default: false - paid background LLM calls must be opt-in
+	intervalMs?: number; // default: 55 minutes
+	providers?: string[]; // default: ["openai-codex/", "claude-bridge/"]
+	basePrompt?: boolean; // default: true - warm the base-system-prompt cache once per provider/model per process
+	sessionPrompt?: boolean; // default: true - refresh each active session once per idle turn
+	workingHours?: CacheHeartbeatWorkingHoursSettings;
+	maxTokens?: number; // default: 1
+	rateLimitCooldownMs?: number; // default: 5 minutes
+}
+
 export interface MarkdownSettings {
 	codeBlockIndent?: string; // default: "  "
 }
@@ -78,6 +126,19 @@ export type PackageSource =
 			skills?: string[];
 			prompts?: string[];
 			themes?: string[];
+			/** Default load mode for the package's extension entries. */
+			load?: ExtensionLoadMode;
+			/**
+			 * Conditional load gate. When set, the package (and all resources it
+			 * provides) is only loaded if the active default model matches one of
+			 * the listed patterns. Patterns use the same glob form as enabledModels
+			 * (e.g. openai-codex/*, *sonnet*).
+			 *
+			 * Evaluated against defaultProvider/defaultModel from settings at
+			 * package-resolve time. Mid-session model switches do NOT re-evaluate;
+			 * change settings and reload to switch which packages are active.
+			 */
+			enabledWhen?: { models?: string[] };
 	  };
 
 export interface Settings {
@@ -92,6 +153,8 @@ export interface Settings {
 	compaction?: CompactionSettings;
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
+	subagents?: SubagentSettings; // Default model/thinking for native child agents (precedence: explicit task option > agent frontmatter > providers[parent.provider] > defaults > parent inheritance)
+	cacheHeartbeat?: CacheHeartbeatSettings;
 	hideThinkingBlock?: boolean;
 	showCacheMissNotices?: boolean; // default: false - show transcript notices for significant prompt-cache misses
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
@@ -100,6 +163,7 @@ export interface Settings {
 	defaultProjectTrust?: DefaultProjectTrust; // default: "ask"; global setting only
 	shellCommandPrefix?: string; // Prefix prepended to every bash command (e.g., "shopt -s expand_aliases" for alias support)
 	npmCommand?: string[]; // Command used for npm package lookup/install operations, argv-style (e.g., ["mise", "exec", "node@20", "--", "npm"])
+	sourceUpdateCommand?: string[]; // Command used to self-update source checkout installs, argv-style
 	collapseChangelog?: boolean; // Show condensed changelog after update (use /changelog for full)
 	enableInstallTelemetry?: boolean; // default: true - anonymous version/update ping after changelog-detected updates
 	enableAnalytics?: boolean; // default: false - opt-in analytics data sharing
@@ -741,6 +805,15 @@ export class SettingsManager {
 		return this.settings.defaultThinkingLevel;
 	}
 
+	/**
+	 * Returns subagent default model/thinking config. Used by the agent tool to
+	 * resolve the model and thinking level for a child session when the caller
+	 * didn't supply explicit overrides and the agent definition has no own pick.
+	 */
+	getSubagentSettings(): SubagentSettings {
+		return structuredClone(this.settings.subagents ?? {});
+	}
+
 	setDefaultThinkingLevel(level: ThinkingLevel): void {
 		this.globalSettings.defaultThinkingLevel = level;
 		this.markModified("defaultThinkingLevel");
@@ -770,7 +843,18 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getCompactionReserveTokens(): number {
+	getCompactionReserveTokens(contextWindow?: number): number {
+		const triggerTokens = this.settings.compaction?.triggerTokens;
+		if (
+			typeof triggerTokens === "number" &&
+			Number.isFinite(triggerTokens) &&
+			triggerTokens > 0 &&
+			typeof contextWindow === "number" &&
+			Number.isFinite(contextWindow) &&
+			contextWindow > triggerTokens
+		) {
+			return Math.max(0, Math.floor(contextWindow - triggerTokens));
+		}
 		return this.settings.compaction?.reserveTokens ?? 16384;
 	}
 
@@ -778,11 +862,21 @@ export class SettingsManager {
 		return this.settings.compaction?.keepRecentTokens ?? 20000;
 	}
 
-	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
+	getCompactionResidentPruneEnabled(): boolean {
+		return Boolean(this.settings.compaction?.residentPrune) || process.env.PI_RESIDENT_SESSION_PRUNE === "1";
+	}
+
+	getCompactionSettings(contextWindow?: number): {
+		enabled: boolean;
+		reserveTokens: number;
+		keepRecentTokens: number;
+		residentPrune: boolean;
+	} {
 		return {
 			enabled: this.getCompactionEnabled(),
-			reserveTokens: this.getCompactionReserveTokens(),
+			reserveTokens: this.getCompactionReserveTokens(contextWindow),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			residentPrune: this.getCompactionResidentPruneEnabled(),
 		};
 	}
 
@@ -836,6 +930,33 @@ export class SettingsManager {
 			timeoutMs: this.settings.retry?.provider?.timeoutMs,
 			maxRetries: this.settings.retry?.provider?.maxRetries,
 			maxRetryDelayMs: this.settings.retry?.provider?.maxRetryDelayMs ?? 60000,
+		};
+	}
+
+	getCacheHeartbeatSettings(): {
+		enabled: boolean;
+		intervalMs: number;
+		providers: string[];
+		basePrompt: boolean;
+		sessionPrompt: boolean;
+		workingHours: Required<CacheHeartbeatWorkingHoursSettings>;
+		maxTokens: number;
+		rateLimitCooldownMs: number;
+	} {
+		const settings = this.settings.cacheHeartbeat;
+		return {
+			enabled: settings?.enabled ?? false,
+			intervalMs: settings?.intervalMs ?? 55 * 60 * 1000,
+			providers: settings?.providers ?? ["openai-codex/", "claude-bridge/"],
+			basePrompt: settings?.basePrompt ?? true,
+			sessionPrompt: settings?.sessionPrompt ?? true,
+			workingHours: {
+				start: settings?.workingHours?.start ?? "08:00",
+				end: settings?.workingHours?.end ?? "18:00",
+				days: settings?.workingHours?.days ?? [1, 2, 3, 4, 5],
+			},
+			maxTokens: settings?.maxTokens ?? 1,
+			rateLimitCooldownMs: settings?.rateLimitCooldownMs ?? 5 * 60 * 1000,
 		};
 	}
 

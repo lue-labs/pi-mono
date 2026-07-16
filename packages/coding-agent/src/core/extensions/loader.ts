@@ -6,13 +6,14 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-import * as _bundledPiAgentCore from "@earendil-works/pi-agent-core";
-import * as _bundledPiAiCompat from "@earendil-works/pi-ai/compat";
-import * as _bundledPiAiOauth from "@earendil-works/pi-ai/oauth";
-import * as _bundledPiAiProviders from "@earendil-works/pi-ai/providers/all";
-import type { KeyId } from "@earendil-works/pi-tui";
-import * as _bundledPiTui from "@earendil-works/pi-tui";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import * as _bundledPiAgentCore from "@valkyriweb/pi-agent-core";
+import * as _bundledPiAi from "@valkyriweb/pi-ai";
+import * as _bundledPiAiCompat from "@valkyriweb/pi-ai/compat";
+import * as _bundledPiAiOauth from "@valkyriweb/pi-ai/oauth";
+import * as _bundledPiAiProviders from "@valkyriweb/pi-ai/providers/all";
+import type { KeyId } from "@valkyriweb/pi-tui";
+import * as _bundledPiTui from "@valkyriweb/pi-tui";
 import { createJiti } from "jiti/static";
 // Static imports of packages that extensions may use.
 // These MUST be static so Bun bundles them into the compiled binary.
@@ -22,26 +23,33 @@ import * as _bundledTypeboxCompile from "typebox/compile";
 import * as _bundledTypeboxValue from "typebox/value";
 import { CONFIG_DIR_NAME, getAgentDir, isBunBinary } from "../../config.ts";
 // NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
-// avoiding a circular dependency. Extensions can import from @earendil-works/pi-coding-agent.
+// avoiding a circular dependency. Extensions can import from @valkyriweb/pi-coding-agent.
 import * as _bundledPiCodingAgent from "../../index.ts";
 import { resolvePath } from "../../utils/paths.ts";
 import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { createSyntheticSourceInfo } from "../source-info.ts";
-import { time } from "../timings.ts";
+import { recordTiming, time, timingsEnabled } from "../timings.ts";
+import { createForkExtensionAPI } from "./extension-api-fork.ts";
 import type {
+	AgentTelemetry,
+	DeferredExtension,
 	EntryRenderer,
 	Extension,
 	ExtensionAPI,
 	ExtensionFactory,
+	ExtensionLoadRequest,
 	ExtensionRuntime,
 	LoadExtensionsResult,
 	MessageRenderer,
 	ProviderConfig,
 	RegisteredCommand,
+	RunRegistry,
 	ToolDefinition,
 } from "./types.ts";
+
+export { deleteExtensionProcessServiceForTests, getExtensionProcessService } from "./extension-api-fork.ts";
 
 /** Modules available to extensions via virtualModules (for compiled Bun binary) */
 const VIRTUAL_MODULES: Record<string, unknown> = {
@@ -51,6 +59,19 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@sinclair/typebox": _bundledTypebox,
 	"@sinclair/typebox/compile": _bundledTypeboxCompile,
 	"@sinclair/typebox/value": _bundledTypeboxValue,
+	"@valkyriweb/pi-agent-core": _bundledPiAgentCore,
+	"@valkyriweb/pi-tui": _bundledPiTui,
+	"@valkyriweb/pi-ai": _bundledPiAi,
+	// Fork-scope extensions opt into the legacy global dispatch API by importing
+	// the explicit /compat subpath; register it so the resolve succeeds in the
+	// compiled binary (the bare @valkyriweb/pi-ai root stays the strict core).
+	"@valkyriweb/pi-ai/compat": _bundledPiAiCompat,
+	"@valkyriweb/pi-ai/oauth": _bundledPiAiOauth,
+	"@valkyriweb/pi-coding-agent": _bundledPiCodingAgent,
+	// Upstream package-name compatibility for third-party extensions that import
+	// the upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
+	// Maps onto the same bundled fork modules so value imports resolve in the
+	// compiled binary (type-only imports already erase at runtime).
 	"@earendil-works/pi-agent-core": _bundledPiAgentCore,
 	"@earendil-works/pi-tui": _bundledPiTui,
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
@@ -98,19 +119,27 @@ function getAliases(): Record<string, string> {
 	};
 
 	const piCodingAgentEntry = packageIndex;
-	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@earendil-works/pi-agent-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@earendil-works/pi-tui");
+	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@valkyriweb/pi-agent-core");
+	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@valkyriweb/pi-tui");
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
 	// superset of the core entrypoint): existing extensions using the old
 	// global API keep working at runtime until compat is removed.
-	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@earendil-works/pi-ai/compat");
-	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@earendil-works/pi-ai/oauth");
-	const piAiProvidersEntry = resolveWorkspaceOrImport(
-		"ai/dist/providers/all.js",
-		"@earendil-works/pi-ai/providers/all",
-	);
+	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@valkyriweb/pi-ai/compat");
+	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@valkyriweb/pi-ai/oauth");
+	const piAiProvidersEntry = resolveWorkspaceOrImport("ai/dist/providers/all.js", "@valkyriweb/pi-ai/providers/all");
 
 	_aliases = {
+		"@valkyriweb/pi-coding-agent": piCodingAgentEntry,
+		"@valkyriweb/pi-agent-core": piAgentCoreEntry,
+		"@valkyriweb/pi-tui": piTuiEntry,
+		"@valkyriweb/pi-ai/providers/all": piAiProvidersEntry,
+		"@valkyriweb/pi-ai/compat": piAiCompatEntry,
+		"@valkyriweb/pi-ai/oauth": piAiOauthEntry,
+		"@valkyriweb/pi-ai": piAiCompatEntry,
+		// Upstream package-name compatibility: third-party extensions import the
+		// upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
+		// Map them onto the fork's @valkyriweb/* entries so value imports resolve
+		// in the bundled binary (type-only imports already erase at runtime).
 		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
 		"@earendil-works/pi-agent-core": piAgentCoreEntry,
 		"@earendil-works/pi-tui": piTuiEntry,
@@ -134,6 +163,44 @@ function getAliases(): Record<string, string> {
 	};
 
 	return _aliases;
+}
+
+/**
+ * Test-only: the exact module specifiers extensions can resolve, for BOTH
+ * resolution paths — the compiled Bun binary (`VIRTUAL_MODULES`) and Node/dev
+ * (jiti `getAliases()`). The two MUST stay in lockstep; a drift between them is
+ * what dropped `@valkyriweb/pi-ai/compat` from the binary map and broke fork
+ * extension loading in the 0.80.x daily driver. Guarded by
+ * loader-module-alias-symmetry.test.ts.
+ */
+export function getExtensionModuleSpecifiersForTests(): {
+	virtualModules: string[];
+	aliases: string[];
+} {
+	return {
+		virtualModules: Object.keys(VIRTUAL_MODULES),
+		aliases: Object.keys(getAliases()),
+	};
+}
+
+/**
+ * The jiti resolution options (`virtualModules`/`alias`) that make
+ * `@valkyriweb/pi-coding-agent`, `@valkyriweb/pi-tui`, etc. resolve to the
+ * running binary's own bundled modules instead of falling through to plain
+ * Node `node_modules` resolution — which frequently doesn't have those
+ * exact package names on disk (npm peer-conflict dedup renames, workspace
+ * layouts, etc.). Any OTHER jiti-based loader for extension-shaped code
+ * (e.g. `cli/agent-view-command.ts`'s standalone dashboard-package import,
+ * which used to build its own bare `createJiti()` with no alias/virtualModule
+ * config at all and could resolve the entrypoint file but not that file's
+ * own `@valkyriweb/*` imports) MUST reuse this, not reimplement it — a second
+ * copy is exactly the kind of drift `loader-module-alias-symmetry.test.ts`
+ * exists to catch for the two branches already in this module.
+ */
+export function getExtensionJitiResolutionOptions():
+	| { virtualModules: Record<string, unknown>; tryNative: false }
+	| { alias: Record<string, string> } {
+	return isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() };
 }
 
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
@@ -170,7 +237,11 @@ export function createExtensionRuntime(): ExtensionRuntime {
 	const notInitialized = () => {
 		throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.");
 	};
-	const state: { staleMessage?: string } = {};
+	const state: { staleMessage?: string; runRegistry?: RunRegistry; telemetry?: AgentTelemetry } = {};
+	// Default no-op stubs for B5 show/hide handlers. interactive-mode replaces
+	// these via `ExtensionRunner.bindSlotUI()`; non-UI modes silently swallow
+	// show/hide requests.
+	const slotNoOp: (..._args: unknown[]) => void = () => {};
 	const assertActive = () => {
 		if (state.staleMessage) {
 			throw new Error(state.staleMessage);
@@ -186,7 +257,11 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		setLabel: notInitialized,
 		getActiveTools: notInitialized,
 		getAllTools: notInitialized,
+		getToolDefinitions: notInitialized,
+		getCustomEntries: notInitialized,
 		setActiveTools: notInitialized,
+		setDeferredOverrides: notInitialized,
+		setToolNamespaces: notInitialized,
 		// registerTool() is valid during extension load; refresh is only needed post-bind.
 		refreshTools: () => {},
 		getCommands: notInitialized,
@@ -194,7 +269,9 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		getThinkingLevel: notInitialized,
 		setThinkingLevel: notInitialized,
 		flagValues: new Map(),
+		extensionConfig: {},
 		pendingProviderRegistrations: [],
+		suppressNewToolActivation: false,
 		assertActive,
 		invalidate: (message) => {
 			state.staleMessage ??=
@@ -209,6 +286,20 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		unregisterProvider: (name) => {
 			runtime.pendingProviderRegistrations = runtime.pendingProviderRegistrations.filter((r) => r.name !== name);
 		},
+		setRunRegistry: (registry) => {
+			if (!state.runRegistry) state.runRegistry = registry;
+		},
+		getRunRegistry: () => state.runRegistry,
+		setTelemetry: (telemetry) => {
+			if (!state.telemetry) state.telemetry = telemetry;
+		},
+		getTelemetry: () => state.telemetry,
+		showMainPaneFn: slotNoOp,
+		hideMainPaneFn: slotNoOp,
+		showOverlayFn: slotNoOp,
+		hideOverlayFn: slotNoOp,
+		hasMainPaneFn: () => false,
+		services: new Map(),
 	};
 
 	return runtime;
@@ -226,6 +317,9 @@ function createExtensionAPI(
 	eventBus: EventBus,
 ): ExtensionAPI {
 	const api = {
+		cwd,
+		...createForkExtensionAPI(extension, runtime),
+
 		// Registration methods - write to extension
 		on(event: string, handler: HandlerFn): void {
 			runtime.assertActive();
@@ -240,7 +334,7 @@ function createExtensionAPI(
 				definition: tool,
 				sourceInfo: extension.sourceInfo,
 			});
-			runtime.refreshTools();
+			runtime.refreshTools({ activateNewTools: !runtime.suppressNewToolActivation });
 		},
 
 		registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">): void {
@@ -395,12 +489,32 @@ async function loadExtensionModule(extensionPath: string, cacheToken?: Extension
 		}
 	}
 
+	// Pre-compiled .js/.mjs extensions can be loaded with native import() —
+	// no jiti/babel overhead. Only use jiti for .ts files.
+	if (/\.[mc]?js$/.test(extensionPath)) {
+		try {
+			const url = pathToFileURL(extensionPath).href;
+			const module = await import(url);
+			const factory = (module.default ?? module) as ExtensionFactory;
+			if (typeof factory === "function" && isCurrentCacheToken(cacheToken)) {
+				extensionCache.set(extensionPath, factory);
+			}
+			return typeof factory === "function" ? factory : undefined;
+		} catch {
+			// Fall through to jiti (handles CommonJS / alias needs)
+		}
+	}
+
 	const jiti = createJiti(import.meta.url, {
 		moduleCache: false,
+		// Cache transpiled .ts extension source to disk so jiti/babel doesn't
+		// re-parse on every boot. Explicit path so it survives reboots
+		// (fsCache:true falls back to tmpdir which is wiped on reboot).
+		fsCache: path.join(getAgentDir(), ".jiti-cache"),
 		// In Bun binary: use virtualModules for bundled packages (no filesystem resolution)
 		// Also disable tryNative so jiti handles ALL imports (not just the entry point)
 		// In Node.js/dev: use aliases to resolve to node_modules paths
-		...(isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() }),
+		...getExtensionJitiResolutionOptions(),
 	});
 
 	const module = await jiti.import(extensionPath, { default: true });
@@ -431,10 +545,18 @@ function createExtension(extensionPath: string, resolvedPath: string): Extension
 		handlers: new Map(),
 		tools: new Map(),
 		messageRenderers: new Map(),
+		defaultMessageRenderers: new Map(),
 		entryRenderers: new Map(),
 		commands: new Map(),
 		flags: new Map(),
 		shortcuts: new Map(),
+		disposeHandlers: [],
+		registeredAgentDefinitions: [],
+		registeredAgentChains: [],
+		registeredContextModes: new Map(),
+		registeredMainPanes: new Map(),
+		registeredOverlays: new Map(),
+		registeredFooters: new Map(),
 	};
 }
 
@@ -484,24 +606,46 @@ export async function loadExtensionFromFactory(
 	return extension;
 }
 
+function normalizeLoadRequest(input: string | ExtensionLoadRequest): ExtensionLoadRequest {
+	return typeof input === "string" ? { path: input, load: "eager" } : { load: "eager", ...input };
+}
+
+export async function loadDeferredExtension(
+	deferred: DeferredExtension,
+	cwd: string,
+	eventBus: EventBus,
+	runtime: ExtensionRuntime,
+): Promise<{ extension: Extension | null; error: string | null }> {
+	return loadExtension(deferred.path, cwd, eventBus, runtime);
+}
+
 /**
- * Load extensions from paths.
+ * Load eager extensions now and keep deferred entries as metadata-only stubs.
  */
 async function loadExtensionsInternal(
-	paths: string[],
+	inputs: Array<string | ExtensionLoadRequest>,
 	cwd: string,
 	eventBus?: EventBus,
 	runtime?: ExtensionRuntime,
 	useCache = false,
 ): Promise<LoadExtensionsResult> {
 	const extensions: Extension[] = [];
+	const deferredExtensions: DeferredExtension[] = [];
 	const errors: Array<{ path: string; error: string }> = [];
 	const cacheToken = useCache ? useExtensionCacheCwd(cwd) : undefined;
 	const resolvedCwd = cacheToken?.cwd ?? resolvePath(cwd);
 	const resolvedEventBus = eventBus ?? createEventBus();
 	const resolvedRuntime = runtime ?? createExtensionRuntime();
 
-	for (const extPath of paths) {
+	const timing = timingsEnabled();
+	for (const input of inputs) {
+		const { path: extPath, load } = normalizeLoadRequest(input);
+		if (load === "deferred") {
+			deferredExtensions.push({ path: extPath });
+			continue;
+		}
+
+		const startedAt = timing ? performance.now() : 0;
 		const { extension, error } = await loadExtension(
 			extPath,
 			resolvedCwd,
@@ -509,6 +653,9 @@ async function loadExtensionsInternal(
 			resolvedRuntime,
 			cacheToken,
 		);
+		if (timing) {
+			recordTiming(`import ${extPath}`, performance.now() - startedAt, "extensions");
+		}
 
 		if (error) {
 			errors.push({ path: extPath, error });
@@ -522,27 +669,29 @@ async function loadExtensionsInternal(
 
 	return {
 		extensions,
+		deferredExtensions,
 		errors,
+		eventBus: resolvedEventBus,
 		runtime: resolvedRuntime,
 	};
 }
 
 export async function loadExtensions(
-	paths: string[],
+	inputs: Array<string | ExtensionLoadRequest>,
 	cwd: string,
 	eventBus?: EventBus,
 	runtime?: ExtensionRuntime,
 ): Promise<LoadExtensionsResult> {
-	return loadExtensionsInternal(paths, cwd, eventBus, runtime);
+	return loadExtensionsInternal(inputs, cwd, eventBus, runtime);
 }
 
 export async function loadExtensionsCached(
-	paths: string[],
+	inputs: Array<string | ExtensionLoadRequest>,
 	cwd: string,
 	eventBus?: EventBus,
 	runtime?: ExtensionRuntime,
 ): Promise<LoadExtensionsResult> {
-	return loadExtensionsInternal(paths, cwd, eventBus, runtime, true);
+	return loadExtensionsInternal(inputs, cwd, eventBus, runtime, true);
 }
 
 interface PiManifest {
@@ -566,7 +715,11 @@ function readPiManifest(packageJsonPath: string): PiManifest | null {
 }
 
 function isExtensionFile(name: string): boolean {
-	return name.endsWith(".ts") || name.endsWith(".js");
+	return name.endsWith(".ts") || name.endsWith(".js") || name.endsWith(".mjs");
+}
+
+function isDisabledExtensionEntry(name: string): boolean {
+	return name.endsWith(".disabled") || name.includes(".disabled.");
 }
 
 /**
@@ -630,11 +783,23 @@ function discoverExtensionsInDir(dir: string): string[] {
 	try {
 		const entries = fs.readdirSync(dir, { withFileTypes: true });
 
+		// Collect file entries first so we can prefer .js over .ts when both exist.
+		const fileNames = new Set(entries.filter((e) => e.isFile() || e.isSymbolicLink()).map((e) => e.name));
+
 		for (const entry of entries) {
+			if (isDisabledExtensionEntry(entry.name)) continue;
+
 			const entryPath = path.join(dir, entry.name);
 
 			// 1. Direct files: *.ts or *.js
+			// Prefer pre-compiled .js over .ts when both exist (avoids jiti transpile).
 			if ((entry.isFile() || entry.isSymbolicLink()) && isExtensionFile(entry.name)) {
+				if (
+					entry.name.endsWith(".ts") &&
+					(fileNames.has(entry.name.replace(/\.ts$/, ".js")) || fileNames.has(entry.name.replace(/\.ts$/, ".mjs")))
+				) {
+					continue; // .js/.mjs sibling exists — skip the .ts
+				}
 				discovered.push(entryPath);
 				continue;
 			}

@@ -1,5 +1,5 @@
-import { type AgentMessage, uuidv7 } from "@earendil-works/pi-agent-core";
-import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
+import { type AgentMessage, uuidv7 } from "@valkyriweb/pi-agent-core";
+import type { ImageContent, Message, TextContent } from "@valkyriweb/pi-ai";
 import { randomUUID } from "crypto";
 import {
 	appendFileSync,
@@ -26,6 +26,24 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "./messages.ts";
+import {
+	buildResidentLoadPrunePlan,
+	estimateResidentPayloadBytes,
+	metadataForSessionLine,
+	pruneResidentHistory,
+	type ResidentPruneOptions,
+	type ResidentPruneResult,
+	readSessionFileLines,
+	resolveResidentPruneOptions,
+	shouldPruneResidentOnHydration,
+	stubResidentEntryPayload,
+} from "./session-resident-prune.ts";
+
+export {
+	estimateResidentPayloadBytes,
+	type ResidentPruneOptions,
+	type ResidentPruneResult,
+} from "./session-resident-prune.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
 
@@ -165,6 +183,18 @@ export interface SessionContext {
 	messages: AgentMessage[];
 	thinkingLevel: string;
 	model: { provider: string; modelId: string } | null;
+}
+
+export interface SessionHydrationOptions {
+	/** Stub summarized pre-compaction payloads while hydrating existing sessions. Durable JSONL is not rewritten. */
+	residentPrune?: boolean;
+	residentPruneOptions?: ResidentPruneOptions;
+}
+
+export interface LoadEntriesFromFileOptions {
+	/** Stub summarized pre-compaction payloads before retaining parsed entries. Durable JSONL is not rewritten. */
+	residentPrune?: boolean;
+	residentPruneOptions?: ResidentPruneOptions;
 }
 
 export interface SessionInfo {
@@ -484,8 +514,6 @@ export function getDefaultSessionDir(cwd: string, agentDir: string = getDefaultA
 	return sessionDir;
 }
 
-const SESSION_READ_BUFFER_SIZE = 1024 * 1024;
-
 function parseSessionEntryLine(line: string): FileEntry | null {
 	if (!line.trim()) return null;
 	try {
@@ -496,58 +524,88 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 	}
 }
 
+function hasValidSessionHeader(entries: FileEntry[]): boolean {
+	if (entries.length === 0) return true;
+	const header = entries[0];
+	return header.type === "session" && typeof (header as { id?: unknown }).id === "string";
+}
+
+function buildBranchFromEntries(entries: FileEntry[], leafId: string): SessionEntry[] | undefined {
+	const byId = new Map<string, SessionEntry>();
+	for (const entry of entries) {
+		if (entry.type !== "session") byId.set(entry.id, entry);
+	}
+	const path: SessionEntry[] = [];
+	let current = byId.get(leafId);
+	if (!current) return undefined;
+	while (current) {
+		path.unshift(current);
+		current = current.parentId ? byId.get(current.parentId) : undefined;
+	}
+	return path;
+}
+
 /** Exported for testing */
-export function loadEntriesFromFile(filePath: string): FileEntry[] {
+export function loadEntriesFromFile(filePath: string, options: LoadEntriesFromFileOptions = {}): FileEntry[] {
 	const resolvedFilePath = normalizePath(filePath);
 	if (!existsSync(resolvedFilePath)) return [];
 
+	const pruneOptions = resolveResidentPruneOptions(options.residentPruneOptions);
+	const prunePlan = options.residentPrune ? buildResidentLoadPrunePlan(resolvedFilePath, pruneOptions) : undefined;
 	const entries: FileEntry[] = [];
-	const fd = openSync(resolvedFilePath, "r");
+
+	readSessionFileLines(resolvedFilePath, (line) => {
+		const metadata = prunePlan ? metadataForSessionLine(line) : undefined;
+		if (metadata && metadata !== "session") {
+			const stub = prunePlan?.rawStubs.get(metadata.id);
+			if (stub) {
+				entries.push(stub);
+				return;
+			}
+		}
+
+		const entry = parseSessionEntryLine(line);
+		if (!entry) return;
+		if (
+			prunePlan &&
+			entry.type !== "session" &&
+			prunePlan.candidateIds.has(entry.id) &&
+			!prunePlan.protectedIds.has(entry.id)
+		) {
+			stubResidentEntryPayload(entry, pruneOptions);
+		}
+		entries.push(entry);
+	});
+
+	return hasValidSessionHeader(entries) ? entries : [];
+}
+
+const MAX_SESSION_HEADER_BYTES = 64 * 1024;
+
+function readSessionHeader(filePath: string): SessionHeader | null {
+	let fd: number | undefined;
 	try {
+		fd = openSync(filePath, "r");
 		const decoder = new StringDecoder("utf8");
-		const buffer = Buffer.allocUnsafe(SESSION_READ_BUFFER_SIZE);
+		const buffer = Buffer.allocUnsafe(Math.min(8192, MAX_SESSION_HEADER_BYTES));
+		let position = 0;
 		let pending = "";
 
-		while (true) {
-			const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+		while (position < MAX_SESSION_HEADER_BYTES) {
+			const bytesToRead = Math.min(buffer.length, MAX_SESSION_HEADER_BYTES - position);
+			const bytesRead = readSync(fd, buffer, 0, bytesToRead, position);
 			if (bytesRead === 0) break;
-
+			position += bytesRead;
 			pending += decoder.write(buffer.subarray(0, bytesRead));
-			let lineStart = 0;
-			let newlineIndex = pending.indexOf("\n", lineStart);
-			while (newlineIndex !== -1) {
-				const entry = parseSessionEntryLine(pending.slice(lineStart, newlineIndex));
-				if (entry) entries.push(entry);
-				lineStart = newlineIndex + 1;
-				newlineIndex = pending.indexOf("\n", lineStart);
+			const newlineIndex = pending.indexOf("\n");
+			if (newlineIndex !== -1) {
+				pending = pending.slice(0, newlineIndex);
+				break;
 			}
-			pending = pending.slice(lineStart);
 		}
 
 		pending += decoder.end();
-		const finalEntry = parseSessionEntryLine(pending);
-		if (finalEntry) entries.push(finalEntry);
-	} finally {
-		closeSync(fd);
-	}
-
-	// Validate session header
-	if (entries.length === 0) return entries;
-	const header = entries[0];
-	if (header.type !== "session" || typeof (header as { id?: unknown }).id !== "string") {
-		return [];
-	}
-
-	return entries;
-}
-
-function readSessionHeader(filePath: string): SessionHeader | null {
-	try {
-		const fd = openSync(filePath, "r");
-		const buffer = Buffer.alloc(512);
-		const bytesRead = readSync(fd, buffer, 0, 512, 0);
-		closeSync(fd);
-		const firstLine = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
+		const firstLine = pending.split("\n", 1)[0];
 		if (!firstLine) return null;
 		const header = JSON.parse(firstLine) as Record<string, unknown>;
 		if (header.type !== "session" || typeof header.id !== "string") {
@@ -556,6 +614,8 @@ function readSessionHeader(filePath: string): SessionHeader | null {
 		return header as unknown as SessionHeader;
 	} catch {
 		return null;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
 	}
 }
 
@@ -807,6 +867,7 @@ export class SessionManager {
 		sessionFile: string | undefined,
 		persist: boolean,
 		newSessionOptions?: NewSessionOptions,
+		hydrationOptions?: SessionHydrationOptions,
 	) {
 		this.cwd = resolvePath(cwd);
 		this.sessionDir = normalizePath(sessionDir);
@@ -816,17 +877,25 @@ export class SessionManager {
 		}
 
 		if (sessionFile) {
-			this.setSessionFile(sessionFile);
+			this.setSessionFile(sessionFile, hydrationOptions);
 		} else {
 			this.newSession(newSessionOptions);
 		}
 	}
 
 	/** Switch to a different session file (used for resume and branching) */
-	setSessionFile(sessionFile: string): void {
+	setSessionFile(sessionFile: string, hydrationOptions: SessionHydrationOptions = {}): void {
 		this.sessionFile = resolvePath(sessionFile);
 		if (existsSync(this.sessionFile)) {
-			this.fileEntries = loadEntriesFromFile(this.sessionFile);
+			const pruneOnHydration = shouldPruneResidentOnHydration(hydrationOptions);
+			const headerBeforeLoad = readSessionHeader(this.sessionFile);
+			const canPruneDuringLoad = pruneOnHydration && headerBeforeLoad?.version === CURRENT_SESSION_VERSION;
+			const pruneLoadOptions: LoadEntriesFromFileOptions = {
+				residentPrune: true,
+				residentPruneOptions: hydrationOptions.residentPruneOptions,
+			};
+
+			this.fileEntries = loadEntriesFromFile(this.sessionFile, canPruneDuringLoad ? pruneLoadOptions : undefined);
 
 			// If file was empty, initialize it with a valid session header. If it was
 			// non-empty but did not parse as a pi session, fail without modifying it.
@@ -847,6 +916,9 @@ export class SessionManager {
 
 			if (migrateToCurrentVersion(this.fileEntries)) {
 				this._rewriteFile();
+				if (pruneOnHydration) {
+					this.fileEntries = loadEntriesFromFile(this.sessionFile, pruneLoadOptions);
+				}
 			}
 
 			this._buildIndex();
@@ -941,6 +1013,11 @@ export class SessionManager {
 
 	getSessionFile(): string | undefined {
 		return this.sessionFile;
+	}
+
+	getParentSession(): string | undefined {
+		const header = this.fileEntries.find((entry) => entry.type === "session") as SessionHeader | undefined;
+		return header?.parentSession;
 	}
 
 	_persist(entry: SessionEntry): void {
@@ -1214,6 +1291,18 @@ export class SessionManager {
 		return buildSessionContext(this.getEntries(), this.leafId, this.byId);
 	}
 
+	estimateResidentPayloadBytes(): number {
+		return estimateResidentPayloadBytes(this.getEntries());
+	}
+
+	/**
+	 * Stub resident-only payloads from the summarized span before a compaction boundary.
+	 * Durable JSONL remains append-only: this method never rewrites or deletes the session file.
+	 */
+	pruneResidentHistoryAfterCompaction(compactionId?: string, options: ResidentPruneOptions = {}): ResidentPruneResult {
+		return pruneResidentHistory(this.getEntries(), this.getBranch(), compactionId, options);
+	}
+
 	/**
 	 * Get session header.
 	 */
@@ -1333,10 +1422,14 @@ export class SessionManager {
 	 */
 	createBranchedSession(leafId: string): string | undefined {
 		const previousSessionFile = this.sessionFile;
-		const path = this.getBranch(leafId);
-		if (path.length === 0) {
+		const residentPath = this.getBranch(leafId);
+		if (residentPath.length === 0) {
 			throw new Error(`Entry ${leafId} not found`);
 		}
+		const durablePath = previousSessionFile
+			? buildBranchFromEntries(loadEntriesFromFile(previousSessionFile), leafId)
+			: undefined;
+		const path = durablePath ?? residentPath;
 
 		// Filter out LabelEntry from path - we'll recreate them from the resolved map.
 		// Because labels are real tree entries, later entries can be children of labels;
@@ -1449,15 +1542,20 @@ export class SessionManager {
 	 * @param sessionDir Optional session directory for /new or /branch. If omitted, derives from file's parent.
 	 * @param cwdOverride Optional cwd override instead of the session header cwd.
 	 */
-	static open(path: string, sessionDir?: string, cwdOverride?: string): SessionManager {
+	static open(
+		path: string,
+		sessionDir?: string,
+		cwdOverride?: string,
+		hydrationOptions?: SessionHydrationOptions,
+	): SessionManager {
 		const resolvedPath = resolvePath(path);
-		// Extract cwd from session header if possible, otherwise use process.cwd()
-		const entries = loadEntriesFromFile(resolvedPath);
-		const header = entries.find((e) => e.type === "session") as SessionHeader | undefined;
+		// Extract cwd from session header if possible, otherwise use process.cwd().
+		// Do not fully hydrate here; setSessionFile() owns the single full JSONL load.
+		const header = readSessionHeader(resolvedPath);
 		const cwd = cwdOverride ?? header?.cwd ?? process.cwd();
 		// If no sessionDir provided, derive from file's parent directory
 		const dir = sessionDir ? normalizePath(sessionDir) : resolve(resolvedPath, "..");
-		return new SessionManager(cwd, dir, resolvedPath, true);
+		return new SessionManager(cwd, dir, resolvedPath, true, undefined, hydrationOptions);
 	}
 
 	/**
@@ -1465,12 +1563,12 @@ export class SessionManager {
 	 * @param cwd Working directory
 	 * @param sessionDir Optional session directory. If omitted, uses default (~/.pi/agent/sessions/<encoded-cwd>/).
 	 */
-	static continueRecent(cwd: string, sessionDir?: string): SessionManager {
+	static continueRecent(cwd: string, sessionDir?: string, hydrationOptions?: SessionHydrationOptions): SessionManager {
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
 		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
 		const mostRecent = findMostRecentSession(dir, filterCwd ? cwd : undefined);
 		if (mostRecent) {
-			return new SessionManager(cwd, dir, mostRecent, true);
+			return new SessionManager(cwd, dir, mostRecent, true, undefined, hydrationOptions);
 		}
 		return new SessionManager(cwd, dir, undefined, true);
 	}
@@ -1492,6 +1590,7 @@ export class SessionManager {
 		targetCwd: string,
 		sessionDir?: string,
 		options?: NewSessionOptions,
+		hydrationOptions?: SessionHydrationOptions,
 	): SessionManager {
 		const resolvedSourcePath = resolvePath(sourcePath);
 		const resolvedTargetCwd = resolvePath(targetCwd);
@@ -1537,7 +1636,7 @@ export class SessionManager {
 			}
 		}
 
-		return new SessionManager(resolvedTargetCwd, dir, newSessionFile, true);
+		return new SessionManager(resolvedTargetCwd, dir, newSessionFile, true, undefined, hydrationOptions);
 	}
 
 	/**

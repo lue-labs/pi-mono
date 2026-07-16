@@ -1044,7 +1044,7 @@ function resolveResumedChildSessionOptions(options: {
 	// with the alias's concrete fallback seed.
 	const storedModel = options.sessionManager.buildSessionContext().model;
 	const routedModel = storedModel
-		? prepared.childServices.modelRegistry.find(storedModel.provider, storedModel.modelId)
+		? prepared.childServices.modelRuntime.getModel(storedModel.provider, storedModel.modelId)
 		: undefined;
 	if (!routedModel) {
 		return { model: prepared.model, thinkingLevel: prepared.thinking };

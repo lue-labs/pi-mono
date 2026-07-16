@@ -1,4 +1,4 @@
-import { type Model, modelsAreEqual } from "@earendil-works/pi-ai";
+import { type Model, modelsAreEqual } from "@valkyriweb/pi-ai";
 import {
 	Container,
 	type Focusable,
@@ -8,7 +8,7 @@ import {
 	Spacer,
 	Text,
 	type TUI,
-} from "@earendil-works/pi-tui";
+} from "@valkyriweb/pi-tui";
 import type { ModelRuntime } from "../../../core/model-runtime.ts";
 import type { SettingsManager } from "../../../core/settings-manager.ts";
 import { getModelSelectorSearchText } from "../model-search.ts";

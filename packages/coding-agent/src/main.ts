@@ -6,7 +6,7 @@
  */
 
 import { createInterface } from "node:readline";
-import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
+import { type ImageContent, modelsAreEqual } from "@valkyriweb/pi-ai";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -26,7 +26,12 @@ import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
-import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
+import {
+	normalizeAutoAliasString,
+	resolveCliModel,
+	resolveModelScope,
+	type ScopedModel,
+} from "./core/model-resolver.ts";
 import type { ModelRuntime } from "./core/model-runtime.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
@@ -353,7 +358,41 @@ async function createSessionManager(
 	return SessionManager.create(cwd, sessionDir, { id: parsed.sessionId });
 }
 
-function buildSessionOptions(
+function isAutoModelRequest(model: string | undefined): boolean {
+	const value = model?.trim().toLowerCase();
+	return value === "auto" || value?.endsWith("/auto") === true;
+}
+
+function requestedAutoModelAlias(cliProvider: string | undefined, cliModel: string): string {
+	const model = cliModel.trim();
+	if (model.toLowerCase() === "auto") {
+		return normalizeAutoAliasString(cliProvider ?? "clawrouter", model) ?? model;
+	}
+	return normalizeAutoAliasString(undefined, model) ?? model;
+}
+
+function providerScopedAutoProvider(requestedModel: string | undefined): string | undefined {
+	const alias = normalizeAutoAliasString(undefined, requestedModel);
+	const parts = alias?.split("/");
+	return parts?.length === 2 && parts[1] === "auto" ? parts[0] : undefined;
+}
+
+function seedProviderScopedAutoModel(
+	modelRuntime: ModelRuntime,
+	requestedModel: string | undefined,
+	scopedModels: ScopedModel[] = [],
+) {
+	const provider = providerScopedAutoProvider(requestedModel);
+	if (!provider) return undefined;
+	// Prefer a model inside the user's enabledModels scope: the seed can become the
+	// session's actual model when routing resolves immediately (print mode, prompt
+	// args), and it must not silently escape an explicit provider/cost restriction.
+	const scopedSeed = scopedModels.find((scoped) => scoped.model.provider === provider)?.model;
+	return scopedSeed ?? modelRuntime.getModels().find((model) => model.provider === provider);
+}
+
+/** Exported for tests: keeps CLI-to-session option translation covered at its real seam. */
+export function buildSessionOptions(
 	parsed: Args,
 	scopedModels: ScopedModel[],
 	hasExistingSession: boolean,
@@ -372,26 +411,47 @@ function buildSessionOptions(
 	// - supports --provider <name> --model <pattern>
 	// - supports --model <provider>/<pattern>
 	if (parsed.model) {
-		const resolved = resolveCliModel({
-			cliProvider: parsed.provider,
-			cliModel: parsed.model,
-			cliThinking: parsed.thinking,
-			modelRuntime,
-		});
-		if (resolved.warning) {
-			diagnostics.push({ type: "warning", message: resolved.warning });
-		}
-		if (resolved.error) {
-			diagnostics.push({ type: "error", message: resolved.error });
-		}
-		if (resolved.model) {
-			options.model = resolved.model;
-			// Allow "--model <pattern>:<thinking>" as a shorthand.
-			// Explicit --thinking still takes precedence (applied later).
-			if (!parsed.thinking && resolved.thinkingLevel) {
-				options.thinkingLevel = resolved.thinkingLevel;
-				cliThinkingFromModel = true;
+		const isAutoRequest = isAutoModelRequest(parsed.model);
+		if (isAutoRequest) {
+			options.requestedModel = requestedAutoModelAlias(parsed.provider, parsed.model);
+			options.model = seedProviderScopedAutoModel(modelRuntime, options.requestedModel, scopedModels);
+		} else {
+			const resolved = resolveCliModel({
+				cliProvider: parsed.provider,
+				cliModel: parsed.model,
+				cliThinking: parsed.thinking,
+				modelRuntime,
+			});
+			if (resolved.warning) {
+				diagnostics.push({ type: "warning", message: resolved.warning });
 			}
+			if (resolved.error) {
+				diagnostics.push({ type: "error", message: resolved.error });
+			}
+			if (resolved.model) {
+				options.model = resolved.model;
+				// Allow "--model <pattern>:<thinking>" as a shorthand.
+				// Explicit --thinking still takes precedence (applied later).
+				if (!parsed.thinking && resolved.thinkingLevel) {
+					options.thinkingLevel = resolved.thinkingLevel;
+					cliThinkingFromModel = true;
+				}
+			}
+		}
+	}
+
+	// A settings-persisted auto default has no registry entry, so the scoped-models
+	// fallback below would discard the auto intent and silently land on the first
+	// scoped model without consulting `model:resolve`. Mirror the `--model auto`
+	// branch: surface the alias as requestedModel and seed a provider-scoped model.
+	if (!parsed.model && !hasExistingSession) {
+		const settingsAutoAlias = normalizeAutoAliasString(
+			settingsManager.getDefaultProvider(),
+			settingsManager.getDefaultModel(),
+		);
+		if (settingsAutoAlias) {
+			options.requestedModel = settingsAutoAlias;
+			options.model = seedProviderScopedAutoModel(modelRuntime, settingsAutoAlias, scopedModels);
 		}
 	}
 

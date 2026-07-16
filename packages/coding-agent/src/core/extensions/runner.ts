@@ -2,16 +2,35 @@
  * Extension runner - executes extensions and manages their lifecycle.
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ImageContent, Model, ProviderHeaders } from "@earendil-works/pi-ai";
-import type { KeyId } from "@earendil-works/pi-tui";
+import type { AgentMessage } from "@valkyriweb/pi-agent-core";
+import type { ImageContent, Model, ProviderHeaders } from "@valkyriweb/pi-ai";
+import type { KeyId } from "@valkyriweb/pi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
+import type { AgentChainDefinition } from "../agents/chains.ts";
+import { setAgentExtensionDefinitionsProvider } from "../agents/extension-source.ts";
+import type { AgentDefinition } from "../agents/types.ts";
 import type { ResourceDiagnostic } from "../diagnostics.ts";
+import type { EventBus } from "../event-bus.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import { recordTiming, timingsEnabled } from "../timings.ts";
+import { loadDeferredExtensionsBatch } from "./deferred-loading.ts";
+import { applyFilters } from "./extension-hooks.ts";
+import { getExtensionProcessService } from "./loader.ts";
+import {
+	collectRegisteredAgentChains,
+	collectRegisteredAgentDefinitions,
+	collectRegisteredFooters,
+	findDefaultMessageRenderer,
+	findRegisteredContextMode,
+	findRegisteredMainPane,
+	findRegisteredOverlay,
+	fireSessionDisposeHandlers,
+} from "./runner-registries.ts";
 import type {
+	AgentTelemetry,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	BeforeProviderHeadersEvent,
@@ -20,6 +39,7 @@ import type {
 	ContextEvent,
 	ContextEventResult,
 	ContextUsage,
+	DeferredExtension,
 	EntryRenderer,
 	Extension,
 	ExtensionActions,
@@ -27,13 +47,19 @@ import type {
 	ExtensionCommandContextActions,
 	ExtensionContext,
 	ExtensionContextActions,
+	ExtensionContextModePolicy,
 	ExtensionError,
 	ExtensionEvent,
 	ExtensionFlag,
+	ExtensionFooterSpec,
+	ExtensionMainPaneFactory,
 	ExtensionMode,
+	ExtensionOverlayFactory,
 	ExtensionRuntime,
 	ExtensionShortcut,
 	ExtensionUIContext,
+	ForkAgentOptions,
+	ForkAgentResult,
 	InputEvent,
 	InputEventResult,
 	InputSource,
@@ -51,6 +77,7 @@ import type {
 	ResolvedCommand,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
+	RunRegistry,
 	SessionBeforeCompactResult,
 	SessionBeforeForkResult,
 	SessionBeforeSwitchResult,
@@ -60,9 +87,14 @@ import type {
 	ToolCallEventResult,
 	ToolResultEvent,
 	ToolResultEventResult,
+	TranscriptApi,
+	TranscriptEntry,
 	UserBashEvent,
 	UserBashEventResult,
 } from "./types.ts";
+import type { ExtensionSlotUIActions } from "./ui-slots.ts";
+
+export type { ExtensionSlotUIActions } from "./ui-slots.ts";
 
 // Extension shortcuts compete with canonical keybinding ids from keybindings.json.
 // Only editor-global shortcuts are reserved here. Picker-specific bindings are not.
@@ -114,6 +146,32 @@ const buildBuiltinKeybindings = (resolvedKeybindings: KeybindingsConfig): BuiltI
 interface BeforeAgentStartCombinedResult {
 	messages?: NonNullable<BeforeAgentStartEventResult["message"]>[];
 	systemPrompt?: string;
+}
+
+function abortErrorFromSignal(signal: AbortSignal): Error {
+	const reason = signal.reason;
+	if (reason instanceof Error) return reason;
+	if (reason !== undefined) return new Error(String(reason));
+	return new Error("Agent run aborted");
+}
+
+async function callContextHandlerAbortable<T>(fn: () => Promise<T> | T, signal: AbortSignal): Promise<T> {
+	if (signal.aborted) {
+		throw abortErrorFromSignal(signal);
+	}
+
+	let cleanup = () => {};
+	const abortPromise = new Promise<never>((_resolve, reject) => {
+		const onAbort = () => reject(abortErrorFromSignal(signal));
+		signal.addEventListener("abort", onAbort, { once: true });
+		cleanup = () => signal.removeEventListener("abort", onAbort);
+	});
+
+	try {
+		return await Promise.race([Promise.resolve().then(fn), abortPromise]);
+	} finally {
+		cleanup();
+	}
 }
 
 /**
@@ -265,23 +323,33 @@ const noOpUIContext: ExtensionUIContext = {
 
 export class ExtensionRunner {
 	private extensions: Extension[];
+	private deferredExtensions: DeferredExtension[];
+	private deferredLoadPromise: Promise<void> | undefined;
 	private runtime: ExtensionRuntime;
+	private eventBus: EventBus;
 	private uiContext: ExtensionUIContext;
 	private mode: ExtensionMode = "print";
 	private cwd: string;
 	private sessionManager: SessionManager;
 	private modelRegistry: ModelRegistry;
+	private source: InputSource;
 	private errorListeners: Set<ExtensionErrorListener> = new Set();
 	private getModel: () => Model<any> | undefined = () => undefined;
 	private isIdleFn: () => boolean = () => true;
 	private isProjectTrustedFn: () => boolean = () => true;
 	private getSignalFn: () => AbortSignal | undefined = () => undefined;
 	private waitForIdleFn: () => Promise<void> = async () => {};
-	private abortFn: () => void = () => {};
+	private abortFn: (reason?: unknown) => void = () => {};
+	private requestStopAfterTurnFn: (reason?: string) => void = () => {};
 	private hasPendingMessagesFn: () => boolean = () => false;
 	private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
 	private compactFn: (options?: CompactOptions) => void = () => {};
 	private getSystemPromptFn: () => string = () => "";
+	private getEffectiveSystemPromptFn: () => Promise<string> = async () => this.getSystemPromptFn();
+	private forkAgentFn: (opts: ForkAgentOptions) => Promise<ForkAgentResult> = async () => {
+		throw new Error("forkAgent is not available in this runtime");
+	};
+	private transcriptAppendFn: (entry: TranscriptEntry) => void = () => {};
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
@@ -292,20 +360,27 @@ export class ExtensionRunner {
 	private shortcutDiagnostics: ResourceDiagnostic[] = [];
 	private commandDiagnostics: ResourceDiagnostic[] = [];
 	private staleMessage: string | undefined;
+	private deferredLoadedListeners: Set<() => void> = new Set();
 
 	constructor(
 		extensions: Extension[],
+		deferredExtensions: DeferredExtension[],
 		runtime: ExtensionRuntime,
+		eventBus: EventBus,
 		cwd: string,
 		sessionManager: SessionManager,
 		modelRegistry: ModelRegistry,
+		source: InputSource = "interactive",
 	) {
 		this.extensions = extensions;
+		this.deferredExtensions = deferredExtensions;
 		this.runtime = runtime;
+		this.eventBus = eventBus;
 		this.uiContext = noOpUIContext;
 		this.cwd = cwd;
 		this.sessionManager = sessionManager;
 		this.modelRegistry = modelRegistry;
+		this.source = source;
 	}
 
 	bindCore(
@@ -325,12 +400,21 @@ export class ExtensionRunner {
 		this.runtime.setLabel = actions.setLabel;
 		this.runtime.getActiveTools = actions.getActiveTools;
 		this.runtime.getAllTools = actions.getAllTools;
+		this.runtime.getToolDefinitions = actions.getToolDefinitions;
+		this.runtime.getCustomEntries = actions.getCustomEntries;
 		this.runtime.setActiveTools = actions.setActiveTools;
+		this.runtime.setDeferredOverrides = actions.setDeferredOverrides;
+		this.runtime.setToolNamespaces = actions.setToolNamespaces;
 		this.runtime.refreshTools = actions.refreshTools;
 		this.runtime.getCommands = actions.getCommands;
 		this.runtime.setModel = actions.setModel;
 		this.runtime.getThinkingLevel = actions.getThinkingLevel;
 		this.runtime.setThinkingLevel = actions.setThinkingLevel;
+
+		// Publish extension-registered agent definitions through the module-level
+		// bridge so `loadAgentRegistry` can merge them in without an import edge
+		// from core to the package that owns the agents (e.g. `pi-agents`).
+		setAgentExtensionDefinitionsProvider(() => this.getRegisteredAgentDefinitions());
 
 		// Context actions (required)
 		this.getModel = contextActions.getModel;
@@ -338,11 +422,16 @@ export class ExtensionRunner {
 		this.isProjectTrustedFn = contextActions.isProjectTrusted;
 		this.getSignalFn = contextActions.getSignal;
 		this.abortFn = contextActions.abort;
+		this.requestStopAfterTurnFn = contextActions.requestStopAfterTurn;
 		this.hasPendingMessagesFn = contextActions.hasPendingMessages;
 		this.shutdownHandler = contextActions.shutdown;
+		this.reloadHandler = contextActions.reload;
 		this.getContextUsageFn = contextActions.getContextUsage;
 		this.compactFn = contextActions.compact;
 		this.getSystemPromptFn = contextActions.getSystemPrompt;
+		this.getEffectiveSystemPromptFn = contextActions.getEffectiveSystemPrompt;
+		this.forkAgentFn = contextActions.forkAgent;
+		this.transcriptAppendFn = contextActions.transcriptAppend;
 		this.getSystemPromptOptionsFn = contextActions.getSystemPromptOptions ?? (() => ({ cwd: this.cwd }));
 
 		// Flush provider registrations queued during extension loading
@@ -416,6 +505,44 @@ export class ExtensionRunner {
 
 	getExtensionPaths(): string[] {
 		return this.extensions.map((e) => e.path);
+	}
+
+	getDeferredExtensionPaths(): string[] {
+		return this.deferredExtensions.map((e) => e.path);
+	}
+
+	getService<T>(id: string): T | undefined {
+		return this.runtime.services.has(id) ? (this.runtime.services.get(id) as T) : getExtensionProcessService<T>(id);
+	}
+
+	setService<T>(id: string, service: T): void {
+		this.runtime.services.set(id, service);
+	}
+
+	loadDeferredExtensions(): Promise<void> {
+		this.deferredLoadPromise ??= this.loadDeferredExtensionsOnce();
+		return this.deferredLoadPromise;
+	}
+
+	/**
+	 * Register a callback fired after deferred extensions finish loading, so UI
+	 * surfaces built from startup snapshots (e.g. the slash-command autocomplete
+	 * list) can rebuild with the newly registered commands.
+	 */
+	onDeferredExtensionsLoaded(listener: () => void): void {
+		this.deferredLoadedListeners.add(listener);
+	}
+
+	private loadDeferredExtensionsOnce(): Promise<void> {
+		return loadDeferredExtensionsBatch({
+			deferredExtensions: this.deferredExtensions,
+			extensions: this.extensions,
+			runtime: this.runtime,
+			eventBus: this.eventBus,
+			cwd: this.cwd,
+			emitError: (error) => this.emitError(error),
+			listeners: this.deferredLoadedListeners,
+		});
 	}
 
 	/** Get all registered tools from all extensions (first registration per name wins). */
@@ -557,6 +684,11 @@ export class ExtensionRunner {
 		return undefined;
 	}
 
+	/** See {@link findDefaultMessageRenderer}. */
+	getDefaultMessageRenderer(customType: string): MessageRenderer | undefined {
+		return findDefaultMessageRenderer(this.extensions, customType);
+	}
+
 	getEntryRenderer(customType: string): EntryRenderer | undefined {
 		for (const ext of this.extensions) {
 			const renderer = ext.entryRenderers?.get(customType);
@@ -565,6 +697,73 @@ export class ExtensionRunner {
 			}
 		}
 		return undefined;
+	}
+
+	/** See {@link fireSessionDisposeHandlers}. */
+	fireSessionDispose(): void {
+		fireSessionDisposeHandlers(this.extensions, (error) => this.emitError(error));
+	}
+
+	/** See {@link collectRegisteredAgentDefinitions}. */
+	getRegisteredAgentDefinitions(): AgentDefinition[] {
+		return collectRegisteredAgentDefinitions(this.extensions);
+	}
+
+	/** See {@link collectRegisteredAgentChains}. */
+	getRegisteredAgentChains(): AgentChainDefinition[] {
+		return collectRegisteredAgentChains(this.extensions);
+	}
+
+	/** See {@link findRegisteredContextMode}. */
+	getRegisteredContextMode(name: string): ExtensionContextModePolicy | undefined {
+		return findRegisteredContextMode(this.extensions, name);
+	}
+
+	/**
+	 * The currently registered agent run registry, or undefined if no
+	 * extension has published one.
+	 */
+	getRunRegistry(): RunRegistry | undefined {
+		return this.runtime.getRunRegistry();
+	}
+
+	/**
+	 * The currently registered telemetry sink, or undefined if no extension
+	 * has published one. Intended for memory / goal / audit / eval extensions
+	 * that fan their events into the same observability impl without an
+	 * import edge on the producer package.
+	 */
+	getTelemetry(): AgentTelemetry | undefined {
+		return this.runtime.getTelemetry();
+	}
+
+	/**
+	 * Wire show/hide handlers from the UI-capable mode (interactive-mode). The
+	 * runner forwards `pi.showMainPane` / `pi.hideMainPane` / `pi.showOverlay`
+	 * / `pi.hideOverlay` calls through these handlers. Non-UI modes skip this
+	 * bind so the default no-ops apply.
+	 */
+	bindSlotUI(actions: ExtensionSlotUIActions): void {
+		this.runtime.showMainPaneFn = actions.showMainPane;
+		this.runtime.hideMainPaneFn = actions.hideMainPane;
+		this.runtime.hasMainPaneFn = actions.hasMainPane ?? ((id) => this.getRegisteredMainPane(id) !== undefined);
+		this.runtime.showOverlayFn = actions.showOverlay;
+		this.runtime.hideOverlayFn = actions.hideOverlay;
+	}
+
+	/** See {@link findRegisteredMainPane}. */
+	getRegisteredMainPane(id: string): ExtensionMainPaneFactory | undefined {
+		return findRegisteredMainPane(this.extensions, id);
+	}
+
+	/** See {@link findRegisteredOverlay}. */
+	getRegisteredOverlay(id: string): ExtensionOverlayFactory | undefined {
+		return findRegisteredOverlay(this.extensions, id);
+	}
+
+	/** See {@link collectRegisteredFooters}. */
+	getRegisteredFooters(): Array<{ id: string; spec: ExtensionFooterSpec; extensionPath: string }> {
+		return collectRegisteredFooters(this.extensions);
 	}
 
 	private resolveRegisteredCommands(): ResolvedCommand[] {
@@ -657,6 +856,10 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.cwd;
 			},
+			get source() {
+				runner.assertActive();
+				return runner.source;
+			},
 			get sessionManager() {
 				runner.assertActive();
 				return runner.sessionManager;
@@ -681,9 +884,13 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.getSignalFn();
 			},
-			abort: () => {
+			abort: (reason?: unknown) => {
 				runner.assertActive();
-				runner.abortFn();
+				runner.abortFn(reason);
+			},
+			requestStopAfterTurn: (reason) => {
+				runner.assertActive();
+				runner.requestStopAfterTurnFn(reason);
 			},
 			hasPendingMessages: () => {
 				runner.assertActive();
@@ -692,6 +899,10 @@ export class ExtensionRunner {
 			shutdown: () => {
 				runner.assertActive();
 				runner.shutdownHandler();
+			},
+			reload: () => {
+				runner.assertActive();
+				return runner.reloadHandler();
 			},
 			getContextUsage: () => {
 				runner.assertActive();
@@ -704,6 +915,23 @@ export class ExtensionRunner {
 			getSystemPrompt: () => {
 				runner.assertActive();
 				return runner.getSystemPromptFn();
+			},
+			getEffectiveSystemPrompt: async () => {
+				runner.assertActive();
+				return runner.getEffectiveSystemPromptFn();
+			},
+			forkAgent: (opts) => {
+				runner.assertActive();
+				return runner.forkAgentFn(opts);
+			},
+			get transcript(): TranscriptApi {
+				runner.assertActive();
+				return {
+					append(entry) {
+						runner.assertActive();
+						runner.transcriptAppendFn(entry);
+					},
+				};
 			},
 		};
 	}
@@ -757,13 +985,20 @@ export class ExtensionRunner {
 	}
 
 	async emit<TEvent extends RunnerEmitEvent>(event: TEvent): Promise<RunnerEmitResult<TEvent>> {
+		// Stale runners belong to disposed sessions. In-flight async work from the previous
+		// agent loop (pending tool results, provider requests) can race past dispose() and
+		// land here. Short-circuit instead of letting every handler throw and emit noisy
+		// extension errors.
+		if (this.staleMessage) return undefined as RunnerEmitResult<TEvent>;
 		const ctx = this.createContext();
 		let result: SessionBeforeEventResult | undefined;
+		const timeHandlers = event.type === "session_start" && timingsEnabled();
 
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get(event.type);
 			if (!handlers || handlers.length === 0) continue;
 
+			const startedAt = timeHandlers ? performance.now() : 0;
 			for (const handler of handlers) {
 				try {
 					const handlerResult = await handler(event, ctx);
@@ -785,12 +1020,16 @@ export class ExtensionRunner {
 					});
 				}
 			}
+			if (timeHandlers) {
+				recordTiming(`session_start ${ext.path}`, performance.now() - startedAt, "extensions");
+			}
 		}
 
 		return result as RunnerEmitResult<TEvent>;
 	}
 
 	async emitMessageEnd(event: MessageEndEvent): Promise<AgentMessage | undefined> {
+		if (this.staleMessage) return undefined;
 		const ctx = this.createContext();
 		let currentMessage = event.message;
 		let modified = false;
@@ -829,10 +1068,37 @@ export class ExtensionRunner {
 			}
 		}
 
+		try {
+			// CACHE CRITICAL: message:end filters rewrite finalized transcript
+			// messages. Non-deterministic rewrites of prior turns change the next
+			// cached message prefix, so filters must be stable for the same input.
+			const filteredMessage = await applyFilters("message:end", currentMessage, event);
+			if (filteredMessage !== currentMessage) {
+				if (filteredMessage.role !== currentMessage.role) {
+					this.emitError({
+						extensionPath: "<hook-filter:message:end>",
+						event: "message:end",
+						error: "message:end filters must return a message with the same role",
+					});
+				} else {
+					currentMessage = filteredMessage;
+					modified = true;
+				}
+			}
+		} catch (err) {
+			this.emitError({
+				extensionPath: "<hook-filter:message:end>",
+				event: "message:end",
+				error: err instanceof Error ? err.message : String(err),
+				stack: err instanceof Error ? err.stack : undefined,
+			});
+		}
+
 		return modified ? currentMessage : undefined;
 	}
 
 	async emitToolResult(event: ToolResultEvent): Promise<ToolResultEventResult | undefined> {
+		if (this.staleMessage) return undefined;
 		const ctx = this.createContext();
 		const currentEvent: ToolResultEvent = { ...event };
 		let modified = false;
@@ -883,6 +1149,7 @@ export class ExtensionRunner {
 	}
 
 	async emitToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
+		if (this.staleMessage) return undefined;
 		const ctx = this.createContext();
 		let result: ToolCallEventResult | undefined;
 
@@ -891,7 +1158,22 @@ export class ExtensionRunner {
 			if (!handlers || handlers.length === 0) continue;
 
 			for (const handler of handlers) {
-				const handlerResult = await handler(event, ctx);
+				let handlerResult: ToolCallEventResult | undefined;
+				try {
+					handlerResult = (await handler(event, ctx)) as ToolCallEventResult | undefined;
+				} catch (err) {
+					// A session replacement (compaction/dispose) can set staleMessage
+					// AFTER the guard at the top of this method and invalidate ctx while a
+					// tool_call handler is running. The handler's guarded ctx getter then
+					// throws assertActive. The old session is gone, so the tool result is
+					// moot — short-circuit like emit() rather than letting the stale-ctx
+					// guard propagate up through beforeToolCall and surface as the tool's
+					// isError result (which blocks the call and confuses the model).
+					// Genuine (non-stale) extension errors still propagate, preserving the
+					// fail-safe "tool_call hook failure blocks execution" contract.
+					if (this.staleMessage) return result;
+					throw err;
+				}
 
 				if (handlerResult) {
 					result = handlerResult as ToolCallEventResult;
@@ -906,6 +1188,7 @@ export class ExtensionRunner {
 	}
 
 	async emitUserBash(event: UserBashEvent): Promise<UserBashEventResult | undefined> {
+		if (this.staleMessage) return undefined;
 		const ctx = this.createContext();
 
 		for (const ext of this.extensions) {
@@ -935,7 +1218,13 @@ export class ExtensionRunner {
 	}
 
 	async emitContext(messages: AgentMessage[]): Promise<AgentMessage[]> {
+		// CACHE CRITICAL: context handlers replace the model-facing message list
+		// before provider conversion on every LLM call. Keep prior history stable;
+		// use this seam to filter stale dynamic artifacts or append one-call tail
+		// context without mutating the durable transcript.
+		if (this.staleMessage) return messages;
 		const ctx = this.createContext();
+		const signal = ctx.signal;
 		let currentMessages = structuredClone(messages);
 
 		for (const ext of this.extensions) {
@@ -945,12 +1234,17 @@ export class ExtensionRunner {
 			for (const handler of handlers) {
 				try {
 					const event: ContextEvent = { type: "context", messages: currentMessages };
-					const handlerResult = await handler(event, ctx);
+					const handlerResult = signal
+						? await callContextHandlerAbortable(() => handler(event, ctx), signal)
+						: await handler(event, ctx);
 
 					if (handlerResult && (handlerResult as ContextEventResult).messages) {
 						currentMessages = (handlerResult as ContextEventResult).messages!;
 					}
 				} catch (err) {
+					if (signal?.aborted) {
+						throw err;
+					}
 					const message = err instanceof Error ? err.message : String(err);
 					const stack = err instanceof Error ? err.stack : undefined;
 					this.emitError({
@@ -967,6 +1261,10 @@ export class ExtensionRunner {
 	}
 
 	async emitBeforeProviderRequest(payload: unknown): Promise<unknown> {
+		// CACHE CRITICAL: before_provider_request and provider:beforeRequest see
+		// the serialized provider payload. Reordering system/tools/messages or
+		// adding dynamic values before cache breakpoints invalidates prompt cache.
+		if (this.staleMessage) return payload;
 		const ctx = this.createContext();
 		let currentPayload = payload;
 
@@ -995,6 +1293,17 @@ export class ExtensionRunner {
 					});
 				}
 			}
+		}
+
+		try {
+			currentPayload = await applyFilters("provider:beforeRequest", currentPayload);
+		} catch (err) {
+			this.emitError({
+				extensionPath: "<hook-filter:provider:beforeRequest>",
+				event: "provider:beforeRequest",
+				error: err instanceof Error ? err.message : String(err),
+				stack: err instanceof Error ? err.stack : undefined,
+			});
 		}
 
 		return currentPayload;
@@ -1036,8 +1345,93 @@ export class ExtensionRunner {
 		images: ImageContent[] | undefined,
 		systemPrompt: string,
 		systemPromptOptions: BuildSystemPromptOptions,
+		source: InputSource = "interactive",
 	): Promise<BeforeAgentStartCombinedResult | undefined> {
+		return this._runBeforeAgentStart(prompt, images, systemPrompt, systemPromptOptions, false, source);
+	}
+
+	/**
+	 * Dry-run preview: returns the system prompt after all `before_agent_start`
+	 * handlers have applied their rewrites, with `event.preview = true` so
+	 * handlers can skip side effects. Messages/other results are discarded.
+	 */
+	async previewSystemPromptRewrites(
+		systemPrompt: string,
+		systemPromptOptions: BuildSystemPromptOptions,
+	): Promise<string> {
+		const result = await this._runBeforeAgentStart(
+			"",
+			undefined,
+			systemPrompt,
+			systemPromptOptions,
+			true,
+			"interactive",
+		);
+		return result?.systemPrompt ?? systemPrompt;
+	}
+
+	/**
+	 * Apply only the `systemPrompt:build` filters (no before_agent_start
+	 * handlers) to a freshly rebuilt prompt.
+	 *
+	 * CACHE CRITICAL: the session rebuilds its base system prompt synchronously
+	 * when the active tool/skill set changes (`_rebuildSystemPrompt`), and that
+	 * raw build skips the filter chain. Without re-running these filters before
+	 * the next request, cache-stabilising transforms (time-context's `Current
+	 * date:` strip, cache-base-prompt's dynamic-boundary relocation) are lost on
+	 * every tool change, mutating the cached prefix and bursting the prompt
+	 * cache. This is the filter-only counterpart to `_runBeforeAgentStart` and
+	 * deliberately does NOT run handlers (no `setActiveTools` re-entrancy).
+	 */
+	async applySystemPromptBuildFilters(
+		systemPrompt: string,
+		systemPromptOptions: BuildSystemPromptOptions,
+	): Promise<string> {
+		if (this.staleMessage) return systemPrompt;
+		try {
+			return await applyFilters("systemPrompt:build", systemPrompt, systemPromptOptions, {
+				prompt: "",
+				images: undefined,
+				preview: true,
+			});
+		} catch (err) {
+			this.emitError({
+				extensionPath: "<hook-filter:systemPrompt:build>",
+				event: "systemPrompt:build",
+				error: err instanceof Error ? err.message : String(err),
+				stack: err instanceof Error ? err.stack : undefined,
+			});
+			return systemPrompt;
+		}
+	}
+
+	private async _runBeforeAgentStart(
+		prompt: string,
+		images: ImageContent[] | undefined,
+		systemPrompt: string,
+		systemPromptOptions: BuildSystemPromptOptions,
+		preview: boolean,
+		source: InputSource,
+	): Promise<BeforeAgentStartCombinedResult | undefined> {
+		if (this.staleMessage) return undefined;
 		let currentSystemPrompt = systemPrompt;
+		try {
+			// CACHE CRITICAL: systemPrompt:build feeds the cached system prefix.
+			// Keep output byte-stable across turns; put cwd/session/timestamp/file
+			// data in messages or after the cacheable prefix instead.
+			currentSystemPrompt = await applyFilters("systemPrompt:build", currentSystemPrompt, systemPromptOptions, {
+				prompt,
+				images,
+				preview,
+			});
+		} catch (err) {
+			this.emitError({
+				extensionPath: "<hook-filter:systemPrompt:build>",
+				event: "systemPrompt:build",
+				error: err instanceof Error ? err.message : String(err),
+				stack: err instanceof Error ? err.stack : undefined,
+			});
+		}
 		const ctx = Object.defineProperties(
 			{},
 			Object.getOwnPropertyDescriptors(this.createContext()),
@@ -1046,8 +1440,14 @@ export class ExtensionRunner {
 			this.assertActive();
 			return currentSystemPrompt;
 		};
+		ctx.forkAgent = (opts) => {
+			this.assertActive();
+			const context = opts.context ?? "fork";
+			const shouldPreserveForkPrompt = context === "fork" && opts.systemPrompt === undefined;
+			return this.forkAgentFn(shouldPreserveForkPrompt ? { ...opts, systemPrompt: currentSystemPrompt } : opts);
+		};
 		const messages: NonNullable<BeforeAgentStartEventResult["message"]>[] = [];
-		let systemPromptModified = false;
+		let systemPromptModified = currentSystemPrompt !== systemPrompt;
 
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get("before_agent_start");
@@ -1061,12 +1461,14 @@ export class ExtensionRunner {
 						images,
 						systemPrompt: currentSystemPrompt,
 						systemPromptOptions,
+						source,
+						...(preview ? { preview: true } : {}),
 					};
 					const handlerResult = await handler(event, ctx);
 
 					if (handlerResult) {
 						const result = handlerResult as BeforeAgentStartEventResult;
-						if (result.message) {
+						if (result.message && !preview) {
 							messages.push(result.message);
 						}
 						if (result.systemPrompt !== undefined) {
@@ -1105,6 +1507,7 @@ export class ExtensionRunner {
 		promptPaths: Array<{ path: string; extensionPath: string }>;
 		themePaths: Array<{ path: string; extensionPath: string }>;
 	}> {
+		if (this.staleMessage) return { skillPaths: [], promptPaths: [], themePaths: [] };
 		const ctx = this.createContext();
 		const skillPaths: Array<{ path: string; extensionPath: string }> = [];
 		const promptPaths: Array<{ path: string; extensionPath: string }> = [];
@@ -1152,6 +1555,7 @@ export class ExtensionRunner {
 		source: InputSource,
 		streamingBehavior?: "steer" | "followUp",
 	): Promise<InputEventResult> {
+		if (this.staleMessage) return { action: "continue" };
 		const ctx = this.createContext();
 		let currentText = text;
 		let currentImages = images;
