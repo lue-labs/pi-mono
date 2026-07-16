@@ -32,6 +32,7 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
+import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -109,7 +110,7 @@ function isEncryptedReasoningDetail(detail: unknown): detail is OpenAIEncryptedR
 
 export interface OpenAICompletionsOptions extends StreamOptions {
 	toolChoice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
-	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 }
 
 interface OpenAICompatCacheControl {
@@ -143,10 +144,11 @@ function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEn
 	if (cacheRetention) {
 		return cacheRetention;
 	}
-	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
-		return "long";
+	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
+	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
+		return envRetention;
 	}
-	return "short";
+	return "long";
 }
 
 export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptions> = (
@@ -155,6 +157,9 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 	options?: OpenAICompletionsOptions,
 ): AssistantMessageEventStream => {
 	const stream = new AssistantMessageEventStream();
+	// Ultra is a client-side orchestration mode layered on maximum reasoning.
+	// OpenAI-compatible completions APIs only understand the wire-level "max" effort.
+	const wireOptions = options?.reasoningEffort === "ultra" ? { ...options, reasoningEffort: "max" as const } : options;
 
 	(async () => {
 		const output: AssistantMessage = {
@@ -181,7 +186,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 			const cacheSessionId = cacheRetention === "none" ? undefined : options?.sessionId;
 			const client = createClient(model, context, apiKey, options?.headers, cacheSessionId, compat);
-			let params = buildParams(model, context, options, compat, cacheRetention);
+			let params = buildParams(model, context, wireOptions, compat, cacheRetention);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
@@ -490,7 +495,8 @@ export const streamSimple: StreamFunction<"openai-completions", SimpleStreamOpti
 
 	const base = buildBaseOptions(model, context, options, options?.apiKey);
 	const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
-	const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
+	// "adaptive" is Anthropic-only; OpenAI Completions has no equivalent. Drop it here.
+	const reasoningEffort = clampedReasoning === "off" || clampedReasoning === "adaptive" ? undefined : clampedReasoning;
 	const toolChoice = (options as OpenAICompletionsOptions | undefined)?.toolChoice;
 
 	return stream(model, context, {
@@ -878,7 +884,7 @@ export function convertMessages(
 	if (context.systemPrompt) {
 		const useDeveloperRole = model.reasoning && compat.supportsDeveloperRole;
 		const role = useDeveloperRole ? "developer" : "system";
-		params.push({ role: role, content: sanitizeSurrogates(context.systemPrompt) });
+		params.push({ role: role, content: sanitizeSurrogates(stripSystemPromptDynamicBoundary(context.systemPrompt)) });
 	}
 
 	let lastRole: string | null = null;

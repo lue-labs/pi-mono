@@ -24,6 +24,7 @@ import type {
 	ThinkingContent,
 	ToolCall,
 } from "../types.ts";
+import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
@@ -312,7 +313,16 @@ export const streamSimple: StreamFunction<"google-vertex", SimpleStreamOptions> 
 	}
 
 	const clampedReasoning = clampThinkingLevel(model, options.reasoning);
-	const effort = (clampedReasoning === "off" ? "high" : clampedReasoning) as ClampedThinkingLevel;
+	// "adaptive" is Anthropic-only; clamp it to "high" for Google Vertex. "off" also falls through to "high".
+	const effort = (
+		clampedReasoning === "off" ||
+		clampedReasoning === "adaptive" ||
+		clampedReasoning === "xhigh" ||
+		clampedReasoning === "max" ||
+		clampedReasoning === "ultra"
+			? "high"
+			: clampedReasoning
+	) as ClampedThinkingLevel;
 	const geminiModel = model as unknown as Model<"google-generative-ai">;
 
 	if (isGemini3ProModel(geminiModel) || isGemini3FlashModel(geminiModel)) {
@@ -456,7 +466,9 @@ function buildParams(
 
 	const config: GenerateContentConfig = {
 		...(Object.keys(generationConfig).length > 0 && generationConfig),
-		...(context.systemPrompt && { systemInstruction: sanitizeSurrogates(context.systemPrompt) }),
+		...(context.systemPrompt && {
+			systemInstruction: sanitizeSurrogates(stripSystemPromptDynamicBoundary(context.systemPrompt)),
+		}),
 		...(context.tools && context.tools.length > 0 && { tools: convertTools(context.tools) }),
 	};
 
@@ -498,7 +510,7 @@ function buildParams(
 	return params;
 }
 
-type ClampedThinkingLevel = Exclude<PiThinkingLevel, "xhigh" | "max">;
+type ClampedThinkingLevel = Exclude<PiThinkingLevel, "xhigh" | "max" | "ultra" | "adaptive">;
 
 function isGemini3ProModel(model: Model<"google-generative-ai">): boolean {
 	return /gemini-3(?:\.\d+)?-pro/.test(model.id.toLowerCase());

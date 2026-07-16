@@ -237,7 +237,7 @@ describe("openai-responses provider defaults", () => {
 			...nonGpt55ResponsesModel,
 			provider: "opencode",
 			baseUrl: "https://proxy.example.com/v1",
-			compat: { sendSessionIdHeader: false },
+			compat: { sessionAffinityFormat: "openai-nosession" },
 		};
 		const captured = await captureOpenAIResponseHeaders({ sessionId: "session-123" }, proxyModel);
 

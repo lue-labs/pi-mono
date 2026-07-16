@@ -1391,7 +1391,8 @@ function normalizeToolCallId(id: string): string {
 }
 
 function convertMessages(
-	transformedMessages: Message[],
+	messages: Message[],
+	model: Model<"anthropic-messages">,
 	isOAuthToken: boolean,
 	cacheControl?: CacheControlEphemeral,
 	supportsDeferredTools = true,
@@ -1399,6 +1400,9 @@ function convertMessages(
 	canonicalToWire?: Map<string, string>,
 ): MessageParam[] {
 	const params: MessageParam[] = [];
+
+	// Transform messages for cross-provider compatibility
+	const transformedMessages = transformMessages(messages, model, normalizeToolCallId);
 
 	for (let i = 0; i < transformedMessages.length; i++) {
 		const msg = transformedMessages[i];
@@ -1547,10 +1551,10 @@ function convertMessages(
 			// Skip the messages we've already processed.
 			i = j - 1;
 
-			// Displaced reference-bearing results must follow every tool_result block.
+			// Add a single user message with all tool results
 			params.push({
 				role: "user",
-				content: [...toolResults, ...siblingContent],
+				content: toolResults,
 			});
 		}
 	}

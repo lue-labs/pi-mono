@@ -30,9 +30,11 @@ import type {
 	Usage,
 } from "../types.ts";
 import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
+import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
+import { splitSystemPromptAtDynamicBoundary } from "./openai-prompt-cache.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 // =============================================================================
@@ -80,14 +82,111 @@ export interface OpenAIResponsesStreamOptions {
 export interface ConvertResponsesMessagesOptions {
 	includeSystemPrompt?: boolean;
 	deferredTools?: ReadonlyMap<string, Tool>;
+	/**
+	 * Emit explicit `prompt_cache_breakpoint` markers (GPT-5.6+ prompt-cache API).
+	 * Places one breakpoint at the end of the stable system-prompt prefix (split at
+	 * `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`) and one on the previous user message, leaving
+	 * the implicit latest-message breakpoint and one spare write slot free (max 4
+	 * cache writes per request). Older models reject these fields — opt-in per model
+	 * via `OpenAIResponsesCompat.promptCacheApi: "breakpoints"`.
+	 */
+	promptCacheBreakpoints?: boolean;
+}
+
+const EXPLICIT_PROMPT_CACHE_BREAKPOINT = { mode: "explicit" } as const;
+
+/**
+ * Mark the last breakpoint-capable content block of the previous (second-to-last)
+ * user message. Earlier-turn breakpoints stay readable server-side (latest 50), so
+ * this creates a durable mid-conversation anchor: if the implicit latest-message
+ * cache entry is evicted, reads fall back to this prefix instead of a full re-write.
+ * The prefix up to here was already cached by the prior turn, so the incremental
+ * write cost is ~0.
+ */
+function markPreviousUserMessageBreakpoint(messages: ResponseInput): void {
+	let seenLatestUserMessage = false;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const item = messages[i] as { role?: string; content?: unknown };
+		if (item.role !== "user" || !Array.isArray(item.content) || item.content.length === 0) continue;
+		if (!seenLatestUserMessage) {
+			seenLatestUserMessage = true;
+			continue;
+		}
+		const lastBlock = item.content[item.content.length - 1] as { type?: string; prompt_cache_breakpoint?: unknown };
+		if (lastBlock.type === "input_text" || lastBlock.type === "input_image") {
+			lastBlock.prompt_cache_breakpoint = EXPLICIT_PROMPT_CACHE_BREAKPOINT;
+		}
+		return;
+	}
 }
 
 export interface ConvertResponsesToolsOptions {
 	strict?: boolean | null;
+	/** Sort tools and JSON Schema object keys for byte-stable prompt-cache prefixes. */
+	deterministic?: boolean;
+	/** Force `defer_loading: true` on every tool passed (used for a newly-surfaced deferred-tool batch). */
 	deferLoading?: boolean;
+	/**
+	 * Emit native `defer_loading: true` on tools with `deferLoading && !alwaysLoad`,
+	 * matching Codex CLI's `ResponsesApiTool` shape. The Codex backend honors this
+	 * field; the public OpenAI Responses API is not known to honor it, so callers
+	 * (i.e. `openai-codex-responses`) opt in explicitly.
+	 */
+	emitDeferLoading?: boolean;
 }
 
 type OpenAIFunctionTool = Extract<OpenAITool, { type: "function" }>;
+
+type ResponsesUsageLike = {
+	input_tokens?: number;
+	output_tokens?: number;
+	total_tokens?: number;
+	input_tokens_details?: {
+		cached_tokens?: number;
+		cache_write_tokens?: number;
+	};
+	output_tokens_details?: {
+		reasoning_tokens?: number;
+	};
+	cache_creation_input_tokens?: number;
+	cache_creation?: {
+		ephemeral_5m_input_tokens?: number;
+		ephemeral_1h_input_tokens?: number;
+	};
+	cache_creation_ephemeral_5m_input_tokens?: number;
+	cache_creation_ephemeral_1h_input_tokens?: number;
+};
+
+function positiveNumber(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export function parseOpenAIResponsesUsage(usage: ResponsesUsageLike): Usage {
+	const cacheRead = positiveNumber(usage.input_tokens_details?.cached_tokens);
+	const nestedCacheWrite5m = positiveNumber(usage.cache_creation?.ephemeral_5m_input_tokens);
+	const nestedCacheWrite1h = positiveNumber(usage.cache_creation?.ephemeral_1h_input_tokens);
+	const flatCacheWrite5m = positiveNumber(usage.cache_creation_ephemeral_5m_input_tokens);
+	const flatCacheWrite1h = positiveNumber(usage.cache_creation_ephemeral_1h_input_tokens);
+	const cacheWriteBreakdown = nestedCacheWrite5m + nestedCacheWrite1h || flatCacheWrite5m + flatCacheWrite1h;
+	const cacheWrite =
+		positiveNumber(usage.input_tokens_details?.cache_write_tokens) ||
+		positiveNumber(usage.cache_creation_input_tokens) ||
+		cacheWriteBreakdown;
+	const cacheWrite1h = cacheWrite > 0 ? nestedCacheWrite1h || flatCacheWrite1h || undefined : undefined;
+	const inputTokens = positiveNumber(usage.input_tokens);
+	return {
+		// OpenAI includes cached tokens in input_tokens; provider-compatible cache
+		// write fields are also prompt-side tokens, so subtract both buckets.
+		input: Math.max(0, inputTokens - cacheRead - cacheWrite),
+		output: positiveNumber(usage.output_tokens),
+		cacheRead,
+		cacheWrite,
+		...(cacheWrite1h ? { cacheWrite1h } : {}),
+		reasoning: positiveNumber(usage.output_tokens_details?.reasoning_tokens),
+		totalTokens: positiveNumber(usage.total_tokens),
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
 
 // =============================================================================
 // Message conversion
@@ -133,10 +232,30 @@ export function convertResponsesMessages<TApi extends Api>(
 	if (includeSystemPrompt && context.systemPrompt) {
 		const compat = model.compat as { supportsDeveloperRole?: boolean } | undefined;
 		const role = model.reasoning && compat?.supportsDeveloperRole !== false ? "developer" : "system";
-		messages.push({
-			role,
-			content: sanitizeSurrogates(context.systemPrompt),
-		});
+		if (options?.promptCacheBreakpoints) {
+			// Stable prefix carries an explicit breakpoint; the dynamic tail stays
+			// unmarked so per-session content never busts the shared static prefix.
+			const { stable, dynamic } = splitSystemPromptAtDynamicBoundary(context.systemPrompt);
+			const content: ResponseInputContent[] = [];
+			if (stable) {
+				content.push({
+					type: "input_text",
+					text: sanitizeSurrogates(stable),
+					prompt_cache_breakpoint: EXPLICIT_PROMPT_CACHE_BREAKPOINT,
+				} satisfies ResponseInputText);
+			}
+			if (dynamic) {
+				content.push({ type: "input_text", text: sanitizeSurrogates(dynamic) } satisfies ResponseInputText);
+			}
+			if (content.length > 0) {
+				messages.push({ role, content });
+			}
+		} else {
+			messages.push({
+				role,
+				content: sanitizeSurrogates(stripSystemPromptDynamicBoundary(context.systemPrompt)),
+			});
+		}
 	}
 
 	let msgIndex = 0;
@@ -296,6 +415,10 @@ export function convertResponsesMessages<TApi extends Api>(
 		msgIndex++;
 	}
 
+	if (options?.promptCacheBreakpoints) {
+		markPreviousUserMessageBreakpoint(messages);
+	}
+
 	return messages;
 }
 
@@ -303,18 +426,40 @@ export function convertResponsesMessages<TApi extends Api>(
 // Tool conversion
 // =============================================================================
 
+function sortJsonSchemaForCache(value: unknown): unknown {
+	if (value === null || typeof value !== "object") return value;
+	if (Array.isArray(value)) {
+		return value.map((item) => sortJsonSchemaForCache(item));
+	}
+
+	const input = value as Record<string, unknown>;
+	const out: Record<string, unknown> = {};
+	for (const key of Object.keys(input).sort()) {
+		const child = input[key];
+		out[key] = key === "required" && Array.isArray(child) ? child.slice().sort() : sortJsonSchemaForCache(child);
+	}
+	return out;
+}
+
 export function convertResponsesTools(tools: readonly Tool[], options?: ConvertResponsesToolsOptions): OpenAITool[] {
 	const strict = options?.strict === undefined ? false : options.strict;
-	return tools.map(
-		(tool): OpenAIFunctionTool => ({
-			type: "function",
-			name: tool.name,
-			description: tool.description,
-			parameters: tool.parameters as Record<string, unknown>, // TypeBox already generates JSON Schema
-			strict,
-			...(options?.deferLoading ? { defer_loading: true } : {}),
-		}),
-	);
+	const emitDeferLoading = options?.emitDeferLoading === true;
+	const sourceTools = options?.deterministic
+		? tools.slice().sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description))
+		: tools;
+	return sourceTools.map((tool): OpenAIFunctionTool => ({
+		type: "function",
+		name: tool.name,
+		description: tool.description,
+		parameters: (options?.deterministic ? sortJsonSchemaForCache(tool.parameters) : tool.parameters) as Record<
+			string,
+			unknown
+		>, // TypeBox already generates JSON Schema
+		strict,
+		...(options?.deferLoading || (emitDeferLoading && tool.deferLoading === true && tool.alwaysLoad !== true)
+			? { defer_loading: true }
+			: {}),
+	}));
 }
 
 // =============================================================================
@@ -416,21 +561,7 @@ export async function processResponsesStream<TApi extends Api>(
 			output.responseId = response.id;
 		}
 		if (response?.usage) {
-			const inputDetails = response.usage.input_tokens_details as
-				| { cached_tokens?: number; cache_write_tokens?: number }
-				| undefined;
-			const cachedTokens = inputDetails?.cached_tokens || 0;
-			const cacheWriteTokens = inputDetails?.cache_write_tokens || 0;
-			output.usage = {
-				// OpenAI includes cached and cache-write tokens in input_tokens, so subtract both.
-				input: Math.max(0, (response.usage.input_tokens || 0) - cachedTokens - cacheWriteTokens),
-				output: response.usage.output_tokens || 0,
-				cacheRead: cachedTokens,
-				cacheWrite: cacheWriteTokens,
-				reasoning: response.usage.output_tokens_details?.reasoning_tokens || 0,
-				totalTokens: response.usage.total_tokens || 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			};
+			output.usage = parseOpenAIResponsesUsage(response.usage);
 		}
 		calculateCost(model, output.usage);
 		if (options?.applyServiceTierPricing) {

@@ -225,7 +225,7 @@ describe("Anthropic raw SSE parsing", () => {
 	});
 
 	it("treats message_delta without usage as a no-op for usage accumulation", async () => {
-		const model = getModel("anthropic", "claude-haiku-4-5");
+		const model = pickModel("anthropic");
 		const context: Context = {
 			messages: [{ role: "user", content: "Say hello.", timestamp: Date.now() }],
 		};
