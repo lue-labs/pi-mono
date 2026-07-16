@@ -2179,12 +2179,13 @@ export class DefaultPackageManager implements PackageManager {
 			for (const resourceType of RESOURCE_TYPES) {
 				const patterns = filter[resourceType];
 				const target = this.getTargetMap(accumulator, resourceType);
+				const defaultLoad = resourceType === "extensions" ? filter.load : undefined;
 				if (filter.autoload === false) {
-					this.applyPackageDeltaFilter(packageRoot, patterns ?? [], resourceType, target, metadata);
+					this.applyPackageDeltaFilter(packageRoot, patterns ?? [], resourceType, target, metadata, defaultLoad);
 				} else if (patterns !== undefined) {
-					this.applyPackageFilter(packageRoot, patterns, resourceType, target, metadata);
+					this.applyPackageFilter(packageRoot, patterns, resourceType, target, metadata, defaultLoad);
 				} else {
-					this.collectDefaultResources(packageRoot, resourceType, target, metadata);
+					this.collectDefaultResources(packageRoot, resourceType, target, metadata, defaultLoad);
 				}
 			}
 			return true;
@@ -2276,6 +2277,7 @@ export class DefaultPackageManager implements PackageManager {
 		resourceType: ResourceType,
 		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
 		metadata: PathMetadata,
+		defaultLoad?: ExtensionLoadMode,
 	): void {
 		if (userPatterns.length === 0) {
 			return;
@@ -2284,7 +2286,7 @@ export class DefaultPackageManager implements PackageManager {
 		const { allFiles } = this.collectManifestFiles(packageRoot, resourceType);
 		const enabledByUser = applyAutoloadDisabledPatterns(allFiles, userPatterns, packageRoot);
 		for (const [filePath, enabled] of enabledByUser) {
-			this.addResource(target, filePath, metadata, enabled);
+			this.addResource(target, filePath, metadata, enabled, defaultLoad);
 		}
 	}
 
