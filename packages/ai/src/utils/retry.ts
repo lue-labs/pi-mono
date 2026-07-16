@@ -95,6 +95,17 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
  */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	if (message.stopReason !== "error" || !message.errorMessage) return false;
+	// An error after real assistant output is not a transient failure to replay:
+	// retrying would duplicate the partial answer in the transcript.
+	if (
+		message.content.some((block) => {
+			if (block.type === "text") return block.text.length > 0;
+			if (block.type === "thinking") return block.thinking.length > 0;
+			return true;
+		})
+	) {
+		return false;
+	}
 	const errorMessage = message.errorMessage;
 	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);

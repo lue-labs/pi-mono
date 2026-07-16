@@ -13,6 +13,7 @@
  * Modes use this class and add their own I/O layer on top.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import type {
@@ -551,6 +552,8 @@ export class AgentSession {
 	private _pendingAutoModelRequest?: PendingAutoModelRequest;
 	/** Session calls that can start or resume a turn, including asynchronous preflight. */
 	private _activeTurnCalls = 0;
+	/** Turn calls entered by the current async context, so isIdle can exclude the caller's own call. */
+	private _turnCallScope = new AsyncLocalStorage<number>();
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -727,7 +730,9 @@ export class AgentSession {
 				: undefined;
 
 			const hookContent = hookResult?.content;
-			const postHookContent = hookContent ?? result.content;
+			// Untyped JS extension tools can omit content (#6259/#6276); normalize
+			// before the artifact/cap pipeline, which requires an array.
+			const postHookContent = hookContent ?? result.content ?? [];
 			const normalizedContent = replaceUnsupportedToolResultImages(postHookContent, this._cwd, toolCall.id);
 			const finalContent = normalizedContent ?? postHookContent;
 			const imageCappedContent = replaceOversizedToolResultImages(finalContent, this._cwd, toolCall.id);
@@ -1280,7 +1285,19 @@ export class AgentSession {
 
 	/** Whether the session has no active agent run, retry, auto-compaction, or queued continuation. */
 	get isIdle(): boolean {
-		return this._activeTurnCalls === 0 && !this.isStreaming && !this.isCompacting && !this.agent.isProcessing;
+		// Full busy predicate (regression #295): raw streaming windows, compaction,
+		// and in-flight turn calls all report busy. Turn calls entered by the
+		// current async context are excluded so extension handlers that run inside
+		// a turn (agent_settled, command handlers resuming from waitForIdle) see
+		// the session's state, not their own call (regression #6363).
+		const foreignTurnCalls = this._activeTurnCalls - (this._turnCallScope.getStore() ?? 0);
+		return (
+			foreignTurnCalls <= 0 &&
+			!this.isStreaming &&
+			!this.agent.state.isStreaming &&
+			!this.isCompacting &&
+			!this.agent.isProcessing
+		);
 	}
 
 	/** Current effective system prompt (includes any per-turn extension modifications) */
@@ -1755,9 +1772,13 @@ export class AgentSession {
 	private async _withActiveTurnCall<T>(operation: () => Promise<T>): Promise<T> {
 		this._activeTurnCalls++;
 		try {
-			return await operation();
+			return await this._turnCallScope.run((this._turnCallScope.getStore() ?? 0) + 1, operation);
 		} finally {
 			this._activeTurnCalls--;
+			// Turn-call exit can complete an idle window that the settle emit saw as
+			// busy (the settling prompt's own call was still unwinding); wake waiters
+			// so they re-check isIdle in their own context.
+			this._resolveIdleWaitIfIdle();
 		}
 	}
 
@@ -2551,10 +2572,12 @@ export class AgentSession {
 	}
 
 	async waitForIdle(): Promise<void> {
-		if (this.isIdle) {
-			return;
+		// Waiters re-check the full idle predicate in their own async context each
+		// wake: the resolver only signals "no agent run active", which is weaker
+		// than isIdle (foreign turn calls may still be unwinding).
+		while (!this.isIdle) {
+			await this._getIdleWaitPromise();
 		}
-		await this._getIdleWaitPromise();
 	}
 
 	// =========================================================================
