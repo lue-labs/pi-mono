@@ -12,8 +12,8 @@ import {
 import type { AuthStorage } from "../auth-storage.ts";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.ts";
 import type { ModelRegistry } from "../model-registry.ts";
-import type { ModelRuntime } from "../model-runtime.ts";
 import { normalizeAutoAliasString, parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
+import type { ModelRuntime } from "../model-runtime.ts";
 import { type ReadonlySessionManager, SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import { appendTaskMessage } from "../tasks/messages.ts";
