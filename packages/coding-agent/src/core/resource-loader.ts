@@ -16,7 +16,8 @@ import {
 	expandSystemPromptImports,
 } from "./context-file-imports.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
-import { isHookPath } from "./extensions/extension-hooks.ts";
+import "./extensions/core-extension-actions.ts";
+import { actionSource, getActions, isHookPath, load } from "./extensions/extension-hooks.ts";
 import {
 	clearExtensionCache,
 	createExtensionRuntime,
@@ -630,6 +631,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 			const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime);
 			extensionsResult.extensions.push(...inlineExtensions.extensions);
 			extensionsResult.errors.push(...inlineExtensions.errors);
+			const hookedExtensions = await this.loadExtensionHooks(extensionsResult.runtime);
+			extensionsResult.extensions.push(...hookedExtensions.extensions);
+			extensionsResult.errors.push(...hookedExtensions.errors);
 			this.addExtensionConflictDiagnostics(extensionsResult);
 			return extensionsResult;
 		}
@@ -665,10 +669,14 @@ export class DefaultResourceLoader implements ResourceLoader {
 			.filter((extension): extension is Extension => extension !== undefined);
 		orderedExtensions.push(...inlineExtensions);
 
+		// Consume the registered "load" hook so hook-style extensions join the final set.
+		const hookedExtensions = await this.loadExtensionHooks(preTrustExtensions.runtime);
+		orderedExtensions.push(...hookedExtensions.extensions);
+
 		const extensionsResult: LoadExtensionsResult = {
 			extensions: orderedExtensions,
 			deferredExtensions: [...preTrustExtensions.deferredExtensions, ...remainingExtensions.deferredExtensions],
-			errors: [...preTrustExtensions.errors, ...remainingExtensions.errors],
+			errors: [...preTrustExtensions.errors, ...remainingExtensions.errors, ...hookedExtensions.errors],
 			eventBus: this.eventBus,
 			runtime: preTrustExtensions.runtime,
 		};
@@ -993,6 +1001,25 @@ export class DefaultResourceLoader implements ResourceLoader {
 			const message = error instanceof Error ? error.message : "failed to load theme";
 			diagnostics.push({ type: "warning", message, path: filePath });
 		}
+	}
+
+	private async loadExtensionHooks(runtime: ExtensionRuntime): Promise<{
+		extensions: Extension[];
+		errors: Array<{ path: string; error: string }>;
+	}> {
+		const extensions: Extension[] = [];
+		const errors: Array<{ path: string; error: string }> = [];
+		for (const action of getActions(load)) {
+			const path = actionSource(action);
+			try {
+				const extension = await loadExtensionFromFactory(action.callback, this.cwd, this.eventBus, runtime, path);
+				extensions.push(extension);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "failed to hook extension";
+				errors.push({ path, error: message });
+			}
+		}
+		return { extensions, errors };
 	}
 
 	private async loadExtensionFactories(runtime: ExtensionRuntime): Promise<{
