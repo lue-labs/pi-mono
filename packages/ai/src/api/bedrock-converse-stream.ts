@@ -47,7 +47,6 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
-import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
@@ -153,7 +152,10 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 		// Resolve bearer token for Bedrock API key auth.
 		const skipAuth = getProviderEnvValue("AWS_BEDROCK_SKIP_AUTH", options.env) === "1";
 		const bearerToken =
-			options.bearerToken || getProviderEnvValue("AWS_BEARER_TOKEN_BEDROCK", options.env) || undefined;
+			options.bearerToken ||
+			options.apiKey ||
+			getProviderEnvValue("AWS_BEARER_TOKEN_BEDROCK", options.env) ||
+			undefined;
 		const useBearerToken = bearerToken !== undefined && !skipAuth;
 
 		// in Node.js/Bun environment only
@@ -258,7 +260,11 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				} else if (item.contentBlockStop) {
 					handleContentBlockStop(item.contentBlockStop, blocks, output, stream);
 				} else if (item.messageStop) {
-					output.stopReason = mapStopReason(item.messageStop.stopReason);
+					const { stopReason, errorMessage } = mapStopReason(item.messageStop.stopReason);
+					output.stopReason = stopReason;
+					if (errorMessage) {
+						output.errorMessage = errorMessage;
+					}
 				} else if (item.metadata) {
 					handleMetadata(item.metadata, model, output);
 				} else if (item.internalServerException) {
@@ -279,7 +285,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			}
 
 			if (output.stopReason === "error" || output.stopReason === "aborted") {
-				throw new Error("An unknown error occurred");
+				throw new Error(output.errorMessage || "An unknown error occurred");
 			}
 
 			stream.push({ type: "done", reason: output.stopReason, message: output });
@@ -583,7 +589,9 @@ function supportsAdaptiveThinking(modelId: string, modelName?: string): boolean 
 
 function supportsNativeXhighEffort(model: Model<"bedrock-converse-stream">): boolean {
 	const candidates = getModelMatchCandidates(model.id, model.name);
-	return candidates.some((s) => s.includes("opus-4-7") || s.includes("opus-4-8") || s.includes("fable-5"));
+	return candidates.some(
+		(s) => s.includes("opus-4-7") || s.includes("opus-4-8") || s.includes("sonnet-5") || s.includes("fable-5"),
+	);
 }
 
 function mapThinkingLevelToEffort(
@@ -610,17 +618,16 @@ function mapThinkingLevelToEffort(
 
 /**
  * Resolve cache retention preference.
- * Defaults to "long"; set PI_CACHE_RETENTION=short or PI_CACHE_RETENTION=none to override process-wide.
+ * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
  */
 function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
 	if (cacheRetention) {
 		return cacheRetention;
 	}
-	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
-	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
-		return envRetention;
+	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
+		return "long";
 	}
-	return "long";
+	return "short";
 }
 
 /**
@@ -693,7 +700,7 @@ function buildSystemPrompt(
 ): SystemContentBlock[] | undefined {
 	if (!systemPrompt) return undefined;
 
-	const blocks: SystemContentBlock[] = [{ text: sanitizeSurrogates(stripSystemPromptDynamicBoundary(systemPrompt)) }];
+	const blocks: SystemContentBlock[] = [{ text: sanitizeSurrogates(systemPrompt) }];
 
 	// Add cache point for supported Claude models when caching is enabled
 	if (cacheRetention !== "none" && supportsPromptCaching(model, env)) {
@@ -719,12 +726,9 @@ function createRequiredTextBlock(text: string): ContentBlock.TextMember {
 	return createNonBlankTextBlock(text) ?? { text: EMPTY_TEXT_PLACEHOLDER };
 }
 
-function convertToolResultContent(
-	content: (TextContent | ImageContent | { type: "tool_reference"; name: string })[],
-): ToolResultContentBlock[] {
+function convertToolResultContent(content: (TextContent | ImageContent)[]): ToolResultContentBlock[] {
 	const result: ToolResultContentBlock[] = [];
 	for (const c of content) {
-		if (c.type === "tool_reference") continue;
 		if (c.type === "image") {
 			result.push({ image: createImageBlock(c.mimeType, c.data) });
 		} else {
@@ -932,18 +936,18 @@ function convertToolConfig(
 	return { tools: bedrockTools, toolChoice: bedrockToolChoice };
 }
 
-function mapStopReason(reason: string | undefined): StopReason {
+function mapStopReason(reason: string | undefined): { stopReason: StopReason; errorMessage?: string } {
 	switch (reason) {
 		case BedrockStopReason.END_TURN:
 		case BedrockStopReason.STOP_SEQUENCE:
-			return "stop";
+			return { stopReason: "stop" };
 		case BedrockStopReason.MAX_TOKENS:
 		case BedrockStopReason.MODEL_CONTEXT_WINDOW_EXCEEDED:
-			return "length";
+			return { stopReason: "length" };
 		case BedrockStopReason.TOOL_USE:
-			return "toolUse";
+			return { stopReason: "toolUse" };
 		default:
-			return "error";
+			return reason ? { stopReason: "error", errorMessage: reason } : { stopReason: "error" };
 	}
 }
 
@@ -1020,37 +1024,22 @@ function buildAdditionalModelRequestFields(
 		// Omit it there until the GovCloud Converse schema catches up.
 		const display = isGovCloudBedrockTarget(model, options) ? undefined : (options.thinkingDisplay ?? "summarized");
 		const result: Record<string, any> = supportsAdaptiveThinking(model.id, model.name)
-			? (() => {
-					const thinking = { type: "adaptive", ...(display !== undefined ? { display } : {}) };
-					// "adaptive" level = no effort cap; Claude self-regulates fully.
-					if (options.reasoning === "adaptive") {
-						return { thinking };
-					}
-					return {
-						thinking,
-						output_config: { effort: mapThinkingLevelToEffort(model, options.reasoning) },
-					};
-				})()
+			? {
+					thinking: { type: "adaptive", ...(display !== undefined ? { display } : {}) },
+					output_config: { effort: mapThinkingLevelToEffort(model, options.reasoning) },
+				}
 			: (() => {
 					const defaultBudgets: Record<ThinkingLevel, number> = {
 						minimal: 1024,
 						low: 2048,
 						medium: 8192,
 						high: 16384,
-						xhigh: 16384, // Claude doesn't support xhigh, clamp to high
-						max: 16384, // OpenAI-only level, clamp to high
-						ultra: 16384, // OpenAI client orchestration mode, clamp to high
-						adaptive: 16384, // Non-adaptive Claude models can't go adaptive, clamp to high
+						xhigh: 16384, // Budget-based Claude clamps extended levels to high
+						max: 16384,
 					};
 
-					// Custom budgets override defaults (xhigh/max/ultra/adaptive not in ThinkingBudgets, use high)
-					const level =
-						options.reasoning === "xhigh" ||
-						options.reasoning === "max" ||
-						options.reasoning === "ultra" ||
-						options.reasoning === "adaptive"
-							? "high"
-							: options.reasoning;
+					// Custom budgets only cover token-based levels through high.
+					const level = options.reasoning === "xhigh" || options.reasoning === "max" ? "high" : options.reasoning;
 					const budget = options.thinkingBudgets?.[level] ?? defaultBudgets[options.reasoning];
 
 					return {

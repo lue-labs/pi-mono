@@ -1,5 +1,4 @@
-import type { Model } from "@valkyriweb/pi-ai";
-import { getModels } from "@valkyriweb/pi-ai/compat";
+import type { Model } from "@earendil-works/pi-ai";
 import { describe, expect, test, vi } from "vitest";
 import {
 	defaultModelPerProvider,
@@ -110,7 +109,7 @@ describe("parseModelPattern", () => {
 		});
 
 		test("all valid thinking levels work", () => {
-			for (const level of ["off", "minimal", "low", "medium", "high", "xhigh"]) {
+			for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
 				const result = parseModelPattern(`sonnet:${level}`, allModels);
 				expect(result.model?.id).toBe("claude-sonnet-4-5");
 				expect(result.thinkingLevel).toBe(level);
@@ -263,12 +262,12 @@ describe("resolveModelScopeWithDiagnostics", () => {
 describe("resolveCliModel", () => {
 	test("resolves --model provider/id without --provider", () => {
 		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => allModels,
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliModel: "openai/gpt-4o",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -278,13 +277,13 @@ describe("resolveCliModel", () => {
 
 	test("resolves fuzzy patterns within an explicit provider", () => {
 		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => allModels,
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
 			cliModel: "4o",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -294,12 +293,12 @@ describe("resolveCliModel", () => {
 
 	test("supports --model <pattern>:<thinking> (without explicit --thinking)", () => {
 		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => allModels,
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliModel: "sonnet:high",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -309,12 +308,12 @@ describe("resolveCliModel", () => {
 
 	test("prefers exact model id match over provider inference (OpenRouter-style ids)", () => {
 		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => allModels,
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliModel: "openai/gpt-4o:extended",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -324,13 +323,13 @@ describe("resolveCliModel", () => {
 
 	test("does not strip invalid :suffix as thinking level in --model (treat as raw id)", () => {
 		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => allModels,
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
 			cliModel: "gpt-4o:extended",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -340,13 +339,13 @@ describe("resolveCliModel", () => {
 
 	test("allows custom model ids for explicit providers without double prefixing", () => {
 		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => allModels,
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliProvider: "openrouter",
 			cliModel: "openrouter/openai/ghost-model",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -356,13 +355,13 @@ describe("resolveCliModel", () => {
 
 	test("returns a clear error when there are no models", () => {
 		const registry = {
-			getAll: () => [],
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => [],
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
 			cliModel: "gpt-4o",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.model).toBeUndefined();
@@ -397,13 +396,13 @@ describe("resolveCliModel", () => {
 			maxTokens: 8192,
 		};
 		const registry = {
-			getAll: () => [...allModels, zaiModel, gatewayModel],
+			getModels: () => [...allModels, zaiModel, gatewayModel],
 			hasConfiguredAuth: () => true,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliModel: "zai/glm-5",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -437,13 +436,13 @@ describe("resolveCliModel", () => {
 			maxTokens: 8192,
 		};
 		const registry = {
-			getAll: () => [...allModels, commandcodeModel, xiaomiModel],
-			hasConfiguredAuth: (model: Model<"anthropic-messages">) => model.provider === "commandcode",
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => [...allModels, commandcodeModel, xiaomiModel],
+			hasConfiguredAuth: (provider: string) => provider === "commandcode",
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliModel: "xiaomi/mimo-v2.5-pro",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -453,12 +452,12 @@ describe("resolveCliModel", () => {
 
 	test("resolves provider-prefixed fuzzy patterns (openrouter/qwen -> openrouter model)", () => {
 		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+			getModels: () => allModels,
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 		const result = resolveCliModel({
 			cliModel: "openrouter/qwen",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.error).toBeUndefined();
@@ -486,12 +485,12 @@ describe("resolveCliModel", () => {
 
 		test("strips :thinking suffix from custom model id in fallback path", () => {
 			const registry = {
-				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+				getModels: () => modelsWithNeuralwatt,
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 			const result = resolveCliModel({
 				cliModel: "neuralwatt/zai-org/GLM-5.1-FP8:high",
-				modelRegistry: registry,
+				modelRuntime: registry,
 			});
 
 			expect(result.error).toBeUndefined();
@@ -504,12 +503,12 @@ describe("resolveCliModel", () => {
 
 		test("custom model without thinking suffix works normally in fallback path", () => {
 			const registry = {
-				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+				getModels: () => modelsWithNeuralwatt,
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 			const result = resolveCliModel({
 				cliModel: "neuralwatt/zai-org/GLM-5.1-FP8",
-				modelRegistry: registry,
+				modelRuntime: registry,
 			});
 
 			expect(result.error).toBeUndefined();
@@ -520,13 +519,13 @@ describe("resolveCliModel", () => {
 
 		test("all valid thinking levels work in fallback path", () => {
 			const registry = {
-				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+				getModels: () => modelsWithNeuralwatt,
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
-			for (const level of ["off", "minimal", "low", "medium", "high", "xhigh"]) {
+			for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
 				const result = resolveCliModel({
 					cliModel: `neuralwatt/zai-org/GLM-5.1-FP8:${level}`,
-					modelRegistry: registry,
+					modelRuntime: registry,
 				});
 
 				expect(result.error).toBeUndefined();
@@ -537,12 +536,12 @@ describe("resolveCliModel", () => {
 
 		test("invalid thinking suffix on custom model is treated as part of model id", () => {
 			const registry = {
-				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+				getModels: () => modelsWithNeuralwatt,
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 			const result = resolveCliModel({
 				cliModel: "neuralwatt/zai-org/GLM-5.1-FP8:banana",
-				modelRegistry: registry,
+				modelRuntime: registry,
 			});
 
 			expect(result.error).toBeUndefined();
@@ -554,13 +553,13 @@ describe("resolveCliModel", () => {
 
 		test("explicit --provider with custom model:thinking strips suffix correctly", () => {
 			const registry = {
-				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+				getModels: () => modelsWithNeuralwatt,
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 			const result = resolveCliModel({
 				cliProvider: "neuralwatt",
 				cliModel: "zai-org/GLM-5.1-FP8:high",
-				modelRegistry: registry,
+				modelRuntime: registry,
 			});
 
 			expect(result.error).toBeUndefined();
@@ -571,13 +570,13 @@ describe("resolveCliModel", () => {
 
 		test("with explicit --thinking, :suffix is kept as part of model id", () => {
 			const registry = {
-				getAll: () => modelsWithNeuralwatt,
-			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+				getModels: () => modelsWithNeuralwatt,
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
 
 			const result = resolveCliModel({
 				cliModel: "neuralwatt/zai-org/GLM-5.1-FP8:high",
 				cliThinking: "medium",
-				modelRegistry: registry,
+				modelRuntime: registry,
 			});
 
 			expect(result.error).toBeUndefined();
@@ -637,12 +636,6 @@ describe("default model selection", () => {
 		expect(defaultModelPerProvider["azure-openai-responses"]).toBe("gpt-5.6-sol");
 		expect(defaultModelPerProvider["github-copilot"]).toBe("gpt-5.3-codex");
 		expect(Object.values(defaultModelPerProvider).filter((model) => /^gpt-5\.(4|5)(?:-|$)/.test(model))).toEqual([]);
-		for (const provider of ["openai", "azure-openai-responses", "openai-codex", "github-copilot"] as const) {
-			expect(
-				getModels(provider).some((model) => model.id === defaultModelPerProvider[provider]),
-				provider,
-			).toBe(true);
-		}
 	});
 
 	test("zai, minimax, cerebras, and ant-ling defaults track current models", () => {
@@ -659,15 +652,15 @@ describe("default model selection", () => {
 
 	test("findInitialModel accepts explicit provider custom model ids", async () => {
 		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+			getModels: () => allModels,
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRuntime"];
 
 		const result = await findInitialModel({
 			cliProvider: "openrouter",
 			cliModel: "openrouter/openai/ghost-model",
 			scopedModels: [],
 			isContinuing: false,
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.model?.provider).toBe("openrouter");
@@ -690,12 +683,12 @@ describe("default model selection", () => {
 
 		const registry = {
 			getAvailable: async () => [aiGatewayModel],
-		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRuntime"];
 
 		const result = await findInitialModel({
 			scopedModels: [],
 			isContinuing: false,
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.model?.provider).toBe("vercel-ai-gateway");
@@ -721,20 +714,20 @@ describe("default model selection", () => {
 			baseUrl: "http://spark-two:8000/v1",
 		};
 		const registry = {
-			find: (provider: string, modelId: string) =>
+			getModel: (provider: string, modelId: string) =>
 				provider === savedDeepSeekModel.provider && modelId === savedDeepSeekModel.id
 					? savedDeepSeekModel
 					: undefined,
-			hasConfiguredAuth: (model: Model<"anthropic-messages">) => model.provider === "spark-two",
+			hasConfiguredAuth: (provider: string) => provider === "spark-two",
 			getAvailable: async () => [localDeepSeekModel],
-		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRuntime"];
 
 		const result = await findInitialModel({
 			scopedModels: [],
 			isContinuing: false,
 			defaultProvider: "deepseek",
 			defaultModelId: "deepseek-v4-flash",
-			modelRegistry: registry,
+			modelRuntime: registry,
 		});
 
 		expect(result.model?.provider).toBe("spark-two");

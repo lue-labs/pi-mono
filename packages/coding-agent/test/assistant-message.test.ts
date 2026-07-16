@@ -1,4 +1,4 @@
-import type { AssistantMessage } from "@valkyriweb/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, test } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
 import { UserMessageComponent } from "../src/modes/interactive/components/user-message.ts";
@@ -11,7 +11,7 @@ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
 function createAssistantMessage(
 	content: AssistantMessage["content"],
-	overrides: Partial<Pick<AssistantMessage, "stopReason" | "errorMessage">> = {},
+	overrides: Partial<Pick<AssistantMessage, "stopReason">> & { errorMessage?: string } = {},
 ): AssistantMessage {
 	return {
 		role: "assistant",
@@ -101,6 +101,24 @@ describe("AssistantMessageComponent", () => {
 
 		expect(rendered).not.toContain("Operation aborted");
 		expect(rendered).not.toContain("pi-goal:stale-queued-continuation-cancelled");
+	});
+
+	test("coalesces adjacent thinking blocks into one hidden thinking label", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "first thought" },
+				{ type: "thinking", thinking: "" },
+				{ type: "thinking", thinking: "second thought" },
+				{ type: "text", text: "answer" },
+			]),
+			true,
+		);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+
+		expect(rendered.match(/Thinking\.\.\./g)).toHaveLength(1);
+		expect(rendered).toContain("answer");
 	});
 
 	test("uses configured output padding for text and thinking", () => {

@@ -1,15 +1,10 @@
-import type { AssistantMessage } from "@valkyriweb/pi-ai";
-import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@valkyriweb/pi-tui";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
-const PI_GOAL_STALE_CONTINUATION_ABORT = "pi-goal:stale-queued-continuation-cancelled";
-
-function isSilentAbortMessage(message: AssistantMessage): boolean {
-	return message.stopReason === "aborted" && message.errorMessage === PI_GOAL_STALE_CONTINUATION_ABORT;
-}
 
 /**
  * Component that renders a complete assistant message
@@ -106,7 +101,24 @@ export class AssistantMessageComponent extends Container {
 				// Assistant text messages with no background - trim the text
 				// Set paddingY=0 to avoid extra spacing before tool executions
 				this.contentContainer.addChild(new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme));
-			} else if (content.type === "thinking" && content.thinking.trim()) {
+			} else if (content.type === "thinking") {
+				const thinkingBlocks: string[] = [];
+				for (; i < message.content.length; i++) {
+					const thinkingContent = message.content[i];
+					if (thinkingContent.type !== "thinking") {
+						break;
+					}
+					const thinking = thinkingContent.thinking.trim();
+					if (thinking) {
+						thinkingBlocks.push(thinking);
+					}
+				}
+				i--;
+
+				if (thinkingBlocks.length === 0) {
+					continue;
+				}
+
 				// Add spacing only when another visible assistant content block follows.
 				// This avoids a superfluous blank line before separately-rendered tool execution blocks.
 				const hasVisibleContentAfter = message.content
@@ -114,24 +126,21 @@ export class AssistantMessageComponent extends Container {
 					.some((c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()));
 
 				if (this.hideThinkingBlock) {
-					// Show static thinking label when hidden
+					// Show one static label for each run of thinking blocks when hidden.
 					this.contentContainer.addChild(
 						new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0),
 					);
-					if (hasVisibleContentAfter) {
-						this.contentContainer.addChild(new Spacer(1));
-					}
 				} else {
-					// Thinking traces in thinkingText color, italic
+					// Render each run of thinking blocks as one Markdown section.
 					this.contentContainer.addChild(
-						new Markdown(content.thinking.trim(), this.outputPad, 0, this.markdownTheme, {
+						new Markdown(thinkingBlocks.join("\n\n"), this.outputPad, 0, this.markdownTheme, {
 							color: (text: string) => theme.fg("thinkingText", text),
 							italic: true,
 						}),
 					);
-					if (hasVisibleContentAfter) {
-						this.contentContainer.addChild(new Spacer(1));
-					}
+				}
+				if (hasVisibleContentAfter) {
+					this.contentContainer.addChild(new Spacer(1));
 				}
 			}
 		}
@@ -155,7 +164,6 @@ export class AssistantMessageComponent extends Container {
 			);
 		} else if (!hasToolCalls) {
 			if (message.stopReason === "aborted") {
-				if (isSilentAbortMessage(message)) return;
 				const abortMessage =
 					message.errorMessage && message.errorMessage !== "Request was aborted"
 						? message.errorMessage

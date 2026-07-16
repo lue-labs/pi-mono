@@ -7,16 +7,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import type {
-	AssistantMessage,
-	ImageContent,
-	Message,
-	Model,
-	OAuthProviderId,
-	OAuthSelectPrompt,
-} from "@valkyriweb/pi-ai";
-import { getProviders } from "@valkyriweb/pi-ai/compat";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, Message, Model } from "@earendil-works/pi-ai/compat";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -27,7 +20,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	SlashCommand,
-} from "@valkyriweb/pi-tui";
+} from "@earendil-works/pi-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -44,7 +37,7 @@ import {
 	TruncatedText,
 	TUI,
 	visibleWidth,
-} from "@valkyriweb/pi-tui";
+} from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import {
@@ -55,13 +48,18 @@ import {
 	getAuthPath,
 	getDebugLogPath,
 	getDocsPath,
-	getSessionsDir,
 	getShareViewerUrl,
 	VERSION,
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
-import { formatAgentStatus, subscribeAgentRecentRuns } from "../../core/agents/status.ts";
+import {
+	CACHE_TTL_MS,
+	type CacheMiss,
+	collectCacheMisses,
+	computeCacheWaste,
+	detectCacheMiss,
+} from "../../core/cache-stats.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -77,26 +75,19 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
-import {
-	defaultModelPerProvider,
-	findExactModelReferenceMatch,
-	normalizeAutoAliasString,
-	resolveModelScope,
-} from "../../core/model-resolver.ts";
+import { createCompactionSummaryMessage } from "../../core/messages.ts";
+import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
-import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
-import { SessionLiveness, sweepStaleMarkers } from "../../core/session-liveness.ts";
 import { type SessionEntry, SessionManager, sessionEntryToContextMessages } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
-import { subscribeBashBgJobs, subscribeBashBgTerminal } from "../../core/tools/bash.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
-import { copyToClipboard } from "../../utils/clipboard.ts";
+import { copyToClipboard, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath } from "../../utils/paths.ts";
@@ -104,7 +95,6 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
-import { type AgentCommandsHost, runAgentsCommand, runAgentsDoctorCommand } from "./agent-commands.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -120,14 +110,16 @@ import { EarendilAnnouncementComponent } from "./components/earendil-announcemen
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
-import { FooterComponent } from "./components/footer.ts";
+import { FooterComponent, formatTokens } from "./components/footer.ts";
 import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.ts";
 import { LoginDialogComponent } from "./components/login-dialog.ts";
-import { memorySavedMessageRenderer } from "./components/memory-saved-message.ts";
-import { isAutoModelAlias, ModelSelectorComponent } from "./components/model-selector.ts";
-import { type AuthSelectorProvider, OAuthSelectorComponent } from "./components/oauth-selector.ts";
+import { ModelSelectorComponent } from "./components/model-selector.ts";
+import {
+	type AuthSelectorProvider,
+	formatAuthSelectorProviderType,
+	OAuthSelectorComponent,
+} from "./components/oauth-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
-import { ServerToolActivityComponent } from "./components/server-tool-activity.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
@@ -202,11 +194,6 @@ function isCustomSessionEntry(item: RenderSessionItem): item is Extract<SessionE
 }
 
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
-const PI_GOAL_STALE_CONTINUATION_ABORT = "pi-goal:stale-queued-continuation-cancelled";
-
-function isSilentAbortMessage(message: AssistantMessage): boolean {
-	return message.stopReason === "aborted" && message.errorMessage === PI_GOAL_STALE_CONTINUATION_ABORT;
-}
 
 function isDeadTerminalError(error: unknown): boolean {
 	if (!error || typeof error !== "object" || !("code" in error)) {
@@ -217,7 +204,7 @@ function isDeadTerminalError(error: unknown): boolean {
 }
 
 const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
-	"Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage.";
+	"Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage. Disable this warning in /settings.";
 
 function isAnthropicSubscriptionAuthKey(apiKey: string | undefined): boolean {
 	return typeof apiKey === "string" && apiKey.startsWith("sk-ant-oat");
@@ -253,22 +240,57 @@ function hasDefaultModelProvider(providerId: string): providerId is keyof typeof
 	return providerId in defaultModelPerProvider;
 }
 
-const BEDROCK_PROVIDER_ID = "amazon-bedrock";
+type LoginProviderCompletionOption = {
+	id: string;
+	name: string;
+	authTypes: AuthSelectorProvider["authType"][];
+};
 
-const BUILT_IN_MODEL_PROVIDERS = new Set<string>(getProviders());
+const AUTH_TYPE_ORDER = { oauth: 0, api_key: 1 } satisfies Record<AuthSelectorProvider["authType"], number>;
 
-export function isApiKeyLoginProvider(
-	providerId: string,
-	oauthProviderIds: ReadonlySet<string>,
-	builtInProviderIds: ReadonlySet<string> = BUILT_IN_MODEL_PROVIDERS,
-): boolean {
-	if (BUILT_IN_PROVIDER_DISPLAY_NAMES[providerId]) {
-		return true;
+function createFuzzyAutocompleteItems<T>(
+	items: T[],
+	prefix: string,
+	getSearchText: (item: T) => string,
+	toAutocompleteItem: (item: T) => AutocompleteItem,
+): AutocompleteItem[] | null {
+	const filtered = fuzzyFilter(items, prefix, getSearchText);
+	if (filtered.length === 0) return null;
+	return filtered.map(toAutocompleteItem);
+}
+
+function getLoginProviderCompletionOptions(
+	providerOptions: readonly AuthSelectorProvider[],
+): LoginProviderCompletionOption[] {
+	const byId = new Map<string, LoginProviderCompletionOption>();
+	for (const provider of providerOptions) {
+		const existing = byId.get(provider.id);
+		if (existing) {
+			if (!existing.authTypes.includes(provider.authType)) {
+				existing.authTypes.push(provider.authType);
+				existing.authTypes.sort((a, b) => AUTH_TYPE_ORDER[a] - AUTH_TYPE_ORDER[b]);
+			}
+			continue;
+		}
+		byId.set(provider.id, {
+			id: provider.id,
+			name: provider.name,
+			authTypes: [provider.authType],
+		});
 	}
-	if (builtInProviderIds.has(providerId)) {
-		return false;
-	}
-	return !oauthProviderIds.has(providerId);
+	return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getLoginProviderSearchText(provider: LoginProviderCompletionOption): string {
+	const authTypes = provider.authTypes
+		.map((authType) => `${authType} ${formatAuthSelectorProviderType(authType)}`)
+		.join(" ");
+	return `${provider.id} ${provider.name} ${authTypes}`;
+}
+
+function formatLoginProviderCompletionDescription(provider: LoginProviderCompletionOption): string {
+	const authTypes = provider.authTypes.map(formatAuthSelectorProviderType).join("/");
+	return provider.name === provider.id ? authTypes : `${provider.name} · ${authTypes}`;
 }
 
 /**
@@ -338,8 +360,6 @@ export class InteractiveMode {
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
-	// Provider-executed (server-side) web tool activity cards: serverToolUse id -> component
-	private serverToolActivities = new Map<string, ServerToolActivityComponent>();
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
@@ -353,9 +373,6 @@ export class InteractiveMode {
 
 	// Agent subscription unsubscribe function
 	private unsubscribe?: () => void;
-	private unsubscribeAgentRuns?: () => void;
-	private unsubscribeBashBgJobs?: () => void;
-	private unsubscribeBashBgTerminal?: () => void;
 	private signalCleanupHandlers: Array<() => void> = [];
 
 	// Track if editor is in bash mode (text starts with !)
@@ -378,20 +395,6 @@ export class InteractiveMode {
 
 	// Shutdown state
 	private shutdownRequested = false;
-
-	// Extension main pane state. The extension runner owns registration; interactive-mode
-	// only mounts/unmounts the selected component in the chat container.
-	private activeMainPane:
-		| {
-				id: string;
-				component: Component & { dispose?(): void; onEscape?(): boolean | undefined };
-				preChildren: Component[];
-		  }
-		| undefined = undefined;
-	private activeOverlay:
-		| { id: string; component: Component & { dispose?(): void }; handle: OverlayHandle }
-		| undefined = undefined;
-	private selectedExtensionFooterId: string | undefined = undefined;
 
 	// Extension UI state
 	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
@@ -537,54 +540,44 @@ export class InteractiveMode {
 		const slashCommands: SlashCommand[] = BUILTIN_SLASH_COMMANDS.map((command) => ({
 			name: command.name,
 			description: command.description,
+			...(command.argumentHint && { argumentHint: command.argumentHint }),
 		}));
 
 		const modelCommand = slashCommands.find((command) => command.name === "model");
 		if (modelCommand) {
-			modelCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] | null => {
+			modelCommand.getArgumentCompletions = async (prefix: string): Promise<AutocompleteItem[] | null> => {
 				// Get available models (scoped or from registry)
 				const models =
 					this.session.scopedModels.length > 0
 						? this.session.scopedModels.map((s) => s.model)
-						: this.session.modelRegistry.getAvailable();
+						: await this.session.modelRuntime.getAvailable();
+
+				if (models.length === 0) return null;
 
 				// Create items with provider/id format
-				const items = [
-					{
-						id: "auto",
-						provider: "clawrouter",
-						name: "Auto (semantic ClawRouter)",
-						label: "clawrouter/auto",
-					},
-					{
-						id: "auto",
-						provider: "claude-bridge",
-						name: "Auto (semantic Claude Bridge)",
-						label: "claude-bridge/auto",
-					},
-					{
-						id: "auto",
-						provider: "openai-codex",
-						name: "Auto (semantic OpenAI Codex)",
-						label: "openai-codex/auto",
-					},
-					...models.map((m) => ({
-						id: m.id,
-						provider: m.provider,
-						name: m.name,
-						label: `${m.provider}/${m.id}`,
-					})),
-				];
+				const items = models.map((m) => ({
+					id: m.id,
+					provider: m.provider,
+					name: m.name,
+					label: `${m.provider}/${m.id}`,
+				}));
 
-				// Fuzzy filter by model ID + provider in either order.
-				const filtered = fuzzyFilter(items, prefix, getModelSearchText);
-
-				if (filtered.length === 0) return null;
-
-				return filtered.map((item) => ({
+				return createFuzzyAutocompleteItems(items, prefix, getModelSearchText, (item) => ({
 					value: item.label,
 					label: item.id,
 					description: item.provider,
+				}));
+			};
+		}
+
+		const loginCommand = slashCommands.find((command) => command.name === "login");
+		if (loginCommand) {
+			loginCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] | null => {
+				const providers = getLoginProviderCompletionOptions(this.getLoginProviderOptions());
+				return createFuzzyAutocompleteItems(providers, prefix, getLoginProviderSearchText, (provider) => ({
+					value: provider.id,
+					label: provider.id,
+					description: formatLoginProviderCompletionDescription(provider),
 				}));
 			};
 		}
@@ -681,20 +674,6 @@ export class InteractiveMode {
 
 		this.registerSignalHandlers();
 
-		// Advertise which session file this process has open so other pi instances'
-		// resume pickers can show it as active. Path is read lazily each heartbeat,
-		// covering lazily-created and switched sessions.
-		this.sessionLiveness.start(() => this.sessionManager.getSessionFile());
-
-		// Reap liveness markers left by crashed/killed sessions, off the hot boot
-		// path so a dead-marker backlog cannot grow without bound.
-		const markerSweep = setTimeout(() => {
-			void sweepStaleMarkers(getSessionsDir()).catch(() => {
-				// Best effort; readers still reap markers lazily.
-			});
-		}, 2_000);
-		markerSweep.unref?.();
-
 		// Load changelog (only show new entries, skip for resumed sessions)
 		this.changelogMarkdown = this.getChangelogForDisplay();
 
@@ -767,7 +746,7 @@ export class InteractiveMode {
 				rawKeyHint("!!", "to run bash (no context)"),
 				hint("app.message.followUp", "to queue follow-up"),
 				hint("app.message.dequeue", "to edit all queued messages"),
-				hint("app.clipboard.pasteImage", "to paste image"),
+				hint("app.clipboard.pasteImage", "to paste image (with text fallback)"),
 				rawKeyHint("drop files", "to attach"),
 			].join("\n");
 			const compactInstructions = [
@@ -822,24 +801,6 @@ export class InteractiveMode {
 			this.ui.requestRender();
 		});
 
-		this.unsubscribeAgentRuns = subscribeAgentRecentRuns(() => {
-			this.footer.invalidate();
-			this.ui.requestRender();
-		});
-
-		this.unsubscribeBashBgJobs = subscribeBashBgJobs(() => {
-			this.footer.invalidate();
-			this.ui.requestRender();
-		});
-
-		// Wake the model when a background bash job finishes naturally, mirroring
-		// the agent background-run completion wake. Scoped to the single main
-		// interactive session (the bg-bash store is process-global, so wiring this
-		// here — not in every forked child session — avoids duplicate notifications).
-		this.unsubscribeBashBgTerminal = subscribeBashBgTerminal((job) => {
-			this.session.emitBashCompletion(job);
-		});
-
 		// Initialize available provider count for footer display
 		await this.updateAvailableProviderCount();
 	}
@@ -872,11 +833,19 @@ export class InteractiveMode {
 		});
 
 		// Start package update check asynchronously
-		this.checkForPackageUpdates().then((updates) => {
-			if (updates.length > 0) {
-				this.showPackageUpdateNotification(updates);
-			}
-		});
+		this.checkForPackageUpdates()
+			.then((updates) => {
+				if (updates.length > 0) {
+					this.showPackageUpdateNotification(updates);
+				}
+			})
+			.finally(() => {
+				// On Windows, npm can overwrite the shared console title while checking
+				// extension package versions. Restore Pi's title after the startup check.
+				if (process.platform === "win32" && this.isInitialized) {
+					this.updateTerminalTitle();
+				}
+			});
 
 		// Check tmux keyboard setup asynchronously
 		this.checkTmuxKeyboardSetup().then((warning) => {
@@ -892,7 +861,7 @@ export class InteractiveMode {
 			this.showWarning(`Migrated credentials to auth.json: ${migratedProviders.join(", ")}`);
 		}
 
-		const modelsJsonError = this.session.modelRegistry.getError();
+		const modelsJsonError = this.session.modelRuntime.getError();
 		if (modelsJsonError) {
 			this.showError(`models.json error: ${modelsJsonError}`);
 		}
@@ -1640,12 +1609,11 @@ export class InteractiveMode {
 		await this.session.bindExtensions({
 			uiContext,
 			mode: "tui",
-			abortHandler: (reason?: unknown) => {
-				this.session.agent.abort(reason);
+			abortHandler: () => {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
 			commandContextActions: {
-				waitForIdle: () => this.session.agent.waitForIdle(),
+				waitForIdle: () => this.session.waitForIdle(),
 				newSession: async (options) => {
 					this.clearStatusIndicator();
 					try {
@@ -1695,7 +1663,7 @@ export class InteractiveMode {
 			},
 			shutdownHandler: () => {
 				this.shutdownRequested = true;
-				if (!this.session.isStreaming) {
+				if (this.session.isIdle) {
 					void this.shutdown();
 				}
 			},
@@ -1708,15 +1676,6 @@ export class InteractiveMode {
 		this.setupAutocompleteProvider();
 
 		const extensionRunner = this.session.extensionRunner;
-		// Deferred extensions register their commands after startup; rebuild the
-		// autocomplete provider so those commands (e.g. /recap) appear in the menu.
-		extensionRunner.onDeferredExtensionsLoaded(() => this.setupAutocompleteProvider());
-		extensionRunner.bindSlotUI({
-			showMainPane: (id, payload) => this.showExtensionMainPane(id, payload),
-			hideMainPane: (id) => this.hideExtensionMainPane(id),
-			showOverlay: (id, payload) => this.showExtensionOverlay(id, payload),
-			hideOverlay: (id) => this.hideExtensionOverlay(id),
-		});
 		this.setupExtensionShortcuts(extensionRunner);
 		this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true });
 		this.showStartupNoticesIfNeeded();
@@ -1778,7 +1737,6 @@ export class InteractiveMode {
 		this.streamingComponent = undefined;
 		this.streamingMessage = undefined;
 		this.pendingTools.clear();
-		this.serverToolActivities.clear();
 		this.renderInitialMessages();
 	}
 
@@ -1796,54 +1754,39 @@ export class InteractiveMode {
 		const shortcuts = extensionRunner.getShortcuts(this.keybindings.getEffectiveConfig());
 		if (shortcuts.size === 0) return;
 
-		// Create a context for shortcut handlers.
-		// The runner already owns canonical wiring for forkAgent / transcript so we
-		// delegate to a runner-built context for those two slots; the rest mirrors
-		// the live interactive bindings (UI, cwd, etc.) used by shortcut handlers.
-		const session = this.session;
-		const createContext = (): ExtensionContext => {
-			const runnerCtx = extensionRunner.createContext();
-			return {
-				ui: this.createExtensionUIContext(),
-				mode: "tui",
-				hasUI: true,
-				cwd: this.sessionManager.getCwd(),
-				source: runnerCtx.source,
-				sessionManager: this.sessionManager,
-				modelRegistry: session.modelRegistry,
-				model: session.model,
-				isIdle: () => session.isIdle,
-				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
-				signal: session.agent.signal,
-				abort: () => {
-					this.restoreQueuedMessagesToEditor({ abort: true });
-				},
-				requestStopAfterTurn: (reason) => runnerCtx.requestStopAfterTurn(reason),
-				hasPendingMessages: () => session.pendingMessageCount > 0,
-				shutdown: () => {
-					this.shutdownRequested = true;
-				},
-				reload: async () => {
-					await this.handleReloadCommand();
-				},
-				getContextUsage: () => session.getContextUsage(),
-				compact: (options) => {
-					void (async () => {
-						try {
-							const result = await session.compact(options?.customInstructions);
-							options?.onComplete?.(result);
-						} catch (error) {
-							const err = error instanceof Error ? error : new Error(String(error));
-							options?.onError?.(err);
-						}
-					})();
-				},
-				getSystemPrompt: () => session.systemPrompt,
-				getEffectiveSystemPrompt: () => session.getEffectiveSystemPrompt(),
-				forkAgent: (opts) => runnerCtx.forkAgent(opts),
-				transcript: runnerCtx.transcript,
-			};
-		};
+		// Create a context for shortcut handlers
+		const createContext = (): ExtensionContext => ({
+			ui: this.createExtensionUIContext(),
+			mode: "tui",
+			hasUI: true,
+			cwd: this.sessionManager.getCwd(),
+			sessionManager: this.sessionManager,
+			modelRegistry: extensionRunner.getModelRegistry(),
+			model: this.session.model,
+			isIdle: () => this.session.isIdle,
+			isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
+			signal: this.session.agent.signal,
+			abort: () => {
+				this.restoreQueuedMessagesToEditor({ abort: true });
+			},
+			hasPendingMessages: () => this.session.pendingMessageCount > 0,
+			shutdown: () => {
+				this.shutdownRequested = true;
+			},
+			getContextUsage: () => this.session.getContextUsage(),
+			compact: (options) => {
+				void (async () => {
+					try {
+						const result = await this.session.compact(options?.customInstructions);
+						options?.onComplete?.(result);
+					} catch (error) {
+						const err = error instanceof Error ? error : new Error(String(error));
+						options?.onError?.(err);
+					}
+				})();
+			},
+			getSystemPrompt: () => this.session.systemPrompt,
+		});
 
 		// Set up the extension shortcut handler on the default editor
 		this.defaultEditor.onExtensionShortcut = (data: string) => {
@@ -2130,177 +2073,6 @@ export class InteractiveMode {
 		}
 
 		this.ui.requestRender();
-	}
-
-	private showExtensionMainPane(id: string, payload: unknown): void {
-		const factory = this.session.extensionRunner.getRegisteredMainPane(id);
-		if (!factory) return;
-		if (this.activeMainPane) this.hideExtensionMainPane(this.activeMainPane.id);
-		const preChildren = [...this.chatContainer.children];
-		const component = factory(this.ui, theme, {
-			payload,
-			requestHide: () => this.hideExtensionMainPane(id),
-		});
-		this.chatContainer.clear();
-		this.chatContainer.addChild(component);
-		this.activeMainPane = { id, component, preChildren };
-		// Regression fix (agents-ux-parity footer round): panes that own raw
-		// keyboard input must receive focus so their handleInput works (up/down
-		// navigate, enter details/zoom, x stop). Some panes are display-only while
-		// the editor remains the input surface (for example agent zoom, where
-		// submitted editor lines are injected into the child and /exit-zoom exits).
-		// Those panes can opt out with captureInput:false to avoid trapping normal
-		// editor text and extension shortcuts behind a focused component that does
-		// not actually handle them.
-		const focusTarget = component.captureInput === false ? this.editor : component;
-		this.ui.setFocus(focusTarget);
-		this.ui.requestRender();
-	}
-
-	private hideExtensionMainPane(id: string): void {
-		if (!this.activeMainPane || this.activeMainPane.id !== id) return;
-		this.activeMainPane.component.dispose?.();
-		const preChildren = this.activeMainPane.preChildren;
-		this.activeMainPane = undefined;
-		this.chatContainer.clear();
-		for (const child of preChildren) this.chatContainer.addChild(child);
-		this.ui.setFocus(this.editor);
-		this.ui.requestRender();
-	}
-
-	private showExtensionOverlay(id: string, payload: unknown): void {
-		const factory = this.session.extensionRunner.getRegisteredOverlay(id);
-		if (!factory) return;
-		if (this.activeOverlay) this.hideExtensionOverlay(this.activeOverlay.id);
-		const component = factory(this.ui, theme, {
-			payload,
-			requestHide: () => this.hideExtensionOverlay(id),
-		});
-		const handle = this.ui.showOverlay(component);
-		this.activeOverlay = { id, component, handle };
-		this.ui.requestRender();
-	}
-
-	private hideExtensionOverlay(id: string): void {
-		if (!this.activeOverlay || this.activeOverlay.id !== id) return;
-		this.activeOverlay.component.dispose?.();
-		this.activeOverlay.handle.hide();
-		this.activeOverlay = undefined;
-		this.ui.requestRender();
-	}
-
-	private getVisibleExtensionFooterIds(): string[] {
-		return this.session.extensionRunner
-			.getRegisteredFooters()
-			.filter(({ spec }) => spec.visible?.() ?? true)
-			.sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0))
-			.filter(
-				({ spec }) => spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0,
-			)
-			.map(({ id }) => id);
-	}
-
-	private setSelectedExtensionFooterId(id: string | undefined): void {
-		this.selectedExtensionFooterId = id;
-		this.footer.setSelectedExtensionFooterId(id);
-		this.ui.requestRender();
-	}
-
-	private getFooterNavEditorText(): string {
-		return this.editor.getText();
-	}
-
-	private handleEscapeKey(): void {
-		if (this.activeMainPane) {
-			if (this.activeMainPane.component.onEscape?.()) return;
-			this.hideExtensionMainPane(this.activeMainPane.id);
-			return;
-		}
-		if (this.selectedExtensionFooterId) {
-			this.setSelectedExtensionFooterId(undefined);
-			return;
-		}
-		if (this.session.isStreaming) {
-			this.restoreQueuedMessagesToEditor({ abort: true });
-		} else if (this.session.isBashRunning) {
-			this.session.abortBash();
-		} else if (this.isBashMode) {
-			this.editor.setText("");
-			this.isBashMode = false;
-			this.updateEditorBorderColor();
-		} else if (!this.editor.getText().trim()) {
-			// Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
-			const action = this.settingsManager.getDoubleEscapeAction();
-			if (action !== "none") {
-				const now = Date.now();
-				if (now - this.lastEscapeTime < 500) {
-					if (action === "tree") {
-						this.showTreeSelector();
-					} else {
-						this.showUserMessageSelector();
-					}
-					this.lastEscapeTime = 0;
-				} else {
-					this.lastEscapeTime = now;
-				}
-			}
-		}
-	}
-
-	/**
-	 * Core pre-input hook installed on the editor's `onPreInput` seam. Runs
-	 * before extension shortcuts and base editor handling. Composes the
-	 * built-in empty-editor behaviors in priority order: recall a queued
-	 * message on the up arrow, then extension footer navigation. Returns true
-	 * to consume the key.
-	 */
-	private handlePreInput(data: string): boolean {
-		if (this.keybindings.matches(data, "tui.editor.cursorUp") && this.recallQueuedMessageToEditor()) {
-			return true;
-		}
-		return this.handleExtensionFooterNavInput(data);
-	}
-
-	private handleExtensionFooterNavInput(data: string): boolean {
-		const ids = this.getVisibleExtensionFooterIds();
-		if (
-			(matchesKey(data, "up") || matchesKey(data, "down")) &&
-			this.getFooterNavEditorText().trim().length === 0 &&
-			ids.length > 0
-		) {
-			const direction = matchesKey(data, "up") ? "prev" : "next";
-			if (!this.selectedExtensionFooterId) {
-				if (direction === "next") this.setSelectedExtensionFooterId(ids[0]);
-				else this.setSelectedExtensionFooterId(undefined);
-				return true;
-			}
-			const index = ids.indexOf(this.selectedExtensionFooterId);
-			if (index === -1) {
-				this.setSelectedExtensionFooterId(direction === "next" ? ids[0] : undefined);
-				return true;
-			}
-			if (direction === "prev" && index === 0) {
-				this.setSelectedExtensionFooterId(undefined);
-				return true;
-			}
-			if (direction === "next" && index === ids.length - 1) return true;
-			this.setSelectedExtensionFooterId(ids[index + (direction === "next" ? 1 : -1)]);
-			return true;
-		}
-		if ((matchesKey(data, "enter") || data === "\n") && this.getFooterNavEditorText().trim().length === 0) {
-			const footer = this.selectedExtensionFooterId
-				? this.session.extensionRunner
-						.getRegisteredFooters()
-						.find(({ id }) => id === this.selectedExtensionFooterId)
-				: ids.length === 1
-					? this.session.extensionRunner.getRegisteredFooters().find(({ id }) => id === ids[0])
-					: undefined;
-			if (!footer) return false;
-			this.setSelectedExtensionFooterId(undefined);
-			footer?.spec.onActivate({ close: () => this.setSelectedExtensionFooterId(undefined) });
-			return true;
-		}
-		return false;
 	}
 
 	private addExtensionTerminalInputListener(
@@ -2615,19 +2387,6 @@ export class InteractiveMode {
 				if (!customEditor.onExtensionShortcut) {
 					customEditor.onExtensionShortcut = (data: string) => this.defaultEditor.onExtensionShortcut?.(data);
 				}
-				// Footer pill nav (Down/Up cycling, incl. the agents-status pill's
-				// selected-highlight) and queued-message recall both run through
-				// `onPreInput`, wired onto `defaultEditor` in `setupKeyHandlers()`
-				// before any extension has a chance to install a custom editor. Every
-				// other app-level handler here is forwarded to a replacement editor;
-				// `onPreInput` was the one omission, so any extension that calls
-				// `ctx.ui.setEditorComponent` (pi-syntax-input, monitor/idle-return-style
-				// wrappers, etc.) silently broke Up/Down footer nav for the rest of the
-				// session even though Enter kept working (it runs through `onSubmit`,
-				// which *is* forwarded, not `onPreInput`).
-				if (!customEditor.onPreInput) {
-					customEditor.onPreInput = (data: string) => this.defaultEditor.onPreInput?.(data) ?? false;
-				}
 				// Copy action handlers (clear, suspend, model switching, etc.)
 				for (const [action, handler] of this.defaultEditor.actionHandlers) {
 					(customEditor.actionHandlers as Map<string, () => void>).set(action, handler);
@@ -2764,17 +2523,35 @@ export class InteractiveMode {
 	// =========================================================================
 
 	private setupKeyHandlers(): void {
-		// Footer pill navigation runs only through the default editor's `onPreInput`
-		// seam (see handlePreInput). A global ui.addInputListener was registered here
-		// historically, but it ran before the focused component and consumed up/down
-		// even while a focused custom component (e.g. AskUserQuestion) needed those
-		// arrows — hijacking modal navigation. It also pre-empted the up-arrow
-		// queued-message recall it was meant to fall behind. onPreInput only fires
-		// when the default editor is focused, so footer nav stays scoped correctly.
-
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
-		this.defaultEditor.onEscape = () => this.handleEscapeKey();
+		this.defaultEditor.onEscape = () => {
+			if (this.session.isStreaming) {
+				this.restoreQueuedMessagesToEditor({ abort: true });
+			} else if (this.session.isBashRunning) {
+				this.session.abortBash();
+			} else if (this.isBashMode) {
+				this.editor.setText("");
+				this.isBashMode = false;
+				this.updateEditorBorderColor();
+			} else if (!this.editor.getText().trim()) {
+				// Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
+				const action = this.settingsManager.getDoubleEscapeAction();
+				if (action !== "none") {
+					const now = Date.now();
+					if (now - this.lastEscapeTime < 500) {
+						if (action === "tree") {
+							this.showTreeSelector();
+						} else {
+							this.showUserMessageSelector();
+						}
+						this.lastEscapeTime = 0;
+					} else {
+						this.lastEscapeTime = now;
+					}
+				}
+			}
+		};
 
 		// Register app action handlers
 		this.defaultEditor.onAction("app.clear", () => this.handleCtrlC());
@@ -2790,16 +2567,15 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
 		this.defaultEditor.onAction("app.thinking.toggle", () => this.toggleThinkingBlockVisibility());
 		this.defaultEditor.onAction("app.editor.external", () => this.openExternalEditor());
+		this.defaultEditor.onAction("app.message.copy", () => void this.handleCopyCommand());
 		this.defaultEditor.onAction("app.message.followUp", () => this.handleFollowUp());
 		this.defaultEditor.onAction("app.message.dequeue", () => this.handleDequeue());
 		this.defaultEditor.onAction("app.session.new", () => this.handleClearCommand());
 		this.defaultEditor.onAction("app.session.tree", () => this.showTreeSelector());
 		this.defaultEditor.onAction("app.session.fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("app.session.resume", () => this.showSessionSelector());
-		this.defaultEditor.onPreInput = (data: string) => this.handlePreInput(data);
 
 		this.defaultEditor.onChange = (text: string) => {
-			if (text.length > 0 && this.selectedExtensionFooterId) this.setSelectedExtensionFooterId(undefined);
 			const wasBashMode = this.isBashMode;
 			this.isBashMode = text.trimStart().startsWith("!");
 			if (wasBashMode !== this.isBashMode) {
@@ -2807,29 +2583,33 @@ export class InteractiveMode {
 			}
 		};
 
-		// Handle clipboard image paste (triggered on Ctrl+V)
+		// Handle clipboard paste (triggered on Ctrl+V). Images are attached by path;
+		// otherwise, paste plain text from the system clipboard.
 		this.defaultEditor.onPasteImage = () => {
-			this.handleClipboardImagePaste();
+			void this.handleClipboardPaste();
 		};
 	}
 
-	private async handleClipboardImagePaste(): Promise<void> {
+	private async handleClipboardPaste(): Promise<void> {
 		try {
 			const image = await readClipboardImage();
-			if (!image) {
+			if (image) {
+				const tmpDir = os.tmpdir();
+				const ext = extensionForImageMimeType(image.mimeType) ?? "png";
+				const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
+				const filePath = path.join(tmpDir, fileName);
+				fs.writeFileSync(filePath, Buffer.from(image.bytes));
+
+				this.editor.insertTextAtCursor?.(filePath);
+				this.ui.requestRender();
 				return;
 			}
 
-			// Write to temp file
-			const tmpDir = os.tmpdir();
-			const ext = extensionForImageMimeType(image.mimeType) ?? "png";
-			const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
-			const filePath = path.join(tmpDir, fileName);
-			fs.writeFileSync(filePath, Buffer.from(image.bytes));
-
-			// Insert file path directly
-			this.editor.insertTextAtCursor?.(filePath);
-			this.ui.requestRender();
+			const text = await readClipboardText();
+			if (text) {
+				this.editor.insertTextAtCursor?.(text);
+				this.ui.requestRender();
+			}
 		} catch {
 			// Silently ignore clipboard errors (may not have permission, etc.)
 		}
@@ -2838,32 +2618,12 @@ export class InteractiveMode {
 	private setupEditorSubmitHandler(): void {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			text = text.trim();
-			if (!text) {
-				if (this.handleExtensionFooterNavInput("\r")) return;
-				return;
-			}
+			if (!text) return;
 
 			// Handle commands
 			if (text === "/settings") {
 				this.showSettingsSelector();
 				this.editor.setText("");
-				return;
-			}
-			if (text === "/agents-doctor") {
-				this.editor.setText("");
-				await this.handleAgentsDoctorCommand();
-				return;
-			}
-			if (text === "/agents-status" || text.startsWith("/agents-status ")) {
-				this.editor.setText("");
-				const detailId = text.startsWith("/agents-status ") ? text.slice(15).trim() : undefined;
-				this.showStatus(formatAgentStatus(undefined, detailId));
-				return;
-			}
-			if (text === "/agents" || text.startsWith("/agents ")) {
-				const agentArgs = text.startsWith("/agents ") ? text.slice(8).trim() : undefined;
-				this.editor.setText("");
-				await this.handleAgentsCommand(agentArgs);
 				return;
 			}
 			if (text === "/scoped-models") {
@@ -2937,9 +2697,10 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
-			if (text === "/login") {
-				this.showOAuthSelector("login");
+			if (text === "/login" || text.startsWith("/login ")) {
+				const providerRef = text.startsWith("/login ") ? text.slice(7).trim() : undefined;
 				this.editor.setText("");
+				await this.handleLoginCommand(providerRef);
 				return;
 			}
 			if (text === "/logout") {
@@ -3054,10 +2815,11 @@ export class InteractiveMode {
 			await this.init();
 		}
 
+		this.footer.invalidate();
+
 		switch (event.type) {
 			case "agent_start":
 				this.pendingTools.clear();
-				this.serverToolActivities.clear();
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -3099,16 +2861,9 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 
-			case "model_changed":
-				this.footer.invalidate();
-				this.updateEditorBorderColor();
-				this.ui.requestRender();
-				break;
-
 			case "thinking_level_changed":
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
-				this.ui.requestRender();
 				break;
 
 			case "message_start":
@@ -3165,27 +2920,6 @@ export class InteractiveMode {
 							}
 						}
 					}
-
-					// Provider-executed (server-side) web tools surface as display-only
-					// activity events, not content blocks. Render them as a distinct card.
-					const serverEvent = event.assistantMessageEvent;
-					if (serverEvent.type === "server_tool_use") {
-						if (!this.serverToolActivities.has(serverEvent.id)) {
-							const card = new ServerToolActivityComponent({
-								toolName: serverEvent.toolName,
-								query: serverEvent.query,
-								url: serverEvent.url,
-							});
-							this.chatContainer.addChild(card);
-							this.serverToolActivities.set(serverEvent.id, card);
-						}
-					} else if (serverEvent.type === "server_tool_result") {
-						this.serverToolActivities.get(serverEvent.toolUseId)?.setResult({
-							status: serverEvent.status,
-							sources: serverEvent.sources,
-							errorCode: serverEvent.errorCode,
-						});
-					}
 					this.ui.requestRender();
 				}
 				break;
@@ -3195,7 +2929,7 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
-					if (this.streamingMessage.stopReason === "aborted" && !isSilentAbortMessage(this.streamingMessage)) {
+					if (this.streamingMessage.stopReason === "aborted") {
 						const retryAttempt = this.session.retryAttempt;
 						errorMessage =
 							retryAttempt > 0
@@ -3206,25 +2940,22 @@ export class InteractiveMode {
 					this.streamingComponent.updateContent(this.streamingMessage);
 
 					if (this.streamingMessage.stopReason === "aborted" || this.streamingMessage.stopReason === "error") {
-						if (isSilentAbortMessage(this.streamingMessage)) {
-							this.pendingTools.clear();
-						} else {
-							if (!errorMessage) {
-								errorMessage = this.streamingMessage.errorMessage || "Error";
-							}
-							for (const [, component] of this.pendingTools.entries()) {
-								component.updateResult({
-									content: [{ type: "text", text: errorMessage }],
-									isError: true,
-								});
-							}
-							this.pendingTools.clear();
+						if (!errorMessage) {
+							errorMessage = this.streamingMessage.errorMessage || "Error";
 						}
+						for (const [, component] of this.pendingTools.entries()) {
+							component.updateResult({
+								content: [{ type: "text", text: errorMessage }],
+								isError: true,
+							});
+						}
+						this.pendingTools.clear();
 					} else {
 						// Args are now complete - trigger diff computation for edit tools
 						for (const [, component] of this.pendingTools.entries()) {
 							component.setArgsComplete();
 						}
+						this.maybeShowCacheMissNotice(this.streamingMessage);
 					}
 					this.streamingComponent = undefined;
 					this.streamingMessage = undefined;
@@ -3287,11 +3018,12 @@ export class InteractiveMode {
 					this.streamingMessage = undefined;
 				}
 				this.pendingTools.clear();
-				this.serverToolActivities.clear();
-
-				await this.checkShutdownRequested();
 
 				this.ui.requestRender();
+				break;
+
+			case "agent_settled":
+				await this.checkShutdownRequested();
 				break;
 
 			case "compaction_start": {
@@ -3324,13 +3056,15 @@ export class InteractiveMode {
 						this.showStatus("Auto-compaction cancelled");
 					}
 				} else if (event.result) {
-					// The compaction entry is persisted (appendCompaction) before compaction_end is
-					// emitted, so rebuildChatFromMessages() -> buildSessionContext() already renders the
-					// [compaction] summary at the head of the kept tail. Appending a second synthetic
-					// summary here rendered the marker twice, sandwiching the kept recent tail
-					// (regression: see interactive-mode-compaction.test.ts).
 					this.chatContainer.clear();
 					this.rebuildChatFromMessages();
+					this.addMessageToChat(
+						createCompactionSummaryMessage(
+							event.result.summary,
+							event.result.tokensBefore,
+							new Date().toISOString(),
+						),
+					);
 					this.footer.invalidate();
 				} else if (event.errorMessage) {
 					if (event.reason === "manual") {
@@ -3344,11 +3078,6 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 			}
-
-			case "idle_cache_hint":
-				this.showStatus(event.message);
-				this.ui.requestRender();
-				break;
 
 			case "auto_retry_start": {
 				// Set up escape to abort retry
@@ -3456,13 +3185,7 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
-					// Extension-registered renderers win; fall back to built-in renderers for
-					// pi's own structured customTypes (e.g. `memory_saved` from
-					// `ctx.transcript.append`) so the TUI styles them without needing an
-					// extension to register a renderer.
-					const extensionRenderer = this.session.extensionRunner.getMessageRenderer(message.customType);
-					const renderer =
-						extensionRenderer ?? (message.customType === "memory_saved" ? memorySavedMessageRenderer : undefined);
+					const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
 					const component = new CustomMessageComponent(message, renderer, this.getMarkdownThemeWithSettings());
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
@@ -3549,6 +3272,11 @@ export class InteractiveMode {
 	): void {
 		this.pendingTools.clear();
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
+		// Cache-miss notices are not persisted; re-derive them from the full entry
+		// list and re-inject them after the assistant messages that paid for them.
+		const cacheMisses = this.settingsManager.getShowCacheMissNotices()
+			? collectCacheMisses(this.sessionManager.getEntries(), this.session.modelRuntime)
+			: new Map<AssistantMessage, CacheMiss>();
 
 		if (options.updateFooter) {
 			this.footer.invalidate();
@@ -3584,9 +3312,6 @@ export class InteractiveMode {
 						this.chatContainer.addChild(component);
 
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
-							if (isSilentAbortMessage(message)) {
-								continue;
-							}
 							let errorMessage: string;
 							if (message.stopReason === "aborted") {
 								const retryAttempt = this.session.retryAttempt;
@@ -3602,6 +3327,10 @@ export class InteractiveMode {
 							renderedPendingTools.set(content.id, component);
 						}
 					}
+				}
+				if (message.stopReason !== "aborted" && message.stopReason !== "error") {
+					const miss = cacheMisses.get(message);
+					if (miss) this.addCacheMissNotice(miss);
 				}
 			} else if (message.role === "toolResult") {
 				// Match tool results to pending tool components
@@ -3639,6 +3368,35 @@ export class InteractiveMode {
 			return sessionEntryToContextMessages(entry);
 		});
 		this.renderSessionItems(items, options);
+	}
+
+	/**
+	 * Show a transcript notice when a completed assistant message paid for a
+	 * significant cache miss. Only states observable facts: the miss itself,
+	 * a model switch, or an idle gap past the cache TTL.
+	 */
+	private maybeShowCacheMissNotice(message: AssistantMessage): void {
+		if (!this.settingsManager.getShowCacheMissNotices()) return;
+
+		// Entries don't contain `message` yet: message_end fires before persistence.
+		const miss = detectCacheMiss(this.sessionManager.getEntries(), message, this.session.modelRuntime);
+		if (miss) this.addCacheMissNotice(miss);
+	}
+
+	private addCacheMissNotice(miss: CacheMiss): void {
+		if (miss.missedTokens < 20_000 && miss.missedCost < 0.1) return;
+
+		const cost = miss.missedCost >= 0.01 ? ` (~$${miss.missedCost.toFixed(2)})` : "";
+		const reBilled = `${formatTokens(miss.missedTokens)} tokens re-billed${cost}`;
+		let label = "Cache miss";
+		if (miss.modelChanged) {
+			label = "Cache miss after model switch";
+		} else if (miss.idleMs >= CACHE_TTL_MS) {
+			label = `Cache miss after ${Math.round(miss.idleMs / 60_000)}m idle`;
+		}
+		const text = theme.fg("warning", `${label}: ${reBilled}`);
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(text, 1, 0));
 	}
 
 	renderInitialMessages(): void {
@@ -3722,7 +3480,6 @@ export class InteractiveMode {
 	 * repaint the final frame while the process is exiting.
 	 */
 	private isShuttingDown = false;
-	private sessionLiveness = new SessionLiveness();
 
 	private async shutdown(options?: { fromSignal?: boolean }): Promise<void> {
 		if (this.isShuttingDown) return;
@@ -3730,7 +3487,6 @@ export class InteractiveMode {
 		// Keep signal handlers registered until terminal cleanup has completed.
 		// `signal-exit` checks the listener list during the same SIGTERM/SIGHUP
 		// dispatch and re-sends the signal if only its own listeners remain.
-		this.sessionLiveness.stop();
 
 		if (options?.fromSignal) {
 			// Signal-triggered shutdown (SIGTERM/SIGHUP). Emit extension cleanup
@@ -3769,7 +3525,6 @@ export class InteractiveMode {
 	private emergencyTerminalExit(): never {
 		this.isShuttingDown = true;
 		this.unregisterSignalHandlers();
-		this.sessionLiveness.stop();
 		killTrackedDetachedChildren();
 		// The terminal is gone. Do not run normal shutdown because TUI and
 		// extension cleanup can write restore sequences and re-trigger EIO.
@@ -4216,37 +3971,6 @@ export class InteractiveMode {
 		return allQueued.length;
 	}
 
-	/**
-	 * Recall the most recently queued message into the editor for editing.
-	 * Reached from {@link handlePreInput} when the up arrow is pressed. The
-	 * message is removed from the queue as it is lifted into the editor, so
-	 * re-submitting replaces what was queued before, and clearing the editor
-	 * without re-submitting simply drops it from the queue. No-op (returns
-	 * false) when the editor already has text or nothing is queued, so the
-	 * caller can fall through to footer nav / prompt-history navigation.
-	 */
-	private recallQueuedMessageToEditor(): boolean {
-		if (this.editor.getText().length > 0) return false;
-
-		// Messages queued during compaction are the most recent; recall those first.
-		if (this.compactionQueuedMessages.length > 0) {
-			const recalled = this.compactionQueuedMessages.pop();
-			if (recalled) {
-				this.editor.setText(recalled.text);
-				this.updatePendingMessagesDisplay();
-				this.ui.requestRender();
-				return true;
-			}
-		}
-
-		const recalled = this.session.popLastQueuedMessage();
-		if (!recalled) return false;
-		this.editor.setText(recalled.text);
-		this.updatePendingMessagesDisplay();
-		this.ui.requestRender();
-		return true;
-	}
-
 	private queueCompactionMessage(text: string, mode: "steer" | "followUp"): void {
 		this.compactionQueuedMessages.push({ text, mode });
 		this.editor.addToHistory?.(text);
@@ -4320,27 +4044,10 @@ export class InteractiveMode {
 				await this.session.prompt(message.text);
 			}
 
-			// Send first prompt (starts streaming). If the agent is already busy
-			// (compaction tail, agent_end listener phase, or a TOCTOU race), prompt()
-			// throws "Agent is already processing" — route the message into the
-			// steer/follow-up queue instead of failing the whole flush.
-			let promptPromise: Promise<void> = Promise.resolve();
-			if (this.session.isStreaming) {
-				if (firstPrompt.mode === "followUp") {
-					await this.session.followUp(firstPrompt.text);
-				} else {
-					await this.session.steer(firstPrompt.text);
-				}
-			} else {
-				promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
-					if (error instanceof Error && /already processing( a prompt)?/.test(error.message)) {
-						return firstPrompt.mode === "followUp"
-							? this.session.followUp(firstPrompt.text)
-							: this.session.steer(firstPrompt.text);
-					}
-					restoreQueue(error);
-				});
-			}
+			// Send first prompt (starts streaming)
+			const promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
+				restoreQueue(error);
+			});
 
 			// Queue remaining messages
 			for (const message of rest) {
@@ -4414,6 +4121,7 @@ export class InteractiveMode {
 					doubleEscapeAction: this.settingsManager.getDoubleEscapeAction(),
 					treeFilterMode: this.settingsManager.getTreeFilterMode(),
 					showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
+					showCacheMissNotices: this.settingsManager.getShowCacheMissNotices(),
 					defaultProjectTrust: this.settingsManager.getDefaultProjectTrust(),
 					editorPaddingX: this.settingsManager.getEditorPaddingX(),
 					outputPad: this.settingsManager.getOutputPad(),
@@ -4488,6 +4196,10 @@ export class InteractiveMode {
 							}
 						}
 						this.chatContainer.clear();
+						this.rebuildChatFromMessages();
+					},
+					onShowCacheMissNoticesChange: (shown) => {
+						this.settingsManager.setShowCacheMissNotices(shown);
 						this.rebuildChatFromMessages();
 					},
 					onCollapseChangelogChange: (collapsed) => {
@@ -4566,42 +4278,9 @@ export class InteractiveMode {
 		});
 	}
 
-	/** Fork seam: per-call host adapter for the extracted `/agents` command family. */
-	private agentCommandsHost(): AgentCommandsHost {
-		return {
-			session: this.session,
-			getCwd: () => this.sessionManager.getCwd(),
-			showStatus: (message) => this.showStatus(message),
-			setEditorText: (text) => {
-				this.editor.setText(text);
-				this.ui.setFocus(this.editor);
-			},
-			requestRender: () => this.ui.requestRender(),
-			showSelector: (create) => this.showSelector(create),
-			showExtensionMainPane: (id, payload) => this.showExtensionMainPane(id, payload),
-			showExtensionInput: (title, placeholder) => this.showExtensionInput(title, placeholder),
-		};
-	}
-
-	private async handleAgentsCommand(args?: string): Promise<void> {
-		await runAgentsCommand(this.agentCommandsHost(), args);
-	}
-
-	private async handleAgentsDoctorCommand(): Promise<void> {
-		await runAgentsDoctorCommand(this.agentCommandsHost());
-	}
-
 	private async handleModelCommand(searchTerm?: string): Promise<void> {
 		if (!searchTerm) {
 			this.showModelSelector();
-			return;
-		}
-
-		const autoAlias = this.findAutoModelAlias(searchTerm);
-		if (autoAlias) {
-			this.session.setPendingAutoModelAlias(autoAlias);
-			this.footer.invalidate();
-			this.showStatus(`Model: ${autoAlias} (routes on next prompt)`);
 			return;
 		}
 
@@ -4623,10 +4302,6 @@ export class InteractiveMode {
 		this.showModelSelector(searchTerm);
 	}
 
-	private findAutoModelAlias(searchTerm: string): string | undefined {
-		return normalizeAutoAliasString("clawrouter", searchTerm);
-	}
-
 	private async findExactModelMatch(searchTerm: string): Promise<Model<any> | undefined> {
 		const models = await this.getModelCandidates();
 		return findExactModelReferenceMatch(searchTerm, models);
@@ -4637,9 +4312,9 @@ export class InteractiveMode {
 			return this.session.scopedModels.map((scoped) => scoped.model);
 		}
 
-		this.session.modelRegistry.refresh();
 		try {
-			return await this.session.modelRegistry.getAvailable();
+			await this.session.modelRuntime.refresh();
+			return [...(await this.session.modelRuntime.getAvailable())];
 		} catch {
 			return [];
 		}
@@ -4665,15 +4340,13 @@ export class InteractiveMode {
 			return;
 		}
 
-		const storedCredential = this.session.modelRegistry.authStorage.get("anthropic");
-		if (storedCredential?.type === "oauth") {
-			this.anthropicSubscriptionWarningShown = true;
-			this.showWarning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
-			return;
-		}
-
 		try {
-			const apiKey = await this.session.modelRegistry.getApiKeyForProvider(model.provider);
+			if ((await this.session.modelRuntime.checkAuth("anthropic"))?.type === "oauth") {
+				this.anthropicSubscriptionWarningShown = true;
+				this.showWarning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
+				return;
+			}
+			const apiKey = (await this.session.modelRuntime.getAuth(model.provider))?.auth.apiKey;
 			if (!isAnthropicSubscriptionAuthKey(apiKey)) {
 				return;
 			}
@@ -4741,18 +4414,10 @@ export class InteractiveMode {
 				this.ui,
 				this.session.model,
 				this.settingsManager,
-				this.session.modelRegistry,
+				this.session.modelRuntime,
 				this.session.scopedModels,
 				async (model) => {
 					try {
-						if (isAutoModelAlias(model)) {
-							const alias = `${model.provider}/${model.id}`;
-							this.session.setPendingAutoModelAlias(alias);
-							this.footer.invalidate();
-							done();
-							this.showStatus(`Model: ${alias} (routes on next prompt)`);
-							return;
-						}
 						await this.session.setModel(model);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
@@ -4770,7 +4435,6 @@ export class InteractiveMode {
 					this.ui.requestRender();
 				},
 				initialSearchInput,
-				this.session.pendingAutoModelAlias,
 			);
 			return { component: selector, focus: selector };
 		});
@@ -4778,8 +4442,8 @@ export class InteractiveMode {
 
 	private async showModelsSelector(): Promise<void> {
 		// Get all available models
-		this.session.modelRegistry.refresh();
-		const allModels = this.session.modelRegistry.getAvailable();
+		await this.session.modelRuntime.refresh();
+		const allModels = [...(await this.session.modelRuntime.getAvailable())];
 
 		if (allModels.length === 0) {
 			this.showStatus("No models available");
@@ -4800,7 +4464,7 @@ export class InteractiveMode {
 			// Fall back to settings
 			const patterns = this.settingsManager.getEnabledModels();
 			if (patterns !== undefined && patterns.length > 0) {
-				const scopedModels = await resolveModelScope(patterns, this.session.modelRegistry);
+				const scopedModels = await resolveModelScope(patterns, this.session.modelRuntime);
 				currentEnabledIds = scopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
 			}
 		}
@@ -4809,7 +4473,7 @@ export class InteractiveMode {
 		const updateSessionModels = async (enabledIds: string[] | null) => {
 			currentEnabledIds = enabledIds === null ? null : [...enabledIds];
 			if (enabledIds && enabledIds.length > 0 && enabledIds.length < allModels.length) {
-				const newScopedModels = await resolveModelScope(enabledIds, this.session.modelRegistry);
+				const newScopedModels = await resolveModelScope(enabledIds, this.session.modelRuntime);
 				this.session.setScopedModels(
 					newScopedModels.map((sm) => ({
 						model: sm.model,
@@ -4867,19 +4531,17 @@ export class InteractiveMode {
 			const selector = new UserMessageSelectorComponent(
 				userMessages.map((m) => ({ id: m.entryId, text: m.text })),
 				async (entryId) => {
+					done();
 					try {
 						const result = await this.runtimeHost.fork(entryId);
 						if (result.cancelled) {
-							done();
 							this.ui.requestRender();
 							return;
 						}
 
 						this.editor.setText(result.selectedText ?? "");
-						done();
 						this.showStatus("Forked to new session");
 					} catch (error: unknown) {
-						done();
 						this.showError(error instanceof Error ? error.message : String(error));
 					}
 				},
@@ -5033,6 +4695,18 @@ export class InteractiveMode {
 				initialSelectedId,
 				initialFilterMode,
 			);
+			selector.onCopy = async (text) => {
+				if (!text) {
+					this.showError("Selected entry has no text to copy");
+					return;
+				}
+				try {
+					await copyToClipboard(text);
+					this.showStatus("Copied selected message to clipboard");
+				} catch (error) {
+					this.showError(error instanceof Error ? error.message : String(error));
+				}
+			};
 			return { component: selector, focus: selector };
 		});
 	}
@@ -5088,10 +4762,6 @@ export class InteractiveMode {
 			if (result.cancelled) {
 				return result;
 			}
-			this.renderCurrentSessionState();
-			// Move the liveness marker to the newly opened session immediately rather
-			// than waiting for the next heartbeat tick.
-			this.sessionLiveness.sync();
 			this.showStatus("Resumed session");
 			return result;
 		} catch (error: unknown) {
@@ -5109,8 +4779,6 @@ export class InteractiveMode {
 				if (result.cancelled) {
 					return result;
 				}
-				this.renderCurrentSessionState();
-				this.sessionLiveness.sync();
 				this.showStatus("Resumed session in current cwd");
 				return result;
 			}
@@ -5119,60 +4787,139 @@ export class InteractiveMode {
 	}
 
 	private getLoginProviderOptions(authType?: "oauth" | "api_key"): AuthSelectorProvider[] {
-		const authStorage = this.session.modelRegistry.authStorage;
-		const oauthProviders = authStorage.getOAuthProviders();
-		const oauthProviderIds = new Set(oauthProviders.map((provider) => provider.id));
-		const options: AuthSelectorProvider[] = oauthProviders.map((provider) => ({
-			id: provider.id,
-			name: provider.name,
-			authType: "oauth",
-		}));
-
-		const modelProviders = new Set(this.session.modelRegistry.getAll().map((model) => model.provider));
-		for (const providerId of modelProviders) {
-			if (!isApiKeyLoginProvider(providerId, oauthProviderIds)) {
-				continue;
-			}
-			options.push({
-				id: providerId,
-				name: this.session.modelRegistry.getProviderDisplayName(providerId),
-				authType: "api_key",
-			});
-		}
-
-		const filteredOptions = authType ? options.filter((option) => option.authType === authType) : options;
-		return filteredOptions.sort((a, b) => a.name.localeCompare(b.name));
-	}
-
-	private getLogoutProviderOptions(): AuthSelectorProvider[] {
-		const authStorage = this.session.modelRegistry.authStorage;
 		const options: AuthSelectorProvider[] = [];
-
-		for (const providerId of authStorage.list()) {
-			const credential = authStorage.get(providerId);
-			if (!credential) {
-				continue;
+		for (const provider of this.session.modelRuntime.getProviders()) {
+			const authStatus = this.session.modelRuntime.getProviderAuthStatus(provider.id);
+			const status = authStatus.configured
+				? {
+						type: this.session.modelRuntime.isUsingOAuth(provider.id) ? ("oauth" as const) : ("api_key" as const),
+						source: authStatus.label ?? authStatus.source,
+					}
+				: undefined;
+			if ((!authType || authType === "oauth") && provider.auth.oauth) {
+				options.push({
+					id: provider.id,
+					name: provider.name,
+					authType: "oauth",
+					method: provider.auth.oauth,
+					status,
+				});
 			}
-			options.push({
-				id: providerId,
-				name: this.session.modelRegistry.getProviderDisplayName(providerId),
-				authType: credential.type,
-			});
+			if ((!authType || authType === "api_key") && provider.auth.apiKey) {
+				options.push({
+					id: provider.id,
+					name: provider.name,
+					authType: "api_key",
+					method: provider.auth.apiKey,
+					status,
+				});
+			}
 		}
-
 		return options.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
-	private showLoginAuthTypeSelector(): void {
-		const subscriptionLabel = "Use a subscription";
-		const apiKeyLabel = "Use an API key";
+	private async getLogoutProviderOptions(): Promise<AuthSelectorProvider[]> {
+		return (await this.session.modelRuntime.listCredentials())
+			.map(({ providerId, type }) => ({
+				id: providerId,
+				name: this.session.modelRuntime.getProvider(providerId)?.name ?? providerId,
+				authType: type,
+				status: { type, source: "stored credential" },
+			}))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}
+
+	private findLoginProviderOptions(providerRef: string): AuthSelectorProvider[] {
+		const normalizedProviderRef = providerRef.trim().toLowerCase();
+		if (!normalizedProviderRef) {
+			return [];
+		}
+
+		return this.getLoginProviderOptions().filter(
+			(provider) =>
+				provider.id.toLowerCase() === normalizedProviderRef ||
+				provider.name.toLowerCase() === normalizedProviderRef,
+		);
+	}
+
+	private async handleLoginCommand(providerRef?: string): Promise<void> {
+		await this.session.modelRuntime.getAvailable();
+		if (!providerRef) {
+			this.showLoginAuthTypeSelector();
+			return;
+		}
+
+		const providerOptions = this.findLoginProviderOptions(providerRef);
+		if (providerOptions.length === 1) {
+			await this.startProviderLogin(providerOptions[0]!);
+			return;
+		}
+
+		if (providerOptions.length > 1) {
+			const providerIds = new Set(providerOptions.map((provider) => provider.id));
+			if (providerIds.size === 1) {
+				this.showLoginAuthTypeSelector(providerOptions);
+				return;
+			}
+		}
+
+		this.showLoginProviderSelector(undefined, providerRef);
+	}
+
+	private async startProviderLogin(providerOption: AuthSelectorProvider): Promise<void> {
+		if (providerOption.authType === "oauth") {
+			await this.showLoginDialog(providerOption.id, providerOption.name);
+		} else if (providerOption.method?.login) {
+			await this.showApiKeyLoginDialog(providerOption.id, providerOption.name);
+		} else {
+			this.showAmbientAuthDialog(providerOption);
+		}
+	}
+
+	private showLoginAuthTypeSelector(providerOptions?: AuthSelectorProvider[]): void {
+		const subscriptionLabel = "Sign in with an account";
+		const apiKeyLabel = "Sign in with an API key";
+		const availableAuthTypes = providerOptions
+			? new Set(providerOptions.map((provider) => provider.authType))
+			: new Set<AuthSelectorProvider["authType"]>(["oauth", "api_key"]);
+		const options: string[] = [];
+		if (availableAuthTypes.has("oauth")) {
+			options.push(subscriptionLabel);
+		}
+		if (availableAuthTypes.has("api_key")) {
+			options.push(apiKeyLabel);
+		}
+
+		if (options.length === 0) {
+			this.showStatus("No login methods available.");
+			return;
+		}
+
+		if (providerOptions && options.length === 1) {
+			const providerOption = providerOptions[0];
+			if (providerOption) {
+				void this.startProviderLogin(providerOption);
+			}
+			return;
+		}
+
+		const title = providerOptions?.[0]
+			? `Select authentication method for ${providerOptions[0].name}:`
+			: "Select authentication method:";
 		this.showSelector((done) => {
 			const selector = new ExtensionSelectorComponent(
-				"Select authentication method:",
-				[subscriptionLabel, apiKeyLabel],
+				title,
+				options,
 				(option) => {
 					done();
 					const authType = option === subscriptionLabel ? "oauth" : "api_key";
+					if (providerOptions) {
+						const providerOption = providerOptions.find((provider) => provider.authType === authType);
+						if (providerOption) {
+							void this.startProviderLogin(providerOption);
+						}
+						return;
+					}
 					this.showLoginProviderSelector(authType);
 				},
 				() => {
@@ -5184,41 +4931,44 @@ export class InteractiveMode {
 		});
 	}
 
-	private showLoginProviderSelector(authType: "oauth" | "api_key"): void {
+	private showLoginProviderSelector(authType?: AuthSelectorProvider["authType"], initialSearchInput?: string): void {
 		const providerOptions = this.getLoginProviderOptions(authType);
 		if (providerOptions.length === 0) {
-			this.showStatus(
-				authType === "oauth" ? "No subscription providers available." : "No API key providers available.",
-			);
+			const message =
+				authType === "oauth"
+					? "No subscription providers available."
+					: authType === "api_key"
+						? "No API key providers available."
+						: "No login providers available.";
+			this.showStatus(message);
 			return;
 		}
 
 		this.showSelector((done) => {
 			const selector = new OAuthSelectorComponent(
 				"login",
-				this.session.modelRegistry.authStorage,
 				providerOptions,
-				async (providerId: string) => {
+				async (providerId, selectedAuthType) => {
 					done();
 
-					const providerOption = providerOptions.find((provider) => provider.id === providerId);
+					const providerOption = providerOptions.find(
+						(provider) => provider.id === providerId && provider.authType === selectedAuthType,
+					);
 					if (!providerOption) {
 						return;
 					}
 
-					if (providerOption.authType === "oauth") {
-						await this.showLoginDialog(providerOption.id, providerOption.name);
-					} else if (providerOption.id === BEDROCK_PROVIDER_ID) {
-						this.showBedrockSetupDialog(providerOption.id, providerOption.name);
-					} else {
-						await this.showApiKeyLoginDialog(providerOption.id, providerOption.name);
-					}
+					await this.startProviderLogin(providerOption);
 				},
 				() => {
 					done();
-					this.showLoginAuthTypeSelector();
+					if (authType) {
+						this.showLoginAuthTypeSelector();
+					} else {
+						this.ui.requestRender();
+					}
 				},
-				(providerId) => this.session.modelRegistry.getProviderAuthStatus(providerId),
+				initialSearchInput,
 			);
 			return { component: selector, focus: selector };
 		});
@@ -5230,7 +4980,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		const providerOptions = this.getLogoutProviderOptions();
+		const providerOptions = await this.getLogoutProviderOptions();
 		if (providerOptions.length === 0) {
 			this.showStatus(
 				"No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json config are unchanged.",
@@ -5241,7 +4991,6 @@ export class InteractiveMode {
 		this.showSelector((done) => {
 			const selector = new OAuthSelectorComponent(
 				mode,
-				this.session.modelRegistry.authStorage,
 				providerOptions,
 				async (providerId: string) => {
 					done();
@@ -5252,8 +5001,7 @@ export class InteractiveMode {
 					}
 
 					try {
-						this.session.modelRegistry.authStorage.logout(providerOption.id);
-						this.session.modelRegistry.refresh();
+						await this.session.modelRuntime.logout(providerOption.id);
 						await this.updateAvailableProviderCount();
 						const message =
 							providerOption.authType === "oauth"
@@ -5279,14 +5027,14 @@ export class InteractiveMode {
 		authType: "oauth" | "api_key",
 		previousModel: Model<any> | undefined,
 	): Promise<void> {
-		this.session.modelRegistry.refresh();
+		await this.session.modelRuntime.getAvailable();
 
 		const actionLabel = authType === "oauth" ? `Logged in to ${providerName}` : `Saved API key for ${providerName}`;
 
 		let selectedModel: Model<any> | undefined;
 		let selectionError: string | undefined;
 		if (isUnknownModel(previousModel)) {
-			const availableModels = this.session.modelRegistry.getAvailable();
+			const availableModels = await this.session.modelRuntime.getAvailable();
 			const providerModels = availableModels.filter((model) => model.provider === providerId);
 			if (!hasDefaultModelProvider(providerId)) {
 				selectionError = `${actionLabel}, but no default model is configured for provider "${providerId}". Use /model to select a model.`;
@@ -5326,7 +5074,7 @@ export class InteractiveMode {
 		}
 	}
 
-	private showBedrockSetupDialog(providerId: string, providerName: string): void {
+	private showAmbientAuthDialog(providerOption: AuthSelectorProvider): void {
 		const restoreEditor = () => {
 			this.editorContainer.clear();
 			this.editorContainer.addChild(this.editor);
@@ -5336,17 +5084,12 @@ export class InteractiveMode {
 
 		const dialog = new LoginDialogComponent(
 			this.ui,
-			providerId,
+			providerOption.id,
 			() => restoreEditor(),
-			providerName,
-			"Amazon Bedrock setup",
+			providerOption.name,
+			`${providerOption.name} setup`,
 		);
-		dialog.showInfo([
-			theme.fg("text", "Amazon Bedrock uses AWS credentials instead of a single API key."),
-			theme.fg("text", "Configure an AWS profile, IAM keys, bearer token, or role-based credentials."),
-			theme.fg("muted", "See:"),
-			theme.fg("accent", `  ${path.join(getDocsPath(), "providers.md")}`),
-		]);
+		dialog.showInfo(`${providerOption.method?.name ?? "Authentication"} is configured outside pi.`, [], true);
 
 		this.editorContainer.clear();
 		this.editorContainer.addChild(dialog);
@@ -5366,6 +5109,14 @@ export class InteractiveMode {
 			providerName,
 		);
 
+		if (providerId === "amazon-bedrock") {
+			dialog.showDetails([
+				theme.fg("text", "You can also use an AWS profile, IAM keys, or role-based credentials."),
+				theme.fg("muted", "See:"),
+				theme.fg("accent", `  ${path.join(getDocsPath(), "providers.md")}`),
+			]);
+		}
+
 		this.editorContainer.clear();
 		this.editorContainer.addChild(dialog);
 		this.ui.setFocus(dialog);
@@ -5379,13 +5130,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			const apiKey = (await dialog.showPrompt("Enter API key:")).trim();
-			if (!apiKey) {
-				throw new Error("API key cannot be empty.");
-			}
-
-			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
-
+			await this.loginProvider(dialog, providerId, "api_key");
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);
 		} catch (error: unknown) {
@@ -5397,8 +5142,11 @@ export class InteractiveMode {
 		}
 	}
 
-	private showOAuthLoginSelect(dialog: LoginDialogComponent, prompt: OAuthSelectPrompt): Promise<string | undefined> {
-		return new Promise((resolve) => {
+	private showAuthSelect(
+		dialog: LoginDialogComponent,
+		prompt: Extract<AuthPrompt, { type: "select" }>,
+	): Promise<string> {
+		return new Promise((resolve, reject) => {
 			const restoreDialog = () => {
 				this.editorContainer.clear();
 				this.editorContainer.addChild(dialog);
@@ -5411,11 +5159,13 @@ export class InteractiveMode {
 				labels,
 				(optionLabel) => {
 					restoreDialog();
-					resolve(prompt.options.find((option) => option.label === optionLabel)?.id);
+					const id = prompt.options.find((option) => option.label === optionLabel)?.id;
+					if (id) resolve(id);
+					else reject(new Error("Login cancelled"));
 				},
 				() => {
 					restoreDialog();
-					resolve(undefined);
+					reject(new Error("Login cancelled"));
 				},
 			);
 			this.editorContainer.clear();
@@ -5425,40 +5175,63 @@ export class InteractiveMode {
 		});
 	}
 
+	private async showAuthPrompt(dialog: LoginDialogComponent, prompt: AuthPrompt): Promise<string> {
+		let response: Promise<string>;
+		if (prompt.type === "select") {
+			response = this.showAuthSelect(dialog, prompt);
+		} else if (prompt.type === "manual_code") {
+			response = dialog.showManualInput(prompt.message);
+		} else {
+			response = dialog.showPrompt(prompt.message, prompt.placeholder);
+		}
+		if (!prompt.signal) return response;
+		if (prompt.signal.aborted) throw new Error("Login cancelled");
+		const signal = prompt.signal;
+		let onAbort: (() => void) | undefined;
+		const aborted = new Promise<string>((_resolve, reject) => {
+			onAbort = () => reject(new Error("Login cancelled"));
+			signal.addEventListener("abort", onAbort, { once: true });
+		});
+		try {
+			return await Promise.race([response, aborted]);
+		} finally {
+			if (onAbort) signal.removeEventListener("abort", onAbort);
+		}
+	}
+
+	private notifyAuthDialog(dialog: LoginDialogComponent, event: AuthEvent): void {
+		if (event.type === "auth_url") {
+			dialog.showAuth(event.url, event.instructions);
+		} else if (event.type === "device_code") {
+			dialog.showDeviceCode(event);
+			dialog.showWaiting("Waiting for authentication...");
+		} else if (event.type === "info") {
+			dialog.showInfo(event.message, event.links);
+		} else {
+			dialog.showProgress(event.message);
+		}
+	}
+
+	private async loginProvider(
+		dialog: LoginDialogComponent,
+		providerId: string,
+		method: "api_key" | "oauth",
+	): Promise<void> {
+		await this.session.modelRuntime.login(providerId, method, {
+			signal: dialog.signal,
+			prompt: (prompt) => this.showAuthPrompt(dialog, prompt),
+			notify: (event) => this.notifyAuthDialog(dialog, event),
+		});
+	}
+
 	private async showLoginDialog(providerId: string, providerName: string): Promise<void> {
-		const providerInfo = this.session.modelRegistry.authStorage
-			.getOAuthProviders()
-			.find((provider) => provider.id === providerId);
 		const previousModel = this.session.model;
-
-		// Providers that use callback servers (can paste redirect URL)
-		const usesCallbackServer = providerInfo?.usesCallbackServer ?? false;
-
-		// Create login dialog component
-		const dialog = new LoginDialogComponent(
-			this.ui,
-			providerId,
-			(_success, _message) => {
-				// Completion handled below
-			},
-			providerName,
-		);
-
-		// Show dialog in editor container
+		const dialog = new LoginDialogComponent(this.ui, providerId, (_success, _message) => {}, providerName);
 		this.editorContainer.clear();
 		this.editorContainer.addChild(dialog);
 		this.ui.setFocus(dialog);
 		this.ui.requestRender();
 
-		// Promise for manual code input (racing with callback server)
-		let manualCodeResolve: ((code: string) => void) | undefined;
-		let manualCodeReject: ((err: Error) => void) | undefined;
-		const manualCodePromise = new Promise<string>((resolve, reject) => {
-			manualCodeResolve = resolve;
-			manualCodeReject = reject;
-		});
-
-		// Restore editor helper
 		const restoreEditor = () => {
 			this.editorContainer.clear();
 			this.editorContainer.addChild(this.editor);
@@ -5467,51 +5240,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			await this.session.modelRegistry.authStorage.login(providerId as OAuthProviderId, {
-				onAuth: (info: { url: string; instructions?: string }) => {
-					dialog.showAuth(info.url, info.instructions);
-
-					if (usesCallbackServer) {
-						// Show input for manual paste, racing with callback
-						dialog
-							.showManualInput("Paste redirect URL below, or complete login in browser:")
-							.then((value) => {
-								if (value && manualCodeResolve) {
-									manualCodeResolve(value);
-									manualCodeResolve = undefined;
-								}
-							})
-							.catch(() => {
-								if (manualCodeReject) {
-									manualCodeReject(new Error("Login cancelled"));
-									manualCodeReject = undefined;
-								}
-							});
-					}
-					// For Anthropic: onPrompt is called immediately after
-				},
-
-				onDeviceCode: (info) => {
-					dialog.showDeviceCode(info);
-					dialog.showWaiting("Waiting for authentication...");
-				},
-
-				onPrompt: async (prompt: { message: string; placeholder?: string }) => {
-					return dialog.showPrompt(prompt.message, prompt.placeholder);
-				},
-
-				onProgress: (message: string) => {
-					dialog.showProgress(message);
-				},
-
-				onSelect: (prompt: OAuthSelectPrompt) => this.showOAuthLoginSelect(dialog, prompt),
-
-				onManualCodeInput: () => manualCodePromise,
-
-				signal: dialog.signal,
-			});
-
-			// Success
+			await this.loginProvider(dialog, providerId, "oauth");
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "oauth", previousModel);
 		} catch (error: unknown) {
@@ -5544,7 +5273,11 @@ export class InteractiveMode {
 		reloadBox.addChild(new DynamicBorder(borderColor));
 		reloadBox.addChild(new Spacer(1));
 		reloadBox.addChild(
-			new Text(theme.fg("muted", "Reloading keybindings, extensions, skills, prompts, themes..."), 1, 0),
+			new Text(
+				theme.fg("muted", "Reloading keybindings, extensions, skills, prompts, themes, and context files..."),
+				1,
+				0,
+			),
 		);
 		reloadBox.addChild(new Spacer(1));
 		reloadBox.addChild(new DynamicBorder(borderColor));
@@ -5608,14 +5341,14 @@ export class InteractiveMode {
 				showDiagnosticsWhenQuiet: true,
 			});
 			const savedImplicitProjectTrust = this.maybeSaveImplicitProjectTrustAfterReload();
-			const modelsJsonError = this.session.modelRegistry.getError();
+			const modelsJsonError = this.session.modelRuntime.getError();
 			if (modelsJsonError) {
 				this.showError(`models.json error: ${modelsJsonError}`);
 			}
 			this.showStatus(
 				savedImplicitProjectTrust
-					? "Reloaded keybindings, extensions, skills, prompts, themes; saved project trust"
-					: "Reloaded keybindings, extensions, skills, prompts, themes",
+					? "Reloaded keybindings, extensions, skills, prompts, themes, and context files; saved project trust"
+					: "Reloaded keybindings, extensions, skills, prompts, themes, and context files",
 			);
 			dismissReloadBox(this.editor as Component);
 			reloadBoxDismissed = true;
@@ -5852,6 +5585,26 @@ export class InteractiveMode {
 	private handleSessionCommand(): void {
 		const stats = this.session.getSessionStats();
 		const sessionName = this.sessionManager.getSessionName();
+		const entries = this.sessionManager.getEntries();
+		const cacheWaste = computeCacheWaste(entries, this.session.modelRuntime);
+
+		// Cost/token totals per provider/model actually used (e.g. OpenRouter `auto`
+		// resolves to a concrete responseModel), sorted by cost descending.
+		const perModelMap = new Map<string, { key: string; cost: number; tokens: number }>();
+		for (const entry of entries) {
+			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+			const message = entry.message;
+			const usage = message.usage;
+			const key = `${message.provider}/${message.responseModel ?? message.model}`;
+			let bucket = perModelMap.get(key);
+			if (!bucket) {
+				bucket = { key, cost: 0, tokens: 0 };
+				perModelMap.set(key, bucket);
+			}
+			bucket.cost += usage.cost.total;
+			bucket.tokens += usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+		}
+		const perModel = Array.from(perModelMap.values()).sort((a, b) => b.cost - a.cost);
 
 		let info = `${theme.bold("Session Info")}\n\n`;
 		if (sessionName) {
@@ -5860,25 +5613,44 @@ export class InteractiveMode {
 		info += `${theme.fg("dim", "File:")} ${stats.sessionFile ?? "In-memory"}\n`;
 		info += `${theme.fg("dim", "ID:")} ${stats.sessionId}\n\n`;
 		info += `${theme.bold("Messages")}\n`;
+		info += `${theme.fg("dim", "Total:")} ${stats.totalMessages}\n`;
 		info += `${theme.fg("dim", "User:")} ${stats.userMessages}\n`;
 		info += `${theme.fg("dim", "Assistant:")} ${stats.assistantMessages}\n`;
-		info += `${theme.fg("dim", "Tool Calls:")} ${stats.toolCalls}\n`;
-		info += `${theme.fg("dim", "Tool Results:")} ${stats.toolResults}\n`;
-		info += `${theme.fg("dim", "Total:")} ${stats.totalMessages}\n\n`;
+		info += `${theme.fg("dim", "Tools:")} ${stats.toolCalls} calls, ${stats.toolResults} results\n\n`;
 		info += `${theme.bold("Tokens")}\n`;
-		info += `${theme.fg("dim", "Input:")} ${stats.tokens.input.toLocaleString()}\n`;
+		// "Input" is the full prompt volume. With cache activity, split it into
+		// cached (served from cache) vs uncached (everything else) - the only
+		// provider-independent split. Cache writes, where reported, are a detail
+		// of the uncached portion.
+		const { input, cacheRead, cacheWrite } = stats.tokens;
+		const promptTokens = input + cacheRead + cacheWrite;
+		info += `${theme.fg("dim", "Input:")} ${promptTokens.toLocaleString()}\n`;
+		if (promptTokens > 0 && (cacheRead > 0 || cacheWrite > 0)) {
+			const hitRate = theme.fg("dim", `(${((cacheRead / promptTokens) * 100).toFixed(1)}%)`);
+			info += `  ${theme.fg("dim", "Cached:")} ${cacheRead.toLocaleString()} ${hitRate}\n`;
+			const written =
+				cacheWrite > 0 ? ` ${theme.fg("dim", `(${cacheWrite.toLocaleString()} written to cache)`)}` : "";
+			info += `  ${theme.fg("dim", "Uncached:")} ${(input + cacheWrite).toLocaleString()}${written}\n`;
+		}
 		info += `${theme.fg("dim", "Output:")} ${stats.tokens.output.toLocaleString()}\n`;
-		if (stats.tokens.cacheRead > 0) {
-			info += `${theme.fg("dim", "Cache Read:")} ${stats.tokens.cacheRead.toLocaleString()}\n`;
-		}
-		if (stats.tokens.cacheWrite > 0) {
-			info += `${theme.fg("dim", "Cache Write:")} ${stats.tokens.cacheWrite.toLocaleString()}\n`;
-		}
 		info += `${theme.fg("dim", "Total:")} ${stats.tokens.total.toLocaleString()}\n`;
 
-		if (stats.cost > 0) {
+		if (stats.cost > 0 || cacheWaste.missedTokens > 0) {
 			info += `\n${theme.bold("Cost")}\n`;
-			info += `${theme.fg("dim", "Total:")} ${stats.cost.toFixed(4)}`;
+			info += `${theme.fg("dim", "Total:")} $${stats.cost.toFixed(3)}`;
+			if (perModel.length > 1) {
+				for (const entry of perModel) {
+					info += `\n  ${theme.fg("dim", `${entry.key}:`)} $${entry.cost.toFixed(3)} ${theme.fg("dim", `(${formatTokens(entry.tokens)} tokens)`)}`;
+				}
+			}
+			if (cacheWaste.missedTokens > 0) {
+				const missLabel = cacheWaste.missCount === 1 ? "1 miss" : `${cacheWaste.missCount} misses`;
+				const detail = `${cacheWaste.missedTokens.toLocaleString()} tokens, ${missLabel}`;
+				info +=
+					cacheWaste.missedCost >= 0.0001
+						? `\n${theme.fg("dim", "Cache Re-billed:")} $${cacheWaste.missedCost.toFixed(3)} ${theme.fg("dim", `(${detail})`)}`
+						: `\n${theme.fg("dim", "Cache Re-billed:")} ${detail}`;
+			}
 		}
 
 		this.chatContainer.addChild(new Spacer(1));
@@ -5960,6 +5732,7 @@ export class InteractiveMode {
 		const toggleThinking = this.getAppKeyDisplay("app.thinking.toggle");
 		const externalEditor = this.getAppKeyDisplay("app.editor.external");
 		const cycleModelBackward = this.getAppKeyDisplay("app.model.cycleBackward");
+		const copyMessage = this.getAppKeyDisplay("app.message.copy");
 		const followUp = this.getAppKeyDisplay("app.message.followUp");
 		const dequeue = this.getAppKeyDisplay("app.message.dequeue");
 		const pasteImage = this.getAppKeyDisplay("app.clipboard.pasteImage");
@@ -5968,7 +5741,7 @@ export class InteractiveMode {
 **Navigation**
 | Key | Action |
 |-----|--------|
-| \`${cursorUp}\` / \`${cursorDown}\` / \`${cursorLeft}\` / \`${cursorRight}\` | Move cursor / recall queued message or browse history (Up when empty) |
+| \`${cursorUp}\` / \`${cursorDown}\` / \`${cursorLeft}\` / \`${cursorRight}\` | Move cursor / browse history |
 | \`${cursorWordLeft}\` / \`${cursorWordRight}\` | Move by word |
 | \`${cursorLineStart}\` | Start of line |
 | \`${cursorLineEnd}\` | End of line |
@@ -6003,9 +5776,10 @@ export class InteractiveMode {
 | \`${expandTools}\` | Toggle tool output expansion |
 | \`${toggleThinking}\` | Toggle thinking block visibility |
 | \`${externalEditor}\` | Edit message in external editor |
+| \`${copyMessage}\` | Copy last assistant message |
 | \`${followUp}\` | Queue follow-up message |
-| \`${dequeue}\` | Restore all queued messages to editor |
-| \`${pasteImage}\` | Paste image from clipboard |
+| \`${dequeue}\` | Restore queued messages |
+| \`${pasteImage}\` | Paste image or text from clipboard |
 | \`/\` | Slash commands |
 | \`!\` | Run bash command |
 | \`!!\` | Run bash command (excluded from context) |
@@ -6196,14 +5970,6 @@ export class InteractiveMode {
 	}
 
 	private async handleCompactCommand(customInstructions?: string): Promise<void> {
-		const entries = this.sessionManager.getEntries();
-		const messageCount = entries.filter((e) => e.type === "message").length;
-
-		if (messageCount < 2) {
-			this.showWarning("Nothing to compact (no messages yet)");
-			return;
-		}
-
 		this.clearStatusIndicator();
 
 		try {
@@ -6222,20 +5988,6 @@ export class InteractiveMode {
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
-		if (this.unsubscribeAgentRuns) {
-			this.unsubscribeAgentRuns();
-			this.unsubscribeAgentRuns = undefined;
-		}
-		if (this.unsubscribeBashBgJobs) {
-			this.unsubscribeBashBgJobs();
-			this.unsubscribeBashBgJobs = undefined;
-		}
-		if (this.unsubscribeBashBgTerminal) {
-			this.unsubscribeBashBgTerminal();
-			this.unsubscribeBashBgTerminal = undefined;
-		}
-		if (this.activeMainPane) this.hideExtensionMainPane(this.activeMainPane.id);
-		if (this.activeOverlay) this.hideExtensionOverlay(this.activeOverlay.id);
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}

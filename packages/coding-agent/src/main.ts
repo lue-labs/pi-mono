@@ -6,14 +6,15 @@
  */
 
 import { createInterface } from "node:readline";
-import { type ImageContent, modelsAreEqual } from "@valkyriweb/pi-ai";
+import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
-import { runAgentViewCommand } from "./cli/agent-view-command.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listModels } from "./cli/list-models.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
+import { selectSession } from "./cli/session-picker.ts";
+import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
@@ -22,16 +23,11 @@ import {
 	createAgentSessionServices,
 } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
-import { AuthStorage } from "./core/auth-storage.ts";
-import type { ExtensionFactory } from "./core/extensions/types.ts";
+import { exportFromFile } from "./core/export-html/index.ts";
+import type { InlineExtension } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
-import type { ModelRegistry } from "./core/model-registry.ts";
-import {
-	normalizeAutoAliasString,
-	resolveCliModel,
-	resolveModelScope,
-	type ScopedModel,
-} from "./core/model-resolver.ts";
+import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
+import type { ModelRuntime } from "./core/model-runtime.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import type { CreateAgentSessionOptions } from "./core/sdk.ts";
@@ -41,13 +37,13 @@ import {
 	MissingSessionCwdError,
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
-import { assertValidSessionId, type SessionHydrationOptions, SessionManager } from "./core/session-manager.ts";
+import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
+import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
-import { runPrintMode } from "./modes/print-mode.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
@@ -119,18 +115,6 @@ function toPrintOutputMode(appMode: AppMode): Exclude<Mode, "rpc"> {
 
 function isPlainRuntimeMetadataCommand(parsed: Args): boolean {
 	return !parsed.print && parsed.mode === undefined && (parsed.help === true || parsed.listModels !== undefined);
-}
-
-function buildInitialRoutingMetadata(parsed: Args, appMode: AppMode, stdinContent?: string): Record<string, unknown> {
-	const promptPreview = [stdinContent, parsed.messages[0]].filter((part): part is string => Boolean(part)).join("\n");
-	return {
-		appMode,
-		promptPreview: promptPreview.slice(0, 6000),
-		promptLength: promptPreview.length,
-		hasPipedStdin: stdinContent !== undefined,
-		cliMessageCount: parsed.messages.length,
-		fileArgCount: parsed.fileArgs.length,
-	};
 }
 
 async function prepareInitialMessage(
@@ -256,17 +240,9 @@ function validateSessionIdFlags(parsed: Args): void {
 	}
 }
 
-function getSessionHydrationOptions(settingsManager: SettingsManager): SessionHydrationOptions {
-	return { residentPrune: settingsManager.getCompactionResidentPruneEnabled() };
-}
-
-function openSessionOrExit(
-	path: string,
-	sessionDir?: string,
-	hydrationOptions?: SessionHydrationOptions,
-): SessionManager {
+function openSessionOrExit(path: string, sessionDir?: string): SessionManager {
 	try {
-		return SessionManager.open(path, sessionDir, undefined, hydrationOptions);
+		return SessionManager.open(path, sessionDir);
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
 		console.error(chalk.red(`Error: ${message}`));
@@ -274,15 +250,9 @@ function openSessionOrExit(
 	}
 }
 
-function forkSessionOrExit(
-	sourcePath: string,
-	cwd: string,
-	sessionDir?: string,
-	sessionId?: string,
-	hydrationOptions?: SessionHydrationOptions,
-): SessionManager {
+function forkSessionOrExit(sourcePath: string, cwd: string, sessionDir?: string, sessionId?: string): SessionManager {
 	try {
-		return SessionManager.forkFrom(sourcePath, cwd, sessionDir, { id: sessionId }, hydrationOptions);
+		return SessionManager.forkFrom(sourcePath, cwd, sessionDir, { id: sessionId });
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
 		console.error(chalk.red(`Error: ${message}`));
@@ -300,8 +270,6 @@ async function createSessionManager(
 		return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
 	}
 
-	const hydrationOptions = getSessionHydrationOptions(settingsManager);
-
 	if (parsed.fork) {
 		if (parsed.sessionId) {
 			const existingTarget = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir);
@@ -317,7 +285,7 @@ async function createSessionManager(
 			case "path":
 			case "local":
 			case "global":
-				return forkSessionOrExit(resolved.path, cwd, sessionDir, parsed.sessionId, hydrationOptions);
+				return forkSessionOrExit(resolved.path, cwd, sessionDir, parsed.sessionId);
 
 			case "not_found":
 				console.error(chalk.red(`No session found matching '${resolved.arg}'`));
@@ -331,7 +299,7 @@ async function createSessionManager(
 		switch (resolved.type) {
 			case "path":
 			case "local":
-				return openSessionOrExit(resolved.path, sessionDir, hydrationOptions);
+				return openSessionOrExit(resolved.path, sessionDir);
 
 			case "global": {
 				console.log(chalk.yellow(`Session found in different project: ${resolved.cwd}`));
@@ -340,7 +308,7 @@ async function createSessionManager(
 					console.log(chalk.dim("Aborted."));
 					process.exit(0);
 				}
-				return forkSessionOrExit(resolved.path, cwd, sessionDir, undefined, hydrationOptions);
+				return forkSessionOrExit(resolved.path, cwd, sessionDir);
 			}
 
 			case "not_found":
@@ -351,8 +319,6 @@ async function createSessionManager(
 
 	if (parsed.resume) {
 		try {
-			// Lazy: session-picker pulls the interactive TUI component tree.
-			const { selectSession } = await import("./cli/session-picker.ts");
 			const selectedPath = await selectSession(
 				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress),
 				(onProgress) => SessionManager.listAll(sessionDir, onProgress),
@@ -362,65 +328,36 @@ async function createSessionManager(
 				console.log(chalk.dim("No session selected"));
 				process.exit(0);
 			}
-			return SessionManager.open(selectedPath, sessionDir, undefined, hydrationOptions);
+			return SessionManager.open(selectedPath, sessionDir);
 		} finally {
 			stopThemeWatcher();
 		}
 	}
 
 	if (parsed.continue) {
-		return SessionManager.continueRecent(cwd, sessionDir, hydrationOptions);
+		return SessionManager.continueRecent(cwd, sessionDir);
 	}
 
 	if (parsed.sessionId) {
 		const existingSession = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir);
 		if (existingSession) {
-			return SessionManager.open(existingSession.path, sessionDir, undefined, hydrationOptions);
+			return SessionManager.open(existingSession.path, sessionDir);
 		}
+		console.error(
+			chalk.yellow(
+				`Warning: No project session found with id '${parsed.sessionId}'; creating a new session with that id.`,
+			),
+		);
 	}
 
 	return SessionManager.create(cwd, sessionDir, { id: parsed.sessionId });
 }
 
-function isAutoModelRequest(model: string | undefined): boolean {
-	const value = model?.trim().toLowerCase();
-	return value === "auto" || value?.endsWith("/auto") === true;
-}
-
-function requestedAutoModelAlias(cliProvider: string | undefined, cliModel: string): string {
-	const model = cliModel.trim();
-	if (model.toLowerCase() === "auto") {
-		return normalizeAutoAliasString(cliProvider ?? "clawrouter", model) ?? model;
-	}
-	return normalizeAutoAliasString(undefined, model) ?? model;
-}
-
-function providerScopedAutoProvider(requestedModel: string | undefined): string | undefined {
-	const alias = normalizeAutoAliasString(undefined, requestedModel);
-	const parts = alias?.split("/");
-	return parts?.length === 2 && parts[1] === "auto" ? parts[0] : undefined;
-}
-
-function seedProviderScopedAutoModel(
-	modelRegistry: ModelRegistry,
-	requestedModel: string | undefined,
-	scopedModels: ScopedModel[] = [],
-) {
-	const provider = providerScopedAutoProvider(requestedModel);
-	if (!provider) return undefined;
-	// Prefer a model inside the user's enabledModels scope: the seed can become the
-	// session's actual model when routing resolves immediately (print mode, prompt
-	// args), and it must not silently escape an explicit provider/cost restriction.
-	const scopedSeed = scopedModels.find((scoped) => scoped.model.provider === provider)?.model;
-	return scopedSeed ?? modelRegistry.getAll().find((model) => model.provider === provider);
-}
-
-/** Exported for tests: keeps CLI-to-session option translation covered at its real seam. */
-export function buildSessionOptions(
+function buildSessionOptions(
 	parsed: Args,
 	scopedModels: ScopedModel[],
 	hasExistingSession: boolean,
-	modelRegistry: ModelRegistry,
+	modelRuntime: ModelRuntime,
 	settingsManager: SettingsManager,
 ): {
 	options: CreateAgentSessionOptions;
@@ -435,47 +372,26 @@ export function buildSessionOptions(
 	// - supports --provider <name> --model <pattern>
 	// - supports --model <provider>/<pattern>
 	if (parsed.model) {
-		const isAutoRequest = isAutoModelRequest(parsed.model);
-		if (isAutoRequest) {
-			options.requestedModel = requestedAutoModelAlias(parsed.provider, parsed.model);
-			options.model = seedProviderScopedAutoModel(modelRegistry, options.requestedModel, scopedModels);
-		} else {
-			const resolved = resolveCliModel({
-				cliProvider: parsed.provider,
-				cliModel: parsed.model,
-				cliThinking: parsed.thinking,
-				modelRegistry,
-			});
-			if (resolved.warning) {
-				diagnostics.push({ type: "warning", message: resolved.warning });
-			}
-			if (resolved.error) {
-				diagnostics.push({ type: "error", message: resolved.error });
-			}
-			if (resolved.model) {
-				options.model = resolved.model;
-				// Allow "--model <pattern>:<thinking>" as a shorthand.
-				// Explicit --thinking still takes precedence (applied later).
-				if (!parsed.thinking && resolved.thinkingLevel) {
-					options.thinkingLevel = resolved.thinkingLevel;
-					cliThinkingFromModel = true;
-				}
-			}
+		const resolved = resolveCliModel({
+			cliProvider: parsed.provider,
+			cliModel: parsed.model,
+			cliThinking: parsed.thinking,
+			modelRuntime,
+		});
+		if (resolved.warning) {
+			diagnostics.push({ type: "warning", message: resolved.warning });
 		}
-	}
-
-	// A settings-persisted auto default has no registry entry, so the scoped-models
-	// fallback below would discard the auto intent and silently land on the first
-	// scoped model without consulting `model:resolve`. Mirror the `--model auto`
-	// branch: surface the alias as requestedModel and seed a provider-scoped model.
-	if (!parsed.model && !hasExistingSession) {
-		const settingsAutoAlias = normalizeAutoAliasString(
-			settingsManager.getDefaultProvider(),
-			settingsManager.getDefaultModel(),
-		);
-		if (settingsAutoAlias) {
-			options.requestedModel = settingsAutoAlias;
-			options.model = seedProviderScopedAutoModel(modelRegistry, settingsAutoAlias, scopedModels);
+		if (resolved.error) {
+			diagnostics.push({ type: "error", message: resolved.error });
+		}
+		if (resolved.model) {
+			options.model = resolved.model;
+			// Allow "--model <pattern>:<thinking>" as a shorthand.
+			// Explicit --thinking still takes precedence (applied later).
+			if (!parsed.thinking && resolved.thinkingLevel) {
+				options.thinkingLevel = resolved.thinkingLevel;
+				cliThinkingFromModel = true;
+			}
 		}
 	}
 
@@ -483,7 +399,7 @@ export function buildSessionOptions(
 		// Check if saved default is in scoped models - use it if so, otherwise first scoped model
 		const savedProvider = settingsManager.getDefaultProvider();
 		const savedModelId = settingsManager.getDefaultModel();
-		const savedModel = savedProvider && savedModelId ? modelRegistry.find(savedProvider, savedModelId) : undefined;
+		const savedModel = savedProvider && savedModelId ? modelRuntime.getModel(savedProvider, savedModelId) : undefined;
 		const savedInScope = savedModel ? scopedModels.find((sm) => modelsAreEqual(sm.model, savedModel)) : undefined;
 
 		if (savedInScope) {
@@ -516,7 +432,7 @@ export function buildSessionOptions(
 		}));
 	}
 
-	// API key from CLI - set in authStorage
+	// API key from CLI - set as a non-persistent runtime override
 	// (handled by caller before createAgentSession)
 
 	// Tools
@@ -543,8 +459,6 @@ async function promptForMissingSessionCwd(
 	issue: SessionCwdIssue,
 	settingsManager: SettingsManager,
 ): Promise<string | undefined> {
-	// Lazy: startup-ui pulls the interactive TUI component tree.
-	const { showStartupSelector } = await import("./cli/startup-ui.ts");
 	return showStartupSelector(settingsManager, formatMissingSessionCwdPrompt(issue), [
 		{ label: "Continue", value: issue.fallbackCwd },
 		{ label: "Cancel", value: undefined },
@@ -552,7 +466,7 @@ async function promptForMissingSessionCwd(
 }
 
 export interface MainOptions {
-	extensionFactories?: ExtensionFactory[];
+	extensionFactories?: InlineExtension[];
 }
 
 export async function main(args: string[], options?: MainOptions) {
@@ -590,12 +504,6 @@ export async function main(args: string[], options?: MainOptions) {
 		return;
 	}
 
-	const agentViewCommand = await runAgentViewCommand(args);
-	if (agentViewCommand.handled) {
-		return;
-	}
-	args = agentViewCommand.args;
-
 	const parsed = parseArgs(args);
 	if (parsed.diagnostics.length > 0) {
 		for (const d of parsed.diagnostics) {
@@ -617,8 +525,6 @@ export async function main(args: string[], options?: MainOptions) {
 		let result: string;
 		try {
 			const outputPath = parsed.messages.length > 0 ? parsed.messages[0] : undefined;
-			// Lazy: export-html is only needed for --export invocations.
-			const { exportFromFile } = await import("./core/export-html/index.ts");
 			result = await exportFromFile(parsed.export, outputPath);
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Failed to export session";
@@ -652,13 +558,9 @@ export async function main(args: string[], options?: MainOptions) {
 
 	// Experimental first-time setup: theme choice and analytics opt-in.
 	// Runs before any runtime services are created so the chosen settings apply everywhere.
-	if (appMode === "interactive" && !parsed.help && parsed.listModels === undefined) {
-		// Lazy: startup-ui pulls the interactive TUI component tree.
-		const { shouldRunFirstTimeSetup, showFirstTimeSetup } = await import("./cli/startup-ui.ts");
-		if (shouldRunFirstTimeSetup()) {
-			await showFirstTimeSetup(startupSettingsManager);
-			time("firstTimeSetup");
-		}
+	if (appMode === "interactive" && !parsed.help && parsed.listModels === undefined && shouldRunFirstTimeSetup()) {
+		await showFirstTimeSetup(startupSettingsManager);
+		time("firstTimeSetup");
 	}
 
 	// Decide the final runtime cwd before creating cwd-bound runtime services.
@@ -679,12 +581,7 @@ export async function main(args: string[], options?: MainOptions) {
 			if (!selectedCwd) {
 				process.exit(0);
 			}
-			sessionManager = SessionManager.open(
-				missingSessionCwdIssue.sessionFile!,
-				sessionDir,
-				selectedCwd,
-				getSessionHydrationOptions(startupSettingsManager),
-			);
+			sessionManager = SessionManager.open(missingSessionCwdIssue.sessionFile!, sessionDir, selectedCwd);
 		} else {
 			console.error(chalk.red(new MissingSessionCwdError(missingSessionCwdIssue).message));
 			process.exit(1);
@@ -709,23 +606,10 @@ export async function main(args: string[], options?: MainOptions) {
 	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
 	const projectTrustByCwd = new Map<string, boolean>();
 
-	// Read piped stdin before initial session creation so cache-domain routing hooks
-	// can classify the first task without mutating cached system prompts/tools.
-	let stdinContent: string | undefined;
-	if (appMode !== "rpc" && !isPlainRuntimeMetadataCommand(parsed)) {
-		stdinContent = await readPipedStdin();
-		if (stdinContent !== undefined && appMode === "interactive") {
-			appMode = "print";
-		}
-	}
-	time("readPipedStdin");
-	const initialRoutingMetadata = buildInitialRoutingMetadata(parsed, appMode, stdinContent);
-
 	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
 	const resolvedThemePaths = resolveCliPaths(cwd, parsed.themes);
-	const authStorage = AuthStorage.create();
 	const createRuntime: CreateAgentSessionRuntimeFactory = async ({
 		cwd,
 		agentDir,
@@ -748,7 +632,6 @@ export async function main(args: string[], options?: MainOptions) {
 		const services = await createAgentSessionServices({
 			cwd,
 			agentDir,
-			authStorage,
 			settingsManager: runtimeSettingsManager,
 			extensionFlagValues: parsed.unknownFlags,
 			resourceLoaderReloadOptions: shouldResolveProjectTrust
@@ -790,7 +673,7 @@ export async function main(args: string[], options?: MainOptions) {
 				extensionFactories: options?.extensionFactories,
 			},
 		});
-		const { settingsManager, modelRegistry, resourceLoader } = services;
+		const { settingsManager, modelRuntime, resourceLoader } = services;
 		const diagnostics: AgentSessionRuntimeDiagnostic[] = [
 			...projectTrustDiagnostics,
 			...services.diagnostics,
@@ -799,15 +682,11 @@ export async function main(args: string[], options?: MainOptions) {
 				type: "error" as const,
 				message: `Failed to load extension "${path}": ${error}`,
 			})),
-			...(resourceLoader.getAgentsFiles().diagnostics ?? []).map((diagnostic) => ({
-				type: diagnostic.type === "error" ? ("error" as const) : ("warning" as const),
-				message: diagnostic.path ? `${diagnostic.message} (${diagnostic.path})` : diagnostic.message,
-			})),
 		];
 
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
 		const scopedModels =
-			modelPatterns && modelPatterns.length > 0 ? await resolveModelScope(modelPatterns, modelRegistry) : [];
+			modelPatterns && modelPatterns.length > 0 ? await resolveModelScope(modelPatterns, modelRuntime) : [];
 		const {
 			options: sessionOptions,
 			cliThinkingFromModel,
@@ -816,7 +695,7 @@ export async function main(args: string[], options?: MainOptions) {
 			parsed,
 			scopedModels,
 			sessionManager.buildSessionContext().messages.length > 0,
-			modelRegistry,
+			modelRuntime,
 			settingsManager,
 		);
 		diagnostics.push(...sessionOptionDiagnostics);
@@ -828,18 +707,10 @@ export async function main(args: string[], options?: MainOptions) {
 					message: "--api-key requires a model to be specified via --model, --provider/--model, or --models",
 				});
 			} else {
-				authStorage.setRuntimeApiKey(sessionOptions.model.provider, parsed.apiKey);
+				await modelRuntime.setRuntimeApiKey(sessionOptions.model.provider, parsed.apiKey);
+				await services.modelRuntime.getAvailable();
 			}
 		}
-
-		const hasExistingMessages = sessionManager.buildSessionContext().messages.length > 0;
-		const shouldDeferAutoRouting =
-			isInitialRuntime &&
-			!hasExistingMessages &&
-			sessionOptions.requestedModel !== undefined &&
-			appMode === "interactive" &&
-			initialRoutingMetadata.promptLength === 0 &&
-			initialRoutingMetadata.fileArgCount === 0;
 
 		const created = await createAgentSessionFromServices({
 			services,
@@ -847,21 +718,11 @@ export async function main(args: string[], options?: MainOptions) {
 			sessionStartEvent,
 			model: sessionOptions.model,
 			thinkingLevel: sessionOptions.thinkingLevel,
-			requestedModel: sessionOptions.requestedModel,
-			routingMetadata: isInitialRuntime ? initialRoutingMetadata : undefined,
-			deferRequestedModelResolution: shouldDeferAutoRouting,
 			scopedModels: sessionOptions.scopedModels,
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
-			// `--source <input-source>` (defaults to interactive). Set once at
-			// session construction and exposed on `ExtensionContext.source` so
-			// memory extensions can skip cascades for `child-agent`/`extension`
-			// sessions without depending on env-var conventions. Per-turn source
-			// (e.g. for extension steers inside an interactive session) is
-			// independently carried on InputEvent/BeforeAgentStartEvent.
-			source: parsed.source,
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
@@ -882,7 +743,7 @@ export async function main(args: string[], options?: MainOptions) {
 	});
 	time("createAgentSessionRuntime");
 	const { services, session, modelFallbackMessage } = runtime;
-	const { settingsManager, modelRegistry, resourceLoader } = services;
+	const { settingsManager, modelRuntime, resourceLoader } = services;
 	applyHttpProxySettings(settingsManager.getGlobalSettings().httpProxy);
 	configureHttpDispatcher(settingsManager.getHttpIdleTimeoutMs());
 
@@ -896,9 +757,19 @@ export async function main(args: string[], options?: MainOptions) {
 
 	if (parsed.listModels !== undefined) {
 		const searchPattern = typeof parsed.listModels === "string" ? parsed.listModels : undefined;
-		await listModels(modelRegistry, searchPattern);
+		await listModels(modelRuntime, searchPattern);
 		process.exit(0);
 	}
+
+	// Read piped stdin content (if any) - skip for RPC mode which uses stdin for JSON-RPC
+	let stdinContent: string | undefined;
+	if (appMode !== "rpc") {
+		stdinContent = await readPipedStdin();
+		if (stdinContent !== undefined && appMode === "interactive") {
+			appMode = "print";
+		}
+	}
+	time("readPipedStdin");
 
 	const { initialMessage, initialImages } = await prepareInitialMessage(
 		parsed,
@@ -937,13 +808,8 @@ export async function main(args: string[], options?: MainOptions) {
 
 	if (appMode === "rpc") {
 		printTimings();
-		// Lazy: rpc-mode is only needed for --mode rpc invocations.
-		const { runRpcMode } = await import("./modes/rpc/rpc-mode.ts");
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
-		// Lazy: interactive-mode pulls the full TUI component tree; headless
-		// invocations (--help, -p, rpc, json) must never parse it.
-		const { InteractiveMode } = await import("./modes/interactive/interactive-mode.ts");
 		const interactiveMode = new InteractiveMode(runtime, {
 			migratedProviders,
 			modelFallbackMessage,
@@ -974,23 +840,18 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		await interactiveMode.run();
 	} else {
-		if (modelFallbackMessage) {
-			console.error(chalk.yellow(`Warning: ${modelFallbackMessage}`));
-		}
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {
 			mode: toPrintOutputMode(appMode),
 			messages: parsed.messages,
 			initialMessage,
 			initialImages,
-			source: parsed.source,
 		});
 		stopThemeWatcher();
 		restoreStdout();
-		// One-shot print/json mode: exit explicitly. runPrintMode disposes the
-		// runtime and flushes stdout in its finally, but a surviving handle (e.g. a
-		// provider/claude-bridge keep-alive socket) can keep the event loop alive
-		// and hang the process indefinitely after the output is written.
-		process.exit(exitCode);
+		if (exitCode !== 0) {
+			process.exitCode = exitCode;
+		}
+		return;
 	}
 }

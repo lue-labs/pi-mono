@@ -1,11 +1,7 @@
-import { visibleWidth } from "@valkyriweb/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
-import {
-	clearAgentRecentRunsForTests,
-	formatAgentFooterStatus,
-	startAgentRecentRun,
-} from "../src/core/agents/status.ts";
+import { clearAgentRecentRunsForTests, startAgentRecentRun } from "../src/core/agents/status.ts";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
 import { FooterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -78,28 +74,9 @@ function createSession(options: {
 			getSessionName: () => options.sessionName,
 			getCwd: () => "/tmp/project",
 		},
-		getContextUsage: () => options.contextUsage ?? { tokens: 24_600, contextWindow: 200_000, percent: 12.3 },
-		pendingAutoModelAlias: options.pendingAutoModelAlias,
-		modelRegistry: {
-			isUsingOAuth: () => options.isUsingOAuth ?? false,
-		},
-		extensionRunner: {
-			// Mirrors the production agents extension hook (core/extensions/agents.ts)
-			// which contributes the background-agent status pill.
-			getRegisteredFooters: () => {
-				const rendered = formatAgentFooterStatus();
-				if (rendered === undefined) return [];
-				return [
-					{
-						id: "agents-status",
-						extensionPath: "<builtin:hook:agents>",
-						spec: {
-							render: () => rendered,
-							onActivate: () => {},
-						},
-					},
-				];
-			},
+		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
+		modelRuntime: {
+			isUsingOAuth: () => false,
 		},
 	};
 

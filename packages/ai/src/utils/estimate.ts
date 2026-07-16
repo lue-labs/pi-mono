@@ -1,21 +1,13 @@
-import type {
-	AssistantMessage,
-	Context,
-	ImageContent,
-	Message,
-	TextContent,
-	ToolReferenceContent,
-	Usage,
-} from "../types.ts";
+import type { AssistantMessage, Context, ImageContent, Message, TextContent, Tool, Usage } from "../types.ts";
 
 export interface ContextUsageEstimate {
 	/** Estimated total context tokens. */
 	tokens: number;
-	/** Tokens reported by the most recent assistant usage block. */
+	/** Tokens reported by the most recent applicable assistant usage block. */
 	usageTokens: number;
-	/** Estimated tokens after the most recent assistant usage block. */
+	/** Estimated tokens after the most recent applicable assistant usage block. */
 	trailingTokens: number;
-	/** Index of the message that provided usage, or null when none exists. */
+	/** Index of the applicable message that provided usage, or null when none exists. */
 	lastUsageIndex: number | null;
 }
 
@@ -34,17 +26,11 @@ function safeJsonStringify(value: unknown): string {
 	}
 }
 
-function estimateTextAndImageContentChars(
-	content: string | Array<TextContent | ImageContent | ToolReferenceContent>,
-): number {
+function estimateTextAndImageContentChars(content: string | Array<TextContent | ImageContent>): number {
 	if (typeof content === "string") return content.length;
 
 	let chars = 0;
-	for (const block of content) {
-		if (block.type === "text") chars += block.text.length;
-		else if (block.type === "tool_reference") chars += block.name.length;
-		else chars += ESTIMATED_IMAGE_CHARS;
-	}
+	for (const block of content) chars += block.type === "text" ? block.text.length : ESTIMATED_IMAGE_CHARS;
 	return chars;
 }
 
@@ -52,9 +38,7 @@ export function estimateTextTokens(text: string): number {
 	return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-export function estimateTextAndImageContentTokens(
-	content: string | Array<TextContent | ImageContent | ToolReferenceContent>,
-): number {
+export function estimateTextAndImageContentTokens(content: string | Array<TextContent | ImageContent>): number {
 	return Math.ceil(estimateTextAndImageContentChars(content) / CHARS_PER_TOKEN);
 }
 
@@ -69,8 +53,6 @@ export function estimateMessageTokens(message: Message): number {
 			chars += block.text.length;
 		} else if (block.type === "thinking") {
 			chars += block.thinking.length;
-		} else if (block.type === "tool_reference") {
-			chars += block.name.length;
 		} else {
 			chars += block.name.length + safeJsonStringify(block.arguments).length;
 		}
@@ -79,14 +61,29 @@ export function estimateMessageTokens(message: Message): number {
 }
 
 function getLastAssistantUsageInfo(messages: readonly Message[]): { usage: Usage; index: number } | undefined {
-	for (let i = messages.length - 1; i >= 0; i--) {
+	let latestPrefixTimestamp = Number.NEGATIVE_INFINITY;
+	let usageInfo: { usage: Usage; index: number } | undefined;
+
+	for (let i = 0; i < messages.length; i++) {
 		const message = messages[i];
-		if (message.role !== "assistant") continue;
-		const assistant = message as AssistantMessage;
-		if (assistant.stopReason === "aborted" || assistant.stopReason === "error") continue;
-		if (calculateContextTokens(assistant.usage) > 0) return { usage: assistant.usage, index: i };
+		if (message.role === "assistant") {
+			const assistant = message as AssistantMessage;
+			// A newer prefix message was inserted after this response (for example, a
+			// compaction summary), so its usage cannot describe the current prefix.
+			const usageAppliesToPrefix = assistant.timestamp >= latestPrefixTimestamp;
+			if (
+				usageAppliesToPrefix &&
+				assistant.stopReason !== "aborted" &&
+				assistant.stopReason !== "error" &&
+				calculateContextTokens(assistant.usage) > 0
+			) {
+				usageInfo = { usage: assistant.usage, index: i };
+			}
+		}
+		latestPrefixTimestamp = Math.max(latestPrefixTimestamp, message.timestamp);
 	}
-	return undefined;
+
+	return usageInfo;
 }
 
 function estimateMessages(messages: readonly Message[]): ContextUsageEstimate {
@@ -105,46 +102,37 @@ function estimateMessages(messages: readonly Message[]): ContextUsageEstimate {
 	return { tokens, usageTokens: 0, trailingTokens: tokens, lastUsageIndex: null };
 }
 
+function estimateToolsTokens(tools: readonly Tool[] | undefined): number {
+	if (!tools || tools.length === 0) return 0;
+	return estimateTextTokens(safeJsonStringify(tools));
+}
+
 function isMessageArray(value: Context | readonly Message[]): value is readonly Message[] {
 	return Array.isArray(value);
 }
-
-/**
- * A usage anchor is trusted only while it plausibly reflects the messages still
- * present. After compaction the retained assistant message keeps its
- * pre-compaction `usage.totalTokens`, which counts messages that were dropped —
- * a stale anchor that over-counts the real context by multiples. Trusting it
- * collapses the available output budget in `clampMaxTokensToContext` and
- * truncates (or empties) the next turn. When the anchored estimate exceeds a
- * fresh recount of the current messages + prefix by more than this factor, the
- * anchor is treated as stale and the recount is used instead. The factor is
- * generous because the char/4 recount under-counts real tokenization; only a
- * compaction-scale mismatch trips it.
- */
-const STALE_USAGE_RECOUNT_FACTOR = 2;
 
 export function estimateContextTokens(context: Context | readonly Message[]): ContextUsageEstimate {
 	if (isMessageArray(context)) return estimateMessages(context);
 
 	const estimate = estimateMessages(context.messages);
-
-	let prefixTokens = context.systemPrompt ? estimateTextTokens(context.systemPrompt) : 0;
-	if (context.tools && context.tools.length > 0) {
-		prefixTokens += estimateTextTokens(safeJsonStringify(context.tools));
-	}
-
 	if (estimate.lastUsageIndex !== null) {
-		// `estimate.tokens` (usage.totalTokens already includes the system + tools
-		// prefix) is compared against an independent recount of everything currently
-		// in context. A wide gap means the anchor still counts messages that
-		// compaction dropped — use the recount instead of the stale usage total.
-		let recountTokens = prefixTokens;
-		for (const message of context.messages) recountTokens += estimateMessageTokens(message);
-		if (recountTokens > 0 && estimate.tokens > recountTokens * STALE_USAGE_RECOUNT_FACTOR) {
-			return { tokens: recountTokens, usageTokens: 0, trailingTokens: recountTokens, lastUsageIndex: null };
-		}
-		return estimate;
+		const addedNames = new Set(
+			context.messages
+				.slice(estimate.lastUsageIndex + 1)
+				.filter((message) => message.role === "toolResult")
+				.flatMap((message) => message.addedToolNames ?? []),
+		);
+		const addedToolTokens = estimateToolsTokens(context.tools?.filter((tool) => addedNames.has(tool.name)));
+		return {
+			tokens: estimate.tokens + addedToolTokens,
+			usageTokens: estimate.usageTokens,
+			trailingTokens: estimate.trailingTokens + addedToolTokens,
+			lastUsageIndex: estimate.lastUsageIndex,
+		};
 	}
+
+	const prefixTokens =
+		(context.systemPrompt ? estimateTextTokens(context.systemPrompt) : 0) + estimateToolsTokens(context.tools);
 
 	return {
 		tokens: estimate.tokens + prefixTokens,

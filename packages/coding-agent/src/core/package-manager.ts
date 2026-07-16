@@ -32,7 +32,6 @@ import { CONFIG_DIR_NAME } from "../config.ts";
 import { spawnProcess, spawnProcessSync } from "../utils/child-process.ts";
 import { type GitSource, parseGitUrl } from "../utils/git.ts";
 import { canonicalizePath, isLocalPath, markPathIgnoredByCloudSync, resolvePath } from "../utils/paths.ts";
-import type { ExtensionLoadMode } from "./extensions/types.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
 import type { PackageSource, SettingsManager } from "./settings-manager.ts";
 
@@ -65,7 +64,6 @@ export interface ResolvedResource {
 	path: string;
 	enabled: boolean;
 	metadata: PathMetadata;
-	load?: ExtensionLoadMode;
 }
 
 export interface ResolvedPaths {
@@ -157,26 +155,18 @@ interface GitUpdateTarget extends ConfiguredUpdateSource {
 	parsed: GitSource;
 }
 
-type ExtensionManifestEntry = string | { path: string; load?: ExtensionLoadMode };
-
 interface PiManifest {
-	extensions?: ExtensionManifestEntry[];
+	extensions?: string[];
 	skills?: string[];
 	prompts?: string[];
 	themes?: string[];
 }
 
-interface ResourceState {
-	metadata: PathMetadata;
-	enabled: boolean;
-	load?: ExtensionLoadMode;
-}
-
 interface ResourceAccumulator {
-	extensions: Map<string, ResourceState>;
-	skills: Map<string, ResourceState>;
-	prompts: Map<string, ResourceState>;
-	themes: Map<string, ResourceState>;
+	extensions: Map<string, { metadata: PathMetadata; enabled: boolean }>;
+	skills: Map<string, { metadata: PathMetadata; enabled: boolean }>;
+	prompts: Map<string, { metadata: PathMetadata; enabled: boolean }>;
+	themes: Map<string, { metadata: PathMetadata; enabled: boolean }>;
 }
 
 /**
@@ -198,11 +188,11 @@ function resourcePrecedenceRank(m: PathMetadata): number {
 }
 
 interface PackageFilter {
+	autoload?: boolean;
 	extensions?: string[];
 	skills?: string[];
 	prompts?: string[];
 	themes?: string[];
-	load?: ExtensionLoadMode;
 }
 
 type ResourceType = "extensions" | "skills" | "prompts" | "themes";
@@ -290,41 +280,10 @@ function hasGlobPattern(s: string): boolean {
 	return s.includes("*") || s.includes("?");
 }
 
-function normalizeResourceEntries(entries: unknown): string[] {
-	if (Array.isArray(entries)) return entries.filter((entry): entry is string => typeof entry === "string");
-	if (typeof entries === "string") return [entries];
-	return [];
-}
-
-function normalizeExtensionManifestEntries(entries: unknown): ExtensionManifestEntry[] {
-	if (!Array.isArray(entries)) return [];
-	return entries.filter((entry): entry is ExtensionManifestEntry => {
-		if (typeof entry === "string") return true;
-		if (!entry || typeof entry !== "object" || !("path" in entry)) return false;
-		const candidate = entry as { path?: unknown; load?: unknown };
-		return (
-			typeof candidate.path === "string" &&
-			(candidate.load === undefined || candidate.load === "eager" || candidate.load === "deferred")
-		);
-	});
-}
-
-function manifestEntryPath(entry: ExtensionManifestEntry | string): string {
-	return typeof entry === "string" ? entry : entry.path;
-}
-
-function manifestEntryLoad(entry: ExtensionManifestEntry | string): ExtensionLoadMode | undefined {
-	return typeof entry === "string" ? undefined : entry.load;
-}
-
-function manifestOverridePatterns(entries: Array<ExtensionManifestEntry | string>): string[] {
-	return entries.map(manifestEntryPath).filter(isOverridePattern);
-}
-
-function splitPatterns(entries: unknown): { plain: string[]; patterns: string[] } {
+function splitPatterns(entries: string[]): { plain: string[]; patterns: string[] } {
 	const plain: string[] = [];
 	const patterns: string[] = [];
-	for (const entry of normalizeResourceEntries(entries)) {
+	for (const entry of entries) {
 		if (isPattern(entry)) {
 			patterns.push(entry);
 		} else {
@@ -479,26 +438,15 @@ function findGitRepoRoot(startDir: string): string | null {
 	}
 }
 
-function findWorkspaceRoot(startDir: string): string | null {
-	const resolvedStartDir = resolve(startDir);
-	const homeDir = resolve(getHomeDir());
-	const workspaceRoot = join(homeDir, "Projects");
-	if (resolvedStartDir === workspaceRoot || resolvedStartDir.startsWith(`${workspaceRoot}${sep}`)) {
-		return workspaceRoot;
-	}
-	return null;
-}
-
 function collectAncestorAgentsSkillDirs(startDir: string): string[] {
 	const skillDirs: string[] = [];
 	const resolvedStartDir = resolve(startDir);
 	const gitRepoRoot = findGitRepoRoot(resolvedStartDir);
-	const stopDir = gitRepoRoot ?? findWorkspaceRoot(resolvedStartDir) ?? resolve(getHomeDir());
 
 	let dir = resolvedStartDir;
 	while (true) {
 		skillDirs.push(join(dir, ".agents", "skills"));
-		if (dir === stopDir) {
+		if (gitRepoRoot && dir === gitRepoRoot) {
 			break;
 		}
 		const parent = dirname(dir);
@@ -589,18 +537,10 @@ function readPiManifestFile(packageJsonPath: string): PiManifest | null {
 	try {
 		const content = readFileSync(packageJsonPath, "utf-8");
 		const pkg = JSON.parse(content) as { pi?: PiManifest };
-		if (!pkg.pi) return null;
-		return {
-			...pkg.pi,
-			extensions: normalizeExtensionManifestEntries(pkg.pi.extensions),
-		};
+		return pkg.pi ?? null;
 	} catch {
 		return null;
 	}
-}
-
-function isDisabledExtensionEntry(name: string): boolean {
-	return name.endsWith(".disabled") || name.includes(".disabled.");
 }
 
 function resolveExtensionEntries(dir: string): string[] | null {
@@ -609,8 +549,8 @@ function resolveExtensionEntries(dir: string): string[] | null {
 		const manifest = readPiManifestFile(packageJsonPath);
 		if (manifest?.extensions?.length) {
 			const entries: string[] = [];
-			for (const extEntry of manifest.extensions) {
-				const resolvedExtPath = resolve(dir, manifestEntryPath(extEntry));
+			for (const extPath of manifest.extensions) {
+				const resolvedExtPath = resolve(dir, extPath);
 				if (existsSync(resolvedExtPath)) {
 					entries.push(resolvedExtPath);
 				}
@@ -652,7 +592,6 @@ function collectAutoExtensionEntries(dir: string): string[] {
 		for (const entry of dirEntries) {
 			if (entry.name.startsWith(".")) continue;
 			if (entry.name === "node_modules") continue;
-			if (isDisabledExtensionEntry(entry.name)) continue;
 
 			const fullPath = join(dir, entry.name);
 			let isDir = entry.isDirectory();
@@ -755,10 +694,8 @@ function matchesAnyExactPattern(filePath: string, patterns: string[], baseDir: s
 	});
 }
 
-function getOverridePatterns(entries: unknown): string[] {
-	return normalizeResourceEntries(entries).filter(
-		(pattern) => pattern.startsWith("!") || pattern.startsWith("+") || pattern.startsWith("-"),
-	);
+function getOverridePatterns(entries: string[]): string[] {
+	return entries.filter((pattern) => pattern.startsWith("!") || pattern.startsWith("+") || pattern.startsWith("-"));
 }
 
 function isEnabledByOverrides(filePath: string, patterns: string[], baseDir: string): boolean {
@@ -834,6 +771,25 @@ function applyPatterns(allPaths: string[], patterns: string[], baseDir: string):
 	}
 
 	return new Set(result);
+}
+
+function applyAutoloadDisabledPatterns(allPaths: string[], patterns: string[], baseDir: string): Map<string, boolean> {
+	const result = new Map<string, boolean>();
+	for (const pattern of patterns) {
+		const target = pattern.slice(
+			pattern.startsWith("+") || pattern.startsWith("-") || pattern.startsWith("!") ? 1 : 0,
+		);
+		const enabled = !pattern.startsWith("-") && !pattern.startsWith("!");
+		const exact = pattern.startsWith("+") || pattern.startsWith("-");
+		for (const filePath of allPaths) {
+			if (
+				exact ? matchesAnyExactPattern(filePath, [target], baseDir) : matchesAnyPattern(filePath, [target], baseDir)
+			) {
+				result.set(filePath, enabled);
+			}
+		}
+	}
+	return result;
 }
 
 export class DefaultPackageManager implements PackageManager {
@@ -965,8 +921,8 @@ export class DefaultPackageManager implements PackageManager {
 
 		for (const resourceType of RESOURCE_TYPES) {
 			const target = this.getTargetMap(accumulator, resourceType);
-			const globalEntries = normalizeResourceEntries(globalSettings[resourceType]);
-			const projectEntries = normalizeResourceEntries(projectSettings[resourceType]);
+			const globalEntries = (globalSettings[resourceType] ?? []) as string[];
+			const projectEntries = (projectSettings[resourceType] ?? []) as string[];
 			this.resolveLocalEntries(
 				projectEntries,
 				resourceType,
@@ -1235,7 +1191,7 @@ export class DefaultPackageManager implements PackageManager {
 		const checks = packageSources
 			.filter(
 				(entry): entry is { pkg: PackageSource; scope: Exclude<SourceScope, "temporary"> } =>
-					entry.scope !== "temporary" && this.isPackageEnabledForActiveModel(entry.pkg),
+					entry.scope !== "temporary",
 			)
 			.map((entry) => async (): Promise<PackageUpdate | undefined> => {
 				const source = typeof entry.pkg === "string" ? entry.pkg : entry.pkg.source;
@@ -1281,68 +1237,47 @@ export class DefaultPackageManager implements PackageManager {
 		return results.filter((result): result is PackageUpdate => result !== undefined);
 	}
 
-	/**
-	 * Evaluate a package's `enabledWhen` gate against the active default model.
-	 * Returns true when the package has no gate or when the active model matches
-	 * any of the listed glob patterns. Project settings override global.
-	 */
-	private isPackageEnabledForActiveModel(pkg: PackageSource): boolean {
-		if (typeof pkg === "string") return true;
-		const patterns = pkg.enabledWhen?.models;
-		if (!patterns || patterns.length === 0) return true;
-
-		const globalSettings = this.settingsManager.getGlobalSettings();
-		const projectSettings = this.settingsManager.getProjectSettings();
-		const provider = projectSettings.defaultProvider ?? globalSettings.defaultProvider;
-		const modelId = projectSettings.defaultModel ?? globalSettings.defaultModel;
-		if (!modelId) return true; // no resolved active model — be permissive
-		const fullId = provider ? `${provider}/${modelId}` : modelId;
-		return patterns.some(
-			(pattern) => minimatch(fullId, pattern, { nocase: true }) || minimatch(modelId, pattern, { nocase: true }),
-		);
-	}
-
 	private async resolvePackageSources(
 		sources: Array<{ pkg: PackageSource; scope: SourceScope }>,
 		accumulator: ResourceAccumulator,
 		onMissing?: (source: string) => Promise<MissingSourceAction>,
 	): Promise<void> {
 		for (const { pkg, scope } of sources) {
-			if (!this.isPackageEnabledForActiveModel(pkg)) continue;
 			const sourceStr = typeof pkg === "string" ? pkg : pkg.source;
 			const filter = typeof pkg === "object" ? pkg : undefined;
-			const parsed = this.parseSource(sourceStr);
+			const deltaBase = this.findAutoloadDeltaBase(pkg, scope, sources);
+			const resolvedSource = deltaBase?.source ?? sourceStr;
+			const resolvedScope = deltaBase?.scope ?? scope;
+			const parsed = this.parseSource(resolvedSource);
 			const metadata: PathMetadata = { source: sourceStr, scope, origin: "package" };
 
 			if (parsed.type === "local") {
-				const baseDir = this.getBaseDirForScope(scope);
+				const baseDir = this.getBaseDirForScope(resolvedScope);
 				this.resolveLocalExtensionSource(parsed, accumulator, filter, metadata, baseDir);
 				continue;
 			}
 
 			const installMissing = async (): Promise<boolean> => {
-				if (isOfflineModeEnabled()) {
-					return false;
-				}
+				if (isOfflineModeEnabled()) return false;
 				if (!onMissing) {
-					await this.installParsedSource(parsed, scope);
+					await this.installParsedSource(parsed, resolvedScope);
 					return true;
 				}
-				const action = await onMissing(sourceStr);
+				const action = await onMissing(resolvedSource);
 				if (action === "skip") return false;
-				if (action === "error") throw new Error(`Missing source: ${sourceStr}`);
-				await this.installParsedSource(parsed, scope);
+				if (action === "error") throw new Error(`Missing source: ${resolvedSource}`);
+				await this.installParsedSource(parsed, resolvedScope);
 				return true;
 			};
 
 			if (parsed.type === "npm") {
-				let installedPath = this.getNpmInstallPath(parsed, scope);
+				let installedPath = this.getNpmInstallPath(parsed, resolvedScope);
 				const needsInstall =
 					!existsSync(installedPath) || !(await this.installedNpmMatchesConfiguredVersion(parsed, installedPath));
 				if (needsInstall) {
 					const installed = await installMissing();
 					if (!installed) continue;
-					installedPath = this.getNpmInstallPath(parsed, scope);
+					installedPath = this.getNpmInstallPath(parsed, resolvedScope);
 				}
 				metadata.baseDir = installedPath;
 				this.collectPackageResources(installedPath, accumulator, filter, metadata);
@@ -1350,17 +1285,32 @@ export class DefaultPackageManager implements PackageManager {
 			}
 
 			if (parsed.type === "git") {
-				const installedPath = this.getGitInstallPath(parsed, scope);
+				const installedPath = this.getGitInstallPath(parsed, resolvedScope);
 				if (!existsSync(installedPath)) {
 					const installed = await installMissing();
 					if (!installed) continue;
-				} else if (scope === "temporary" && !parsed.pinned && !isOfflineModeEnabled()) {
-					await this.refreshTemporaryGitSource(parsed, sourceStr);
+				} else if (resolvedScope === "temporary" && !parsed.pinned && !isOfflineModeEnabled()) {
+					await this.refreshTemporaryGitSource(parsed, resolvedSource);
 				}
 				metadata.baseDir = installedPath;
 				this.collectPackageResources(installedPath, accumulator, filter, metadata);
 			}
 		}
+	}
+
+	private findAutoloadDeltaBase(
+		pkg: PackageSource,
+		scope: SourceScope,
+		sources: Array<{ pkg: PackageSource; scope: SourceScope }>,
+	): { source: string; scope: SourceScope } | undefined {
+		if (scope !== "project" || typeof pkg !== "object" || pkg.autoload !== false) return undefined;
+		const identity = this.getPackageIdentity(pkg.source, scope);
+		const userEntry = sources.find(
+			(entry) =>
+				entry.scope === "user" &&
+				this.getPackageIdentity(this.getPackageSourceString(entry.pkg), "user") === identity,
+		);
+		return userEntry ? { source: this.getPackageSourceString(userEntry.pkg), scope: "user" } : undefined;
 	}
 
 	private resolveLocalExtensionSource(
@@ -1741,29 +1691,30 @@ export class DefaultPackageManager implements PackageManager {
 
 	/**
 	 * Dedupe packages: if same package identity appears in both global and project,
-	 * keep only the project one (project wins).
+	 * keep only the project one (project wins). A project entry with autoload=false
+	 * is a delta over the global entry, so both are kept (delta first).
 	 */
 	private dedupePackages(
 		packages: Array<{ pkg: PackageSource; scope: SourceScope }>,
 	): Array<{ pkg: PackageSource; scope: SourceScope }> {
-		const seen = new Map<string, { pkg: PackageSource; scope: SourceScope }>();
-
+		const result: Array<{ pkg: PackageSource; scope: SourceScope }> = [];
+		const seen = new Map<string, number>();
 		for (const entry of packages) {
-			const sourceStr = typeof entry.pkg === "string" ? entry.pkg : entry.pkg.source;
-			const identity = this.getPackageIdentity(sourceStr, entry.scope);
-
-			const existing = seen.get(identity);
-			if (!existing) {
-				seen.set(identity, entry);
-			} else if (entry.scope === "project" && existing.scope === "user") {
-				// Project wins over user
-				seen.set(identity, entry);
+			const identity = this.getPackageIdentity(this.getPackageSourceString(entry.pkg), entry.scope);
+			const index = seen.get(identity);
+			if (index === undefined) {
+				seen.set(identity, result.length);
+				result.push(entry);
+				continue;
 			}
-			// If existing is project and new is global, keep existing (project)
-			// If both are same scope, keep first one
+			const existing = result[index];
+			if (existing?.scope === "project" && entry.scope === "user") {
+				if (typeof existing.pkg === "object" && existing.pkg.autoload === false) result.push(entry);
+			} else if (entry.scope === "project") {
+				result[index] = entry;
+			}
 		}
-
-		return Array.from(seen.values());
+		return result;
 	}
 
 	private parseNpmSpec(spec: string): { name: string; version?: string } {
@@ -1826,8 +1777,6 @@ export class DefaultPackageManager implements PackageManager {
 		// Disable peer dependency resolution for managed installs (npm's --legacy-peer-deps, and
 		// equivalent bun/pnpm settings) so package managers do not install or solve host-provided
 		// @earendil-works/pi-* peers. Stale auto-installed pi peers can otherwise block updates.
-		// Disable npm audit during managed installs; audit metadata is not used here and npm/Arborist
-		// can fail rollback during extension updates after audit work has started.
 		if (packageManagerName === "bun") {
 			return ["install", ...specs, "--cwd", installRoot, "--omit=peer"];
 		}
@@ -1842,7 +1791,7 @@ export class DefaultPackageManager implements PackageManager {
 				"--config.strict-dep-builds=false",
 			];
 		}
-		return ["install", ...specs, "--prefix", installRoot, "--legacy-peer-deps", "--no-audit"];
+		return ["install", ...specs, "--prefix", installRoot, "--legacy-peer-deps"];
 	}
 
 	private async installNpm(source: NpmSource, scope: SourceScope, temporary: boolean): Promise<void> {
@@ -1856,11 +1805,16 @@ export class DefaultPackageManager implements PackageManager {
 		if (!existsSync(installRoot)) {
 			return;
 		}
-		if (this.getPackageManagerName() === "bun") {
+		const packageManagerName = this.getPackageManagerName();
+		if (packageManagerName === "bun") {
 			await this.runNpmCommand(["uninstall", source.name, "--cwd", installRoot]);
 			return;
 		}
-		await this.runNpmCommand(["uninstall", source.name, "--prefix", installRoot]);
+		const args = ["uninstall", source.name, "--prefix", installRoot];
+		if (packageManagerName !== "pnpm") {
+			args.push("--legacy-peer-deps");
+		}
+		await this.runNpmCommand(args);
 	}
 
 	private async installGit(source: GitSource, scope: SourceScope): Promise<void> {
@@ -2135,13 +2089,14 @@ export class DefaultPackageManager implements PackageManager {
 	): boolean {
 		if (filter) {
 			for (const resourceType of RESOURCE_TYPES) {
-				const patterns = filter[resourceType as keyof PackageFilter];
+				const patterns = filter[resourceType];
 				const target = this.getTargetMap(accumulator, resourceType);
-				const defaultLoad = resourceType === "extensions" ? filter.load : undefined;
-				if (patterns !== undefined && Array.isArray(patterns)) {
-					this.applyPackageFilter(packageRoot, patterns, resourceType, target, metadata, defaultLoad);
+				if (filter.autoload === false) {
+					this.applyPackageDeltaFilter(packageRoot, patterns ?? [], resourceType, target, metadata);
+				} else if (patterns !== undefined) {
+					this.applyPackageFilter(packageRoot, patterns, resourceType, target, metadata);
 				} else {
-					this.collectDefaultResources(packageRoot, resourceType, target, metadata, defaultLoad);
+					this.collectDefaultResources(packageRoot, resourceType, target, metadata);
 				}
 			}
 			return true;
@@ -2180,14 +2135,13 @@ export class DefaultPackageManager implements PackageManager {
 	private collectDefaultResources(
 		packageRoot: string,
 		resourceType: ResourceType,
-		target: Map<string, ResourceState>,
+		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
 		metadata: PathMetadata,
-		defaultLoad?: ExtensionLoadMode,
 	): void {
 		const manifest = this.readPiManifest(packageRoot);
 		const entries = manifest?.[resourceType as keyof PiManifest];
 		if (entries) {
-			this.addManifestEntries(entries, packageRoot, resourceType, target, metadata, defaultLoad);
+			this.addManifestEntries(entries, packageRoot, resourceType, target, metadata);
 			return;
 		}
 		const dir = join(packageRoot, resourceType);
@@ -2195,7 +2149,7 @@ export class DefaultPackageManager implements PackageManager {
 			// Collect all files from the directory (all enabled by default)
 			const files = collectResourceFiles(dir, resourceType);
 			for (const f of files) {
-				this.addResource(target, f, metadata, true, defaultLoad);
+				this.addResource(target, f, metadata, true);
 			}
 		}
 	}
@@ -2204,16 +2158,15 @@ export class DefaultPackageManager implements PackageManager {
 		packageRoot: string,
 		userPatterns: string[],
 		resourceType: ResourceType,
-		target: Map<string, ResourceState>,
+		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
 		metadata: PathMetadata,
-		defaultLoad?: ExtensionLoadMode,
 	): void {
-		const { allFiles, loadByPath } = this.collectManifestFiles(packageRoot, resourceType);
+		const { allFiles } = this.collectManifestFiles(packageRoot, resourceType);
 
 		if (userPatterns.length === 0) {
 			// Empty array explicitly disables all resources of this type
 			for (const f of allFiles) {
-				this.addResource(target, f, metadata, false, loadByPath.get(f) ?? defaultLoad);
+				this.addResource(target, f, metadata, false);
 			}
 			return;
 		}
@@ -2223,7 +2176,25 @@ export class DefaultPackageManager implements PackageManager {
 
 		for (const f of allFiles) {
 			const enabled = enabledByUser.has(f);
-			this.addResource(target, f, metadata, enabled, loadByPath.get(f) ?? defaultLoad);
+			this.addResource(target, f, metadata, enabled);
+		}
+	}
+
+	private applyPackageDeltaFilter(
+		packageRoot: string,
+		userPatterns: string[],
+		resourceType: ResourceType,
+		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
+		metadata: PathMetadata,
+	): void {
+		if (userPatterns.length === 0) {
+			return;
+		}
+
+		const { allFiles } = this.collectManifestFiles(packageRoot, resourceType);
+		const enabledByUser = applyAutoloadDisabledPatterns(allFiles, userPatterns, packageRoot);
+		for (const [filePath, enabled] of enabledByUser) {
+			this.addResource(target, filePath, metadata, enabled);
 		}
 	}
 
@@ -2235,23 +2206,23 @@ export class DefaultPackageManager implements PackageManager {
 	private collectManifestFiles(
 		packageRoot: string,
 		resourceType: ResourceType,
-	): { allFiles: string[]; enabledByManifest: Set<string>; loadByPath: Map<string, ExtensionLoadMode> } {
+	): { allFiles: string[]; enabledByManifest: Set<string> } {
 		const manifest = this.readPiManifest(packageRoot);
 		const entries = manifest?.[resourceType as keyof PiManifest];
 		if (entries && entries.length > 0) {
-			const { files, loadByPath } = this.collectFilesFromManifestEntries(entries, packageRoot, resourceType);
-			const manifestPatterns = manifestOverridePatterns(entries);
+			const allFiles = this.collectFilesFromManifestEntries(entries, packageRoot, resourceType);
+			const manifestPatterns = entries.filter(isOverridePattern);
 			const enabledByManifest =
-				manifestPatterns.length > 0 ? applyPatterns(files, manifestPatterns, packageRoot) : new Set(files);
-			return { allFiles: Array.from(enabledByManifest), enabledByManifest, loadByPath };
+				manifestPatterns.length > 0 ? applyPatterns(allFiles, manifestPatterns, packageRoot) : new Set(allFiles);
+			return { allFiles: Array.from(enabledByManifest), enabledByManifest };
 		}
 
 		const conventionDir = join(packageRoot, resourceType);
 		if (!existsSync(conventionDir)) {
-			return { allFiles: [], enabledByManifest: new Set(), loadByPath: new Map() };
+			return { allFiles: [], enabledByManifest: new Set() };
 		}
 		const allFiles = collectResourceFiles(conventionDir, resourceType);
-		return { allFiles, enabledByManifest: new Set(allFiles), loadByPath: new Map() };
+		return { allFiles, enabledByManifest: new Set(allFiles) };
 	}
 
 	private readPiManifest(packageRoot: string): PiManifest | null {
@@ -2263,76 +2234,53 @@ export class DefaultPackageManager implements PackageManager {
 		try {
 			const content = readFileSync(packageJsonPath, "utf-8");
 			const pkg = JSON.parse(content) as { pi?: PiManifest };
-			if (!pkg.pi) return null;
-			return {
-				...pkg.pi,
-				extensions: normalizeExtensionManifestEntries(pkg.pi.extensions),
-			};
+			return pkg.pi ?? null;
 		} catch {
 			return null;
 		}
 	}
 
 	private addManifestEntries(
-		entries: Array<ExtensionManifestEntry | string> | undefined,
+		entries: string[] | undefined,
 		root: string,
 		resourceType: ResourceType,
-		target: Map<string, ResourceState>,
+		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
 		metadata: PathMetadata,
-		defaultLoad?: ExtensionLoadMode,
 	): void {
 		if (!entries) return;
 
-		const { files, loadByPath } = this.collectFilesFromManifestEntries(entries, root, resourceType);
-		const patterns = manifestOverridePatterns(entries);
-		const enabledPaths = applyPatterns(files, patterns, root);
+		const allFiles = this.collectFilesFromManifestEntries(entries, root, resourceType);
+		const patterns = entries.filter(isOverridePattern);
+		const enabledPaths = applyPatterns(allFiles, patterns, root);
 
-		for (const f of files) {
+		for (const f of allFiles) {
 			if (enabledPaths.has(f)) {
-				this.addResource(target, f, metadata, true, loadByPath.get(f) ?? defaultLoad);
+				this.addResource(target, f, metadata, true);
 			}
 		}
 	}
 
-	private collectFilesFromManifestEntries(
-		entries: Array<ExtensionManifestEntry | string>,
-		root: string,
-		resourceType: ResourceType,
-	): { files: string[]; loadByPath: Map<string, ExtensionLoadMode> } {
-		const files: string[] = [];
-		const loadByPath = new Map<string, ExtensionLoadMode>();
-
-		for (const entry of entries) {
-			const entryPath = manifestEntryPath(entry);
-			if (isOverridePattern(entryPath)) continue;
-
-			const resolved = !hasGlobPattern(entryPath)
-				? [resolve(root, entryPath)]
-				: globSync(entryPath, {
-						cwd: root,
-						absolute: true,
-						dot: false,
-						nodir: false,
-					}).map((match) => resolve(match));
-
-			const collected = this.collectFilesFromPaths(resolved, resourceType);
-			files.push(...collected);
-
-			const load = resourceType === "extensions" ? manifestEntryLoad(entry) : undefined;
-			if (load) {
-				for (const file of collected) {
-					loadByPath.set(file, load);
-				}
+	private collectFilesFromManifestEntries(entries: string[], root: string, resourceType: ResourceType): string[] {
+		const sourceEntries = entries.filter((entry) => !isOverridePattern(entry));
+		const resolved = sourceEntries.flatMap((entry) => {
+			if (!hasGlobPattern(entry)) {
+				return [resolve(root, entry)];
 			}
-		}
 
-		return { files, loadByPath };
+			return globSync(entry, {
+				cwd: root,
+				absolute: true,
+				dot: false,
+				nodir: false,
+			}).map((match) => resolve(match));
+		});
+		return this.collectFilesFromPaths(resolved, resourceType);
 	}
 
 	private resolveLocalEntries(
 		entries: string[],
 		resourceType: ResourceType,
-		target: Map<string, ResourceState>,
+		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
 		metadata: PathMetadata,
 		baseDir: string,
 	): void {
@@ -2373,16 +2321,16 @@ export class DefaultPackageManager implements PackageManager {
 		};
 
 		const userOverrides = {
-			extensions: normalizeResourceEntries(globalSettings.extensions),
-			skills: normalizeResourceEntries(globalSettings.skills),
-			prompts: normalizeResourceEntries(globalSettings.prompts),
-			themes: normalizeResourceEntries(globalSettings.themes),
+			extensions: (globalSettings.extensions ?? []) as string[],
+			skills: (globalSettings.skills ?? []) as string[],
+			prompts: (globalSettings.prompts ?? []) as string[],
+			themes: (globalSettings.themes ?? []) as string[],
 		};
 		const projectOverrides = {
-			extensions: normalizeResourceEntries(projectSettings.extensions),
-			skills: normalizeResourceEntries(projectSettings.skills),
-			prompts: normalizeResourceEntries(projectSettings.prompts),
-			themes: normalizeResourceEntries(projectSettings.themes),
+			extensions: (projectSettings.extensions ?? []) as string[],
+			skills: (projectSettings.skills ?? []) as string[],
+			prompts: (projectSettings.prompts ?? []) as string[],
+			themes: (projectSettings.themes ?? []) as string[],
 		};
 
 		const userDirs = {
@@ -2537,7 +2485,10 @@ export class DefaultPackageManager implements PackageManager {
 		return files;
 	}
 
-	private getTargetMap(accumulator: ResourceAccumulator, resourceType: ResourceType): Map<string, ResourceState> {
+	private getTargetMap(
+		accumulator: ResourceAccumulator,
+		resourceType: ResourceType,
+	): Map<string, { metadata: PathMetadata; enabled: boolean }> {
 		switch (resourceType) {
 			case "extensions":
 				return accumulator.extensions;
@@ -2553,15 +2504,14 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private addResource(
-		map: Map<string, ResourceState>,
+		map: Map<string, { metadata: PathMetadata; enabled: boolean }>,
 		path: string,
 		metadata: PathMetadata,
 		enabled: boolean,
-		load?: ExtensionLoadMode,
 	): void {
 		if (!path) return;
 		if (!map.has(path)) {
-			map.set(path, { metadata, enabled, load });
+			map.set(path, { metadata, enabled });
 		}
 	}
 
@@ -2575,12 +2525,13 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private toResolvedPaths(accumulator: ResourceAccumulator): ResolvedPaths {
-		const mapToResolved = (entries: Map<string, ResourceState>): ResolvedResource[] => {
-			const resolved = Array.from(entries.entries()).map(([path, { metadata, enabled, load }]) => ({
+		const mapToResolved = (
+			entries: Map<string, { metadata: PathMetadata; enabled: boolean }>,
+		): ResolvedResource[] => {
+			const resolved = Array.from(entries.entries()).map(([path, { metadata, enabled }]) => ({
 				path,
 				enabled,
 				metadata,
-				load,
 			}));
 			resolved.sort((a, b) => resourcePrecedenceRank(a.metadata) - resourcePrecedenceRank(b.metadata));
 

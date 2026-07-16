@@ -6,26 +6,21 @@
 
 import { getModel } from "@valkyriweb/pi-ai/compat";
 import {
-	AuthStorage,
 	createAgentSession,
-	createEventBus,
 	createExtensionRuntime,
-	ModelRegistry,
+	ModelRuntime,
 	type ResourceLoader,
 	SessionManager,
 	SettingsManager,
 } from "@valkyriweb/pi-coding-agent";
 
-// Custom auth storage location
-const authStorage = AuthStorage.create("/tmp/my-agent/auth.json");
-
-// Runtime API key override (not persisted)
+const modelRuntime = await ModelRuntime.create({
+	authPath: "/tmp/my-agent/auth.json",
+	modelsPath: "/tmp/my-agent/models.json",
+});
 if (process.env.MY_ANTHROPIC_KEY) {
-	authStorage.setRuntimeApiKey("anthropic", process.env.MY_ANTHROPIC_KEY);
+	modelRuntime.setRuntimeApiKey("anthropic", process.env.MY_ANTHROPIC_KEY);
 }
-
-// Model registry with no custom models.json
-const modelRegistry = ModelRegistry.inMemory(authStorage);
 
 const model = getModel("anthropic", "claude-sonnet-4-5");
 if (!model) throw new Error("Model not found");
@@ -38,16 +33,8 @@ const settingsManager = SettingsManager.inMemory({
 
 const cwd = process.cwd();
 
-const emptyExtensionsResult = {
-	extensions: [],
-	deferredExtensions: [],
-	errors: [],
-	eventBus: createEventBus(),
-	runtime: createExtensionRuntime(),
-};
 const resourceLoader: ResourceLoader = {
-	getExtensions: () => emptyExtensionsResult,
-	getExtensionsForRunner: () => emptyExtensionsResult,
+	getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
 	getSkills: () => ({ skills: [], diagnostics: [] }),
 	getPrompts: () => ({ prompts: [], diagnostics: [] }),
 	getThemes: () => ({ themes: [], diagnostics: [] }),
@@ -64,8 +51,7 @@ const { session } = await createAgentSession({
 	agentDir: "/tmp/my-agent",
 	model,
 	thinkingLevel: "off",
-	authStorage,
-	modelRegistry,
+	modelRuntime,
 	resourceLoader,
 	tools: ["read", "bash"],
 	sessionManager: SessionManager.inMemory(cwd),

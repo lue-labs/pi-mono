@@ -41,7 +41,7 @@ const replaceEditSchema = Type.Object(
 		}),
 		newText: Type.String({ description: "Replacement text for this targeted edit." }),
 	},
-	{ additionalProperties: false },
+	{},
 );
 
 const editSchema = Type.Object(
@@ -52,7 +52,7 @@ const editSchema = Type.Object(
 				"One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
 		}),
 	},
-	{ additionalProperties: false },
+	{},
 );
 
 export type EditToolInput = Static<typeof editSchema>;

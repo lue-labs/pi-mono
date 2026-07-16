@@ -16,7 +16,7 @@
  *     "provider": "openai-codex",
  *     "model": "gpt-5.2-codex",
  *     "thinkingLevel": "high",
- *     "tools": ["read", "grep", "Glob", "ls"],
+ *     "tools": ["read", "grep", "find", "ls"],
  *     "instructions": "You are in PLANNING MODE. Your job is to deeply understand the problem and create a detailed implementation plan.\n\nRules:\n- DO NOT make any changes. You cannot edit or write files.\n- Read files IN FULL (no offset/limit) to get complete context. Partial reads miss critical details.\n- Explore thoroughly: grep for related code, find similar patterns, understand the architecture.\n- Ask clarifying questions if requirements are ambiguous. Do not assume.\n- Identify risks, edge cases, and dependencies before proposing solutions.\n\nOutput:\n- Create a structured plan with numbered steps.\n- For each step: what to change, why, and potential risks.\n- List files that will be modified.\n- Note any tests that should be added or updated.\n\nWhen done, ask the user if they want you to:\n1. Write the plan to a markdown file (e.g., PLAN.md)\n2. Create a GitHub issue with the plan\n3. Proceed to implementation (they should switch to 'implement' preset)"
  *   },
  *   "implement": {
@@ -40,7 +40,6 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type { Api, Model } from "@valkyriweb/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@valkyriweb/pi-coding-agent";
 import { CONFIG_DIR_NAME, DynamicBorder, getAgentDir } from "@valkyriweb/pi-coding-agent";
@@ -53,7 +52,7 @@ interface Preset {
 	/** Model ID (e.g., "claude-sonnet-4-5") */
 	model?: string;
 	/** Thinking level */
-	thinkingLevel?: ThinkingLevel;
+	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	/** Tools to enable (replaces default set) */
 	tools?: string[];
 	/** Instructions to append to system prompt */
@@ -101,7 +100,7 @@ function loadPresets(cwd: string): PresetsConfig {
 
 interface OriginalState {
 	model: Model<Api> | undefined;
-	thinkingLevel: ThinkingLevel;
+	thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	tools: string[];
 }
 

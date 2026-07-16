@@ -3,10 +3,9 @@ import type { AddressInfo } from "node:net";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
-import { getModels } from "../src/compat.ts";
+import { getModel, getModels } from "../src/compat.ts";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
 import type { Context, Model, Tool } from "../src/types.ts";
-import { pickModel } from "./helpers/models.ts";
 
 const originalFireworksApiKey = process.env.FIREWORKS_API_KEY;
 
@@ -20,7 +19,7 @@ afterEach(() => {
 
 describe("Fireworks models", () => {
 	it("registers the default Kimi K2.6 model via Anthropic-compatible Messages API", () => {
-		const model = pickModel("fireworks", (m) => m.id === "accounts/fireworks/models/kimi-k2p6");
+		const model = getModel("fireworks", "accounts/fireworks/models/kimi-k2p6");
 
 		expect(model).toBeDefined();
 		expect(model.api).toBe("anthropic-messages");
@@ -49,8 +48,15 @@ describe("Fireworks models", () => {
 		expect(model?.input).toEqual(["text", "image"]);
 	});
 
-	// NOTE: upstream's "aligns GLM 5.2 Fast with GLM 5.2" test is omitted — the fork's
-	// curated models.generated.ts (merge=ours) does not carry the fireworks GLM 5.2 ids.
+	it("aligns GLM 5.2 Fast with GLM 5.2's OpenAI-compatible config", () => {
+		const base = getModel("fireworks", "accounts/fireworks/models/glm-5p2");
+		const fast = getModel("fireworks", "accounts/fireworks/routers/glm-5p2-fast");
+
+		expect(fast.api).toBe(base.api);
+		expect(fast.baseUrl).toBe(base.baseUrl);
+		expect(fast.compat).toEqual(base.compat);
+		expect(fast.thinkingLevelMap).toEqual(base.thinkingLevelMap);
+	});
 
 	it("resolves FIREWORKS_API_KEY from the environment", () => {
 		process.env.FIREWORKS_API_KEY = "test-fireworks-key";
@@ -60,10 +66,7 @@ describe("Fireworks models", () => {
 	});
 
 	it("sets Fireworks-specific compat for session affinity and unsupported tool fields", () => {
-		const model = pickModel(
-			"fireworks",
-			(m) => m.id === "accounts/fireworks/models/kimi-k2p6",
-		) as Model<"anthropic-messages">;
+		const model = getModel("fireworks", "accounts/fireworks/models/kimi-k2p6");
 
 		expect(model.compat).toBeDefined();
 		expect(model.compat?.sendSessionAffinityHeaders).toBe(true);
@@ -246,13 +249,14 @@ describe("Fireworks Anthropic session affinity and tool compat", () => {
 		}
 	});
 
-	it("omits cache_control on tools for native Anthropic models", async () => {
+	it("sends cache_control on tools for native Anthropic models", async () => {
 		const model = createAnthropicModel();
 		const request = await captureAnthropicRequest(model, createContext());
 
 		const tools = getTools(request.body);
 		const lastTool = tools[tools.length - 1];
-		expect(lastTool.cache_control).toBeUndefined();
+		expect(lastTool.cache_control).toBeDefined();
+		expect((lastTool.cache_control as { type: string }).type).toBe("ephemeral");
 	});
 
 	it("sends eager_input_streaming on tools for native Anthropic models", async () => {

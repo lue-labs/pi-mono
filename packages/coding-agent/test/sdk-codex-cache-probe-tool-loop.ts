@@ -19,7 +19,7 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 	Type,
-} from "@valkyriweb/pi-ai/compat";
+} from "@earendil-works/pi-ai/compat";
 import {
 	getOpenAICodexWebSocketDebugStats,
 	streamSimple as streamSimpleOpenAICodexResponses,
@@ -28,12 +28,11 @@ import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createEventBus } from "../src/core/event-bus.ts";
 import { createExtensionRuntime } from "../src/core/extensions/loader.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
-import { ModelRegistry } from "../src/core/model-registry.ts";
 import type { ResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { pickModel } from "./helpers/models.ts";
+import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 
 type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
 
@@ -284,7 +283,7 @@ async function main(): Promise<void> {
 	mkdirSync(dirname(args.sessionPath), { recursive: true });
 
 	const authStorage = AuthStorage.create();
-	const modelRegistry = ModelRegistry.create(authStorage);
+	const modelRegistry = await createModelRegistry(authStorage);
 
 	const model = pickModel("openai-codex");
 	const baseModel = { ...model, maxTokens: args.maxTokens };
@@ -302,6 +301,7 @@ async function main(): Promise<void> {
 		models: [baseModel],
 	});
 
+	const modelRuntime = getModelRuntime(modelRegistry);
 	const settingsManager = SettingsManager.inMemory({
 		compaction: { enabled: false },
 		retry: { enabled: false },
@@ -321,8 +321,7 @@ async function main(): Promise<void> {
 		resourceLoader,
 		sessionManager: SessionManager.open(args.sessionPath),
 		settingsManager,
-		authStorage,
-		modelRegistry,
+		modelRuntime,
 	});
 
 	session.setActiveToolsByName(["deterministic_probe"]);
