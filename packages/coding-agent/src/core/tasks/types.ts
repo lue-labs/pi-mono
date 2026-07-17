@@ -9,7 +9,7 @@
  * in `core/agents/status.ts`). Other task types are reserved for later layers.
  */
 
-export type TaskType = "local_agent" | "local_bash" | "monitor" | "intercom_peer";
+export type TaskType = "local_agent" | "local_bash" | "local_mcp" | "monitor" | "intercom_peer";
 
 /**
  * Lifecycle states. Terminal: `completed | failed | cancelled | killed`.
@@ -112,6 +112,15 @@ export interface TaskOutputResult {
 export interface Task {
 	type: TaskType;
 	snapshot(taskId: string): TaskSnapshot | undefined;
+	/**
+	 * Enumerate this adapter's live tasks. Optional: the two built-in adapters
+	 * (`local_agent`, `local_bash`) are enumerated by `listTasks` via their own
+	 * source-of-truth registries and do NOT implement this. Adapters registered
+	 * by extensions (e.g. the MCP auto-background adapter) provide `list` so their
+	 * tasks surface in `TaskBackgroundList` without core knowing the type. Called
+	 * at request time, so late registration is fine.
+	 */
+	list?: () => TaskSnapshot[];
 	/**
 	 * Read the task's accumulated output. Each adapter renders its native shape:
 	 * bash returns its status header + bounded log slice; an agent returns its
