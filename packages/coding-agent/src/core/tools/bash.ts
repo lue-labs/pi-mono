@@ -442,7 +442,7 @@ export function createBashToolDefinition(
 			onUpdate?,
 			ctx?,
 		) {
-			const ownerSessionId = ctx?.sessionManager.getSessionId();
+			const ownerSessionId = ctx?.sessionManager?.getSessionId();
 			// Per-call working directory (Codex exec_command parity). Absolute `workdir`
 			// wins; a relative one resolves against the session cwd. A non-existent dir
 			// surfaces downstream as a clear spawn error rather than running in the wrong
