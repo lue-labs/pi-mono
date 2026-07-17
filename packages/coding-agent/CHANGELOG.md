@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Bash policy: ban process substitution `<(...)` / `>(...)` in the read-only `detectUnsafeConstructs` scanner (`EXPLORE_BASH_POLICY`, applied to the `explore` child agent). It previously rejected command substitution `$(...)`, backticks, and here-docs but not process substitution, so `cat <(rm -rf x)` / `tee >(rm -rf x)` could run an arbitrary inner command while presenting as a benign `cat`/`tee`. Adds a `/[<>]\(/` check plus a regression test (`test/bash-policy.test.ts`). Found via Claude Code 2.1.207–2.1.212 reverse-engineering triage (my-pi #1089).
+
 - Force-exit one-shot `--print`/`--mode json` runs after completion so a leaked event-loop handle (observability sockets, sidecar children, metric export timers) can no longer keep the process alive until the harness timeout, matching the existing package-command one-shot guarantee. win32 drains naturally to avoid an assert when `process.exit()` follows `fetch()` during teardown (nodejs/node#56645) ([my-pi#1080](https://github.com/valkyriweb/my-pi/issues/1080)).
 
 - Removed the always-added generic "Be concise in your responses" system-prompt guideline; it contradicts mandated structured handoff summaries on compression-biased models (context audit C1, [#322](https://github.com/valkyriweb/pi-mono/pull/322)). Scoped brevity policy lives in operator instruction files.
