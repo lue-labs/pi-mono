@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Auto-compaction skip/failure exits in `_runAutoCompaction` now persist a durable `compaction_skipped` custom session entry (`{reason, skipReason, contextWindow, threshold, consecutiveFailures, circuitTripped}`) so a threshold crossing is never silent for unattended post-mortem; overflow recovery now bounds the summarizer input under the context window instead of reusing the already-oversized transcript, so recovery can actually produce a summary ([#257](https://github.com/valkyriweb/pi-mono/issues/257)).
+
 - Fixed bash tool crash (`Cannot read properties of undefined (reading 'getSessionId')`) when `execute` is called with a ctx lacking `sessionManager` (extension test harnesses); guard added after the owner-session reap change ([#325](https://github.com/valkyriweb/pi-mono/pull/325)) broke my-pi's extension gate ([#333](https://github.com/valkyriweb/pi-mono/pull/333)).
 
 - Force-exit one-shot `--print`/`--mode json` runs after completion so a leaked event-loop handle (observability sockets, sidecar children, metric export timers) can no longer keep the process alive until the harness timeout, matching the existing package-command one-shot guarantee. win32 drains naturally to avoid an assert when `process.exit()` follows `fetch()` during teardown (nodejs/node#56645) ([my-pi#1080](https://github.com/valkyriweb/my-pi/issues/1080)).

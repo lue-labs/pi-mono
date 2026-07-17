@@ -3205,6 +3205,60 @@ export class AgentSession {
 	}
 
 	/**
+	 * Persist a durable, issue-ready record when an auto-compaction attempt is
+	 * skipped or fails. Threshold crossings must never be silent: `compaction_end`
+	 * events are UI-only and are not written to the session, so unattended runs had
+	 * no way to tell which guard fired. Uses the existing custom-entry channel
+	 * (does NOT participate in LLM context, so params.system/tools[] stay
+	 * byte-stable for the prompt cache).
+	 */
+	private _recordCompactionSkip(
+		reason: "overflow" | "threshold",
+		skipReason: string,
+		extra?: Record<string, unknown>,
+	): void {
+		const contextWindow = this.model?.contextWindow ?? 0;
+		const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
+		try {
+			this.sessionManager.appendCustomEntry("compaction_skipped", {
+				reason,
+				skipReason,
+				contextWindow,
+				threshold: contextWindow - settings.reserveTokens,
+				consecutiveFailures: this._consecutiveCompactionFailures,
+				circuitTripped: this._autoCompactDisabledThisSession,
+				...extra,
+			});
+		} catch {
+			// Persisting the diagnostic must never break the compaction path.
+		}
+	}
+
+	/**
+	 * Overflow recovery only: the transcript already exceeds the context window, so
+	 * sending it verbatim to the summarizer overflows the summary request too and
+	 * recovery can never succeed. Keep the most recent messages that fit under a
+	 * budget that reserves room for the summary request + fixed prefix. Threshold
+	 * compaction is unaffected (it runs below the window and stays cache-safe).
+	 */
+	private _boundOverflowSummaryMessages(messages: Message[], reserveTokens: number): Message[] {
+		const contextWindow = this.model?.contextWindow ?? 0;
+		if (contextWindow <= 0) return messages;
+		const budget = contextWindow - reserveTokens - this._estimateFixedPrefixTokens();
+		if (estimateMessagesTokens(messages) <= budget) return messages;
+		const kept: Message[] = [];
+		let used = 0;
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const messageTokens = estimateTokens(messages[i]);
+			if (kept.length > 0 && used + messageTokens > budget) break;
+			kept.push(messages[i]);
+			used += messageTokens;
+		}
+		kept.reverse();
+		return kept;
+	}
+
+	/**
 	 * Internal: Run auto-compaction with events.
 	 */
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
@@ -3212,6 +3266,7 @@ export class AgentSession {
 		// check below (CC 2.1.201 parity). Once tripped, auto-compaction is disabled for
 		// the rest of the session and this short-circuit must not emit repeatedly.
 		if (this._autoCompactDisabledThisSession) {
+			this._recordCompactionSkip(reason, "circuit_breaker_tripped");
 			return false;
 		}
 
@@ -3220,6 +3275,7 @@ export class AgentSession {
 
 		try {
 			if (!this.model) {
+				this._recordCompactionSkip(reason, "no_model");
 				return false;
 			}
 
@@ -3240,6 +3296,10 @@ export class AgentSession {
 					willRetry: false,
 					errorMessage:
 						"Auto-compaction cannot help: the fixed prefix (system prompt + tools) alone exceeds the compaction threshold. Reduce pinned context or switch to a larger-context model.",
+				});
+				this._recordCompactionSkip(reason, "fixed_prefix_exceeds_threshold", {
+					fixedPrefixTokens,
+					compactionThreshold,
 				});
 				return false;
 			}
@@ -3267,6 +3327,7 @@ export class AgentSession {
 					errorMessage:
 						"Auto-compaction is thrashing: context refilled to the limit within 3 turns of the previous compaction, 3 times in a row. A file being read or a tool output is likely too large for the context window. Try reading in smaller chunks, or use /new to start fresh.",
 				});
+				this._recordCompactionSkip(reason, "rapid_refill_thrashing", { turnsSinceCompaction });
 				return false;
 			}
 
@@ -3275,7 +3336,10 @@ export class AgentSession {
 			let env: Record<string, string> | undefined;
 			if (this.agent.streamFn === streamSimple) {
 				const authResult = await this._modelRuntime.getAuth(this.model);
-				if (!authResult?.auth.apiKey) return false;
+				if (!authResult?.auth.apiKey) {
+					this._recordCompactionSkip(reason, "no_auth");
+					return false;
+				}
 				apiKey = authResult.auth.apiKey;
 				headers = withoutDeletedHeaders(authResult.auth.headers);
 				env = authResult.env;
@@ -3287,6 +3351,7 @@ export class AgentSession {
 
 			const preparation = prepareCompaction(pathEntries, settings);
 			if (!preparation) {
+				this._recordCompactionSkip(reason, "nothing_to_compact");
 				return false;
 			}
 
@@ -3316,6 +3381,7 @@ export class AgentSession {
 						aborted: true,
 						willRetry: false,
 					});
+					this._recordCompactionSkip(reason, "extension_cancelled");
 					return false;
 				}
 
@@ -3338,6 +3404,13 @@ export class AgentSession {
 				details = extensionCompaction.details;
 			} else {
 				// Generate compaction result
+				const contextMessages = stripModelFacingContextImages(await convertToLlm(this.agent.state.messages));
+				// Overflow recovery bounds the summarizer input so the summary request
+				// itself does not exceed the window (the whole point of recovery).
+				const cacheSafeMessages =
+					reason === "overflow"
+						? this._boundOverflowSummaryMessages(contextMessages, settings.reserveTokens)
+						: contextMessages;
 				const compactResult = await compact(
 					preparation,
 					this.model,
@@ -3350,7 +3423,7 @@ export class AgentSession {
 					env,
 					{
 						systemPrompt: this.systemPrompt,
-						messages: stripModelFacingContextImages(await convertToLlm(this.agent.state.messages)),
+						messages: cacheSafeMessages,
 						tools: this.agent.state.tools,
 					},
 				);
@@ -3423,6 +3496,10 @@ export class AgentSession {
 			return this.agent.hasQueuedMessages();
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : "compaction failed";
+			this._recordCompactionSkip(reason, "exception", {
+				error: errorMessage,
+				transient: isTransientCompactionError(errorMessage),
+			});
 			// Transient provider-availability failures (rate limits / usage-limit
 			// windows, overload shedding) do not count toward the failure circuit
 			// breaker and do not reset an existing streak: they self-resolve (OpenAI
