@@ -6,8 +6,19 @@
 import { execSync, spawnSync } from "child_process";
 import { getShellConfig } from "../utils/shell.ts";
 
-// Cache for shell command results (persists for process lifetime)
+// Cache for shell command results (persists for process lifetime).
+// Successful runs seed a last-known-good value so a later transient spawn
+// failure can fall back to it instead of killing the turn (issue #171).
 const commandResultCache = new Map<string, string | undefined>();
+
+// One short retry absorbs transient spawn failures (e.g. posix_spawn EAGAIN
+// under process pressure) without re-running commands that legitimately failed.
+const TRANSIENT_RETRY_DELAY_MS = 75;
+
+// A command "ran" when the process actually executed (clean exit or non-zero
+// exit). It did NOT run on a spawn-level failure (EAGAIN/ENOMEM), which is the
+// transient case eligible for retry and last-good-cache fallback.
+type CommandOutcome = { ran: boolean; value: string | undefined };
 const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ENV_VAR_NAME_PREFIX_RE = /^[A-Za-z_][A-Za-z0-9_]*/;
 
@@ -150,7 +161,7 @@ export function resolveConfigValue(config: string, env?: Record<string, string>)
 	return resolveTemplate(reference.parts, env);
 }
 
-function executeWithConfiguredShell(command: string): { executed: boolean; value: string | undefined } {
+function executeWithConfiguredShell(command: string): CommandOutcome {
 	try {
 		const { shell, args, commandTransport } = getShellConfig();
 		const commandFromStdin = commandTransport === "stdin";
@@ -166,43 +177,76 @@ function executeWithConfiguredShell(command: string): { executed: boolean; value
 		if (result.error) {
 			const error = result.error as NodeJS.ErrnoException;
 			if (error.code === "ENOENT") {
-				return { executed: false, value: undefined };
+				return { ran: false, value: undefined };
 			}
-			return { executed: true, value: undefined };
+			return { ran: true, value: undefined };
 		}
 
 		if (result.status !== 0) {
-			return { executed: true, value: undefined };
+			return { ran: true, value: undefined };
 		}
 
 		const value = (result.stdout ?? "").trim();
-		return { executed: true, value: value || undefined };
+		return { ran: true, value: value || undefined };
 	} catch {
-		return { executed: false, value: undefined };
+		return { ran: false, value: undefined };
 	}
 }
 
-function executeWithDefaultShell(command: string): string | undefined {
+function executeWithDefaultShell(command: string): CommandOutcome {
 	try {
 		const output = execSync(command, {
 			encoding: "utf-8",
 			timeout: 10000,
 			stdio: ["ignore", "pipe", "ignore"],
 		});
-		return output.trim() || undefined;
-	} catch {
-		return undefined;
+		return { ran: true, value: output.trim() || undefined };
+	} catch (error) {
+		const err = error as NodeJS.ErrnoException & { status?: number | null; signal?: string | null };
+		// Process ran and exited non-zero (e.g. `exit 1`, unknown command → 127),
+		// or was killed (timeout): a definitive failure, not eligible for retry.
+		if (typeof err.status === "number" || err.signal) {
+			return { ran: true, value: undefined };
+		}
+		// No status/signal → the process never started (spawn-level failure).
+		return { ran: false, value: undefined };
 	}
 }
 
-function executeCommandUncached(commandConfig: string): string | undefined {
+function sleepSync(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function runCommandOnce(command: string): CommandOutcome {
+	if (process.platform !== "win32") {
+		return executeWithDefaultShell(command);
+	}
+	const configuredResult = executeWithConfiguredShell(command);
+	return configuredResult.ran ? configuredResult : executeWithDefaultShell(command);
+}
+
+function runCommandWithRetry(commandConfig: string): CommandOutcome {
 	const command = commandConfig.slice(1);
-	return process.platform === "win32"
-		? (() => {
-				const configuredResult = executeWithConfiguredShell(command);
-				return configuredResult.executed ? configuredResult.value : executeWithDefaultShell(command);
-			})()
-		: executeWithDefaultShell(command);
+	const outcome = runCommandOnce(command);
+	// Retry once only for transient spawn failures (process never ran).
+	if (outcome.value === undefined && !outcome.ran) {
+		sleepSync(TRANSIENT_RETRY_DELAY_MS);
+		return runCommandOnce(command);
+	}
+	return outcome;
+}
+
+function executeCommandUncached(commandConfig: string): string | undefined {
+	const outcome = runCommandWithRetry(commandConfig);
+	if (outcome.value !== undefined) {
+		commandResultCache.set(commandConfig, outcome.value); // seed last-known-good
+		return outcome.value;
+	}
+	// Transient failure (process never ran): fall back to last-known-good value.
+	if (!outcome.ran && commandResultCache.has(commandConfig)) {
+		return commandResultCache.get(commandConfig);
+	}
+	return undefined;
 }
 
 function executeCommand(commandConfig: string): string | undefined {
@@ -210,9 +254,17 @@ function executeCommand(commandConfig: string): string | undefined {
 		return commandResultCache.get(commandConfig);
 	}
 
-	const result = executeCommandUncached(commandConfig);
-	commandResultCache.set(commandConfig, result);
-	return result;
+	const outcome = runCommandWithRetry(commandConfig);
+	if (outcome.value !== undefined) {
+		commandResultCache.set(commandConfig, outcome.value);
+		return outcome.value;
+	}
+	// Cache definitive failures (process ran); leave transient failures uncached
+	// so a later call can retry rather than serving a poisoned undefined.
+	if (outcome.ran) {
+		commandResultCache.set(commandConfig, undefined);
+	}
+	return undefined;
 }
 
 /**

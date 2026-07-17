@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Hardened shell-command config-value resolution (API keys, headers) against transient `posix_spawn` failures: a spawn-level failure (process never ran, e.g. EAGAIN under process pressure) now triggers one short retry and, on the uncached `resolveConfigValueOrThrow` path, falls back to the last-known-good cached value instead of killing the turn. Successful runs seed the cache; definitive command failures (non-zero exit, timeout) are not retried and do not serve stale values ([#171](https://github.com/valkyriweb/pi-mono/issues/171)).
+
 - Force-exit one-shot `--print`/`--mode json` runs after completion so a leaked event-loop handle (observability sockets, sidecar children, metric export timers) can no longer keep the process alive until the harness timeout, matching the existing package-command one-shot guarantee. win32 drains naturally to avoid an assert when `process.exit()` follows `fetch()` during teardown (nodejs/node#56645) ([my-pi#1080](https://github.com/valkyriweb/my-pi/issues/1080)).
 
 - Removed the always-added generic "Be concise in your responses" system-prompt guideline; it contradicts mandated structured handoff summaries on compression-biased models (context audit C1, [#322](https://github.com/valkyriweb/pi-mono/pull/322)). Scoped brevity policy lives in operator instruction files.
