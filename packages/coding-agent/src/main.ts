@@ -912,6 +912,16 @@ export async function main(args: string[], options?: MainOptions) {
 		if (exitCode !== 0) {
 			process.exitCode = exitCode;
 		}
+		// One-shot --print/--mode json runs must terminate deterministically. The
+		// runtime is already disposed (runPrintMode's finally ran session_shutdown +
+		// flushed stdout), so a still-open handle here (leaked observability sockets,
+		// sidecar children, etc.) would otherwise keep the event loop alive and wedge
+		// the run. Force-exit like the package-command one-shot path so a bad
+		// extension cannot keep a one-shot command alive. On win32, process.exit()
+		// after fetch() during teardown can assert (nodejs/node#56645), so drain there.
+		if (process.platform !== "win32") {
+			process.exit(process.exitCode ?? 0);
+		}
 		return;
 	}
 }
