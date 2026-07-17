@@ -134,8 +134,13 @@ describe("agent tool", () => {
 			const taskItem = (
 				properties.tasks as { items: { properties: Record<string, { description?: string }>; required?: string[] } }
 			).items;
-			expect(taskItem.properties.subagent_type.description).toMatch(/preferred/);
-			expect(taskItem.properties.prompt.description).toMatch(/preferred/);
+			// tasks[]/chain[] items use a bare (description-stripped) taskSchema — same fields, same
+			// types, no per-field prose. Full descriptions live on the single-mode top-level fields
+			// only (see agent-schema-dedupe Option D).
+			expect(taskItem.properties.subagent_type).not.toHaveProperty("description");
+			expect(taskItem.properties.prompt).not.toHaveProperty("description");
+			expect(properties.subagent_type as { description?: string }).toHaveProperty("description");
+			expect((properties.prompt as { description?: string }).description).toMatch(/preferred/);
 			expect(taskItem.required ?? []).not.toContain("agent");
 			expect(taskItem.required ?? []).not.toContain("task");
 		}
