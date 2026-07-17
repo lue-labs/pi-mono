@@ -3,6 +3,7 @@ import {
 	createBashKillToolDefinition,
 	createBashOutputToolDefinition,
 	createBashToolDefinition,
+	getBashBgJob,
 	onBashTimeout,
 } from "../src/core/tools/bash.ts";
 
@@ -11,7 +12,9 @@ import {
 // and reports a timeout; the detach-on-timeout policy is opt-in via onBashTimeout
 // (Luke's native-tool-aliases extension installs it for the Bash tool).
 
-const ctx: any = {};
+const ownerSessionId = "timeout-session";
+type BashContext = NonNullable<Parameters<ReturnType<typeof createBashToolDefinition>["execute"]>[4]>;
+const ctx = { sessionManager: { getSessionId: () => ownerSessionId } } as BashContext;
 const text = (r: any): string => r.content?.[0]?.text ?? "";
 const bgIdOf = (r: any): string => text(r).match(/bgId="?([\w-]+)"?/)?.[1] ?? "";
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,6 +43,7 @@ describe("bash foreground-timeout disposition seam", () => {
 			expect(text(result)).toContain("detached into background job");
 			const bgId = bgIdOf(result);
 			expect(bgId).toBeTruthy();
+			expect(getBashBgJob(bgId)?.ownerSessionId).toBe(ownerSessionId);
 
 			let combined = "";
 			for (let attempt = 0; attempt < 40 && !combined.includes("late"); attempt++) {
