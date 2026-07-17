@@ -24,8 +24,16 @@ export function hookBashBackgroundJobs(pi: ExtensionAPI): void {
 	pi.registerTool(createBashOutputNativeToolDefinition({ jobs, alwaysLoad: true }));
 	pi.registerTool(createKillShellToolDefinition({ jobs, alwaysLoad: true }));
 
+	let sessionId: string | undefined;
+	let isRootSession = true;
+	pi.on("session_start", (_event, ctx) => {
+		sessionId = ctx.sessionManager.getSessionId();
+		isRootSession = ctx.source !== "child-agent";
+	});
+
 	pi.onSessionDispose(() => {
-		jobs.killAll();
+		if (!isRootSession && sessionId) jobs.killForSession(sessionId);
+		else jobs.killAll();
 	});
 }
 

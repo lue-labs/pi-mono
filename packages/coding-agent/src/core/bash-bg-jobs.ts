@@ -32,6 +32,7 @@ export interface BashBgJob {
 	id: string;
 	command: string;
 	cwd: string;
+	ownerSessionId?: string;
 	pid: number | undefined;
 	startedAt: number;
 	status: "running" | "exited" | "killed" | "failed";
@@ -48,6 +49,7 @@ export interface BashBgJobStore {
 	running(): BashBgJob[];
 	subscribe(callback: () => void): () => void;
 	kill(id: string): { job: BashBgJob | undefined; error?: string };
+	killForSession(sessionId: string): void;
 	killAll(): void;
 }
 
@@ -186,8 +188,18 @@ export function createBashBgJobStore(): BashBgJobStore {
 		running: getRunningBashBgJobsSorted,
 		subscribe: subscribeBashBgJobs,
 		kill: killBashBgJob,
+		killForSession: killBashBgJobsForSession,
 		killAll: killAllBashBgJobs,
 	};
+}
+
+/** Terminate running jobs owned by one session without clearing the registry. */
+export function killBashBgJobsForSession(sessionId: string): void {
+	for (const job of bashBgJobs.values()) {
+		if (job.status === "running" && job.ownerSessionId === sessionId) {
+			killBashBgJob(job.id);
+		}
+	}
 }
 
 /**
@@ -236,6 +248,7 @@ export function spawnBashBackground(
 	cwd: string,
 	shellPath?: string,
 	commandPrefix?: string,
+	ownerSessionId?: string,
 ): BashBgJob {
 	assertBashBgCapacity(getRunningBashBgJobsSorted().length);
 	const id = nextBashBgId();
@@ -259,6 +272,7 @@ export function spawnBashBackground(
 		id,
 		command: resolvedCommand,
 		cwd,
+		ownerSessionId,
 		pid: child.pid,
 		startedAt: Date.now(),
 		status: "running",
@@ -310,7 +324,12 @@ export function spawnBashBackground(
  * it becomes readable/killable by bgId. Callers must detach their own `onData`
  * listeners before calling so output isn't double-counted.
  */
-function adoptBashBackground(child: ReturnType<typeof spawn>, command: string, cwd: string): BashBgJob {
+function adoptBashBackground(
+	child: ReturnType<typeof spawn>,
+	command: string,
+	cwd: string,
+	ownerSessionId?: string,
+): BashBgJob {
 	const id = nextBashBgId();
 	const logPath = join(bashBgLogDir(), `${id}.log`);
 	const fd = openSync(logPath, "a");
@@ -328,6 +347,7 @@ function adoptBashBackground(child: ReturnType<typeof spawn>, command: string, c
 		id,
 		command,
 		cwd,
+		ownerSessionId,
 		pid: child.pid,
 		startedAt: Date.now(),
 		status: "running",
@@ -423,12 +443,13 @@ export function disposeBashTimeout(
 	command: string,
 	cwd: string,
 	timeoutMs: number,
+	ownerSessionId?: string,
 ): BashTimeoutOutcome {
 	return bashTimeoutResolver({
 		command,
 		cwd,
 		timeoutMs,
-		background: () => adoptBashBackground(child, command, cwd),
+		background: () => adoptBashBackground(child, command, cwd, ownerSessionId),
 		kill: () => {
 			try {
 				child.kill("SIGKILL");

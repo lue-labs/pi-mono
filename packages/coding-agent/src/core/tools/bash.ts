@@ -122,6 +122,7 @@ export interface BashOperations {
 			signal?: AbortSignal;
 			timeout?: number;
 			env?: NodeJS.ProcessEnv;
+			ownerSessionId?: string;
 		},
 	) => Promise<{ exitCode: number | null; backgroundedJobId?: string }>;
 }
@@ -134,7 +135,7 @@ export interface BashOperations {
  */
 export function createLocalBashOperations(options?: { shellPath?: string }): BashOperations {
 	return {
-		exec: async (command, cwd, { onData, signal, timeout, env }) => {
+		exec: async (command, cwd, { onData, signal, timeout, env, ownerSessionId }) => {
 			const timeoutMs = resolveTimeoutMs(timeout);
 			if (signal?.aborted) {
 				throw new Error("aborted");
@@ -195,7 +196,7 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 					// then hand off to the configured disposition.
 					child.stdout?.off("data", onData);
 					child.stderr?.off("data", onData);
-					const disposition = disposeBashTimeout(child, command, cwd, timeoutMs ?? 0);
+					const disposition = disposeBashTimeout(child, command, cwd, timeoutMs ?? 0, ownerSessionId);
 					if ("backgroundedJobId" in disposition) {
 						backgroundedJobId = disposition.backgroundedJobId;
 						return { exitCode: null, backgroundedJobId };
@@ -439,8 +440,9 @@ export function createBashToolDefinition(
 			},
 			signal?: AbortSignal,
 			onUpdate?,
-			_ctx?,
+			ctx?,
 		) {
+			const ownerSessionId = ctx?.sessionManager.getSessionId();
 			// Per-call working directory (Codex exec_command parity). Absolute `workdir`
 			// wins; a relative one resolves against the session cwd. A non-existent dir
 			// surfaces downstream as a clear spawn error rather than running in the wrong
@@ -480,7 +482,7 @@ export function createBashToolDefinition(
 
 			// Background fast-path: spawn detached, return immediately. No timeout, no output streaming.
 			if (run_in_background) {
-				const job = spawnBashBackground(command, effectiveCwd, options?.shellPath, commandPrefix);
+				const job = spawnBashBackground(command, effectiveCwd, options?.shellPath, commandPrefix, ownerSessionId);
 				const text =
 					`Backgrounded bash job ${job.id} (pid=${job.pid ?? "unknown"}).\n` +
 					`Task id: ${job.id}\n` +
@@ -601,6 +603,7 @@ export function createBashToolDefinition(
 						signal,
 						timeout: timeoutSeconds,
 						env: spawnContext.env,
+						ownerSessionId,
 					});
 					exitCode = result.exitCode;
 					backgroundedJobId = result.backgroundedJobId;
@@ -729,6 +732,7 @@ export {
 	getRunningBashBgJobsSorted,
 	killAllBashBgJobs,
 	killBashBgJob,
+	killBashBgJobsForSession,
 	listBashBgJobs,
 	onBashTimeout,
 	spawnBashBackground,
