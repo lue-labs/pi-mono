@@ -66,6 +66,7 @@ import type {
 import type { SlashCommandInfo } from "../slash-commands.ts";
 import type { SourceInfo } from "../source-info.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import type { Task } from "../tasks/types.ts";
 import type { BashOperations } from "../tools/bash.ts";
 import type { EditToolDetails } from "../tools/edit.ts";
 import type {
@@ -1506,6 +1507,28 @@ export interface ExtensionAPI {
 	 * session is currently registered.
 	 */
 	getLiveSession(taskId: string): AgentSession | undefined;
+
+	// =========================================================================
+	// Task Registry
+	// =========================================================================
+
+	/**
+	 * Register a `Task` adapter for a new task type so the unified task surface
+	 * (`TaskStop`, `TaskBackgroundList`) can dispatch to it. Mirrors the core
+	 * built-in registrations for agent runs and background bash jobs; lets an
+	 * extension own a long-running thing (e.g. a backgrounded MCP tool call) and
+	 * have it stoppable/listable through the standard tools. Backed by the one
+	 * shared registry — all extensions and core see the same adapter table, so
+	 * importing the core registry singleton directly (which would create a second
+	 * table under a duplicated module instance) is unnecessary and unsafe.
+	 */
+	registerTaskAdapter(task: Task): void;
+
+	/**
+	 * Find the registered `Task` adapter that owns `taskId`, or `undefined` when
+	 * no adapter recognizes it. Snapshots each adapter to resolve ownership.
+	 */
+	findTaskAdapter(taskId: string): Task | undefined;
 
 	// =========================================================================
 	// Agent Engine Registries (B2)
