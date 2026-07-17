@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Encode pure string-literal enums in the `agent`/`Agent`/`Task`, `grep`, and `bash_output` tool schemas as JSON Schema `{type:"string", enum:[...]}` via the upstream `StringEnum` helper instead of TypeBox `anyOf`-of-`const`. Serialized `tools[]` bytes drop with byte-identical validation semantics (verified against both `Value.Check` and the compiled `Compile` path): Agent tool 7144→5905 B (−1239), grep 3415→3289 B (−126), bash_output `mode` −63 B. One-time `tools[]` re-warm, byte-stable thereafter.
+
 - Fixed bash tool crash (`Cannot read properties of undefined (reading 'getSessionId')`) when `execute` is called with a ctx lacking `sessionManager` (extension test harnesses); guard added after the owner-session reap change ([#325](https://github.com/valkyriweb/pi-mono/pull/325)) broke my-pi's extension gate ([#333](https://github.com/valkyriweb/pi-mono/pull/333)).
 
 - Force-exit one-shot `--print`/`--mode json` runs after completion so a leaked event-loop handle (observability sockets, sidecar children, metric export timers) can no longer keep the process alive until the harness timeout, matching the existing package-command one-shot guarantee. win32 drains naturally to avoid an assert when `process.exit()` follows `fetch()` during teardown (nodejs/node#56645) ([my-pi#1080](https://github.com/valkyriweb/my-pi/issues/1080)).

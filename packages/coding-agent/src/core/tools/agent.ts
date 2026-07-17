@@ -1,5 +1,5 @@
 import type { AgentTool, AgentToolResult, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model } from "@valkyriweb/pi-ai";
+import { type Api, type Model, StringEnum } from "@valkyriweb/pi-ai";
 import { Container, Spacer, Text } from "@valkyriweb/pi-tui";
 import { type Static, Type } from "typebox";
 import { type AgentEngine, getContextAgentEngine } from "../agents/engine.ts";
@@ -24,34 +24,15 @@ import type { ToolDefinition } from "../extensions/types.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
-const contextModeSchema = Type.Union(
-	[Type.Literal("default"), Type.Literal("fork"), Type.Literal("slim"), Type.Literal("none")],
-	{
-		description:
-			'"default" starts a fresh named Agent with its profile tools; "fork" is a permissive self-fork that preserves the caller transcript, system prompt, and tools.',
-	},
-);
+const contextModeSchema = StringEnum(["default", "fork", "slim", "none"] as const, {
+	description:
+		'"default" starts a fresh named Agent with its profile tools; "fork" is a permissive self-fork that preserves the caller transcript, system prompt, and tools.',
+});
 
-const thinkingSchema = Type.Union([
-	Type.Literal("off"),
-	Type.Literal("minimal"),
-	Type.Literal("low"),
-	Type.Literal("medium"),
-	Type.Literal("high"),
-	Type.Literal("xhigh"),
-	Type.Literal("max"),
-	Type.Literal("ultra"),
-]);
+const thinkingSchema = StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const);
 
-const outputModeSchema = Type.Union([Type.Literal("inline"), Type.Literal("file"), Type.Literal("both")]);
-const controlActionSchema = Type.Union([
-	Type.Literal("status"),
-	Type.Literal("detail"),
-	Type.Literal("interrupt"),
-	Type.Literal("cancel"),
-	Type.Literal("resume"),
-	Type.Literal("inject"),
-]);
+const outputModeSchema = StringEnum(["inline", "file", "both"] as const);
+const controlActionSchema = StringEnum(["status", "detail", "interrupt", "cancel", "resume", "inject"] as const);
 
 const taskSchema = Type.Object({
 	subagent_type: Type.Optional(
@@ -137,7 +118,7 @@ export const agentToolSchema = Type.Object({
 		}),
 	),
 	run_in_background: Type.Optional(Type.Boolean({ description: "Claude Code-compatible alias for background" })),
-	agentScope: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")])),
+	agentScope: Type.Optional(StringEnum(["user", "project", "both"] as const)),
 });
 
 export type AgentToolInput = Static<typeof agentToolSchema>;

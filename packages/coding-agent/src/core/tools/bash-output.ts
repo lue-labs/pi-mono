@@ -4,6 +4,7 @@
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
+import { StringEnum } from "@valkyriweb/pi-ai";
 import { type Static, Type } from "typebox";
 import {
 	BASH_MAX_OUTPUT_BYTES,
@@ -112,7 +113,7 @@ export function renderOrphanedBashBgOutput(
 const bashOutputSchema = Type.Object({
 	bgId: Type.String({ description: "Background job id returned by bash(run_in_background:true)." }),
 	mode: Type.Optional(
-		Type.Union([Type.Literal("tail"), Type.Literal("head"), Type.Literal("all")], {
+		StringEnum(["tail", "head", "all"] as const, {
 			description: "Which slice of the log to return. Default: tail.",
 		}),
 	),
