@@ -61,6 +61,14 @@ export function listTasks(): TaskSnapshot[] {
 			if (snap) out.push(snap);
 		}
 	}
+	// Extension-registered adapters (e.g. MCP auto-background) enumerate
+	// themselves via the optional `list` verb. The two built-ins above own
+	// dedicated source-of-truth registries and are skipped here to avoid
+	// double-counting.
+	for (const adapter of adapters.values()) {
+		if (adapter.type === "local_agent" || adapter.type === "local_bash") continue;
+		for (const snap of adapter.list?.() ?? []) out.push(snap);
+	}
 	return out;
 }
 

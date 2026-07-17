@@ -10,7 +10,15 @@ import {
 	updateAgentRecentRunProgress,
 } from "../src/core/agents/status.ts";
 import type { AgentRunDetails } from "../src/core/agents/types.ts";
-import { getTaskSnapshot, LocalAgentTask, LocalBashTask, listTasks } from "../src/core/tasks/index.ts";
+import {
+	clearTaskAdaptersForTests,
+	getTaskSnapshot,
+	LocalAgentTask,
+	LocalBashTask,
+	listTasks,
+	registerTaskAdapter,
+} from "../src/core/tasks/index.ts";
+import type { Task, TaskSnapshot } from "../src/core/tasks/types.ts";
 import { getBashBgJob, killAllBashBgJobs, spawnBashBackground } from "../src/core/tools/bash.ts";
 
 /** Poll a background bash job until it leaves the running state (or times out). */
@@ -230,6 +238,62 @@ describe("tasks registry — LocalAgentTask adapter", () => {
 		const snap = LocalAgentTask.snapshot(run.id);
 		expect(snap?.status).toBe("completed");
 		expect(snap?.endedAt).toBeGreaterThan(0);
+	});
+});
+
+describe("tasks registry — extension-registered adapter (list seam)", () => {
+	// The MCP auto-background feature (my-pi #1091) registers its own Task
+	// adapter from the pi-mcp-adapter extension. Unlike the two built-ins, its
+	// tasks live in an extension-owned Map, so `listTasks` must enumerate it via
+	// the optional `list` verb — otherwise a backgrounded MCP call never appears
+	// in TaskBackgroundList even though TaskStop can still resolve it by id.
+	afterEach(() => {
+		// Restore the default adapter table (local_agent + local_bash).
+		clearTaskAdaptersForTests();
+		registerTaskAdapter(LocalAgentTask);
+		registerTaskAdapter(LocalBashTask);
+		clearAgentRecentRunsForTests();
+	});
+
+	function makeSnap(id: string): TaskSnapshot {
+		return {
+			id,
+			type: "local_mcp",
+			status: "running",
+			description: `mcp call ${id}`,
+			startedAt: Date.now(),
+			resumable: false,
+		};
+	}
+
+	test("listTasks enumerates a registered adapter's list() output", () => {
+		clearAgentRecentRunsForTests();
+		const store = new Map<string, TaskSnapshot>([
+			["mcp_1", makeSnap("mcp_1")],
+			["mcp_2", makeSnap("mcp_2")],
+		]);
+		const adapter: Task = {
+			type: "local_mcp",
+			snapshot: (id) => store.get(id),
+			list: () => [...store.values()],
+		};
+		registerTaskAdapter(adapter);
+
+		const ids = listTasks().map((t) => t.id).sort();
+		expect(ids).toEqual(["mcp_1", "mcp_2"]);
+		// Cross-adapter resolution still works for the new type.
+		expect(getTaskSnapshot("mcp_2")?.type).toBe("local_mcp");
+	});
+
+	test("an adapter without list() contributes nothing to listTasks but stays resolvable", () => {
+		clearAgentRecentRunsForTests();
+		const adapter: Task = {
+			type: "local_mcp",
+			snapshot: (id) => (id === "mcp_x" ? makeSnap("mcp_x") : undefined),
+		};
+		registerTaskAdapter(adapter);
+		expect(listTasks()).toEqual([]);
+		expect(getTaskSnapshot("mcp_x")?.id).toBe("mcp_x");
 	});
 });
 
