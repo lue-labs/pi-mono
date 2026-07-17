@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Removed the always-added generic "Be concise in your responses" system-prompt guideline; it contradicts mandated structured handoff summaries on compression-biased models (context audit C1, [#322](https://github.com/valkyriweb/pi-mono/pull/322)). Scoped brevity policy lives in operator instruction files.
+
 - Unified child-agent preparation across initial dispatch and persistent resume so model/thinking defaults, auto-routed model choices, output caps, tool/depth policy, cwd-bound services, and per-run `maxTurns` remain consistent across turns ([#277](https://github.com/valkyriweb/pi-mono/issues/277)).
 
 - Fixed extension `ctx.isIdle()` reporting true during compaction and turn-start lifecycle work, including prompt preflight and resumed interactive tools, so idle-only shortcuts and commands no longer queue work while Pi is busy ([#295](https://github.com/valkyriweb/pi-mono/issues/295)).
