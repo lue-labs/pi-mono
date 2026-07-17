@@ -206,6 +206,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// Component factories are not supported in RPC mode - would need TUI access
 		},
 
+		setLiveBlock(_key: string, _factory: unknown): void {
+			// Transcript live component factories are interactive-TUI only for now.
+		},
+
 		setFooter(_factory: unknown): void {
 			// Custom footer not supported in RPC mode - requires TUI access
 		},

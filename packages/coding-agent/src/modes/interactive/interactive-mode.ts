@@ -387,6 +387,7 @@ export class InteractiveMode {
 	private extensionWidgetsBelow = new Map<string, Component & { dispose?(): void }>();
 	private widgetContainerAbove!: Container;
 	private widgetContainerBelow!: Container;
+	private extensionLiveBlocks = new Map<string, Component & { dispose?(): void }>();
 
 	// Custom footer from extension (undefined = use built-in footer)
 	private customFooter: (Component & { dispose?(): void }) | undefined = undefined;
@@ -1888,6 +1889,34 @@ export class InteractiveMode {
 		this.renderWidgets();
 	}
 
+	private setExtensionLiveBlock(
+		key: string,
+		factory: ((tui: TUI, thm: Theme) => Component & { dispose?(): void }) | undefined,
+	): void {
+		const existing = this.extensionLiveBlocks.get(key);
+		const existingIndex = existing ? this.chatContainer.children.indexOf(existing) : -1;
+
+		if (factory === undefined) {
+			if (existing) {
+				existing.dispose?.();
+				this.chatContainer.removeChild(existing);
+				this.extensionLiveBlocks.delete(key);
+				this.ui.requestRender();
+			}
+			return;
+		}
+
+		const component = factory(this.ui, theme);
+		if (existing && existingIndex !== -1) {
+			existing.dispose?.();
+			this.chatContainer.children.splice(existingIndex, 1, component);
+		} else {
+			this.chatContainer.addChild(component);
+		}
+		this.extensionLiveBlocks.set(key, component);
+		this.ui.requestRender();
+	}
+
 	private clearExtensionWidgets(): void {
 		for (const widget of this.extensionWidgetsAbove.values()) {
 			widget.dispose?.();
@@ -1895,8 +1924,12 @@ export class InteractiveMode {
 		for (const widget of this.extensionWidgetsBelow.values()) {
 			widget.dispose?.();
 		}
+		for (const liveBlock of this.extensionLiveBlocks.values()) {
+			liveBlock.dispose?.();
+		}
 		this.extensionWidgetsAbove.clear();
 		this.extensionWidgetsBelow.clear();
+		this.extensionLiveBlocks.clear();
 		this.renderWidgets();
 	}
 
@@ -2173,6 +2206,7 @@ export class InteractiveMode {
 			setWorkingIndicator: (options) => this.setWorkingIndicator(options),
 			setHiddenThinkingLabel: (label) => this.setHiddenThinkingLabel(label),
 			setWidget: (key, content, options) => this.setExtensionWidget(key, content, options),
+			setLiveBlock: (key, factory) => this.setExtensionLiveBlock(key, factory),
 			setFooter: (factory) => this.setExtensionFooter(factory),
 			setHeader: (factory) => this.setExtensionHeader(factory),
 			setTitle: (title) => this.ui.terminal.setTitle(title),
@@ -2952,6 +2986,8 @@ export class InteractiveMode {
 
 					for (const content of this.streamingMessage.content) {
 						if (content.type === "toolCall") {
+							const toolDefinition = this.getRegisteredToolDefinition(content.name);
+							if (toolDefinition?.display?.toolUse === false) continue;
 							if (!this.pendingTools.has(content.id)) {
 								const component = new ToolExecutionComponent(
 									content.name,
@@ -2961,7 +2997,7 @@ export class InteractiveMode {
 										showImages: this.settingsManager.getShowImages(),
 										imageWidthCells: this.settingsManager.getImageWidthCells(),
 									},
-									this.getRegisteredToolDefinition(content.name),
+									toolDefinition,
 									this.ui,
 									this.sessionManager.getCwd(),
 								);
@@ -3020,6 +3056,8 @@ export class InteractiveMode {
 				break;
 
 			case "tool_execution_start": {
+				const toolDefinition = this.getRegisteredToolDefinition(event.toolName);
+				if (toolDefinition?.display?.toolUse === false) break;
 				let component = this.pendingTools.get(event.toolCallId);
 				if (!component) {
 					component = new ToolExecutionComponent(
@@ -3030,7 +3068,7 @@ export class InteractiveMode {
 							showImages: this.settingsManager.getShowImages(),
 							imageWidthCells: this.settingsManager.getImageWidthCells(),
 						},
-						this.getRegisteredToolDefinition(event.toolName),
+						toolDefinition,
 						this.ui,
 						this.sessionManager.getCwd(),
 					);
@@ -3044,6 +3082,8 @@ export class InteractiveMode {
 			}
 
 			case "tool_execution_update": {
+				const toolDefinition = this.getRegisteredToolDefinition(event.toolName);
+				if (toolDefinition?.display?.toolResult === false) break;
 				const component = this.pendingTools.get(event.toolCallId);
 				if (component) {
 					component.updateResult({ ...event.partialResult, isError: false }, true);
@@ -3053,6 +3093,8 @@ export class InteractiveMode {
 			}
 
 			case "tool_execution_end": {
+				const toolDefinition = this.getRegisteredToolDefinition(event.toolName);
+				if (toolDefinition?.display?.toolResult === false) break;
 				const component = this.pendingTools.get(event.toolCallId);
 				if (component) {
 					component.updateResult({ ...event.result, isError: event.isError });
@@ -3370,6 +3412,8 @@ export class InteractiveMode {
 				// Render tool call components
 				for (const content of message.content) {
 					if (content.type === "toolCall") {
+						const toolDefinition = this.getRegisteredToolDefinition(content.name);
+						if (toolDefinition?.display?.toolUse === false) continue;
 						const component = new ToolExecutionComponent(
 							content.name,
 							content.id,
@@ -3378,7 +3422,7 @@ export class InteractiveMode {
 								showImages: this.settingsManager.getShowImages(),
 								imageWidthCells: this.settingsManager.getImageWidthCells(),
 							},
-							this.getRegisteredToolDefinition(content.name),
+							toolDefinition,
 							this.ui,
 							this.sessionManager.getCwd(),
 						);

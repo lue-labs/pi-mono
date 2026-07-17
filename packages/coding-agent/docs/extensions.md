@@ -2202,6 +2202,8 @@ Tools can provide `renderCall` and `renderResult` for custom TUI display. See [t
 
 By default, tool output is wrapped in a `Box` that handles padding and background. A defined `renderCall` or `renderResult` must return a `Component`. If a slot renderer is not defined, `tool-execution.ts` uses fallback rendering for that slot.
 
+Set `display: { toolUse: false, toolResult: false }` when a tool drives its own stateful UI through `ctx.ui.setLiveBlock()`, widgets, or another explicit UI primitive and should not also show ordinary transient tool rows.
+
 Set `renderShell: "self"` when the tool should render its own shell instead of using the default `Box`. This is useful for tools that need complete control over framing or background behavior, for example large previews that must stay visually stable after the tool settles.
 
 ```typescript
@@ -2438,6 +2440,11 @@ ctx.ui.setWidget("my-widget", ["Line 1", "Line 2"]);
 ctx.ui.setWidget("my-widget", ["Line 1", "Line 2"], { placement: "belowEditor" });
 ctx.ui.setWidget("my-widget", (tui, theme) => new Text(theme.fg("accent", "Custom"), 0, 0));
 ctx.ui.setWidget("my-widget", undefined);  // Clear
+
+// Keyed live block in the chat transcript. First set mounts one block;
+// later sets for the same key replace that same anchored block; undefined clears it.
+ctx.ui.setLiveBlock("my-live-block", (tui, theme) => new Text(theme.fg("accent", "Live state"), 0, 0));
+ctx.ui.setLiveBlock("my-live-block", undefined);
 
 // Custom footer (replaces built-in footer entirely)
 ctx.ui.setFooter((tui, theme) => ({

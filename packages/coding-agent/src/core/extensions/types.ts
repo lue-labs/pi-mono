@@ -264,6 +264,18 @@ export interface ExtensionUIContext {
 		options?: ExtensionWidgetOptions,
 	): void;
 
+	/**
+	 * Set or clear a keyed live component in the chat transcript.
+	 *
+	 * The first set mounts one component into the transcript. Later sets for the
+	 * same key replace that same anchored block instead of appending another
+	 * transcript entry. Pass undefined to remove/collapse the block.
+	 */
+	setLiveBlock(
+		key: string,
+		factory: ((tui: TUI, theme: Theme) => Component & { dispose?(): void }) | undefined,
+	): void;
+
 	/** Set a custom footer component, or undefined to restore the built-in footer.
 	 *
 	 * The factory receives a FooterDataProvider for data not otherwise accessible:
@@ -756,6 +768,13 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	parameters: TParams;
 	/** Controls whether ToolExecutionComponent renders the standard colored shell or the tool renders its own framing. */
 	renderShell?: "default" | "self";
+	/** Controls ordinary transcript rendering for tool-use and tool-result blocks. Live UI should use ctx.ui instead. */
+	display?: {
+		/** Show the ordinary tool-use row in the transcript. Defaults to true. */
+		toolUse?: boolean;
+		/** Show ordinary tool-result updates in the transcript. Defaults to true. */
+		toolResult?: boolean;
+	};
 
 	/** Optional compatibility shim to prepare raw tool call arguments before schema validation. Must return an object conforming to TParams. */
 	prepareArguments?: (args: unknown) => Static<TParams>;
