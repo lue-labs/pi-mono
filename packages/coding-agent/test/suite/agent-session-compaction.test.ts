@@ -182,9 +182,9 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.session.messages[0]?.role).toBe("compactionSummary");
 	});
 
-	it("leaves resident history untouched by default after successful compaction", async () => {
+	it("leaves resident history untouched when resident prune is explicitly disabled", async () => {
 		const harness = await createHarness({
-			settings: { compaction: { keepRecentTokens: 1 } },
+			settings: { compaction: { keepRecentTokens: 1, residentPrune: false } },
 			extensionFactories: [
 				(pi) => {
 					pi.on("session_before_compact", async (event) => ({
@@ -205,6 +205,31 @@ describe("AgentSession compaction characterization", () => {
 
 		expect(harness.eventsOfType("resident_prune")).toHaveLength(0);
 		expect(JSON.stringify(harness.sessionManager.getEntry(oldUserId))).toContain("message to compact");
+	});
+
+	it("stubs resident history by default after successful compaction", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "summary from extension",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		const oldUserId = seedLargeCompactableSession(harness);
+
+		await harness.session.compact();
+
+		expect(harness.eventsOfType("resident_prune")[0]?.result.entriesStubbed).toBeGreaterThan(0);
+		expect(JSON.stringify(harness.sessionManager.getEntry(oldUserId))).toContain("Resident session payload pruned");
 	});
 
 	it("stubs resident history only after successful opt-in manual compaction", async () => {

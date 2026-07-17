@@ -16,6 +16,9 @@ interface PendingRequest {
 	reject(error: Error): void;
 }
 
+/** Cap on the retained stderr tail for a supervised RPC child (prevents unbounded growth). */
+const STDERR_BUFFER_MAX_BYTES = 64 * 1024;
+
 function toError(error: unknown): Error {
 	return error instanceof Error ? error : new Error(String(error));
 }
@@ -80,7 +83,8 @@ export class RpcProcessInstance {
 
 		this.process.stderr?.setEncoding("utf8");
 		this.process.stderr?.on("data", (chunk: string) => {
-			this.stderrBuffer += chunk;
+			// Keep only a bounded tail; a long-lived child can emit unbounded stderr.
+			this.stderrBuffer = (this.stderrBuffer + chunk).slice(-STDERR_BUFFER_MAX_BYTES);
 		});
 
 		this.process.once("error", (error) => {

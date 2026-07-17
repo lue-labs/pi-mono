@@ -109,6 +109,11 @@ type PendingOsc11BackgroundQuery = {
 	timer: NodeJS.Timeout | undefined;
 };
 
+// Upper bound on retained OSC 11 background-color queries. Only a few can be
+// genuinely outstanding (startup + color-scheme-change re-queries); the cap keeps
+// timed-out entries from accumulating on terminals that never answer.
+const MAX_PENDING_OSC11_QUERIES = 8;
+
 /**
  * Interface for components that can receive focus and display a hardware cursor.
  * When focused, the component should emit CURSOR_MARKER at the cursor position
@@ -917,6 +922,38 @@ export class TUI extends Container {
 		}
 	}
 
+	// Settle a pending OSC 11 query exactly once (resolve its promise). The entry is
+	// left in the FIFO so a late reply from the terminal is still consumed/swallowed
+	// (see trimSettledOsc11Queries for the growth bound).
+	private settleOsc11BackgroundQuery(query: PendingOsc11BackgroundQuery, rgb: RgbColor | undefined): void {
+		if (query.settled) {
+			return;
+		}
+		query.settled = true;
+		if (query.timer) {
+			clearTimeout(query.timer);
+			query.timer = undefined;
+		}
+		query.resolve?.(rgb);
+		query.resolve = undefined;
+	}
+
+	// Bound the pending-query backlog. Timed-out queries stay so a late reply is
+	// swallowed, but on a terminal that never answers they would otherwise grow
+	// without limit. Drop the oldest already-settled entries beyond the cap and keep
+	// the reply counter in sync (guarded against underflow); unsettled queries and
+	// the most recent settled ones are retained.
+	private trimSettledOsc11Queries(): void {
+		while (this.pendingOsc11BackgroundQueries.length > MAX_PENDING_OSC11_QUERIES) {
+			const index = this.pendingOsc11BackgroundQueries.findIndex((entry) => entry.settled);
+			if (index === -1) {
+				break;
+			}
+			this.pendingOsc11BackgroundQueries.splice(index, 1);
+			this.pendingOsc11BackgroundReplies = Math.max(0, this.pendingOsc11BackgroundReplies - 1);
+		}
+	}
+
 	private consumeOsc11BackgroundResponse(data: string): boolean {
 		if (this.pendingOsc11BackgroundReplies <= 0) {
 			return false;
@@ -929,14 +966,8 @@ export class TUI extends Container {
 		const rgb = parseOsc11BackgroundColor(data);
 		this.pendingOsc11BackgroundReplies -= 1;
 		const query = this.pendingOsc11BackgroundQueries.shift();
-		if (query && !query.settled) {
-			query.settled = true;
-			if (query.timer) {
-				clearTimeout(query.timer);
-				query.timer = undefined;
-			}
-			query.resolve?.(rgb);
-			query.resolve = undefined;
+		if (query) {
+			this.settleOsc11BackgroundQuery(query, rgb);
 		}
 		return true;
 	}
@@ -1726,13 +1757,10 @@ export class TUI extends Container {
 			};
 
 			query.timer = setTimeout(() => {
-				if (query.settled) {
-					return;
-				}
-				query.settled = true;
-				query.timer = undefined;
-				query.resolve?.(undefined);
-				query.resolve = undefined;
+				this.settleOsc11BackgroundQuery(query, undefined);
+				// Bound retention on terminals that never answer OSC 11: once enough
+				// queries have timed out, drop the oldest settled entries.
+				this.trimSettledOsc11Queries();
 			}, timeoutMs);
 			this.pendingOsc11BackgroundQueries.push(query);
 			this.pendingOsc11BackgroundReplies += 1;

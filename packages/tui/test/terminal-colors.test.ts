@@ -246,4 +246,23 @@ describe("TUI.queryTerminalBackgroundColor", () => {
 			tui.stop();
 		}
 	});
+
+	it("bounds the pending-query backlog on a terminal that never answers OSC 11", async () => {
+		const terminal = new TestTerminal();
+		const tui = new TUI(terminal);
+		tui.start();
+		const pending = (tui as unknown as { pendingOsc11BackgroundQueries: unknown[] }).pendingOsc11BackgroundQueries;
+		try {
+			const queries: Promise<unknown>[] = [];
+			for (let i = 0; i < 100; i++) {
+				queries.push(tui.queryTerminalBackgroundColor({ timeoutMs: 1 }));
+			}
+			await wait(10);
+			await Promise.all(queries);
+			// All timed out; without a bound the array would hold 100 stale entries.
+			assert.ok(pending.length <= 8, `expected bounded backlog, got ${pending.length}`);
+		} finally {
+			tui.stop();
+		}
+	});
 });
