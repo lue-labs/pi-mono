@@ -116,9 +116,11 @@ function createSession(options: {
 
 type RegisteredFooter = ReturnType<AgentSession["extensionRunner"]["getRegisteredFooters"]>[number];
 
-function stubRegisteredFooters(session: AgentSession, footers: RegisteredFooter[]): void {
-	const extensionRunner = { getRegisteredFooters: () => footers };
+function stubRegisteredFooters(session: AgentSession, footers: RegisteredFooter[]): { emitted: unknown[] } {
+	const emitted: unknown[] = [];
+	const extensionRunner = { getRegisteredFooters: () => footers, emitError: (error: unknown) => emitted.push(error) };
 	(session as unknown as { extensionRunner: typeof extensionRunner }).extensionRunner = extensionRunner;
+	return { emitted };
 }
 
 function createFooterData(providerCount: number): ReadonlyFooterDataProvider {
@@ -198,6 +200,81 @@ describe("FooterComponent width handling", () => {
 		const second = footer.render(100);
 		expect(second).not.toBe(first);
 		expect(selectedArgs).toEqual([false, true]);
+	});
+
+	it("isolates a throwing footer pill so healthy pills and the core footer still render", () => {
+		// Regression (#260): renderBackgroundStatusLine() invoked every pill's
+		// render()/visible() without isolation. A throwing third-party pill broke
+		// the whole footer render loop. Fails on the pre-fix baseline (render()
+		// throws); passes once each pill callback is contained.
+		const session = createSession({ sessionName: "same-session" });
+		const { emitted } = stubRegisteredFooters(session, [
+			{
+				id: "boom",
+				extensionPath: "/tmp/boom-ext",
+				spec: {
+					visible: () => true,
+					render: () => {
+						throw new Error("pill exploded");
+					},
+					onActivate: () => {},
+				},
+			},
+			{
+				id: "healthy",
+				extensionPath: "/tmp/healthy-ext",
+				spec: {
+					visible: () => true,
+					render: () => "healthy pill",
+					onActivate: () => {},
+				},
+			},
+		]);
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const rendered = stripAnsi(footer.render(140).join("\n"));
+		expect(rendered).toContain("healthy pill");
+		expect(rendered).not.toContain("pill exploded");
+		expect((emitted as Array<{ extensionPath?: string; event?: string }>)[0]).toMatchObject({
+			extensionPath: "/tmp/boom-ext",
+			event: "footer:boom",
+		});
+	});
+
+	it("isolates a throwing footer visible() callback and reports it once per pill id", () => {
+		const session = createSession({ sessionName: "same-session" });
+		const { emitted } = stubRegisteredFooters(session, [
+			{
+				id: "bad-visible",
+				extensionPath: "/tmp/bad-visible-ext",
+				spec: {
+					visible: () => {
+						throw new Error("visible exploded");
+					},
+					render: () => "never shown",
+					onActivate: () => {},
+				},
+			},
+			{
+				id: "healthy",
+				extensionPath: "/tmp/healthy-ext",
+				spec: {
+					visible: () => true,
+					render: () => "healthy pill",
+					onActivate: () => {},
+				},
+			},
+		]);
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const first = stripAnsi(footer.render(140).join("\n"));
+		expect(first).toContain("healthy pill");
+		expect(first).not.toContain("never shown");
+		// Report once per pill id even across repeated render passes.
+		footer.invalidate();
+		footer.render(140);
+		expect(emitted).toHaveLength(1);
+		expect((emitted as Array<{ event?: string }>)[0]).toMatchObject({ event: "footer:bad-visible" });
 	});
 
 	it("invalidate() forces a rebuild even when the render key is unchanged", () => {

@@ -2246,11 +2246,21 @@ export class InteractiveMode {
 	private getVisibleExtensionFooterIds(): string[] {
 		return this.session.extensionRunner
 			.getRegisteredFooters()
-			.filter(({ spec }) => spec.visible?.() ?? true)
+			.filter(({ id, spec, extensionPath }) => {
+				try {
+					if (!(spec.visible?.() ?? true)) return false;
+					return spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0;
+				} catch (err) {
+					this.session.extensionRunner.emitError({
+						extensionPath,
+						event: `footer:${id}`,
+						error: err instanceof Error ? err.message : String(err),
+						stack: err instanceof Error ? err.stack : undefined,
+					});
+					return false;
+				}
+			})
 			.sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0))
-			.filter(
-				({ spec }) => spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0,
-			)
 			.map(({ id }) => id);
 	}
 
