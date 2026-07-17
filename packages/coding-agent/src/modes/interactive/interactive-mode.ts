@@ -2251,12 +2251,7 @@ export class InteractiveMode {
 					if (!(spec.visible?.() ?? true)) return false;
 					return spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0;
 				} catch (err) {
-					this.session.extensionRunner.emitError({
-						extensionPath,
-						event: `footer:${id}`,
-						error: err instanceof Error ? err.message : String(err),
-						stack: err instanceof Error ? err.stack : undefined,
-					});
+					this.footer.reportFooterPillError(id, extensionPath, err);
 					return false;
 				}
 			})

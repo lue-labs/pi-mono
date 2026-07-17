@@ -117,9 +117,10 @@ export class FooterComponent implements Component {
 	 * Report a footer pill callback failure through the extension error stream,
 	 * at most once per pill id, and skip that pill for this render pass. One
 	 * throwing or misbehaving third-party pill must not break the other pills or
-	 * the core footer render loop.
+	 * the core footer render loop. Also used by footer-nav visibility probes so
+	 * every caller shares the same once-per-pill dedup.
 	 */
-	private reportFooterPillError(id: string, extensionPath: string, err: unknown): void {
+	reportFooterPillError(id: string, extensionPath: string, err: unknown): void {
 		if (this.reportedFooterErrors.has(id)) return;
 		this.reportedFooterErrors.add(id);
 		this.session.extensionRunner.emitError({
