@@ -1,4 +1,6 @@
 export {
+	type AgentRenderNormalization,
+	type AgentRenderTask,
 	type AgentToolDetails,
 	type AgentToolInput,
 	type AgentToolOptions,
@@ -9,6 +11,7 @@ export {
 	createTaskToolDefinition,
 	createUppercaseAgentTool,
 	createUppercaseAgentToolDefinition,
+	normalizeAgentToolModeForRender,
 } from "./agent.ts";
 export {
 	type BashBgDetails,

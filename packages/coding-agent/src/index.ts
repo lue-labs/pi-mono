@@ -331,6 +331,8 @@ export {
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools
 export {
+	type AgentRenderNormalization,
+	type AgentRenderTask,
 	type BashBgJob,
 	type BashBgJobStore,
 	type BashOperations,
@@ -392,6 +394,7 @@ export {
 	layoutGraphSchema,
 	type ModelCaller,
 	nodeSchema,
+	normalizeAgentToolModeForRender,
 	onBashTimeout,
 	parseHarnessJSON,
 	type ReadOperations,

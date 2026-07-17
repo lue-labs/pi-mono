@@ -312,6 +312,129 @@ export function normalizeAgentToolMode(params: AgentToolInput): {
 	return { mode: "chain", tasks: chain ?? [] };
 }
 
+/**
+ * A single Agent task in a shape safe for rendering partial/streaming calls.
+ * Aliases are resolved with the same precedence as execution normalization
+ * (legacy `agent` over `subagent_type`, legacy `task` over `prompt`), but any
+ * field may be absent while arguments are still streaming.
+ */
+export interface AgentRenderTask {
+	agent?: string;
+	task?: string;
+	description?: string;
+}
+
+/**
+ * Result of {@link normalizeAgentToolModeForRender}. `state` distinguishes a
+ * fully-formed call (`valid`, parity with {@link normalizeAgentToolMode}), a
+ * still-streaming/incomplete call (`partial`), and a malformed complete call
+ * (`invalid` — unparseable task JSON, conflicting aliases, or more than one
+ * execution mode). Rendering stays useful in every state instead of throwing.
+ */
+export interface AgentRenderNormalization {
+	mode: AgentToolMode;
+	tasks: AgentRenderTask[];
+	background: boolean;
+	state: "valid" | "partial" | "invalid";
+}
+
+function lenientResolveString(
+	source: Record<string, unknown>,
+	primary: string,
+	alias: string,
+): { value?: string; conflict: boolean } {
+	const primaryValue = typeof source[primary] === "string" ? (source[primary] as string) : undefined;
+	const aliasValue = typeof source[alias] === "string" ? (source[alias] as string) : undefined;
+	const conflict = primaryValue !== undefined && aliasValue !== undefined && primaryValue !== aliasValue;
+	return { value: primaryValue ?? aliasValue, conflict };
+}
+
+function lenientTaskList(value: unknown): { tasks: unknown[]; parseFailed: boolean } {
+	if (value === undefined || value === null) return { tasks: [], parseFailed: false };
+	let candidate: unknown = value;
+	if (typeof candidate === "string") {
+		try {
+			candidate = JSON.parse(candidate);
+		} catch {
+			return { tasks: [], parseFailed: true };
+		}
+	}
+	if (Array.isArray(candidate)) return { tasks: candidate, parseFailed: false };
+	if (candidate && typeof candidate === "object") return { tasks: [candidate], parseFailed: false };
+	return { tasks: [], parseFailed: true };
+}
+
+function renderTaskFromSource(source: unknown): { task: AgentRenderTask; conflict: boolean; complete: boolean } {
+	if (!source || typeof source !== "object") {
+		return { task: {}, conflict: false, complete: false };
+	}
+	const record = source as Record<string, unknown>;
+	const agent = lenientResolveString(record, "agent", "subagent_type");
+	const childTask = lenientResolveString(record, "task", "prompt");
+	const description = typeof record.description === "string" ? record.description : undefined;
+	const task: AgentRenderTask = {};
+	if (agent.value !== undefined) task.agent = agent.value;
+	if (childTask.value !== undefined) task.task = childTask.value;
+	if (description !== undefined) task.description = description;
+	return {
+		task,
+		conflict: agent.conflict || childTask.conflict,
+		complete: agent.value !== undefined && childTask.value !== undefined,
+	};
+}
+
+/**
+ * Renderer-safe counterpart to {@link normalizeAgentToolMode}. Accepts partial,
+ * stringified, object, or array task inputs and never throws: extensions can
+ * call it while Agent-tool arguments are still streaming. For fully-formed
+ * inputs it reproduces execution mode/alias precedence (`state: "valid"`);
+ * incomplete inputs return `"partial"` and malformed complete inputs return
+ * `"invalid"`, both with best-effort tasks for display. Model/cache neutral —
+ * it reads arguments only and never touches params.system or tools[].
+ */
+export function normalizeAgentToolModeForRender(input: unknown): AgentRenderNormalization {
+	if (!input || typeof input !== "object") {
+		return { mode: "single", tasks: [], background: false, state: input == null ? "partial" : "invalid" };
+	}
+	const source = input as Record<string, unknown>;
+	const background = source.background === true || source.run_in_background === true;
+
+	const parallel = lenientTaskList(source.tasks);
+	const chain = lenientTaskList(source.chain);
+	const single = renderTaskFromSource(source);
+
+	const parallelPresent = parallel.tasks.length > 0;
+	const chainPresent = chain.tasks.length > 0;
+	const singlePresent = single.complete;
+	const modeCount = [singlePresent, parallelPresent, chainPresent].filter(Boolean).length;
+
+	let invalid = parallel.parseFailed || chain.parseFailed || modeCount > 1;
+
+	let mode: AgentToolMode;
+	let rendered: { task: AgentRenderTask; conflict: boolean; complete: boolean }[];
+	if (parallelPresent) {
+		mode = "parallel";
+		rendered = parallel.tasks.map(renderTaskFromSource);
+	} else if (chainPresent) {
+		mode = "chain";
+		rendered = chain.tasks.map(renderTaskFromSource);
+	} else {
+		mode = "single";
+		rendered = [single];
+	}
+
+	if (rendered.some((entry) => entry.conflict)) invalid = true;
+	const allComplete = rendered.every((entry) => entry.complete);
+
+	const state: AgentRenderNormalization["state"] = invalid
+		? "invalid"
+		: modeCount === 1 && allComplete
+			? "valid"
+			: "partial";
+
+	return { mode, tasks: rendered.map((entry) => entry.task), background, state };
+}
+
 function formatUsage(run: AgentRunDetails): string | undefined {
 	if (!run.usage) return undefined;
 	return `${formatAgentTokenCount(run.usage.totalTokens)} tok`;
