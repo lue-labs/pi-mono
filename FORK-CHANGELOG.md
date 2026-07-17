@@ -8,6 +8,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Fixed
 
+- **Bash no longer hard-blocks `grep`/`find`; repo-search steering is prompt-only, matching Claude Code.** The runtime native-tool guard (`checkNativeToolGuard`) that rejected standalone `grep`/`egrep`/`fgrep`/`rg`/`find` at execute time is removed. Reverse-engineering the Claude Code CLI binary (2.1.204–2.1.212) confirmed CC has no such runtime block: it steers repo search toward Grep/Glob purely through the Bash tool description and gates bash through a user-configurable permission engine. The Bash description and the shared native-file-tools guideline now carry CC's soft steering with the “unless a dedicated tool cannot accomplish the task” escape hatch instead of claiming a hard block; the fork's guard over-blocked composite verification harnesses (echo-labeled `grep -c` probe batches). `semanticExitForBashCommand` (grep/find exit-1 → treated-as-success) and the redundant-`cd` guard are unchanged. One-time `tools[]`/system-prompt byte rewarm, deterministic thereafter.
+
 - **Restored fork-specific behavior dropped by the upstream sync merge.** AGENTS.md/CLAUDE.md `@file` import expansion (diagnostics, `parentPath`, realpath-based symlink dedup, project-trust gating) is rewired back into `DefaultResourceLoader.getAgentsFiles()`; settings-persisted `auto` model defaults (`defaultProvider`/`defaultModel: "auto"`) once again surface as a deferred `requestedModel` alias instead of silently landing on the first scoped/available model; the `--source` CLI flag (extension/session input-source override) is back in `parseArgs`; and the `radius` provider is restored to `KnownProvider`. No behavior beyond what the merge unintentionally removed.
 
 ### Changed

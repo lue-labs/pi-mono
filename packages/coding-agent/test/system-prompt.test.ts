@@ -149,7 +149,7 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt).toContain(
-				"File exploration uses native tools, never bash: Read = file contents (replaces cat/head/tail/sed on files); Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Bash calls whose command is standalone `grep`/`rg`/`find` are rejected — split into separate native-tool calls, do not combine with other shell work in one bash invocation. Directory listing via Bash `ls` is fine.",
+				"File exploration uses native tools, not bash: Read = file contents (replaces cat/head/tail/sed on files); Grep = content search (known strings/regex); Glob = file discovery by glob; SemanticGrep = conceptual search. Avoid running `grep`/`rg`/`find` in Bash for repo exploration unless explicitly instructed or a dedicated tool cannot accomplish the task; pipeline filters on command output (e.g. `kubectl get pods | grep Ready`) are fine. Directory listing via Bash `ls` is fine.",
 			);
 			expect(prompt).toContain(
 				"Use Bash for shell work and non-repo command output: `kubectl ... | jq`, `ps ... | awk`, git, package managers, `stat`/`wc`/`head`/`tail`.",

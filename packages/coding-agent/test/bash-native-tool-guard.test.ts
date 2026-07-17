@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	checkNativeToolGuard,
-	createBashToolDefinition,
-	redundantCdToCurrentWorkingDirectory,
-} from "../src/core/tools/bash.ts";
+import { createBashToolDefinition, redundantCdToCurrentWorkingDirectory } from "../src/core/tools/bash.ts";
 
 function getText(result: any): string {
 	return result.content?.[0]?.text ?? "";
@@ -15,71 +11,48 @@ function isError(result: any): boolean {
 
 const ctx: any = {};
 
-describe("bash native tool guard (hard, runtime-enforced)", () => {
-	it("blocks standalone grep/rg/find as the head of a pipeline", () => {
-		for (const command of [
-			"grep foo README.md",
-			"rg foo src",
-			"find . -name '*.ts'",
-			"egrep foo README.md",
-			"cd /tmp && grep -rn foo .",
-			"FOO=bar grep foo README.md",
-			"sudo grep foo /etc/hosts",
-			"/usr/bin/grep foo README.md",
-			"grep foo README.md | head -5",
-			"(grep foo README.md)",
-			"env -i grep foo README.md",
-			"nice -n 5 rg foo src",
-			"sudo -u root grep foo /etc/hosts",
-		]) {
-			expect(checkNativeToolGuard(command), command).toContain("use the native");
-		}
-	});
-
-	it("allows pipeline filters on command output and non-head usage", () => {
-		for (const command of [
-			"echo hello | grep hello",
-			"kubectl get pods | grep Ready",
-			"git log --oneline | grep fix",
-			"git grep foo",
-			"ps aux | grep node | awk '{print $2}'",
-			"jq -r '.id' file.json | sort | uniq",
-			"if grep -q foo README.md; then echo yes; fi",
-			"cat <<'EOF' > /tmp/x.sh\nls -la\ngrep foo bar\nEOF",
-			// CC 2.x / Codex parity: `ls` is not guarded — no native Ls tool exists.
-			"ls -la",
-			"echo a && ls src",
-			"kube-exec ns pod ctr -- sh -c 'cd /work && git log --oneline -5; ls pipelines scripts'",
-		]) {
-			expect(checkNativeToolGuard(command), command).toBeUndefined();
-		}
-	});
-
-	it("blocks guarded heads in later `&&`/`;`/`||` statements", () => {
-		expect(checkNativeToolGuard("true; find . -name x")).toContain("use the native");
-		expect(checkNativeToolGuard("test -f x || grep foo x")).toContain("use the native");
-	});
-
-	it("rejects standalone grep at execute time with native-tool steering", async () => {
+// Claude Code parity: there is NO hard runtime block on standalone grep/rg/find.
+// CC steers repo search toward Grep/Glob via prompt guidance only (with an
+// explicit "unless a dedicated tool cannot accomplish the task" escape hatch),
+// and gates bash through a user-configurable permission engine — never a
+// built-in grep/find rejection. See docs/pi-fork-patch-inventory.md.
+describe("bash native-tool steering (prompt-only, no runtime block)", () => {
+	it("executes standalone grep/find instead of rejecting them", async () => {
 		const bash = createBashToolDefinition(process.cwd());
-		const result = await bash.execute("t1", { command: "grep foo README.md" }, undefined, undefined, ctx);
-		expect(isError(result)).toBe(true);
-		expect(getText(result)).toContain("use the native Grep tool");
+		for (const command of ["grep -c '' package.json", "find . -maxdepth 1 -name package.json"]) {
+			const result = await bash.execute("t1", { command }, undefined, undefined, ctx);
+			expect(isError(result), `${command} should not be blocked`).toBe(false);
+			expect(getText(result), command).not.toContain("use the native");
+		}
 	});
 
-	it("still executes pipeline filters on command output", async () => {
+	it("executes composite verification harnesses that embed a grep statement", async () => {
+		const bash = createBashToolDefinition(process.cwd());
+		const result = await bash.execute(
+			"t1",
+			{ command: "echo '=== probe ==='\ngrep -c '\"name\"' package.json" },
+			undefined,
+			undefined,
+			ctx,
+		);
+		expect(isError(result)).toBe(false);
+		expect(getText(result)).toContain("=== probe ===");
+	});
+
+	it("still runs pipeline filters on command output", async () => {
 		const bash = createBashToolDefinition(process.cwd());
 		const result = await bash.execute("t1", { command: "echo hello | grep hello" }, undefined, undefined, ctx);
 		expect(isError(result)).toBe(false);
 		expect(getText(result)).toContain("hello");
 	});
 
-	it("documents Bash rejection of native-search commands with pipeline-filter exception", () => {
+	it("steers toward native file tools via the description with CC's escape hatch, without claiming a block", () => {
 		const bash = createBashToolDefinition(process.cwd());
-
 		expect(bash.description).toContain("prefer native file tools for repo exploration");
+		expect(bash.description).toContain("unless explicitly instructed or a dedicated tool cannot accomplish the task");
 		expect(bash.description).toContain("pipeline filters on command output");
-		expect(bash.description).toContain("kubectl ... | grep Ready");
+		// The old hard-block wording must be gone.
+		expect(bash.description).not.toContain("is rejected");
 	});
 
 	it("detects redundant cd to the bash cwd", () => {
