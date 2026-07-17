@@ -550,6 +550,8 @@ export class AgentSession {
 	private _systemPromptOverride?: string;
 	private _source: InputSource = "interactive";
 	private _pendingAutoModelRequest?: PendingAutoModelRequest;
+	/** Single-flight guard so overlapping prompt() calls cannot resolve the same pending auto-model twice. */
+	private _autoModelResolveInFlight?: Promise<void>;
 	/** Session calls that can start or resume a turn, including asynchronous preflight. */
 	private _activeTurnCalls = 0;
 	/** Turn calls entered by the current async context, so isIdle can exclude the caller's own call. */
@@ -2617,9 +2619,30 @@ export class AgentSession {
 	}
 
 	private async _resolvePendingAutoModelForPrompt(promptText: string): Promise<void> {
+		// A resolution is already running for this pending request: join it instead of
+		// starting a second concurrent resolve (would emit duplicate warnings/model-selects).
+		if (this._autoModelResolveInFlight) return this._autoModelResolveInFlight;
+
 		const pending = this._pendingAutoModelRequest;
 		if (!pending) return;
+		// Capture-and-clear synchronously before the first await so a second prompt()
+		// landing in the resolution window observes no pending request. Re-armed below
+		// if the resolve throws, so a failed attempt can be retried by the next prompt.
+		this._pendingAutoModelRequest = undefined;
 
+		const run = this._runAutoModelResolve(promptText, pending);
+		this._autoModelResolveInFlight = run;
+		try {
+			await run;
+		} catch (error) {
+			this._pendingAutoModelRequest ??= pending;
+			throw error;
+		} finally {
+			this._autoModelResolveInFlight = undefined;
+		}
+	}
+
+	private async _runAutoModelResolve(promptText: string, pending: PendingAutoModelRequest): Promise<void> {
 		const currentModel = this.model;
 		if (!currentModel) {
 			throw new Error(formatNoModelSelectedMessage());
