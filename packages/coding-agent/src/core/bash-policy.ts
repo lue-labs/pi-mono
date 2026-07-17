@@ -156,6 +156,8 @@ function detectUnsafeConstructs(command: string): string | undefined {
 		return "command substitution `$(...)` is not permitted — inline the inner command directly";
 	if (/(^|[^\\])`/.test(stripped))
 		return "backtick command substitution is not permitted — inline the inner command directly";
+	if (/[<>]\(/.test(stripped))
+		return "process substitution `<(...)` / `>(...)` is not permitted — it runs an arbitrary command; inline the data instead";
 	if (/<<-?\s*['"]?\w+/.test(stripped)) return "here-doc (`<<WORD`) is not permitted — pass arguments inline instead";
 	return undefined;
 }
