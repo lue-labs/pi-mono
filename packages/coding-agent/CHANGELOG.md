@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Stripped per-field descriptions from the `agent`/`Agent`/`Task` tool's `tasks[]`/`chain[]` array-item schema (bare `taskSchema` variant), keeping full descriptions only on the single-mode top-level fields. Descriptions are advisory-only and never validated, so `tasks[]`/`chain[]` items accept/reject identically before and after (verified against both `Value.Check` and the compiled `Compile` path). Agent tool 5905→3845 B (−2060), default tool set 16775→14715 B (−2060). One-time `tools[]` re-warm, byte-stable thereafter. See `agent-schema-dedupe.md` Option D.
+
 - Encode pure string-literal enums in the `agent`/`Agent`/`Task`, `grep`, and `bash_output` tool schemas as JSON Schema `{type:"string", enum:[...]}` via the upstream `StringEnum` helper instead of TypeBox `anyOf`-of-`const`. Serialized `tools[]` bytes drop with byte-identical validation semantics (verified against both `Value.Check` and the compiled `Compile` path): Agent tool 7144→5905 B (−1239), grep 3415→3289 B (−126), bash_output `mode` −63 B. One-time `tools[]` re-warm, byte-stable thereafter.
 
 - Fixed bash tool crash (`Cannot read properties of undefined (reading 'getSessionId')`) when `execute` is called with a ctx lacking `sessionManager` (extension test harnesses); guard added after the owner-session reap change ([#325](https://github.com/valkyriweb/pi-mono/pull/325)) broke my-pi's extension gate ([#333](https://github.com/valkyriweb/pi-mono/pull/333)).

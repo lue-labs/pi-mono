@@ -34,40 +34,29 @@ const thinkingSchema = StringEnum(["off", "minimal", "low", "medium", "high", "x
 const outputModeSchema = StringEnum(["inline", "file", "both"] as const);
 const controlActionSchema = StringEnum(["status", "detail", "interrupt", "cancel", "resume", "inject"] as const);
 
-const taskSchema = Type.Object({
-	subagent_type: Type.Optional(
-		Type.String({ description: "Agent id/name to run (preferred; Claude Code-compatible)" }),
-	),
-	agent: Type.Optional(Type.String({ description: "Legacy alias for subagent_type" })),
-	prompt: Type.Optional(Type.String({ description: "Task for the selected Agent profile (preferred)" })),
-	task: Type.Optional(Type.String({ description: "Legacy alias for prompt" })),
-	description: Type.Optional(Type.String({ description: "Short UI label" })),
-	context: Type.Optional(contextModeSchema),
-	extraContext: Type.Optional(
-		Type.String({
-			description:
-				"Additional task-specific context. For explore, prefer a short context packet here instead of inheriting the calling session's transcript/project context.",
-		}),
-	),
+// Bare variant of the enum schemas used inside array-item copies: same const set (identical
+// validation), no `description` payload. Keeps tasks[]/chain[] items byte-light while the
+// single-mode top-level fields (below) keep full descriptions for solo callers.
+const bareContextModeSchema = StringEnum(["default", "fork", "slim", "none"] as const);
+
+// Bare variant of taskSchema for tasks[].items / chain[].items: strips every field description
+// (advisory-only, never validated) while keeping identical field names, types, and optionality.
+// See ~/Projects/personal/my-pi/docs/base-context-overhaul/agent-schema-dedupe.md Option D.
+const bareTaskSchema = Type.Object({
+	subagent_type: Type.Optional(Type.String()),
+	agent: Type.Optional(Type.String()),
+	prompt: Type.Optional(Type.String()),
+	task: Type.Optional(Type.String()),
+	description: Type.Optional(Type.String()),
+	context: Type.Optional(bareContextModeSchema),
+	extraContext: Type.Optional(Type.String()),
 	model: Type.Optional(Type.String()),
-	tools: Type.Optional(Type.Array(Type.String(), { description: "Tool names available to this Agent task" })),
+	tools: Type.Optional(Type.Array(Type.String())),
 	thinking: Type.Optional(thinkingSchema),
-	maxOutputTokens: Type.Optional(
-		Type.Number({
-			minimum: 1,
-			description: "Cap this Agent run's provider output token limit. Can only lower the model's own cap.",
-		}),
-	),
-	output: Type.Optional(
-		Type.String({ description: "Path where the final report should be saved for the calling agent" }),
-	),
+	maxOutputTokens: Type.Optional(Type.Number({ minimum: 1 })),
+	output: Type.Optional(Type.String()),
 	outputMode: Type.Optional(outputModeSchema),
-	cwd: Type.Optional(
-		Type.String({
-			description:
-				"Working directory for this Agent task. Relative tool paths resolve against it. Defaults to the calling session's cwd. Use an absolute path for a different repo/directory.",
-		}),
-	),
+	cwd: Type.Optional(Type.String()),
 });
 
 export const agentToolSchema = Type.Object({
@@ -83,8 +72,8 @@ export const agentToolSchema = Type.Object({
 	prompt: Type.Optional(Type.String({ description: "Task for the selected Agent profile (preferred)" })),
 	task: Type.Optional(Type.String({ description: "Legacy alias for prompt" })),
 	description: Type.Optional(Type.String()),
-	tasks: Type.Optional(Type.Array(taskSchema, { maxItems: 8 })),
-	chain: Type.Optional(Type.Array(taskSchema, { minItems: 1 })),
+	tasks: Type.Optional(Type.Array(bareTaskSchema, { maxItems: 8 })),
+	chain: Type.Optional(Type.Array(bareTaskSchema, { minItems: 1 })),
 	concurrency: Type.Optional(Type.Number({ minimum: 1, maximum: 8, default: 4 })),
 	context: Type.Optional(contextModeSchema),
 	extraContext: Type.Optional(
