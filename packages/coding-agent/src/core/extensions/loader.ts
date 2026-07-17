@@ -58,6 +58,41 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 
 const require = createRequire(import.meta.url);
 
+function resolveImportSpecifier(specifier: string, fromDir: string): string {
+	const metaResolve = (import.meta as { resolve?: (specifier: string) => string }).resolve;
+	if (typeof metaResolve === "function") {
+		return fileURLToPath(metaResolve(specifier));
+	}
+	try {
+		return require.resolve(specifier);
+	} catch (error) {
+		const packageMatch = specifier.match(/^(@[^/]+\/[^/]+|[^/]+)(?:\/(.*))?$/);
+		if (!packageMatch) throw error;
+		const [, packageName, subpath = ""] = packageMatch;
+		let current = fromDir;
+		while (true) {
+			const packageJsonPath = path.join(current, "node_modules", packageName, "package.json");
+			if (fs.existsSync(packageJsonPath)) {
+				const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as {
+					main?: string;
+					exports?: Record<string, string | { import?: string; default?: string }>;
+				};
+				const exportKey = subpath ? `./${subpath}` : ".";
+				const exportEntry = packageJson.exports?.[exportKey];
+				const target =
+					typeof exportEntry === "string"
+						? exportEntry
+						: exportEntry?.import || exportEntry?.default || (subpath ? `./${subpath}` : packageJson.main);
+				if (!target) throw error;
+				return path.join(path.dirname(packageJsonPath), target);
+			}
+			const parent = path.dirname(current);
+			if (parent === current) throw error;
+			current = parent;
+		}
+	}
+}
+
 /**
  * Get aliases for jiti (used in Node.js/development mode).
  * In Bun binary mode, virtualModules is used instead.
@@ -80,7 +115,7 @@ function getAliases(): Record<string, string> {
 		if (fs.existsSync(workspacePath)) {
 			return workspacePath;
 		}
-		return fileURLToPath(import.meta.resolve(specifier));
+		return resolveImportSpecifier(specifier, __dirname);
 	};
 
 	_aliases = {

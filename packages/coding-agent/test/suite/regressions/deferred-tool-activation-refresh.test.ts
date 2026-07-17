@@ -30,12 +30,12 @@ describe("deferred tool activation refresh", () => {
 				(pi) => {
 					registerFakeTool(pi, "fake_deferred_echo");
 					pi.registerTool({
-						name: "tool_search",
+						name: "ToolSearch",
 						label: "Tool Search",
 						description: "Activate deferred tools",
 						parameters: Type.Object({ query: Type.String() }),
 						execute: async () => {
-							pi.setActiveTools(["tool_search", "fake_deferred_echo"]);
+							pi.setActiveTools(["ToolSearch", "fake_deferred_echo"]);
 							return {
 								content: [{ type: "text", text: "Activated 1 tool: fake_deferred_echo" }],
 							};
@@ -46,13 +46,13 @@ describe("deferred tool activation refresh", () => {
 		});
 		harnesses.push(harness);
 		await harness.session.bindExtensions({});
-		harness.session.setActiveToolsByName(["tool_search"]);
-		expect(harness.session.getActiveToolNames()).toEqual(["tool_search"]);
+		harness.session.setActiveToolsByName(["ToolSearch"]);
+		expect(harness.session.getActiveToolNames()).toEqual(["ToolSearch"]);
 
 		harness.setResponses([
 			(context: Context) => {
 				seenToolNames.push(context.tools?.map((tool) => tool.name) ?? []);
-				return fauxAssistantMessage(fauxToolCall("tool_search", { query: "fake echo" }));
+				return fauxAssistantMessage(fauxToolCall("ToolSearch", { query: "fake echo" }));
 			},
 			(context: Context) => {
 				seenToolNames.push(context.tools?.map((tool) => tool.name) ?? []);
@@ -66,10 +66,10 @@ describe("deferred tool activation refresh", () => {
 
 		await harness.session.prompt("activate and use fake echo");
 
-		expect(seenToolNames[0]).toEqual(["tool_search"]);
-		expect(seenToolNames[1]).toEqual(["tool_search", "fake_deferred_echo"]);
-		expect(seenToolNames[2]).toEqual(["tool_search", "fake_deferred_echo"]);
-		expect(harness.session.getActiveToolNames()).toEqual(["tool_search", "fake_deferred_echo"]);
+		expect(seenToolNames[0]).toEqual(["ToolSearch"]);
+		expect(seenToolNames[1]).toEqual(["ToolSearch", "fake_deferred_echo"]);
+		expect(seenToolNames[2]).toEqual(["ToolSearch", "fake_deferred_echo"]);
+		expect(harness.session.getActiveToolNames()).toEqual(["ToolSearch", "fake_deferred_echo"]);
 	});
 
 	it("handles grouped activation without duplicate active tools", async () => {
@@ -80,12 +80,12 @@ describe("deferred tool activation refresh", () => {
 					registerFakeTool(pi, "fake_deferred_one");
 					registerFakeTool(pi, "fake_deferred_two");
 					pi.registerTool({
-						name: "tool_search",
+						name: "ToolSearch",
 						label: "Tool Search",
 						description: "Activate deferred tools",
 						parameters: Type.Object({ query: Type.String() }),
 						execute: async () => {
-							pi.setActiveTools(["tool_search", "fake_deferred_one", "fake_deferred_two", "fake_deferred_one"]);
+							pi.setActiveTools(["ToolSearch", "fake_deferred_one", "fake_deferred_two", "fake_deferred_one"]);
 							return { content: [{ type: "text", text: "Activated 2 tools" }] };
 						},
 					});
@@ -94,11 +94,11 @@ describe("deferred tool activation refresh", () => {
 		});
 		harnesses.push(harness);
 		await harness.session.bindExtensions({});
-		harness.session.setActiveToolsByName(["tool_search"]);
+		harness.session.setActiveToolsByName(["ToolSearch"]);
 
 		harness.setResponses([
 			() =>
-				fauxAssistantMessage(fauxToolCall("tool_search", { query: "select:fake_deferred_one,fake_deferred_two" })),
+				fauxAssistantMessage(fauxToolCall("ToolSearch", { query: "select:fake_deferred_one,fake_deferred_two" })),
 			(context: Context) => {
 				seenToolNames.push(context.tools?.map((tool) => tool.name) ?? []);
 				return fauxAssistantMessage("done");
@@ -107,7 +107,7 @@ describe("deferred tool activation refresh", () => {
 
 		await harness.session.prompt("activate both fake tools");
 
-		expect(seenToolNames[0]).toEqual(["tool_search", "fake_deferred_one", "fake_deferred_two"]);
-		expect(harness.session.getActiveToolNames()).toEqual(["tool_search", "fake_deferred_one", "fake_deferred_two"]);
+		expect(seenToolNames[0]).toEqual(["ToolSearch", "fake_deferred_one", "fake_deferred_two"]);
+		expect(harness.session.getActiveToolNames()).toEqual(["ToolSearch", "fake_deferred_one", "fake_deferred_two"]);
 	});
 });

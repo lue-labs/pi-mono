@@ -25,6 +25,19 @@ const thinkingSchema = Type.Union([
 ]);
 
 const outputModeSchema = Type.Union([Type.Literal("inline"), Type.Literal("file"), Type.Literal("both")]);
+const agentActionSchema = Type.Union(
+	[Type.Literal("spawn"), Type.Literal("create"), Type.Literal("list"), Type.Literal("get"), Type.Literal("update")],
+	{
+		description:
+			"Execution mode. Omit or use 'spawn' to launch child agents; use create/list/get/update for session-scoped task tracking.",
+	},
+);
+const taskStatusSchema = Type.Union([
+	Type.Literal("pending"),
+	Type.Literal("in_progress"),
+	Type.Literal("completed"),
+	Type.Literal("deleted"),
+]);
 
 const taskSchema = Type.Object({
 	agent: Type.String({ description: "Agent id/name to run" }),
@@ -40,6 +53,7 @@ const taskSchema = Type.Object({
 });
 
 export const agentToolSchema = Type.Object({
+	action: Type.Optional(agentActionSchema),
 	agent: Type.Optional(Type.String()),
 	task: Type.Optional(Type.String()),
 	description: Type.Optional(Type.String()),
@@ -55,9 +69,40 @@ export const agentToolSchema = Type.Object({
 	outputMode: Type.Optional(outputModeSchema),
 	chainDir: Type.Optional(Type.String({ description: "Base directory for relative chain outputs" })),
 	agentScope: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")])),
+	subject: Type.Optional(Type.String({ description: "Brief task title for action=create/update" })),
+	activeForm: Type.Optional(
+		Type.String({ description: "Present-continuous task label when in_progress, e.g. 'Running tests'" }),
+	),
+	taskId: Type.Optional(Type.String({ description: "Task id for action=get/update" })),
+	status: Type.Optional(taskStatusSchema),
+	owner: Type.Optional(Type.String()),
+	blocks: Type.Optional(Type.Array(Type.String())),
+	blockedBy: Type.Optional(Type.Array(Type.String())),
+	metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 });
 
 export type AgentToolInput = Static<typeof agentToolSchema>;
+
+type StoredTaskStatus = "pending" | "in_progress" | "completed";
+interface StoredTask {
+	id: string;
+	subject: string;
+	description: string;
+	activeForm?: string;
+	status: StoredTaskStatus;
+	owner?: string;
+	blocks: string[];
+	blockedBy: string[];
+	metadata?: Record<string, unknown>;
+}
+interface AgentTaskEntryData {
+	tasks: StoredTask[];
+	nextId: number;
+}
+
+const AGENT_TASKS_CUSTOM_TYPE = "coding-agent.agent.tasks";
+const memoryTaskStores = new WeakMap<ReadonlySessionManager, AgentTaskEntryData>();
+const fallbackTaskStore: AgentTaskEntryData = { tasks: [], nextId: 1 };
 
 export interface AgentToolOptions {
 	parentServices?: AgentToolParentServices;
@@ -71,6 +116,9 @@ export function normalizeAgentToolMode(params: AgentToolInput): {
 	mode: AgentToolMode;
 	tasks: NonNullable<AgentToolInput["tasks"]>;
 } {
+	if (params.action && params.action !== "spawn") {
+		throw new Error("normalizeAgentToolMode only supports spawn mode");
+	}
 	const hasSingle = Boolean(params.agent && params.task);
 	const hasParallel = Boolean(params.tasks && params.tasks.length > 0);
 	const hasChain = Boolean(params.chain && params.chain.length > 0);
@@ -99,6 +147,102 @@ export function normalizeAgentToolMode(params: AgentToolInput): {
 	}
 	if (hasParallel) return { mode: "parallel", tasks: params.tasks ?? [] };
 	return { mode: "chain", tasks: params.chain ?? [] };
+}
+
+function cloneTaskStore(store: AgentTaskEntryData): AgentTaskEntryData {
+	return {
+		tasks: store.tasks.map((task) => ({ ...task, blocks: [...task.blocks], blockedBy: [...task.blockedBy] })),
+		nextId: store.nextId,
+	};
+}
+
+function getTaskStore(sessionManager?: ReadonlySessionManager): AgentTaskEntryData {
+	if (!sessionManager) return fallbackTaskStore;
+	const cached = memoryTaskStores.get(sessionManager);
+	if (cached) return cached;
+	let latest: AgentTaskEntryData | undefined;
+	for (const entry of sessionManager.getEntries()) {
+		if (entry.type !== "custom" || entry.customType !== AGENT_TASKS_CUSTOM_TYPE) continue;
+		const data = entry.data as Partial<AgentTaskEntryData> | undefined;
+		if (!data || !Array.isArray(data.tasks) || typeof data.nextId !== "number") continue;
+		latest = {
+			nextId: data.nextId,
+			tasks: data.tasks.filter((task): task is StoredTask => Boolean(task?.id && task.subject && task.description)),
+		};
+	}
+	const store = latest ? cloneTaskStore(latest) : { tasks: [], nextId: 1 };
+	memoryTaskStores.set(sessionManager, store);
+	return store;
+}
+
+function persistTaskStore(sessionManager: ReadonlySessionManager | undefined, store: AgentTaskEntryData): void {
+	if (!sessionManager) return;
+	const appendCustomEntry = (
+		sessionManager as unknown as { appendCustomEntry?: (customType: string, data?: unknown) => string }
+	).appendCustomEntry;
+	appendCustomEntry?.call(sessionManager, AGENT_TASKS_CUSTOM_TYPE, cloneTaskStore(store));
+}
+
+function formatTask(task: StoredTask): string {
+	const owner = task.owner ? ` (${task.owner})` : "";
+	const blocked = task.blockedBy.length > 0 ? ` [blocked by ${task.blockedBy.map((id) => `#${id}`).join(", ")}]` : "";
+	return `#${task.id} [${task.status}] ${task.subject}${owner}${blocked}`;
+}
+
+function executeTaskAction(params: AgentToolInput, sessionManager?: ReadonlySessionManager): string {
+	const store = getTaskStore(sessionManager);
+	const action = params.action;
+	if (action === "list") return store.tasks.length === 0 ? "No tasks found" : store.tasks.map(formatTask).join("\n");
+	if (action === "get") {
+		const task = store.tasks.find((candidate) => candidate.id === params.taskId);
+		return task ? JSON.stringify(task, null, 2) : `Task not found: ${params.taskId ?? "<missing>"}`;
+	}
+	if (action === "create") {
+		if (!params.subject || !params.description)
+			throw new Error("agent action=create requires subject and description");
+		const task: StoredTask = {
+			id: String(store.nextId++),
+			subject: params.subject,
+			description: params.description,
+			activeForm: params.activeForm,
+			status: "pending",
+			owner: params.owner,
+			blocks: params.blocks ?? [],
+			blockedBy: params.blockedBy ?? [],
+			metadata: params.metadata,
+		};
+		store.tasks.push(task);
+		persistTaskStore(sessionManager, store);
+		return `Task #${task.id} created successfully: ${task.subject}`;
+	}
+	if (action === "update") {
+		const index = store.tasks.findIndex((candidate) => candidate.id === params.taskId);
+		if (index === -1) return `Task not found: ${params.taskId ?? "<missing>"}`;
+		if (params.status === "deleted") {
+			const [deleted] = store.tasks.splice(index, 1);
+			persistTaskStore(sessionManager, store);
+			return `Task #${deleted.id} deleted: ${deleted.subject}`;
+		}
+		const task = store.tasks[index];
+		if (params.subject !== undefined) task.subject = params.subject;
+		if (params.description !== undefined) task.description = params.description;
+		if (params.activeForm !== undefined) task.activeForm = params.activeForm;
+		if (params.status !== undefined) task.status = params.status;
+		if (params.owner !== undefined) task.owner = params.owner;
+		if (params.blocks !== undefined) task.blocks = params.blocks;
+		if (params.blockedBy !== undefined) task.blockedBy = params.blockedBy;
+		if (params.metadata !== undefined) {
+			task.metadata = { ...(task.metadata ?? {}) };
+			for (const [key, value] of Object.entries(params.metadata)) {
+				if (value === null) delete task.metadata[key];
+				else task.metadata[key] = value;
+			}
+			if (Object.keys(task.metadata).length === 0) task.metadata = undefined;
+		}
+		persistTaskStore(sessionManager, store);
+		return `Task #${task.id} updated: ${task.subject}`;
+	}
+	throw new Error(`unsupported agent task action: ${String(action)}`);
 }
 
 function summarizeRuns(runs: AgentRunDetails[]): string {
@@ -165,16 +309,22 @@ export function createAgentToolDefinition(
 		name: "agent",
 		label: "agent",
 		description:
-			"Launch a built-in or configured Pi child agent. Supports single {agent, task}, parallel {tasks}, and sequential chain {chain} modes.",
-		promptSnippet: "Delegate a task to a child agent with bounded tools",
+			"Launch a built-in or configured Pi child agent, or manage session-scoped tasks with action=create/list/get/update. Spawn mode supports single {agent, task}, parallel {tasks}, and sequential chain {chain}.",
+		promptSnippet: "Delegate work to child agents or manage session-scoped tasks",
 		promptGuidelines: [
 			"Use agent for delegated work that benefits from an isolated child context.",
+			"Use action=create/list/get/update for complex multi-step work, explicit todo requests, plan tracking, and new instructions that should not be dropped.",
+			"For task actions: mark tasks in_progress before starting, mark completed only after the work is fully done and verified, and leave blocked/partial work unfinished.",
 			"When parallel exploration or review is needed, send multiple agent tool-use blocks in one assistant message; Pi runs those calls concurrently. Use tasks[] only for explicit batched fan-out inside one agent call.",
 			"Do not use agent recursively; child agents cannot call agent.",
 		],
 		parameters: agentToolSchema,
 		executionMode: "parallel",
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			if (params.action && params.action !== "spawn") {
+				const text = executeTaskAction(params, options?.getParentSessionManager?.());
+				return { content: [{ type: "text", text }] };
+			}
 			if (!options?.parentServices || !options.getParentActiveTools || !options.getParentSessionManager) {
 				throw new Error("agent tool is unavailable in this runtime");
 			}
@@ -213,9 +363,13 @@ export function createAgentToolDefinition(
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			let label = "agent";
 			try {
-				const mode = normalizeAgentToolMode(args);
-				const names = mode.tasks.map((task) => task.agent).join(", ");
-				label = `${mode.mode}: ${names}`;
+				if (args.action && args.action !== "spawn") {
+					label = `task ${args.action}${args.taskId ? ` #${args.taskId}` : ""}`;
+				} else {
+					const mode = normalizeAgentToolMode(args);
+					const names = mode.tasks.map((task) => task.agent).join(", ");
+					label = `${mode.mode}: ${names}`;
+				}
 			} catch {
 				label = "agent: invalid mode";
 			}

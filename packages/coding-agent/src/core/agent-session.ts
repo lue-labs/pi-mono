@@ -49,6 +49,7 @@ import {
 } from "./compaction/index.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
 import { ensureDeferredToolSearchDefinition } from "./deferred-tool-registry.js";
+import { TOOL_SEARCH_NAME } from "./deferred-tool-search-tool.js";
 import {
 	createDeferredToolStateEntryData,
 	DEFERRED_TOOL_STATE_CUSTOM_TYPE,
@@ -960,6 +961,11 @@ export class AgentSession {
 		const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
 		const toolSnippets: Record<string, string> = {};
 		const promptGuidelines: string[] = [];
+		const activeToolNameSet = new Set(validToolNames);
+		const deferredTools = Array.from(this._toolDefinitions.values())
+			.map(({ definition }) => definition)
+			.filter((definition) => definition.deferLoading === true && !activeToolNameSet.has(definition.name))
+			.map((definition) => ({ name: definition.name, description: definition.description }));
 		for (const name of validToolNames) {
 			const snippet = this._toolPromptSnippets.get(name);
 			if (snippet) {
@@ -988,6 +994,7 @@ export class AgentSession {
 			selectedTools: validToolNames,
 			toolSnippets,
 			promptGuidelines,
+			deferredTools,
 		};
 		return buildSystemPrompt(this._baseSystemPromptOptions);
 	}
@@ -2312,7 +2319,10 @@ export class AgentSession {
 				sourceInfo: tool.sourceInfo,
 			});
 		}
+		const builtinDefaultsAllowed =
+			!allowedToolNames && (this._initialActiveToolNames === undefined || this._initialActiveToolNames.length > 0);
 		ensureDeferredToolSearchDefinition(definitionRegistry, {
+			enabled: builtinDefaultsAllowed,
 			getToolDefinitions: () => Array.from(this._toolDefinitions.values()).map(({ definition }) => definition),
 			getModel: () => this.model,
 			getDiscoveredToolNames: () => this._discoveredDeferredToolNames,
@@ -2357,8 +2367,8 @@ export class AgentSession {
 		for (const tool of wrappedExtensionTools as AgentTool[]) {
 			toolRegistry.set(tool.name, tool);
 		}
-		const deferredToolSearchEntry = definitionRegistry.get("tool_search");
-		if (deferredToolSearchEntry && !toolRegistry.has("tool_search")) {
+		const deferredToolSearchEntry = definitionRegistry.get(TOOL_SEARCH_NAME);
+		if (deferredToolSearchEntry && !toolRegistry.has(TOOL_SEARCH_NAME)) {
 			const [toolSearch] = wrapRegisteredTools([deferredToolSearchEntry], runner);
 			toolRegistry.set(toolSearch.name, toolSearch);
 		}
@@ -2386,8 +2396,8 @@ export class AgentSession {
 			}
 		}
 
-		if (this._toolRegistry.has("tool_search")) {
-			nextActiveToolNames.push("tool_search");
+		if (builtinDefaultsAllowed && this._toolRegistry.has(TOOL_SEARCH_NAME)) {
+			nextActiveToolNames.push(TOOL_SEARCH_NAME);
 		}
 		this.setActiveToolsByName([...new Set(nextActiveToolNames)]);
 	}

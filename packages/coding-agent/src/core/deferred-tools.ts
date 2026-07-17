@@ -49,22 +49,102 @@ export function isDeferredTool(definition: ToolDefinition): boolean {
 	return definition.deferLoading === true && definition.alwaysLoad !== true;
 }
 
-export function searchDeferredTools(definitions: Iterable<ToolDefinition>, query: string): ToolDefinition[] {
-	const terms = query
-		.toLowerCase()
-		.split(/\s+/)
-		.map((term) => term.trim())
-		.filter(Boolean);
-	if (terms.length === 0) return [];
+const SELECT_PREFIX = "select:";
 
-	return Array.from(definitions).filter((definition) => {
-		if (!isDeferredTool(definition)) return false;
-		const haystack = [definition.name, definition.description, definition.searchHint]
-			.filter(Boolean)
-			.join(" ")
-			.toLowerCase();
-		return terms.some((term) => haystack.includes(term));
-	});
+/**
+ * Search deferred tools using the three-mode DSL (mirrors extension search.ts):
+ *
+ *   1. `select:Name1,Name2`  — direct selection by exact name, no ranking
+ *   2. `+required-term ...`  — keyword search; `+token` must appear somewhere
+ *   3. plain keywords        — substring + position scoring
+ *
+ * Ranking weights (per token):
+ *   exact name match     +12
+ *   name starts-with     +6
+ *   name contains        +4
+ *   description contains +2
+ *
+ * Tie-break: alphabetic by name.
+ */
+export function getDeferredToolSearchToolNames(
+	definitions: Iterable<ToolDefinition>,
+	query: string,
+	maxResults = 5,
+): string[] {
+	const trimmed = query.trim();
+	if (trimmed.length === 0) return [];
+
+	// Mode 1: direct selection — preserve listed names so missing selections can be reported.
+	if (trimmed.toLowerCase().startsWith(SELECT_PREFIX)) {
+		return trimmed
+			.slice(SELECT_PREFIX.length)
+			.split(",")
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0)
+			.slice(0, maxResults);
+	}
+
+	return searchDeferredTools(definitions, query, maxResults).map((definition) => definition.name);
+}
+
+export function searchDeferredTools(
+	definitions: Iterable<ToolDefinition>,
+	query: string,
+	maxResults = 5,
+): ToolDefinition[] {
+	const trimmed = query.trim();
+	if (trimmed.length === 0) return [];
+
+	const all = Array.from(definitions).filter(isDeferredTool);
+
+	// Mode 1: direct selection — return in listed order, no ranking
+	if (trimmed.toLowerCase().startsWith(SELECT_PREFIX)) {
+		const wanted = getDeferredToolSearchToolNames(definitions, query, maxResults);
+		const byName = new Map(all.map((d) => [d.name, d]));
+		const out: ToolDefinition[] = [];
+		for (const name of wanted) {
+			const def = byName.get(name);
+			if (def) out.push(def);
+		}
+		return out;
+	}
+
+	// Modes 2/3: keyword search with optional `+required` tokens
+	const tokens = trimmed.toLowerCase().split(/\s+/);
+	const required: string[] = [];
+	const ranking: string[] = [];
+	for (const tok of tokens) {
+		if (tok.startsWith("+") && tok.length > 1) {
+			required.push(tok.slice(1));
+		} else {
+			ranking.push(tok);
+		}
+	}
+
+	const allTokens = [...required, ...ranking];
+	if (allTokens.length === 0) return [];
+
+	const scored: Array<{ def: ToolDefinition; score: number }> = [];
+	for (const def of all) {
+		const nameLc = def.name.toLowerCase();
+		const descLc = (def.description ?? "").toLowerCase();
+		const searchBlob = [nameLc, descLc, (def.searchHint ?? "").toLowerCase()].join(" ");
+
+		// Required-term gate
+		if (required.some((r) => !searchBlob.includes(r))) continue;
+
+		let score = 0;
+		for (const t of allTokens) {
+			if (nameLc === t) score += 12;
+			else if (nameLc.startsWith(t)) score += 6;
+			else if (nameLc.includes(t)) score += 4;
+			if (descLc.includes(t)) score += 2;
+		}
+		if (score > 0) scored.push({ def, score });
+	}
+
+	scored.sort((a, b) => b.score - a.score || a.def.name.localeCompare(b.def.name));
+	return scored.slice(0, maxResults).map((s) => s.def);
 }
 
 export function discoverDeferredTools(

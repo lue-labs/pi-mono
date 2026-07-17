@@ -10,7 +10,7 @@ import { keyHint, keyText } from "../../modes/interactive/components/keybinding-
 import { getLanguageFromPath, highlightCode, type Theme } from "../../modes/interactive/theme/theme.js";
 import { formatDimensionNote, resizeImage } from "../../utils/image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.js";
-import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.js";
+import type { AgentToolResult, ToolDefinition, ToolRenderResultOptions } from "../extensions/types.js";
 import { resolveReadPath } from "./path-utils.js";
 import { getTextOutput, invalidArgText, replaceTabs, shortenPath, str } from "./render-utils.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
@@ -173,7 +173,7 @@ function formatCompactReadResult(classification: CompactReadClassification, them
 
 function formatReadResult(
 	args: { path?: string; file_path?: string; offset?: number; limit?: number } | undefined,
-	result: { content: (TextContent | ImageContent)[]; details?: ReadToolDetails },
+	result: AgentToolResult<ReadToolDetails | undefined>,
 	options: ToolRenderResultOptions,
 	theme: Theme,
 	showImages: boolean,

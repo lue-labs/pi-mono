@@ -44,6 +44,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 							label: "Dynamic Tool",
 							description: "Tool registered from session_start",
 							promptSnippet: "Run dynamic test behavior",
+							deferLoading: true,
 							parameters: Type.Object({}),
 							execute: async () => ({
 								content: [{ type: "text", text: "ok" }],
@@ -78,9 +79,11 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["bash", "dynamic_tool", "edit", "find", "grep", "ls", "read", "write"]);
+		).toEqual(["agent", "bash", "dynamic_tool", "edit", "find", "grep", "ls", "read", "write"]);
 		expect(session.getActiveToolNames()).toEqual(["dynamic_tool"]);
 		expect(session.systemPrompt).toContain("- dynamic_tool: Run dynamic test behavior");
+		expect(session.systemPrompt).not.toContain("ToolSearch");
+		expect(session.systemPrompt).not.toContain("<deferred-tools>");
 		expect(session.systemPrompt).not.toContain("- read:");
 		expect(session.systemPrompt).not.toContain("- bash:");
 		session.dispose();

@@ -15,6 +15,8 @@ export interface BuildSystemPromptOptions {
 	toolSnippets?: Record<string, string>;
 	/** Additional guideline bullets appended to the default system prompt guidelines. */
 	promptGuidelines?: string[];
+	/** Inactive deferred tools to advertise without exposing full schemas. */
+	deferredTools?: Array<{ name: string; description?: string }>;
 	/** Text to append to system prompt. */
 	appendSystemPrompt?: string;
 	/** Working directory. */
@@ -32,6 +34,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		selectedTools,
 		toolSnippets,
 		promptGuidelines,
+		deferredTools,
 		appendSystemPrompt,
 		cwd,
 		contextFiles: providedContextFiles,
@@ -71,6 +74,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		const customPromptHasRead = !selectedTools || selectedTools.includes("read");
 		if (customPromptHasRead && skills.length > 0) {
 			prompt += formatSkillsForPrompt(skills);
+		}
+
+		if (deferredTools && deferredTools.length > 0) {
+			prompt += formatDeferredToolsForPrompt(deferredTools);
 		}
 
 		// Add date and working directory last
@@ -165,9 +172,18 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
 		prompt += formatSkillsForPrompt(skills);
 	}
 
+	if (deferredTools && deferredTools.length > 0) {
+		prompt += formatDeferredToolsForPrompt(deferredTools);
+	}
+
 	// Add date and working directory last
 	prompt += `\nCurrent date: ${date}`;
 	prompt += `\nCurrent working directory: ${promptCwd}`;
 
 	return prompt;
+}
+
+function formatDeferredToolsForPrompt(tools: Array<{ name: string; description?: string }>): string {
+	const lines = tools.map(({ name, description }) => `- ${name}: ${(description ?? "").trim()}`.trimEnd()).join("\n");
+	return `\n\n<deferred-tools>\nThe following tools are not loaded by default. Their full schemas are NOT in your tool list.\nTo use one, call ToolSearch first — either with keywords matching what you need, or with select:ExactName to activate by name. Once a tool is activated, its full schema appears in your tool list and you can call it normally.\n\n${lines}\n</deferred-tools>`;
 }
