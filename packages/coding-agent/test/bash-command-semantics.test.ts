@@ -88,11 +88,12 @@ describe("bash command exit semantics", () => {
 		);
 	});
 
-	it("hard-blocks standalone grep with native-tool steering", async () => {
+	it("runs standalone grep (no hard block) and reports its semantic exit", async () => {
 		const bash = createBashToolDefinition(process.cwd(), { operations: operationsWithExit(1) });
 		const result = await bash.execute("t1", { command: "grep needle README.md" }, undefined, undefined, ctx);
 
-		expect(isError(result)).toBe(true);
-		expect(getText(result)).toContain("use the native Grep tool");
+		expect(isError(result)).toBe(false);
+		expect(getText(result)).not.toContain("use the native Grep tool");
+		expect(getText(result)).toContain("grep found no matches");
 	});
 });

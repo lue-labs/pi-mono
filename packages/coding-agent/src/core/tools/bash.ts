@@ -25,7 +25,6 @@ import {
 } from "../bash-bg-jobs.ts";
 import {
 	checkBashPolicy,
-	checkNativeToolGuard,
 	currentBashPolicy,
 	redundantCdError,
 	redundantCdToCurrentWorkingDirectory,
@@ -405,7 +404,7 @@ export function createBashToolDefinition(
 	return {
 		name: toolName,
 		label,
-		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first); if truncated, full output is saved to a temp file (or pass full:true to return the complete output inline when you truly need all of it). Optionally provide a timeout in seconds. IMPORTANT: prefer native file tools for repo exploration (Glob for paths, Grep for content, Read/Edit/Write for files); standalone \`grep\`/\`rg\`/\`find\` in Bash is rejected, though pipeline filters on command output (e.g. \`kubectl ... | grep Ready\`) are fine. Pass run_in_background:true to run detached and return immediately with a bgId — a task_notification fires on completion (do not poll); read with bash_output(bgId), stop with bash_kill(bgId). Pass tui_only:true to stream output to the TUI but return only an exit/size summary to context (incompatible with run_in_background).`,
+		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first); if truncated, full output is saved to a temp file (or pass full:true to return the complete output inline when you truly need all of it). Optionally provide a timeout in seconds. IMPORTANT: prefer native file tools for repo exploration (Glob for paths, Grep for content, Read/Edit/Write for files) — avoid running \`grep\`/\`rg\`/\`find\` in Bash for repo work unless explicitly instructed or a dedicated tool cannot accomplish the task; pipeline filters on command output (e.g. \`kubectl ... | grep Ready\`) are fine. Pass run_in_background:true to run detached and return immediately with a bgId — a task_notification fires on completion (do not poll); read with bash_output(bgId), stop with bash_kill(bgId). Pass tui_only:true to stream output to the TUI but return only an exit/size summary to context (incompatible with run_in_background).`,
 		promptSnippet:
 			"Execute bash commands; set run_in_background:true for long-running work and read later with bash_output",
 		executionMode: "sequential",
@@ -457,14 +456,6 @@ export function createBashToolDefinition(
 						details: undefined,
 					};
 				}
-			}
-			const nativeGuard = checkNativeToolGuard(command);
-			if (nativeGuard) {
-				return {
-					isError: true,
-					content: [{ type: "text", text: nativeGuard }],
-					details: undefined,
-				};
 			}
 			if (redundantCdToCurrentWorkingDirectory(command, effectiveCwd)) {
 				return {
@@ -748,7 +739,6 @@ export {
 export {
 	type BashPolicy,
 	checkBashPolicy,
-	checkNativeToolGuard,
 	EXPLORE_BASH_POLICY,
 	redundantCdToCurrentWorkingDirectory,
 	runWithBashPolicy,
