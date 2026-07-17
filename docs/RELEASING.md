@@ -6,31 +6,92 @@ source of truth. Keep the two in sync — if a step changes, change it here firs
 
 ## Model
 
-**Lockstep versioning.** All four publishable packages share one version and are
-released together:
+Releases are driven by **Changesets** and published by
+`.github/workflows/release.yml`. There is no local publish step in the normal
+flow: a maintainer never runs `npm publish`, `npm whoami`, OIDC, or WebAuthn.
+
+**Lockstep versioning.** The five publishable packages are a Changesets `fixed`
+group — they share one version and are versioned/published together:
 
 - `@valkyriweb/pi-ai`
 - `@valkyriweb/pi-agent-core`
 - `@valkyriweb/pi-tui`
 - `@valkyriweb/pi-coding-agent`
+- `@valkyriweb/pi-orchestrator`
 
-`patch` = fixes + additions. `minor` = breaking changes. There are no major
-releases.
+Bump type is set by the changeset: `patch` = fixes + additions, `minor` =
+breaking changes. No major releases.
 
-## Steps
+Packages publish to **GitHub Packages** (`npm.pkg.github.com`, `restricted`
+access), authenticated with the workflow `GITHUB_TOKEN` — not npmjs.com.
 
-### 1. Update changelogs
+## How a release happens
 
-Each package's `[Unreleased]` section must reflect what shipped. Run the `/cl`
-prompt against the latest commit on `main` first if it has not been run; it
-audits and updates every package's `[Unreleased]` section. Fork-wide
-operational changes that do not belong to a package go in root
-`FORK-CHANGELOG.md`.
+### 1. Land a changeset with your change
 
-### 2. Local smoke test
+Every PR that changes a publishable package includes a changeset committed
+alongside the code:
 
-Build an unpublished release and smoke test it from outside the repo so it
-cannot resolve workspace files:
+```bash
+npm run changeset      # interactive: pick bump (patch/minor), write a summary
+```
+
+This writes a markdown file under `.changeset/`. Because the packages are a
+`fixed` group, choosing a bump for any one of them versions all five together.
+`changelog` generation is disabled (`.changeset/config.json` → `changelog:
+false`), so keep human-facing notes in each package's `CHANGELOG.md`
+`[Unreleased]` section and fork-wide operational notes in root
+`FORK-CHANGELOG.md`. Run `/cl` against the latest `main` if changelogs are
+stale.
+
+Check what is pending at any time:
+
+```bash
+npm run changeset:status
+```
+
+### 2. Push to `main` → Version Packages PR
+
+When commits with unreleased changesets reach `main`,
+`.github/workflows/release.yml` runs the release gate
+(`test:system-prompt`, `test:cache-stability`, `test:e2e`, `npm run check`) and
+then `changesets/action`, which opens or updates the
+**`chore(release): version fork packages`** PR. That PR runs
+`npm run version-packages` (`changeset version` + lockfile/shrinkwrap refresh)
+to consume the changesets, bump all five package versions, and update
+changelogs.
+
+The PR is authored with the `valkyriweb-clawsweeper` GitHub App token
+(`CLAWSWEEPER_APP_PRIVATE_KEY` secret) so it triggers required PR checks instead
+of needing `--admin`. Review it like any other PR.
+
+### 3. Merge the Version Packages PR → publish
+
+Merging the Version PR pushes the bumped versions to `main`, which re-runs
+`release.yml`. With no pending changesets, `changesets/action` now runs
+`npm run publish:changesets` (`changeset publish`) and publishes the five
+packages to GitHub Packages. The workflow then:
+
+- runs `.github/scripts/create-github-releases.mjs` to cut a bounded GitHub
+  Release per published package (body points at `FORK-CHANGELOG.md`, never the
+  400KB upstream changelog);
+- if `@valkyriweb/pi-coding-agent` (the CLI) was bumped, calls the reusable
+  `build-binaries.yml` to build the 6-platform compiled binaries and a
+  `v<version>` GitHub Release in the same trusted run.
+
+Support-package-only releases (no coding-agent bump) skip the binary build.
+
+### 4. If the publish run fails
+
+Inspect the failed `release` (or `binaries`) job in the Release workflow.
+`changeset publish` is idempotent and skips versions already present on the
+registry, so re-run the workflow (`workflow_dispatch` or re-push) after fixing
+CI or a transient registry issue. Do not hand-publish.
+
+## Local smoke test (optional, pre-merge)
+
+To validate a build before releasing, build an unpublished release and smoke
+test it from outside the repo so it cannot resolve workspace files:
 
 ```bash
 npm run release:local -- --out /tmp/pi-local-release --force
@@ -51,61 +112,22 @@ cd /tmp
 /tmp/pi-local-release/bun/pi          # interactive — same check
 ```
 
-Verify Node and Bun startup, model/account listing, interactive startup, and at
-least one real prompt against the intended default provider. Failures are
-release blockers unless the maintainer explicitly accepts the risk.
+`release:local` only builds a local artifact; it never publishes.
 
-### 3. Run the release script
+## Deprecated: local `release:patch` / `release:minor`
 
-CI publishes to npm; the local script handles version bump, changelog
-finalization, commit, tag, and push.
-
-```bash
-PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:patch   # fixes + additions
-PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:minor   # breaking changes
-```
-
-`npm_config_min_release_age=0` is only for the release command — it lets the
-release lockfile refresh proceed when a workspace package version was published
-recently. Review any lockfile or shrinkwrap diff the release creates before the
-push.
-
-The script bumps all package versions, finalizes changelogs, regenerates release
-artifacts, runs `npm run check`, commits `Release vX.Y.Z`, tags `vX.Y.Z`, adds
-fresh `## [Unreleased]` sections, commits `Add [Unreleased] section for next
-cycle`, then pushes `main` and the tag. **Do not re-run the release script after
-a tag has been pushed.**
-
-### 4. CI publishes the packages
-
-Pushing the `vX.Y.Z` tag triggers `.github/workflows/build-binaries.yml`. The
-`publish-npm` job uses npm trusted publishing via GitHub Actions OIDC
-(environment `npm-publish`). No local `npm publish`, `npm whoami`, OTP, or
-WebAuthn flow is required for the OIDC path.
-
-### 5. If CI publish fails
-
-Inspect the failed `publish-npm` job. The publish helper is idempotent and skips
-versions already present on npm, so re-run the tag workflow after fixing CI or a
-transient npm issue. Do not re-run `npm run release:patch` / `release:minor` for
-the same version.
-
-## Local manual-publish fallback (WebAuthn)
-
-Only if the OIDC path is unavailable and you must publish locally:
-
-1. `npm whoami` must succeed first (`npm login` if not).
-2. `npm publish` uses WebAuthn 2FA. Prefer running the publish command yourself
-   so you can open the npm auth URL immediately.
-3. When npm prints an auth URL, cmd/ctrl-click it, log in, and pick
-   "don't ask again for N minutes" if offered. This can happen more than once.
-4. After a failed publish, only re-run the publish command — never re-run
-   `npm run release:patch` / `release:minor`.
+The `scripts/release.mjs` tag-and-push flow (`npm run release:patch|minor`) is
+superseded by the Changesets workflow above and is **not** an authorized release
+path — the old `push: tags: v*` trigger it relied on is gone, so the tags it
+pushes no longer build binaries or publish. Do not run it as part of a release.
 
 ## Gates that must be green before release
 
+The Release workflow enforces these itself; run them locally when preparing a
+change:
+
 - `npm run check` (full output; fix all errors, warnings, infos).
-- `npm run build` → includes `test:build-gate` (prompt-cache / system-prompt
-  boundary tests).
+- `npm run test:system-prompt`, `npm run test:cache-stability`,
+  `npm run test:e2e` (the workflow's release gate).
 - `./test.sh` for touched packages.
 - The sibling `my-pi` extension gate when extension/harness contracts changed.
