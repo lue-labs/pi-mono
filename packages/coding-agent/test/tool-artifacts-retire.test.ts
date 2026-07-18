@@ -1,4 +1,8 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { SessionManager } from "../src/core/session-manager.ts";
 import {
 	boundModelFacingContextImages,
 	MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS,
@@ -118,5 +122,40 @@ describe("retireOutOfBudgetContextImages", () => {
 	it("ignores messages without array content", () => {
 		const messages = [{ role: "user", content: "plain string" }, { role: "assistant" } as unknown as TestMessage];
 		expect(retireOutOfBudgetContextImages(messages)).toBe(0);
+	});
+
+	it("hasPendingDurableEntries guards the deferred first flush (durable-safety gate)", () => {
+		// File-backed sessions buffer entries (sharing object references with
+		// resident state) until the first assistant message triggers the flush.
+		// agent_end retirement must skip while entries are buffered, or the
+		// eventual flush would serialize placeholders into the durable JSONL.
+		const dir = mkdtempSync(join(tmpdir(), "pi-retire-flush-"));
+		try {
+			const manager = SessionManager.create(dir, join(dir, "sessions"));
+			// Even the session header is buffered until the first assistant message.
+			expect(manager.hasPendingDurableEntries()).toBe(true);
+
+			const userMessage = imageMessage(2 * MB, "a");
+			manager.appendMessage({ role: "user", content: userMessage.content, timestamp: Date.now() } as never);
+			// Buffered, not yet on disk: retirement must be skipped here.
+			expect(manager.hasPendingDurableEntries()).toBe(true);
+
+			manager.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: "ok" }],
+				timestamp: Date.now(),
+			} as never);
+			// Flush happened: retirement is durable-safe again, and the flushed
+			// JSONL carries the full image payload.
+			expect(manager.hasPendingDurableEntries()).toBe(false);
+			const sessionFile = manager.getSessionFile();
+			expect(sessionFile).toBeDefined();
+			expect(readFileSync(sessionFile as string, "utf8")).toContain('"type":"image"');
+
+			// In-memory sessions never persist — the gate must not block retirement.
+			expect(SessionManager.inMemory(dir).hasPendingDurableEntries()).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

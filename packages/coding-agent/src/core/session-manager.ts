@@ -1015,6 +1015,16 @@ export class SessionManager {
 		return this.sessionFile;
 	}
 
+	/**
+	 * True while a file-backed session still buffers entries that have not been
+	 * written to disk (the deferred first flush waits for the first assistant
+	 * message). Buffered entries share object references with resident state, so
+	 * in-place mutations before the flush would leak into the durable JSONL.
+	 */
+	hasPendingDurableEntries(): boolean {
+		return this.persist && this.sessionFile !== undefined && !this.flushed;
+	}
+
 	getParentSession(): string | undefined {
 		const header = this.fileEntries.find((entry) => entry.type === "session") as SessionHeader | undefined;
 		return header?.parentSession;
