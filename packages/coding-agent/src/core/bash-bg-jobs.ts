@@ -139,6 +139,37 @@ export function sweepStaleBashBgLogs(
 	return removed;
 }
 
+/**
+ * Cap on terminal (exited/killed/failed) jobs retained in the in-memory registry.
+ * Running jobs are never evicted. Bounds metadata growth over a long-lived session
+ * that launches thousands of background commands (mirrors MAX_RECENT_RUNS in
+ * agents/status.ts). Output lives in log files, so evicting a stale entry only
+ * drops a small metadata record, not any tailed output.
+ */
+export const BASH_BG_MAX_TERMINAL = 50;
+
+/**
+ * Pure policy: given all jobs, return the ids of terminal jobs to evict once the
+ * terminal count exceeds the cap. Running jobs are never selected; the most
+ * recently finished are kept so bash_output on a just-finished job still resolves.
+ * Injectable so the eviction policy is unit-testable without spawning processes.
+ */
+export function selectTerminalBashBgJobIdsToEvict(
+	jobs: BashBgJob[],
+	cap: number = BASH_BG_MAX_TERMINAL,
+): string[] {
+	const terminal = jobs.filter((job) => job.status !== "running");
+	if (terminal.length <= cap) return [];
+	terminal.sort((a, b) => (a.endedAt ?? a.startedAt) - (b.endedAt ?? b.startedAt));
+	return terminal.slice(0, terminal.length - cap).map((job) => job.id);
+}
+
+function evictTerminalBashBgJobs(): void {
+	for (const id of selectTerminalBashBgJobIdsToEvict([...bashBgJobs.values()])) {
+		bashBgJobs.delete(id);
+	}
+}
+
 function nextBashBgId(): string {
 	return `bg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -283,6 +314,7 @@ export function spawnBashBackground(
 		error: undefined,
 	};
 	bashBgJobs.set(id, job);
+	evictTerminalBashBgJobs();
 	notifyBashBgJobsChanged();
 	child.on("error", (err) => {
 		const wasRunning = job.status === "running";
@@ -358,6 +390,7 @@ function adoptBashBackground(
 		error: undefined,
 	};
 	bashBgJobs.set(id, job);
+	evictTerminalBashBgJobs();
 	notifyBashBgJobsChanged();
 	child.on("error", (err) => {
 		const wasRunning = job.status === "running";

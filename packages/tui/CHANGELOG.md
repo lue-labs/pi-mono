@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Memory: bound the OSC 11 background-color pending-query backlog. Timed-out queries are still consumed if the terminal answers late, but on a terminal that never answers the backlog (and its reply counter) no longer grows without limit.
+
 - Add an optional `captureInput?: boolean` component hint so higher-level pane hosts can keep focus on an existing editor/input surface for display-only components.
 
 - Clamp overwide non-image render lines at the TUI boundary instead of crashing the interactive session with `Rendered line ... exceeds terminal width`.

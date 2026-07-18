@@ -14,7 +14,7 @@ export interface CompactionSettings {
 	reserveTokens?: number; // default: 16384
 	triggerTokens?: number; // absolute context-token threshold; when set and contextWindow is known, derives reserveTokens as (contextWindow - triggerTokens)
 	keepRecentTokens?: number; // default: 20000
-	residentPrune?: boolean; // default: false - stub summarized payloads in resident memory after successful compaction
+	residentPrune?: boolean; // default: true - stub summarized payloads in resident memory after successful compaction (opt out with false or PI_RESIDENT_SESSION_PRUNE=0)
 }
 
 export interface BranchSummarySettings {
@@ -881,7 +881,12 @@ export class SettingsManager {
 	}
 
 	getCompactionResidentPruneEnabled(): boolean {
-		return Boolean(this.settings.compaction?.residentPrune) || process.env.PI_RESIDENT_SESSION_PRUNE === "1";
+		// Defaults on to bound resident heap after compaction. Env override wins over
+		// settings; an explicit boolean setting wins over the default.
+		if (process.env.PI_RESIDENT_SESSION_PRUNE === "1") return true;
+		if (process.env.PI_RESIDENT_SESSION_PRUNE === "0") return false;
+		if (typeof this.settings.compaction?.residentPrune === "boolean") return this.settings.compaction.residentPrune;
+		return true;
 	}
 
 	getCompactionSettings(contextWindow?: number): {

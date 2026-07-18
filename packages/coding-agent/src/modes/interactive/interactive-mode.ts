@@ -3235,11 +3235,15 @@ export class InteractiveMode {
 							this.serverToolActivities.set(serverEvent.id, card);
 						}
 					} else if (serverEvent.type === "server_tool_result") {
-						this.serverToolActivities.get(serverEvent.toolUseId)?.setResult({
+						const activity = this.serverToolActivities.get(serverEvent.toolUseId);
+						activity?.setResult({
 							status: serverEvent.status,
 							sources: serverEvent.sources,
 							errorCode: serverEvent.errorCode,
 						});
+						// The rendered card is retained in chatContainer; drop the map slot
+						// on completion so it does not leak for the session lifetime.
+						if (activity) this.serverToolActivities.delete(serverEvent.toolUseId);
 					}
 					this.ui.requestRender();
 				}

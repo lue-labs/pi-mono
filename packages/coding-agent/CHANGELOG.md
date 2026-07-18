@@ -9,6 +9,12 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Memory: default resident session pruning to enabled (`compaction.residentPrune`, opt out with `false` or `PI_RESIDENT_SESSION_PRUNE=0`) so pre-compaction tool-result payloads are stubbed in resident memory after each compaction; the durable JSONL transcript is unchanged. Bounds heap growth on long-lived sessions that previously grew to multi-GB RSS.
+
+- Memory: evict terminal (exited/killed/failed) background bash jobs from the in-memory registry beyond a 50-entry cap; running jobs and recently finished jobs are retained so `bash_output` still resolves.
+
+- Memory: delete `serverToolActivities` map entries when a server-side tool activity completes instead of retaining them for the session lifetime.
+
 - Stripped per-field descriptions from the `agent`/`Agent`/`Task` tool's `tasks[]`/`chain[]` array-item schema (bare `taskSchema` variant), keeping full descriptions only on the single-mode top-level fields. Descriptions are advisory-only and never validated, so `tasks[]`/`chain[]` items accept/reject identically before and after (verified against both `Value.Check` and the compiled `Compile` path). Agent tool 5905→3845 B (−2060), default tool set 16775→14715 B (−2060). One-time `tools[]` re-warm, byte-stable thereafter. See `agent-schema-dedupe.md` Option D.
 
 - Encode pure string-literal enums in the `agent`/`Agent`/`Task`, `grep`, and `bash_output` tool schemas as JSON Schema `{type:"string", enum:[...]}` via the upstream `StringEnum` helper instead of TypeBox `anyOf`-of-`const`. Serialized `tools[]` bytes drop with byte-identical validation semantics (verified against both `Value.Check` and the compiled `Compile` path): Agent tool 7144→5905 B (−1239), grep 3415→3289 B (−126), bash_output `mode` −63 B. One-time `tools[]` re-warm, byte-stable thereafter.

@@ -333,25 +333,39 @@ describe("SettingsManager", () => {
 	});
 
 	describe("compaction residentPrune", () => {
-		it("defaults to disabled", () => {
+		it("defaults to enabled", () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings().residentPrune).toBe(true);
+		});
+
+		it("can be disabled with an explicit false setting", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { residentPrune: false } }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			expect(manager.getCompactionSettings().residentPrune).toBe(false);
 		});
 
-		it("can be enabled from settings", () => {
+		it("can be explicitly enabled from settings", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { residentPrune: true } }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			expect(manager.getCompactionSettings().residentPrune).toBe(true);
 		});
 
-		it("can be force-enabled with PI_RESIDENT_SESSION_PRUNE", () => {
+		it("can be force-enabled with PI_RESIDENT_SESSION_PRUNE=1 over an explicit false", () => {
 			vi.stubEnv("PI_RESIDENT_SESSION_PRUNE", "1");
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { residentPrune: false } }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			expect(manager.getCompactionSettings().residentPrune).toBe(true);
+		});
+
+		it("can be force-disabled with PI_RESIDENT_SESSION_PRUNE=0 over the default", () => {
+			vi.stubEnv("PI_RESIDENT_SESSION_PRUNE", "0");
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings().residentPrune).toBe(false);
 		});
 	});
 
