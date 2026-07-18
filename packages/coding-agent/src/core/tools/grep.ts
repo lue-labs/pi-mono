@@ -1,6 +1,7 @@
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
+import { StringEnum } from "@valkyriweb/pi-ai";
 import { Text } from "@valkyriweb/pi-tui";
 import { spawn } from "child_process";
 import path from "path";
@@ -51,13 +52,13 @@ const grepSchema = Type.Object({
 		}),
 	),
 	outputMode: Type.Optional(
-		Type.Union([Type.Literal("content"), Type.Literal("files_with_matches"), Type.Literal("count")], {
+		StringEnum(["content", "files_with_matches", "count"] as const, {
 			description:
 				"Output mode: content (matching lines), files_with_matches (file paths), or count (matches per file). Defaults to content for backwards compatibility.",
 		}),
 	),
 	output_mode: Type.Optional(
-		Type.Union([Type.Literal("content"), Type.Literal("files_with_matches"), Type.Literal("count")], {
+		StringEnum(["content", "files_with_matches", "count"] as const, {
 			description: "Alias for outputMode.",
 		}),
 	),
