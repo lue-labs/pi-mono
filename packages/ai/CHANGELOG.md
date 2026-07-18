@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Add `Tool.messageDelivered`: Anthropic serialization omits such tools from the wire `tools[]` while they stay resolvable from `context.tools` for local execution. Lets the deferred-tool hydration path deliver an activated tool's schema in a transcript `<functions>` block on `compat.supportsDeferredTools === false` transports without bursting the cached tools[] prefix ([#348](https://github.com/valkyriweb/pi-mono/issues/348)).
+
 - Fix Codex Responses gateways with opaque bearer credentials and JSON-only transports: `OpenAICodexResponsesCompat` can omit ChatGPT JWT account-ID derivation and inherited headers, force SSE when WebSocket is unsupported, and disable zstd request compression. Direct ChatGPT defaults remain unchanged.
 
 - Fix automatic retries so transient failures remain retryable only before the assistant emits text, thinking, or tool output, preventing duplicate work after a partial response.

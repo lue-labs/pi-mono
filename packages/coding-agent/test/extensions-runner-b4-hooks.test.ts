@@ -66,6 +66,7 @@ describe("ExtensionRunner B4 hooks", () => {
 		setActiveTools: () => {},
 		setDeferredOverrides: () => {},
 		setToolNamespaces: () => {},
+		hydrateMessageDeliveredTools: () => {},
 		refreshTools: () => {},
 		getCommands: () => [],
 		setModel: async () => false,

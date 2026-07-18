@@ -99,8 +99,9 @@ export function createDeferredToolSearchTool(
 			options.setDiscoveredToolNames(plan.discoveredToolNames);
 
 			// tool_reference blocks lead the content array (the history scan that
-			// reconstructs discovery state keys on them); guideline text follows.
-			const content = [...plan.referenceBlocks, ...plan.guidelineBlocks];
+			// reconstructs discovery state keys on them); message-delivered `<functions>`
+			// schema blocks (hydrate mode) and guideline text follow.
+			const content = [...plan.referenceBlocks, ...plan.schemaBlocks, ...plan.guidelineBlocks];
 			return {
 				content: content.length > 0 ? content : [{ type: "text" as const, text: plan.message }],
 				details: plan,

@@ -63,6 +63,7 @@ export function hookDeferredTools(pi: ExtensionAPI): void {
 				actions: {
 					getActiveToolNames: () => pi.tools.active(),
 					setActiveTools: (toolNames) => pi.setActiveTools(toolNames),
+					hydrateTools: (toolNames) => pi.tools.hydrateMessageDeliveredTools(toolNames),
 				},
 			}),
 		);

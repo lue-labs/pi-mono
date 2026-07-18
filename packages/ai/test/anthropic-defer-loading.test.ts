@@ -149,3 +149,33 @@ describe("Anthropic convertTools — native defer_loading emission", () => {
 		expect(JSON.stringify(secondTools.slice(0, firstTools.length))).toBe(JSON.stringify(firstTools));
 	});
 });
+
+describe("Anthropic convertTools — message-delivered schema hydration (issue #348)", () => {
+	const hydratedTool: Tool = {
+		name: "hydrated_one",
+		description: "Activated via message-delivered schema",
+		parameters: Type.Object({ query: Type.String() }),
+		deferLoading: true,
+		messageDelivered: true,
+	};
+
+	it("omits messageDelivered tools from the wire tools[]", async () => {
+		const body = await captureRequest(createContext([eagerTool, hydratedTool]), {
+			modelCompat: { supportsDeferredTools: false },
+		});
+		const tools = body.tools as Array<{ name: string }>;
+		expect(tools.map((t) => t.name)).toEqual(["eager_tool"]);
+	});
+
+	it("keeps the wire tools[] byte-identical when a messageDelivered tool is added (no cache bust)", async () => {
+		// The whole point of #348: activating a deferred tool via message delivery must
+		// NOT change the serialized tools[] prefix.
+		const before = await captureRequest(createContext([eagerTool]), {
+			modelCompat: { supportsDeferredTools: false },
+		});
+		const after = await captureRequest(createContext([eagerTool, hydratedTool]), {
+			modelCompat: { supportsDeferredTools: false },
+		});
+		expect(JSON.stringify(after.tools)).toBe(JSON.stringify(before.tools));
+	});
+});

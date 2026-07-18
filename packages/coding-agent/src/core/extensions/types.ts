@@ -2010,6 +2010,15 @@ export interface ToolRegistryView {
 	 * clears all namespaces.
 	 */
 	setToolNamespaces(map: Record<string, string>): void;
+	/**
+	 * Message-delivered hydration seam (cache-critical, issue #348). Registers the
+	 * named deferred tools' executors on `context.tools` marked `messageDelivered`
+	 * so their schemas ship in a transcript `<functions>` block instead of the
+	 * request `tools[]`. The wire `tools[]` prefix stays byte-stable across
+	 * activation (no cache bust); the local executor still resolves the call.
+	 * Idempotent; does not rebuild the system prompt.
+	 */
+	hydrateMessageDeliveredTools(names: string[]): void;
 }
 
 export type GetCommandsHandler = () => SlashCommandInfo[];
@@ -2019,6 +2028,8 @@ export type SetActiveToolsHandler = (toolNames: string[]) => void;
 export type SetDeferredToolOverridesHandler = (names: string[]) => void;
 
 export type SetToolNamespacesHandler = (map: Record<string, string>) => void;
+
+export type HydrateMessageDeliveredToolsHandler = (names: string[]) => void;
 
 export type RefreshToolsHandler = (options?: { activateNewTools?: boolean }) => void;
 
@@ -2120,6 +2131,7 @@ export interface ExtensionActions {
 	setActiveTools: SetActiveToolsHandler;
 	setDeferredOverrides: SetDeferredToolOverridesHandler;
 	setToolNamespaces: SetToolNamespacesHandler;
+	hydrateMessageDeliveredTools: HydrateMessageDeliveredToolsHandler;
 	refreshTools: RefreshToolsHandler;
 	getCommands: GetCommandsHandler;
 	setModel: SetModelHandler;
