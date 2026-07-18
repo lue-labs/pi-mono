@@ -135,6 +135,7 @@ import {
 	capModelFacingToolResultText,
 	replaceOversizedToolResultImages,
 	replaceUnsupportedToolResultImages,
+	retireOutOfBudgetContextImages,
 	stripModelFacingContextImages,
 } from "./tool-artifacts.ts";
 
@@ -889,6 +890,12 @@ export class AgentSession {
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
 		if (event.type === "agent_end") {
 			this._extensionStopAfterTurnReason = undefined;
+			// Free base64 payloads of images that fell out of the model-facing
+			// budget. All of this turn's messages were persisted synchronously on
+			// message_end, and the retired set is a subset of what the transient
+			// provider view already replaces, so this is durable-safe and
+			// cache-neutral (my-pi#1147).
+			retireOutOfBudgetContextImages(this.agent.state.messages);
 		}
 
 		// Handle session persistence

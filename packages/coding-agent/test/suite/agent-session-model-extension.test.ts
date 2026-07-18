@@ -543,7 +543,7 @@ describe("AgentSession model and extension characterization", () => {
 		expect(readFileSync(artifactPath, "utf8")).toBe(`${firstLargeText}\n\n${secondLargeText}`);
 	});
 
-	it("bounds aggregate tool-result images in the provider context without mutating session history", async () => {
+	it("bounds aggregate tool-result images in the provider context and retires out-of-budget images from resident history", async () => {
 		const imageData = "a".repeat(2 * 1024 * 1024);
 		const imageTool: AgentTool = {
 			name: "image",
@@ -585,11 +585,22 @@ describe("AgentSession model and extension characterization", () => {
 
 		expect(providerImageChars).toBeLessThanOrEqual(3 * 1024 * 1024);
 		expect(providerImageToolCallIds).toEqual(["image-4"]);
-		const storedImageCount = harness.session.messages
+		// Out-of-budget images are permanently retired from resident history at
+		// agent_end with the same placeholder the provider view emits (they can
+		// never reach the model again and previously leaked unboundedly —
+		// my-pi#1147). Only the in-budget newest image stays resident.
+		const storedToolResultBlocks = harness.session.messages
 			.filter((message) => message.role === "toolResult")
-			.flatMap((message) => message.content)
-			.filter((block) => block.type === "image").length;
-		expect(storedImageCount).toBe(4);
+			.flatMap((message) => message.content);
+		expect(storedToolResultBlocks.filter((block) => block.type === "image").length).toBe(1);
+		expect(
+			storedToolResultBlocks.filter(
+				(block) => block.type === "text" && block.text.includes("Image omitted from this provider request"),
+			).length,
+		).toBe(3);
+		// Durable JSONL safety is by ordering, not re-serialization: file-backed
+		// sessions persist each message at message_end (appendFileSync), before
+		// agent_end retirement mutates the resident objects.
 	});
 
 	it("strips images from cache-safe compaction requests", async () => {

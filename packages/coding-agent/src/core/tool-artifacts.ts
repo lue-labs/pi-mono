@@ -154,6 +154,53 @@ export function stripModelFacingContextImages<T extends object>(messages: T[]): 
 	return replaceContextImages(messages, 0, COMPACTION_IMAGE_OMITTED);
 }
 
+/**
+ * Permanently retires out-of-budget images from STORED session messages.
+ *
+ * The transient provider view ({@link boundModelFacingContextImages}) already
+ * replaces images beyond the newest-first budget with placeholder text on every
+ * request, so those base64 payloads can never reach the model again — but they
+ * stayed resident in `agent.state.messages`/session entries for the process
+ * lifetime (my-pi#1147: multi-GB JS heaps). Because out-of-budget images cost
+ * zero context tokens, they never trigger compaction and accumulate without
+ * bound in long sessions.
+ *
+ * Mutates message content arrays in place with the exact placeholder block the
+ * transient view emits, so provider request bytes are unchanged (cache-neutral;
+ * the retired set is always a subset of what the transient walk would replace)
+ * and every holder of the message object observes the same stub. Durable JSONL
+ * is not rewritten: entries are serialized at append time. Branch/copy
+ * operations that re-serialize in-memory entries carry the placeholder,
+ * matching the resident-prune precedent; the original transcript keeps the
+ * full payload.
+ *
+ * @returns number of image blocks retired.
+ */
+export function retireOutOfBudgetContextImages(messages: readonly object[]): number {
+	let remainingImageChars = MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS;
+	let retired = 0;
+
+	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+		const message = messages[messageIndex];
+		const content = "content" in message ? (message as { content?: unknown }).content : undefined;
+		if (!Array.isArray(content)) continue;
+
+		for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
+			const block = content[blockIndex];
+			if (!isImageContent(block)) continue;
+			if (block.data.length <= remainingImageChars) {
+				remainingImageChars -= block.data.length;
+				continue;
+			}
+
+			content[blockIndex] = { type: "text", text: CONTEXT_IMAGE_OMITTED };
+			retired++;
+		}
+	}
+
+	return retired;
+}
+
 function replaceContextImages<T extends object>(messages: T[], imageBudget: number, placeholder: string): T[] {
 	let remainingImageChars = imageBudget;
 	let nextMessages: T[] | undefined;

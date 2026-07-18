@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Memory: permanently retire image payloads that fall out of the model-facing image budget from stored session messages at `agent_end` and on session restore. Out-of-budget images are already placeholder text in every provider request (and cost zero context tokens, so they never trigger compaction), but their base64 stayed resident for the process lifetime and accumulated without bound in long sessions. Cache-neutral (provider-view bytes unchanged, equivalence-tested) and durable-safe (JSONL persisted before retirement).
+
 - Memory: default resident session pruning to enabled (`compaction.residentPrune`, opt out with `false` or `PI_RESIDENT_SESSION_PRUNE=0`) so pre-compaction tool-result payloads are stubbed in resident memory after each compaction; the durable JSONL transcript is unchanged. Bounds heap growth on long-lived sessions that previously grew to multi-GB RSS.
 
 - Memory: evict terminal (exited/killed/failed) background bash jobs from the in-memory registry beyond a 50-entry cap; running jobs and recently finished jobs are retained so `bash_output` still resolves.

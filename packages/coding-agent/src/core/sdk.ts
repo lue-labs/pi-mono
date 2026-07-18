@@ -27,7 +27,7 @@ import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, type SessionContext, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
 import { time } from "./timings.ts";
-import { boundModelFacingContextImages } from "./tool-artifacts.ts";
+import { boundModelFacingContextImages, retireOutOfBudgetContextImages } from "./tool-artifacts.ts";
 import {
 	createBashTool,
 	createCodingTools,
@@ -551,6 +551,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	// Restore messages if session has existing data
 	if (hasExistingSession) {
+		// Retire base64 payloads of images beyond the model-facing budget before
+		// they become resident: the provider view renders them as placeholders
+		// anyway, and a resumed long session can otherwise rehydrate hundreds of
+		// MB of unreachable-to-the-model image data (my-pi#1147).
+		retireOutOfBudgetContextImages(existingSession.messages);
 		agent.state.messages = existingSession.messages;
 		if (model && !sessionModelMatches(existingSession.model, model)) {
 			sessionManager.appendModelChange(model.provider, model.id);
