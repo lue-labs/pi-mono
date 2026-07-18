@@ -1513,6 +1513,42 @@ export class AgentSession {
 	}
 
 	/**
+	 * Message-delivered hydration seam (cache-critical, issue #348).
+	 *
+	 * On transports with `compat.supportsDeferredTools === false` a deferred tool
+	 * cannot be activated via native tool_reference blocks. The legacy fallback
+	 * (`setActiveToolsByName`) instead adds the tool to the serialized `tools[]`,
+	 * which rewrites the whole cached prefix — a one-time full-prefix cache bust.
+	 *
+	 * This path avoids that: the tool_search result already delivers the tool's
+	 * schema as an in-message `<functions>` block, so here we only register the
+	 * executor. Each hydrated tool is cloned with `messageDelivered:true` and
+	 * appended to `state.tools` so the local agent loop can resolve the call, while
+	 * the Anthropic serializer omits `messageDelivered` tools from the wire
+	 * `tools[]` — the cached prefix stays byte-identical across activation.
+	 *
+	 * Idempotent and cache-safe: names already hydrated are skipped, and the
+	 * system prompt is NOT rebuilt (unlike setActiveToolsByName).
+	 */
+	hydrateMessageDeliveredToolsByName(names: string[]): void {
+		const current = this.agent.state.tools;
+		const present = new Set(current.map((tool) => tool.name));
+		const additions: AgentTool[] = [];
+		for (const name of names) {
+			if (present.has(name)) continue;
+			const tool = this._toolRegistry.get(name);
+			if (!tool || !isToolAvailableForModel(tool, this.model)) continue;
+			additions.push({ ...tool, messageDelivered: true, deferLoading: true });
+			present.add(name);
+		}
+		if (additions.length === 0) return;
+		// Append-only: new array reference, but every wire-serialized element is
+		// unchanged and the additions are dropped from the wire (messageDelivered),
+		// so the provider request bytes — and the prompt cache — are preserved.
+		this.agent.state.tools = [...current, ...additions];
+	}
+
+	/**
 	 * Post-registration deferral seam (cache-critical).
 	 *
 	 * Marks already-registered tools as `deferLoading:true` so EVERY consumer
@@ -3904,6 +3940,7 @@ export class AgentSession {
 				setActiveTools: (toolNames) => this.setActiveToolsByName(toolNames),
 				setDeferredOverrides: (names) => this.setDeferredToolOverrides(names),
 				setToolNamespaces: (map) => this.setToolNamespaces(map),
+				hydrateMessageDeliveredTools: (names) => this.hydrateMessageDeliveredToolsByName(names),
 				refreshTools: (options) => this._refreshToolRegistry(options),
 				getCommands,
 				setModel: async (model) => {

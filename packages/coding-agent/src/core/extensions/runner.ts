@@ -405,6 +405,7 @@ export class ExtensionRunner {
 		this.runtime.setActiveTools = actions.setActiveTools;
 		this.runtime.setDeferredOverrides = actions.setDeferredOverrides;
 		this.runtime.setToolNamespaces = actions.setToolNamespaces;
+		this.runtime.hydrateMessageDeliveredTools = actions.hydrateMessageDeliveredTools;
 		this.runtime.refreshTools = actions.refreshTools;
 		this.runtime.getCommands = actions.getCommands;
 		this.runtime.setModel = actions.setModel;

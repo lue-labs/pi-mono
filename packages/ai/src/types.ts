@@ -485,6 +485,15 @@ export interface Tool<TParameters extends TSchema = TSchema> {
 	 * old name-based web_fetch/web_search interception.
 	 */
 	anthropicServerTool?: Record<string, unknown>;
+	/**
+	 * When true, this tool's schema is delivered to the model inside a transcript
+	 * message (an in-message `<functions>` block) rather than the request `tools[]`
+	 * array. Providers MUST omit it from the wire `tools[]` so the cached prefix
+	 * stays byte-stable across activation, while the local executor still resolves
+	 * it from `context.tools`. Used by the deferred-tool hydration path on
+	 * transports with `compat.supportsDeferredTools === false`.
+	 */
+	messageDelivered?: boolean;
 }
 
 export interface Context {

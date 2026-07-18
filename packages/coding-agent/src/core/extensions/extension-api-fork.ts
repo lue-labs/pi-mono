@@ -265,6 +265,10 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 				runtime.assertActive();
 				runtime.setToolNamespaces(map);
 			},
+			hydrateMessageDeliveredTools(names: string[]): void {
+				runtime.assertActive();
+				runtime.hydrateMessageDeliveredTools(names);
+			},
 		},
 
 		hooks: {

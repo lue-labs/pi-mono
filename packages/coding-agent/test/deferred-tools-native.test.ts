@@ -285,12 +285,15 @@ describe("planDeferredToolSearchForModel — native vs fallback decision", () =>
 		expect(plan.capabilities?.fallbackReason).toMatch(/no model/i);
 	});
 
-	it("uses fallback mode when model.compat disables deferred tools", () => {
+	it("uses hydrate mode when anthropic model.compat disables deferred tools (issue #348)", () => {
 		const model = anthropicModel("claude-sonnet-4-5");
 		(model as { compat?: { supportsDeferredTools?: boolean } }).compat = { supportsDeferredTools: false };
 		const plan = planDeferredToolSearchForModel(definitions, ["alpha"], model, []);
-		expect(plan.mode).toBe("fallback");
-		expect(plan.cacheMayBust).toBe(true);
+		// Message-delivered hydration keeps tools[] byte-stable — no cache bust.
+		expect(plan.mode).toBe("hydrate");
+		expect(plan.activateToolNames).toEqual([]);
+		expect(plan.hydrateToolNames).toEqual(["alpha"]);
+		expect(plan.cacheMayBust).toBe(false);
 	});
 
 	it("uses native mode for openai-codex Responses models", () => {

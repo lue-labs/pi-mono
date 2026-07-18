@@ -1661,6 +1661,11 @@ function convertTools(
 	const wireNames: string[] = [];
 	const toolByWireName = new Map<string, Tool>();
 	for (const tool of tools) {
+		// Message-delivered tools ship their schema in a transcript `<functions>`
+		// block instead of the request tools[] array; omitting them here keeps the
+		// cached tools[] prefix byte-stable across activation. They stay in
+		// context.tools so the local executor can still resolve the call.
+		if (tool.messageDelivered) continue;
 		// Resolved wire name (collision-safe, server-tool-excluded) comes from the
 		// single authoritative map. It joins the cache key so flipping the namespace
 		// kill-switch (or a tool gaining/losing a namespace) can't return a stale name.

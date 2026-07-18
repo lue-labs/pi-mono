@@ -88,6 +88,7 @@ describe("ExtensionRunner", () => {
 		setActiveTools: () => {},
 		setDeferredOverrides: () => {},
 		setToolNamespaces: () => {},
+		hydrateMessageDeliveredTools: () => {},
 		refreshTools: () => {},
 		getCommands: () => [],
 		setModel: async () => false,

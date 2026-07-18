@@ -18,6 +18,21 @@ export interface DeferredToolGuidelineBlock {
 }
 
 /**
+ * A tool's full JSON schema delivered inside the tool-result transcript as a
+ * `<functions>` block. On transports that cannot use native tool_reference
+ * blocks but can receive message-delivered schemas (issue #348), this is how an
+ * activated deferred tool becomes callable WITHOUT mutating the request tools[]
+ * (which would bust the whole cached prefix). The shape matches the harness
+ * system-prompt convention: each function is a JSONSchema object, and a tool
+ * whose schema appears here is "immediately callable exactly like any tool
+ * defined here".
+ */
+export interface DeferredToolSchemaBlock {
+	type: "text";
+	text: string;
+}
+
+/**
  * CACHE CRITICAL: deferred tools keep their schemas out of the cached prefix
  * via defer_loading; their prompt prose (promptSnippet/promptGuidelines) must
  * follow the same rule. The system prompt never includes it (see
@@ -39,6 +54,27 @@ export function buildDeferredToolGuidelineBlock(definition: ToolDefinition): Def
 	};
 }
 
+/**
+ * Serialize the given deferred tool definitions into a single `<functions>`
+ * block for message-delivered hydration. Returns undefined when there is
+ * nothing to deliver.
+ */
+export function buildDeferredToolSchemaBlock(definitions: ToolDefinition[]): DeferredToolSchemaBlock | undefined {
+	const functions = definitions.map((definition) => {
+		const schema = {
+			name: definition.name,
+			description: definition.description,
+			parameters: definition.parameters,
+		};
+		return `<function>${JSON.stringify(schema)}</function>`;
+	});
+	if (functions.length === 0) return undefined;
+	return {
+		type: "text",
+		text: `<functions>\n${functions.join("\n")}\n</functions>`,
+	};
+}
+
 export const DEFERRED_TOOL_STATE_CUSTOM_TYPE = "pi.deferred_tools.state";
 
 export interface DeferredToolStateSnapshot {
@@ -52,14 +88,26 @@ interface DeferredToolStateEntryLike {
 }
 
 export interface DeferredToolSearchPlan {
-	mode: "native" | "fallback";
+	mode: "native" | "fallback" | "hydrate";
 	message: string;
 	matchedToolNames: string[];
 	missingToolNames: string[];
 	discoveredToolNames: string[];
 	referenceBlocks: DeferredToolReferenceBlock[];
 	guidelineBlocks: DeferredToolGuidelineBlock[];
+	/**
+	 * `<functions>` schema blocks delivered in the tool result. Populated only in
+	 * `hydrate` mode; empty otherwise.
+	 */
+	schemaBlocks: DeferredToolSchemaBlock[];
+	/** Names to add to the active/serialized tools[] (fallback mutation path). */
 	activateToolNames: string[];
+	/**
+	 * Names to hydrate append-only via message-delivered schema: register the
+	 * executor without touching the serialized tools[]. Populated in `hydrate`
+	 * mode; empty otherwise.
+	 */
+	hydrateToolNames: string[];
 	cacheMayBust: boolean;
 	capabilities?: DeferredToolCapabilities;
 }
@@ -67,6 +115,12 @@ export interface DeferredToolSearchPlan {
 export interface DeferredToolSearchRuntimeActions {
 	getActiveToolNames(): string[];
 	setActiveTools(toolNames: string[]): void;
+	/**
+	 * Register message-delivered tools so their executor resolves from
+	 * `context.tools` while the serialized wire tools[] stays byte-stable
+	 * (issue #348). Optional: transports without message-delivery never call it.
+	 */
+	hydrateTools?(toolNames: string[]): void;
 }
 
 interface MessageLike {
@@ -133,11 +187,18 @@ export function discoverDeferredTools(
 export function planDeferredToolSearchResult(
 	definitions: Iterable<ToolDefinition>,
 	toolNames: Iterable<string>,
-	options: { nativeDeferredTools: boolean; previouslyDiscovered?: Iterable<string> },
+	options: {
+		nativeDeferredTools: boolean;
+		messageDeliveredSchemas?: boolean;
+		previouslyDiscovered?: Iterable<string>;
+	},
 ): DeferredToolSearchPlan {
 	const discovery = discoverDeferredTools(definitions, toolNames, options.previouslyDiscovered);
 	const matchedToolNames = discovery.matches.map((tool) => tool.name);
-	const mode = options.nativeDeferredTools ? "native" : "fallback";
+	// Message-delivered hydration only applies on the non-native fallback lane.
+	const hydrate = !options.nativeDeferredTools && options.messageDeliveredSchemas === true;
+	const mode = options.nativeDeferredTools ? "native" : hydrate ? "hydrate" : "fallback";
+	const schemaBlock = hydrate ? buildDeferredToolSchemaBlock(discovery.matches) : undefined;
 
 	return {
 		mode,
@@ -146,11 +207,14 @@ export function planDeferredToolSearchResult(
 		missingToolNames: discovery.missing,
 		discoveredToolNames: discovery.discoveredToolNames,
 		referenceBlocks: options.nativeDeferredTools ? discovery.referenceBlocks : [],
-		// Guidelines ship in BOTH modes: fallback activations also need the prose
-		// that no longer lives in the system prompt.
+		// Guidelines ship in ALL modes: fallback/hydrate activations also need the
+		// prose that no longer lives in the system prompt.
 		guidelineBlocks: discovery.guidelineBlocks,
-		activateToolNames: options.nativeDeferredTools ? [] : matchedToolNames,
-		cacheMayBust: !options.nativeDeferredTools && matchedToolNames.length > 0,
+		schemaBlocks: schemaBlock ? [schemaBlock] : [],
+		// Hydrate keeps tools[] byte-stable — no active-list mutation.
+		activateToolNames: options.nativeDeferredTools || hydrate ? [] : matchedToolNames,
+		hydrateToolNames: hydrate ? matchedToolNames : [],
+		cacheMayBust: !options.nativeDeferredTools && !hydrate && matchedToolNames.length > 0,
 	};
 }
 
@@ -163,6 +227,7 @@ export function planDeferredToolSearchForModel(
 	const capabilities = getDeferredToolCapabilities(model);
 	const plan = planDeferredToolSearchResult(definitions, toolNames, {
 		nativeDeferredTools: capabilities.nativeDeferredTools && capabilities.toolReferenceResults,
+		messageDeliveredSchemas: capabilities.messageDeliveredSchemas,
 		previouslyDiscovered,
 	});
 	return {
@@ -180,7 +245,10 @@ export function executeDeferredToolSearchForModel(
 	previouslyDiscovered: Iterable<string> = [],
 ): DeferredToolSearchPlan {
 	const plan = planDeferredToolSearchForModel(definitions, toolNames, model, previouslyDiscovered);
-	if (plan.activateToolNames.length > 0) {
+	if (plan.hydrateToolNames.length > 0) {
+		// Append-only hydration: register executors without mutating tools[].
+		actions.hydrateTools?.(plan.hydrateToolNames);
+	} else if (plan.activateToolNames.length > 0) {
 		actions.setActiveTools(mergeFallbackActiveToolNames(actions.getActiveToolNames(), plan.activateToolNames));
 	}
 	return plan;
@@ -253,13 +321,20 @@ export function scanPromptVisibleDeferredToolNames(messages: Iterable<unknown>):
 	return Array.from(discovered);
 }
 
-function formatDeferredToolSearchMessage(matched: string[], missing: string[], mode: "native" | "fallback"): string {
+function formatDeferredToolSearchMessage(
+	matched: string[],
+	missing: string[],
+	mode: "native" | "fallback" | "hydrate",
+): string {
 	const parts: string[] = [];
 	if (matched.length > 0) {
+		const plural = matched.length === 1 ? "" : "s";
 		parts.push(
 			mode === "native"
-				? `Loaded deferred tool reference${matched.length === 1 ? "" : "s"}: ${matched.join(", ")}.`
-				: `Activated deferred tool${matched.length === 1 ? "" : "s"}: ${matched.join(", ")}. Cache may bust once on fallback providers.`,
+				? `Loaded deferred tool reference${plural}: ${matched.join(", ")}.`
+				: mode === "hydrate"
+					? `Loaded deferred tool schema${plural}: ${matched.join(", ")}. The schema${plural} above ${matched.length === 1 ? "is" : "are"} now callable.`
+					: `Activated deferred tool${plural}: ${matched.join(", ")}. Cache may bust once on fallback providers.`,
 		);
 	}
 	if (missing.length > 0)
