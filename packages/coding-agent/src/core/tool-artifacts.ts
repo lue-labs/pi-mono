@@ -154,16 +154,57 @@ export function stripModelFacingContextImages<T extends object>(messages: T[]): 
 	return replaceContextImages(messages, 0, COMPACTION_IMAGE_OMITTED);
 }
 
-function replaceContextImages<T extends object>(messages: T[], imageBudget: number, placeholder: string): T[] {
+/**
+ * Permanently retires out-of-budget images from STORED session messages.
+ *
+ * The transient provider view ({@link boundModelFacingContextImages}) already
+ * replaces images beyond the newest-first budget with placeholder text on every
+ * request, so those base64 payloads can never reach the model again — but they
+ * stayed resident in `agent.state.messages`/session entries for the process
+ * lifetime (my-pi#1147: multi-GB JS heaps). Because out-of-budget images cost
+ * zero context tokens, they never trigger compaction and accumulate without
+ * bound in long sessions.
+ *
+ * Mutates message content arrays in place with the exact placeholder block the
+ * transient view emits, so provider request bytes are unchanged (cache-neutral:
+ * both this function and the pre-extension-transform provider bound share
+ * {@link collectOverBudgetImageLocations}, so they select the identical block
+ * set) and every holder of the message object observes the same stub. Durable JSONL
+ * is not rewritten: entries are serialized at append time. Branch/copy
+ * operations that re-serialize in-memory entries carry the placeholder,
+ * matching the resident-prune precedent; the original transcript keeps the
+ * full payload.
+ *
+ * @returns number of image blocks retired.
+ */
+export function retireOutOfBudgetContextImages(messages: readonly object[]): number {
+	const locations = collectOverBudgetImageLocations(messages, MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS);
+	for (const { messageIndex, blockIndex } of locations) {
+		const content = (messages[messageIndex] as { content: unknown[] }).content;
+		content[blockIndex] = { type: "text", text: CONTEXT_IMAGE_OMITTED };
+	}
+	return locations.length;
+}
+
+/**
+ * The single newest-first image-budget walk. Both the transient provider bound
+ * ({@link replaceContextImages}) and persistent retirement
+ * ({@link retireOutOfBudgetContextImages}) select blocks through this function,
+ * so their replaced sets cannot drift — that identity is what makes persistent
+ * retirement cache-neutral.
+ */
+function collectOverBudgetImageLocations(
+	messages: readonly object[],
+	imageBudget: number,
+): Array<{ messageIndex: number; blockIndex: number }> {
 	let remainingImageChars = imageBudget;
-	let nextMessages: T[] | undefined;
+	const locations: Array<{ messageIndex: number; blockIndex: number }> = [];
 
 	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
 		const message = messages[messageIndex];
-		const content = "content" in message ? message.content : undefined;
+		const content = "content" in message ? (message as { content?: unknown }).content : undefined;
 		if (!Array.isArray(content)) continue;
 
-		let nextContent: unknown[] | undefined;
 		for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
 			const block = content[blockIndex];
 			if (!isImageContent(block)) continue;
@@ -171,18 +212,29 @@ function replaceContextImages<T extends object>(messages: T[], imageBudget: numb
 				remainingImageChars -= block.data.length;
 				continue;
 			}
-
-			nextContent ??= [...content];
-			nextContent[blockIndex] = { type: "text", text: placeholder };
-		}
-
-		if (nextContent) {
-			nextMessages ??= messages.slice();
-			nextMessages[messageIndex] = { ...message, content: nextContent } as T;
+			locations.push({ messageIndex, blockIndex });
 		}
 	}
 
-	return nextMessages ?? messages;
+	return locations;
+}
+
+function replaceContextImages<T extends object>(messages: T[], imageBudget: number, placeholder: string): T[] {
+	const locations = collectOverBudgetImageLocations(messages, imageBudget);
+	if (locations.length === 0) return messages;
+
+	const nextMessages = messages.slice();
+	const copiedContent = new Map<number, unknown[]>();
+	for (const { messageIndex, blockIndex } of locations) {
+		let content = copiedContent.get(messageIndex);
+		if (!content) {
+			content = [...(nextMessages[messageIndex] as unknown as { content: unknown[] }).content];
+			nextMessages[messageIndex] = { ...nextMessages[messageIndex], content } as T;
+			copiedContent.set(messageIndex, content);
+		}
+		content[blockIndex] = { type: "text", text: placeholder };
+	}
+	return nextMessages;
 }
 
 function isImageContent(block: unknown): block is ImageContent {
