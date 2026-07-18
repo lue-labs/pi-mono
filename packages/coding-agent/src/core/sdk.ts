@@ -535,8 +535,15 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		sessionId: sessionManager.getSessionId(),
 		cacheAffinityKey: undefined,
 		transformContext: async (messages) => {
+			// Bound images on the raw history BEFORE extension context transforms: this
+			// is byte-for-byte the same walk retireOutOfBudgetContextImages() applies to
+			// stored messages, so persistent retirement can never change provider bytes
+			// even when an extension removes/reorders images (which would otherwise
+			// shift the post-transform budget). The post-transform bound stays as a
+			// backstop for images injected by context handlers.
+			const bounded = boundModelFacingContextImages<AgentMessage>(messages);
 			const runner = extensionRunnerRef.current;
-			const extensionMessages = runner ? await runner.emitContext(messages) : messages;
+			const extensionMessages = runner ? await runner.emitContext(bounded) : bounded;
 			return boundModelFacingContextImages<AgentMessage>(extensionMessages);
 		},
 		steeringMode: settingsManager.getSteeringMode(),

@@ -72,6 +72,42 @@ describe("retireOutOfBudgetContextImages", () => {
 		expect(JSON.stringify(viewAfter)).toBe(JSON.stringify(viewBefore));
 	});
 
+	it("stays cache-neutral under image-mutating extension context transforms", () => {
+		// The provider pipeline is bound → extension transforms → bound (sdk.ts
+		// transformContext). An extension that drops the newest image would shift
+		// the budget of a raw post-transform walk toward older images — the
+		// pre-transform bound pins the replaced set to the same walk retirement
+		// uses, so provider bytes cannot change.
+		const makeMessages = () => [imageMessage(2 * MB, "a"), imageMessage(2 * MB, "b")];
+		const dropNewestImage = (messages: TestMessage[]) =>
+			messages.map((message, index) =>
+				index === messages.length - 1
+					? {
+							...message,
+							content: (message.content as unknown[]).filter((b) => (b as { type: string }).type !== "image"),
+						}
+					: message,
+			);
+		const providerView = (messages: TestMessage[]) =>
+			boundModelFacingContextImages(dropNewestImage(boundModelFacingContextImages(messages)));
+
+		const untouched = makeMessages();
+		const viewBefore = providerView(untouched);
+
+		const retired = makeMessages();
+		retireOutOfBudgetContextImages(retired);
+		const viewAfter = providerView(retired);
+
+		expect(JSON.stringify(viewAfter)).toBe(JSON.stringify(viewBefore));
+		// Sanity: with only a post-transform bound this scenario WOULD diverge —
+		// dropping the newest image frees budget for the older (already-retired) one.
+		const rawPostTransformOnly = (messages: TestMessage[]) =>
+			boundModelFacingContextImages(dropNewestImage(messages));
+		expect(JSON.stringify(rawPostTransformOnly(makeMessages()))).not.toBe(
+			JSON.stringify(rawPostTransformOnly(clone(retired))),
+		);
+	});
+
 	it("counts multiple retired blocks across messages", () => {
 		const messages = [imageMessage(2 * MB, "a"), imageMessage(2 * MB, "b"), imageMessage(2 * MB, "c")];
 		expect(retireOutOfBudgetContextImages(messages)).toBe(2);
