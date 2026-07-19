@@ -657,6 +657,20 @@ function getLastCompletedAssistantMessage(messages: readonly AssistantMessage[])
 	return undefined;
 }
 
+// `session.prompt()` resolves even when the run terminated on a provider error
+// (the agent loop records the error on the final assistant message instead of
+// rejecting). Detect that terminal error so the child run is reported as failed
+// with the provider error, not "completed" with empty output.
+function getTrailingAssistantError(messages: readonly AssistantMessage[]): string | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role !== "assistant") continue;
+		if (message.stopReason === "error") return message.errorMessage ?? "Child session stopped with a provider error";
+		return undefined;
+	}
+	return undefined;
+}
+
 function getLastAssistantUsage(messages: readonly AssistantMessage[]): Usage | undefined {
 	return getLastCompletedAssistantMessage(messages)?.usage;
 }
@@ -805,6 +819,8 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		const runPrompt = () => session.prompt(options.prompt, { expandPromptTemplates: false, source: "child-agent" });
 		await (details.agent === "explore" ? runWithBashPolicy(EXPLORE_BASH_POLICY, runPrompt) : runPrompt());
 		if (options.signal?.aborted) throw new Error(`Agent run ${getAbortedRunStatus(options)}`);
+		const trailingError = getTrailingAssistantError(session.messages as readonly AssistantMessage[]);
+		if (trailingError) throw new Error(trailingError);
 		const finalOutput = extractFinalAssistantText(session.messages);
 		const output = await writeAgentOutput({
 			cwd: options.parentServices.cwd,
