@@ -1,0 +1,5 @@
+---
+"@valkyriweb/pi-coding-agent": patch
+---
+
+Remove the fork-core deferred-tool patch family now that the deferred-tools engine + `tool_search` are owned by the my-pi `pi-deferred-tools` v2 extension (public upstream API atop `packages/ai` `splitDeferredTools`) and gateway compat is config-driven (my-pi#1072/#1074/#1075). Deleted: `deferred-tool-registry.ts` (dead — zero callers repo-wide), `deferred-tool-search-tool.ts` (the `tool_search` tool), and the core `extensions/deferred-tools.ts` registration; slimmed `deferred-tools.ts` to the two load-bearing helpers still consumed by core (`isDeferredTool` for `agent-session._rebuildSystemPrompt`, `scanPromptVisibleDeferredToolNames` for context-usage accounting). Kept `deferred-tool-capabilities.ts` (load-bearing for context-usage) and the `setDeferredToolOverrides` seam (untouched — Option A). Shrinks the upstream-sync conflict surface (the parallel core engine cost 149 conflicts on the 2026-07-16 sync). Cache probes byte-stable before/after (my-pi#1077); fork build-gate + my-pi tool-search suite green.
