@@ -9,6 +9,9 @@ const bedrockExplicitRetryMessage =
 const nvidiaNIMResourceExhaustedMessage = "ResourceExhausted: Worker local total request limit reached (288/48)";
 const bunFetchSocketClosedMessage =
 	"The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()";
+const codexConcurrencyThrottleMessage =
+	'{"error":"Too many concurrent requests","detail":{"code":"throttled","error_code":"throttled","message":"Too many concurrent requests","type":"throttled","source":"concurrency_limit"}}';
+const codexTruncatedSseMessage = "Connection error: Invalid Codex SSE JSON: JSON Parse error: Unterminated string";
 
 describe("provider retry classification", () => {
 	it("matches explicit provider retry guidance", () => {
@@ -33,6 +36,19 @@ describe("provider retry classification", () => {
 		expect(
 			isRetryableAssistantError(
 				fauxAssistantMessage("", { stopReason: "error", errorMessage: bunFetchSocketClosedMessage }),
+			),
+		).toBe(true);
+	});
+
+	it("treats concurrency throttles and truncated Codex streams as transient", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: codexConcurrencyThrottleMessage }),
+			),
+		).toBe(true);
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: codexTruncatedSseMessage }),
 			),
 		).toBe(true);
 	});

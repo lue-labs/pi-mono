@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: classify transient concurrency throttles and truncated Codex stream frames as retryable. `RETRYABLE_PROVIDER_ERROR_PATTERN` now matches `too many concurrent`, `throttl`, and `concurrency.?limit`, so gateway throttles (`Too many concurrent requests` / `source: concurrency_limit`) and `Connection error: Invalid Codex SSE/WebSocket JSON …` truncations back off and retry instead of aborting the turn/goal as a non-retryable provider error. Account/quota/billing limits remain non-retryable.
+
 - Fix Codex Responses gateways with opaque bearer credentials and JSON-only transports: `OpenAICodexResponsesCompat` can omit ChatGPT JWT account-ID derivation and inherited headers, force SSE when WebSocket is unsupported, and disable zstd request compression. Direct ChatGPT defaults remain unchanged.
 
 - Fix automatic retries so transient failures remain retryable only before the assistant emits text, thinking, or tool output, preventing duplicate work after a partial response.
