@@ -13,6 +13,7 @@ interface AnthropicToolPayload {
 interface AnthropicContentBlock {
 	type: string;
 	text?: string;
+	tool_name?: string;
 	tool_use_id?: string;
 	content?: string | Array<{ type: string; tool_name?: string }>;
 	source?: {
@@ -203,6 +204,66 @@ describe("deferred tools", () => {
 		expect(payload.tools?.map((tool) => tool.name)).toEqual(["base_tool"]);
 		const content = findAnthropicToolResult(payload).content;
 		expect(Array.isArray(content) && content.some((block) => block.type === "tool_reference")).toBe(false);
+	});
+
+	it("drops a transcript assistant tool_reference to a tool missing from this request", async () => {
+		const context = makeContext([makeTool("base_tool")], []);
+		context.messages.push(
+			{
+				...makeAssistantToolCall(),
+				content: [
+					{ type: "text", text: "using tools" },
+					{ type: "tool_reference", name: "ghost_tool" },
+					{ type: "tool_reference", name: "base_tool" },
+				],
+				stopReason: "stop",
+				timestamp: 5,
+			},
+			makeUserMessage(6),
+		);
+
+		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
+
+		const referenced = payload.messages
+			.flatMap((message) => (typeof message.content === "string" ? [] : message.content))
+			.filter((block) => block.type === "tool_reference")
+			.map((block) => block.tool_name);
+		expect(referenced).toEqual(["base_tool"]);
+	});
+
+	it("drops tool-result tool_reference content for tools missing from this request", async () => {
+		const context = makeContext([makeTool("base_tool")], []);
+		const result = context.messages[2] as ToolResultMessage;
+		result.content = [
+			{ type: "text", text: "fetched docs" },
+			{ type: "tool_reference", name: "ghost_tool" },
+		];
+
+		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
+
+		expect(findAnthropicToolResult(payload).content).toBe("fetched docs");
+	});
+
+	it("keeps tool-result tool_reference content for tools present in this request", async () => {
+		const context = makeContext([makeTool("base_tool")], []);
+		const result = context.messages[2] as ToolResultMessage;
+		result.content = [{ type: "tool_reference", name: "base_tool" }];
+
+		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
+
+		expect(findAnthropicToolResult(payload).content).toEqual([{ type: "tool_reference", tool_name: "base_tool" }]);
+	});
+
+	it("replaces a tool result whose content is only unavailable tool references", async () => {
+		const context = makeContext([makeTool("base_tool")], []);
+		const result = context.messages[2] as ToolResultMessage;
+		result.content = [{ type: "tool_reference", name: "ghost_tool" }];
+
+		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
+
+		expect(findAnthropicToolResult(payload).content).toBe(
+			"[Tool reference removed - tool not available in this request]",
+		);
 	});
 
 	it("keeps a tool immediate when it was used before its marker", async () => {

@@ -267,6 +267,26 @@ function stripToolReferencesFromContent(
 	return convertContentBlocks(filtered);
 }
 
+// Drop transcript tool_reference blocks naming tools absent from this request's
+// tools[]. Anthropic requires every tool_reference to exactly match an entry in
+// tools[] and 400s the whole request otherwise ("Tool reference 'X' not found in
+// available tools") — which happens when a transcript is replayed with a smaller
+// tool set (forked child with filtered tools, changed profile, resumed session).
+function dropUnknownToolReferences(
+	content: (TextContent | ImageContent | { type: "tool_reference"; name: string })[],
+	requestToolNames: ReadonlySet<string>,
+	canonicalToWire?: Map<string, string>,
+): (TextContent | ImageContent | { type: "tool_reference"; name: string })[] {
+	const filtered = content.filter(
+		(block) =>
+			block.type !== "tool_reference" || requestToolNames.has(canonicalToWire?.get(block.name) ?? block.name),
+	);
+	if (filtered.length === 0 && content.length > 0) {
+		return [{ type: "text", text: "[Tool reference removed - tool not available in this request]" }];
+	}
+	return filtered;
+}
+
 export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export type AnthropicThinkingDisplay = "summarized" | "omitted";
@@ -1294,6 +1314,13 @@ function buildParams(
 	// definition, so an all-deferred split falls back to sending everything now.
 	const deferredToolNames: ReadonlySet<string> =
 		toolPlacement.immediate.length > 0 ? new Set(toolPlacement.deferred.keys()) : new Set();
+	// Wire names of every tool serialized into this request's tools[] (same
+	// expression as convertTools). Transcript tool_reference blocks are filtered
+	// against this set — Anthropic rejects the request when a reference names a
+	// tool that is not in tools[].
+	const requestToolNames: ReadonlySet<string> = new Set(
+		(context.tools ?? []).map((tool) => canonicalToWire.get(tool.name) ?? toBaseToolName(tool, isOAuthToken)),
+	);
 	const params: MessageCreateParamsStreaming = {
 		model: model.id,
 		messages: convertMessages(
@@ -1306,6 +1333,7 @@ function buildParams(
 			canonicalToWire,
 			deferredToolNames,
 			normalizeToolName,
+			requestToolNames,
 		),
 		max_tokens: options?.maxTokens ?? model.maxTokens,
 		stream: true,
@@ -1420,6 +1448,7 @@ function convertMessages(
 	canonicalToWire?: Map<string, string>,
 	deferredToolNames: ReadonlySet<string> = new Set(),
 	normalizeToolName: (name: string) => string = (name) => name,
+	requestToolNames: ReadonlySet<string> = new Set(),
 ): MessageParam[] {
 	const params: MessageParam[] = [];
 	const loadedToolNames = new Set<string>();
@@ -1531,9 +1560,13 @@ function convertMessages(
 						input: block.arguments ?? {},
 					});
 				} else if (block.type === "tool_reference" && supportsDeferredTools) {
+					const wireName = canonicalToWire?.get(block.name) ?? block.name;
+					// Skip references to tools missing from this request's tools[] —
+					// Anthropic 400s the whole request on an unresolvable reference.
+					if (!requestToolNames.has(wireName)) continue;
 					blocks.push({
 						type: "tool_reference",
-						tool_name: canonicalToWire?.get(block.name) ?? block.name,
+						tool_name: wireName,
 					} as unknown as ContentBlockParam);
 				}
 			}
@@ -1565,7 +1598,10 @@ function convertMessages(
 					});
 				}
 				const convertedContent = supportsDeferredTools
-					? convertContentBlocks(result.content, canonicalToWire)
+					? convertContentBlocks(
+							dropUnknownToolReferences(result.content, requestToolNames, canonicalToWire),
+							canonicalToWire,
+						)
 					: stripToolReferencesFromContent(result.content);
 				toolResults.push({
 					type: "tool_result",

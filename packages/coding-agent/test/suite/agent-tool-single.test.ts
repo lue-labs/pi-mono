@@ -55,6 +55,38 @@ describe("agent tool suite: single", () => {
 		expect(seenChildContexts[0]?.tools?.map((tool) => tool.name)).not.toContain("agent");
 	});
 
+	it("reports a child run that stops on a provider error as failed", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("", {
+				stopReason: "error",
+				errorMessage: "400 Tool reference 'ctx_fetch_and_index' not found in available tools",
+			}),
+		]);
+
+		const details = await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "general", task: "Summarize the repo" }] },
+			{
+				parentServices: {
+					cwd: harness.tempDir,
+					agentDir: harness.tempDir,
+					authStorage: harness.authStorage,
+					settingsManager: harness.settingsManager,
+					modelRegistry: harness.session.modelRegistry,
+				},
+				parentActiveTools: ["read"],
+				parentSessionManager: harness.sessionManager,
+				parentModel: harness.getModel(),
+				parentThinkingLevel: "off",
+			},
+		);
+
+		expect(details.status).toBe("failed");
+		expect(details.runs[0]?.status).toBe("failed");
+		expect(details.runs[0]?.error).toContain("Tool reference 'ctx_fetch_and_index' not found");
+	});
+
 	it("surfaces child provider rate-limit retries in Agent progress", async () => {
 		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } } });
 		harnesses.push(harness);
