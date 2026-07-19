@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Type } from "typebox";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { writeAgentOutput } from "../src/core/agents/output.ts";
 import {
@@ -11,8 +10,6 @@ import {
 	updateAgentRecentRunProgress,
 } from "../src/core/agents/status.ts";
 import type { AgentToolDetails } from "../src/core/agents/types.ts";
-import { createDeferredToolSearchTool } from "../src/core/deferred-tool-search-tool.ts";
-import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import {
 	createAgentToolDefinition,
 	normalizeAgentToolAliases,
@@ -330,50 +327,6 @@ describe("agent tool", () => {
 		).rejects.toThrow("agent tool is unavailable");
 	});
 
-	test("deferred tool search prefers Claude-compatible agent aliases in query matches", () => {
-		const definitions: ToolDefinition[] = [
-			{
-				name: "agent",
-				label: "agent",
-				description: "agent",
-				deferLoading: true,
-				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "agent" }] }),
-			},
-			{
-				name: "Agent",
-				label: "Agent",
-				description: "agent",
-				deferLoading: true,
-				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "Agent" }] }),
-			},
-			{
-				name: "Task",
-				label: "Task",
-				description: "agent",
-				deferLoading: true,
-				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "Task" }] }),
-			},
-		];
-		const tool = createDeferredToolSearchTool({
-			getToolDefinitions: () => definitions,
-			getModel: () => undefined,
-			getDiscoveredToolNames: () => [],
-			setDiscoveredToolNames: () => undefined,
-			actions: { getActiveToolNames: () => [], setActiveTools: () => undefined },
-		});
-
-		const params = { query: "agent" } as Parameters<typeof tool.execute>[1];
-		return tool
-			.execute("tool-search", params, undefined, undefined, {
-				hasUI: false,
-			} as Parameters<typeof tool.execute>[4])
-			.then((result) => {
-				const detail = result.details as { matchedToolNames?: string[] } | undefined;
-				expect(detail?.matchedToolNames).toEqual(expect.arrayContaining(["Agent", "Task"]));
-				expect(detail?.matchedToolNames).not.toContain("agent");
-			});
-	});
+	// removed: `deferred tool search prefers Claude-compatible agent aliases`
+	// createDeferredToolSearchTool moved to the pi-deferred-tools v2 extension (my-pi#1076).
 });
