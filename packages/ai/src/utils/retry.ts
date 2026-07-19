@@ -28,6 +28,13 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"overloaded",
 	"rate.?limit",
 	"too many requests",
+	// Concurrency throttles are transient: providers/gateways (e.g. OpenAI Codex
+	// backend) return "Too many concurrent requests" / `throttled` /
+	// `source: concurrency_limit` when too many turns run at once. Retrying after
+	// backoff clears them, unlike the account/quota limits above.
+	"too many concurrent",
+	"throttl",
+	"concurrency.?limit",
 	"429",
 	"500",
 	"502",
