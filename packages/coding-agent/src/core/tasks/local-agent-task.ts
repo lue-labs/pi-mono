@@ -80,6 +80,7 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 		needsInput: followsPersistentParent
 			? needsInputFor(run, status)
 			: status === "interrupted" || status === "failed",
+		hidden: run.hidden,
 		startedAt,
 		endedAt:
 			status === "running" || status === "idle" || status === "interrupted"
@@ -101,6 +102,7 @@ function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 		label: run.label,
 		sessionPath: run.sessionRefs.length === 1 ? run.sessionRefs[0]?.sessionPath : undefined,
 		needsInput: needsInputFor(run, status),
+		hidden: run.hidden,
 		startedAt: Date.parse(run.startedAt),
 		endedAt: run.endedAt ? Date.parse(run.endedAt) : undefined,
 		resumable: run.resumable,

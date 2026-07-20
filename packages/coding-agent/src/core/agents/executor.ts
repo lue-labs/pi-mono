@@ -1784,6 +1784,7 @@ export async function executeAgentTool(
 		parentRunId: options.parentServices.parentRunId,
 		persistent: isPersistentPark(input),
 		label: input.mode === "single" ? input.tasks[0]?.description : undefined,
+		hidden: input.mode === "single" && input.tasks[0]?.hidden === true,
 	});
 	if (input.background) {
 		return executeManagedAgentRun(input, options, recentRun, { returnImmediately: true });

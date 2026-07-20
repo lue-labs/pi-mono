@@ -4,10 +4,10 @@ import { join } from "node:path";
 import type { Context } from "@valkyriweb/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
-import { clearAgentRecentRunsForTests } from "../../../src/core/agents/status.ts";
+import { clearAgentRecentRunsForTests, listAgentRecentRuns } from "../../../src/core/agents/status.ts";
 import { hookAgentsTools } from "../../../src/core/extensions/agents.ts";
 import { deleteExtensionProcessServiceForTests } from "../../../src/core/extensions/loader.ts";
-import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, type AgentHandle, type ExtensionAPI } from "../../../src/index.ts";
+import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, type AgentHandle, type ExtensionAPI, getTaskSnapshot, listTasks } from "../../../src/index.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 interface CapturedFork {
@@ -97,6 +97,7 @@ function forkExtensionFactory(
 		cwd?: string;
 		agentType?: string;
 		persistent?: boolean;
+		hidden?: boolean;
 	} = {},
 ) {
 	const handles: AgentHandle[] = [];
@@ -114,6 +115,7 @@ function forkExtensionFactory(
 					...(options.context ? { context: options.context } : {}),
 					...(options.agentType ? { agentType: options.agentType } : {}),
 					...(options.persistent ? { persistent: options.persistent } : {}),
+					...(options.hidden ? { hidden: true } : {}),
 					...(options.metadata ? { metadata: options.metadata } : {}),
 					...(options.cwd ? { cwd: options.cwd } : {}),
 					...(controller ? { signal: controller.signal } : {}),
@@ -229,6 +231,27 @@ describe("ctx.forkAgent", () => {
 		expect(details.status).toBe("completed");
 		expect(details.runs[0]?.status).toBe("completed");
 		expect(record.contexts.some(isChildContext)).toBe(true);
+	});
+
+	it("hides internal forks from task enumeration while preserving direct diagnostics", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		// Existing pi-memory releases already carry this metadata marker; the core
+		// compatibility path makes the fix live after only a binary promotion.
+		const { factory } = forkExtensionFactory(captured, { metadata: { intercom: { hidden: true } } });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+		await captured.handle!.wait();
+
+		expect(listAgentRecentRuns().some((run) => run.label === "fork-agent test")).toBe(false);
+		const taskId = listAgentRecentRuns({ includeHidden: true }).find((run) => run.label === "fork-agent test")?.id;
+		expect(taskId).toBeDefined();
+		expect(listTasks().map((task) => task.id)).not.toContain(taskId);
+		expect(getTaskSnapshot(taskId!)).toMatchObject({ id: taskId, hidden: true });
 	});
 
 	it("forwards forkAgent({ cwd }) through the fork path without breaking the child run", async () => {

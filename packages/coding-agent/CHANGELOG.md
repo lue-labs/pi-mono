@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: internal extension forks marked with `forkAgent({ hidden: true })` or `metadata.intercom.hidden` no longer appear in default Agents panes, status, or footer attention counts; direct ID diagnostics and lifecycle control remain available ([#358](https://github.com/valkyriweb/pi-mono/pull/358)).
+
 - Fix: child agent runs that terminate on a provider error now report `status: "failed"` with the provider's error message instead of `"completed"` with empty output — `session.prompt()` resolves on error-stopped runs, so `driveChildSession` never saw the failure. A trailing `stopReason: "error"` assistant message now fails the run ([my-pi#1210](https://github.com/valkyriweb/my-pi/issues/1210), [#354](https://github.com/valkyriweb/pi-mono/pull/354)).
 
 - Removed the fork-core deferred-tool patch family, retired to the my-pi pi-deferred-tools v2 extension atop upstream `splitDeferredTools`: deleted `core/deferred-tool-registry.ts` (dead, zero callers), `core/deferred-tool-search-tool.ts` (core `tool_search` tool), and the core `extensions/deferred-tools.ts` registration; slimmed `core/deferred-tools.ts` to the load-bearing helpers (`isDeferredTool`, `scanPromptVisibleDeferredToolNames`). `deferred-tool-capabilities.ts` and the `setDeferredOverrides` extension seam are retained (Option A). Cache probes byte-identical before/after per mode; build gate green ([my-pi#1076](https://github.com/valkyriweb/my-pi/issues/1076), [#353](https://github.com/valkyriweb/pi-mono/pull/353)).

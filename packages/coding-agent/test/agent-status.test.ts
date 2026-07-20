@@ -324,6 +324,19 @@ describe("native agent status", () => {
 		expect(formatAgentFooterStatus()).toContain("/agents runs");
 	});
 
+	test("hidden failed runs do not surface in default status, footer, or run enumeration", () => {
+		const hidden = startAgentRecentRun("single", [{ agent: "general", task: "Extract memory" }], {
+			background: true,
+			hidden: true,
+		});
+		failAgentRecentRun(hidden, new Error("transient provider failure"));
+
+		expect(listAgentRecentRuns()).toEqual([]);
+		expect(formatAgentFooterStatus()).toBeUndefined();
+		expect(formatAgentStatus()).toContain("No recent native agent runs.");
+		expect(listAgentRecentRuns({ includeHidden: true })).toHaveLength(1);
+	});
+
 	test("formats agent tokens and durations compactly", () => {
 		expect(formatAgentTokenCount(32_559)).toBe("32k");
 		expect(formatAgentDurationMs(59_000)).toBe("59s");

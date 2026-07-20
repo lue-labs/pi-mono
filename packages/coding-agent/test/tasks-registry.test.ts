@@ -122,6 +122,18 @@ describe("tasks registry — LocalAgentTask adapter", () => {
 		expect(tasks.every((t) => t.type === "local_agent")).toBe(true);
 	});
 
+	test("hidden internal agent runs stay addressable but are omitted from task enumeration", () => {
+		const visible = startAgentRecentRun("single", [{ agent: "scout", task: "Visible" }], { background: true });
+		const hidden = startAgentRecentRun("single", [{ agent: "general", task: "Extract memory" }], {
+			background: true,
+			hidden: true,
+		});
+
+		expect(listTasks().map((task) => task.id)).toContain(visible.id);
+		expect(listTasks().map((task) => task.id)).not.toContain(hidden.id);
+		expect(getTaskSnapshot(hidden.id)).toMatchObject({ id: hidden.id, hidden: true });
+	});
+
 	test("getTaskSnapshot finds task by id across adapters", () => {
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map" }], { background: true });
 		expect(getTaskSnapshot(run.id)?.id).toBe(run.id);

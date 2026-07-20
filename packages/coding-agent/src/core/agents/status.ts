@@ -51,6 +51,8 @@ export interface AgentRecentRun {
 	 * human-authored name is available. Undefined for runs that never set one.
 	 */
 	label?: string;
+	/** Internal run omitted from user-facing task enumeration. */
+	hidden?: boolean;
 }
 
 /**
@@ -325,6 +327,8 @@ export function startAgentRecentRun(
 		persistent?: boolean;
 		/** See `AgentRecentRun.label`. */
 		label?: string;
+		/** See `AgentRecentRun.hidden`. */
+		hidden?: boolean;
 	},
 ): AgentRecentRun {
 	const timestamp = nowIso();
@@ -347,6 +351,7 @@ export function startAgentRecentRun(
 		persistent: options?.persistent ?? false,
 		parked: false,
 		label: options?.label,
+		hidden: options?.hidden,
 	};
 	runGenerations.set(run, 0);
 	recentRuns.unshift(run);
@@ -491,8 +496,10 @@ export async function injectAgentRecentRun(runId: string, message: string): Prom
 	return { ok: true, message: `Queued message for ${runId}`, run: cloneRecentRun(run) };
 }
 
-export function listAgentRecentRuns(): AgentRecentRun[] {
-	return recentRuns.map(cloneRecentRun);
+export function listAgentRecentRuns(options: { includeHidden?: boolean } = {}): AgentRecentRun[] {
+	return recentRuns
+		.filter((run) => options.includeHidden === true || !run.hidden)
+		.map(cloneRecentRun);
 }
 
 /** Return a cloned snapshot of the recent run with the given id, or undefined. */
