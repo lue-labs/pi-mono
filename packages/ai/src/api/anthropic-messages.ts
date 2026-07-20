@@ -275,12 +275,17 @@ function stripToolReferencesFromContent(
 function dropUnknownToolReferences(
 	content: (TextContent | ImageContent | { type: "tool_reference"; name: string })[],
 	requestToolNames: ReadonlySet<string>,
-	canonicalToWire?: Map<string, string>,
+	normalizeToolName: (name: string) => string,
 ): (TextContent | ImageContent | { type: "tool_reference"; name: string })[] {
-	const filtered = content.filter(
-		(block) =>
-			block.type !== "tool_reference" || requestToolNames.has(canonicalToWire?.get(block.name) ?? block.name),
-	);
+	const filtered: (TextContent | ImageContent | { type: "tool_reference"; name: string })[] = [];
+	for (const block of content) {
+		if (block.type !== "tool_reference") {
+			filtered.push(block);
+			continue;
+		}
+		const name = normalizeToolName(block.name);
+		if (requestToolNames.has(name)) filtered.push({ ...block, name });
+	}
 	if (filtered.length === 0 && content.length > 0) {
 		return [{ type: "text", text: "[Tool reference removed - tool not available in this request]" }];
 	}
@@ -1319,7 +1324,7 @@ function buildParams(
 	// against this set — Anthropic rejects the request when a reference names a
 	// tool that is not in tools[].
 	const requestToolNames: ReadonlySet<string> = new Set(
-		(context.tools ?? []).map((tool) => canonicalToWire.get(tool.name) ?? toBaseToolName(tool, isOAuthToken)),
+		(context.tools ?? []).map((tool) => normalizeToolName(tool.name)),
 	);
 	const params: MessageCreateParamsStreaming = {
 		model: model.id,
@@ -1560,7 +1565,7 @@ function convertMessages(
 						input: block.arguments ?? {},
 					});
 				} else if (block.type === "tool_reference" && supportsDeferredTools) {
-					const wireName = canonicalToWire?.get(block.name) ?? block.name;
+					const wireName = normalizeToolName(block.name);
 					// Skip references to tools missing from this request's tools[] —
 					// Anthropic 400s the whole request on an unresolvable reference.
 					if (!requestToolNames.has(wireName)) continue;
@@ -1599,7 +1604,7 @@ function convertMessages(
 				}
 				const convertedContent = supportsDeferredTools
 					? convertContentBlocks(
-							dropUnknownToolReferences(result.content, requestToolNames, canonicalToWire),
+							dropUnknownToolReferences(result.content, requestToolNames, normalizeToolName),
 							canonicalToWire,
 						)
 					: stripToolReferencesFromContent(result.content);
