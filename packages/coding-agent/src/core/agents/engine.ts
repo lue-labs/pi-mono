@@ -39,6 +39,14 @@ export interface AgentEngineRunOptions {
 
 const agentEngineResolverStore = new AsyncLocalStorage<() => AgentEngine>();
 
+function isHiddenFork(opts: ForkAgentOptions): boolean {
+	if (opts.hidden === true) return true;
+	// Compatibility for existing extension forks that already mark themselves
+	// hidden through the intercom metadata convention (notably pi-memory).
+	const intercom = opts.metadata?.intercom;
+	return typeof intercom === "object" && intercom !== null && (intercom as Record<string, unknown>).hidden === true;
+}
+
 /** Bind native Agent/Task execution to the current session without shared-loader state. */
 export function runWithAgentEngineResolver<T>(resolver: () => AgentEngine, fn: () => T): T {
 	return agentEngineResolverStore.run(resolver, fn);
@@ -146,6 +154,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 							agent: opts.agentType ?? "general",
 							task: opts.prompt,
 							description: opts.description,
+							hidden: isHiddenFork(opts),
 							// Default "fork" preserves prior behaviour (inherit parent prefix).
 							// Extensions wanting cache-stable prefixes pass "slim" or "none".
 							context: opts.context ?? "fork",

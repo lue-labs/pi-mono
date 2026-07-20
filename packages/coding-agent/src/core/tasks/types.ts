@@ -59,6 +59,8 @@ export interface TaskSnapshot {
 	 * over "working" whenever both are non-zero.
 	 */
 	needsInput?: boolean;
+	/** Internal task omitted from ordinary user-facing task enumeration. */
+	hidden?: boolean;
 	/**
 	 * Id to use for control-plane operations (kill/requestShutdown/injectMessage,
 	 * and any other API that dispatches on a task id — including consumers that

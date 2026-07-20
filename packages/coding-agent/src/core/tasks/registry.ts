@@ -52,7 +52,7 @@ export function listTasks(): TaskSnapshot[] {
 	if (adapters.has("local_agent")) {
 		for (const run of listAgentRecentRuns()) {
 			const snap = LocalAgentTask.snapshot(run.id);
-			if (snap) out.push(snap);
+			if (snap && !snap.hidden) out.push(snap);
 		}
 	}
 	if (adapters.has("local_bash")) {
