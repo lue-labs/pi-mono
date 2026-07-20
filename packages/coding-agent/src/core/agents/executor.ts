@@ -657,15 +657,17 @@ function getLastCompletedAssistantMessage(messages: readonly AssistantMessage[])
 	return undefined;
 }
 
-// `session.prompt()` resolves even when the run terminated on a provider error
-// (the agent loop records the error on the final assistant message instead of
-// rejecting). Detect that terminal error so the child run is reported as failed
-// with the provider error, not "completed" with empty output.
-function getTrailingAssistantError(messages: readonly AssistantMessage[]): string | undefined {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (message.role !== "assistant") continue;
-		if (message.stopReason === "error") return message.errorMessage ?? "Child session stopped with a provider error";
+// `session.prompt()` resolves even when the run terminated on a provider error.
+// Check the persisted branch: overflow recovery removes an error from live state
+// before compaction, but the transcript retains it when recovery cannot continue.
+function getTrailingAssistantError(sessionManager: ReadonlySessionManager): string | undefined {
+	const branch = sessionManager.getBranch();
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+		if (entry.message.stopReason === "error") {
+			return entry.message.errorMessage ?? "Child session stopped with a provider error";
+		}
 		return undefined;
 	}
 	return undefined;
@@ -709,6 +711,7 @@ function refreshRunDetailsFromSession(
 
 interface DriveChildSessionOptions extends AgentExecutorOptions {
 	task: NormalizedAgentTaskConfig;
+	sessionManager: ReadonlySessionManager;
 	chainDir?: string;
 	progressInput: AgentToolExecutionInput;
 	progressRuns: AgentRunDetails[];
@@ -819,7 +822,7 @@ async function driveChildSession(session: AgentSession, options: DriveChildSessi
 		const runPrompt = () => session.prompt(options.prompt, { expandPromptTemplates: false, source: "child-agent" });
 		await (details.agent === "explore" ? runWithBashPolicy(EXPLORE_BASH_POLICY, runPrompt) : runPrompt());
 		if (options.signal?.aborted) throw new Error(`Agent run ${getAbortedRunStatus(options)}`);
-		const trailingError = getTrailingAssistantError(session.messages as readonly AssistantMessage[]);
+		const trailingError = getTrailingAssistantError(options.sessionManager);
 		if (trailingError) throw new Error(trailingError);
 		const finalOutput = extractFinalAssistantText(session.messages);
 		const output = await writeAgentOutput({
@@ -1193,6 +1196,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 
 	return driveChildSession(session, {
 		...options,
+		sessionManager: childSessionManager,
 		details,
 		startedAt,
 		prompt: childPrompt,
@@ -1393,6 +1397,7 @@ async function resumeSingleBackgroundRun(
 		await driveChildSession(session, {
 			...options,
 			task,
+			sessionManager: childSessionManager,
 			chainDir: input.chainDir,
 			progressInput: input,
 			progressRuns: runs,

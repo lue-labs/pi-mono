@@ -254,6 +254,21 @@ describe("deferred tools", () => {
 		expect(findAnthropicToolResult(payload).content).toEqual([{ type: "tool_reference", tool_name: "base_tool" }]);
 	});
 
+	it("keeps OAuth tool references after canonicalizing their serialized names", async () => {
+		const context = makeContext([makeTool("base_tool"), makeTool("read")], []);
+		const result = context.messages[2] as ToolResultMessage;
+		result.content = [{ type: "tool_reference", name: "read" }];
+
+		const payload = await capturePayload<AnthropicPayload>(
+			getModel("anthropic", "claude-opus-4-6"),
+			context,
+			"sk-ant-oat-fake",
+		);
+
+		expect(payload.tools?.map((tool) => tool.name)).toEqual(["base_tool", "Read"]);
+		expect(findAnthropicToolResult(payload).content).toEqual([{ type: "tool_reference", tool_name: "Read" }]);
+	});
+
 	it("replaces a tool result whose content is only unavailable tool references", async () => {
 		const context = makeContext([makeTool("base_tool")], []);
 		const result = context.messages[2] as ToolResultMessage;
