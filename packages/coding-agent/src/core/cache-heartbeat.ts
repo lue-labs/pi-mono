@@ -259,7 +259,7 @@ export class CacheHeartbeatManager {
 		const providerRetrySettings = this.host.settingsManager.getProviderRetrySettings();
 		try {
 			const model = this.host.model;
-			const stream = await this.host.agent.streamFn(model, heartbeatContext, {
+			const stream = await this.host.agent.streamFunction(model, heartbeatContext, {
 				cacheRetention: "long",
 				maxTokens: settings.maxTokens,
 				maxRetries: 0,

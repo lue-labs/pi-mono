@@ -154,10 +154,7 @@ export const BASH_BG_MAX_TERMINAL = 50;
  * recently finished are kept so bash_output on a just-finished job still resolves.
  * Injectable so the eviction policy is unit-testable without spawning processes.
  */
-export function selectTerminalBashBgJobIdsToEvict(
-	jobs: BashBgJob[],
-	cap: number = BASH_BG_MAX_TERMINAL,
-): string[] {
+export function selectTerminalBashBgJobIdsToEvict(jobs: BashBgJob[], cap: number = BASH_BG_MAX_TERMINAL): string[] {
 	const terminal = jobs.filter((job) => job.status !== "running");
 	if (terminal.length <= cap) return [];
 	terminal.sort((a, b) => (a.endedAt ?? a.startedAt) - (b.endedAt ?? b.startedAt));

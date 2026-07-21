@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@valkyriweb/pi-agent-core";
 import type { AssistantMessage } from "@valkyriweb/pi-ai";
+import { streamSimple } from "@valkyriweb/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession, type AgentSessionEvent } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
@@ -72,6 +73,7 @@ describe("auto-compaction thrashing detector wiring", () => {
 				systemPrompt: "You are a helpful assistant.",
 				tools: [],
 			},
+			streamFunction: streamSimple,
 		});
 
 		const sessionManager = SessionManager.inMemory(tempDir);
