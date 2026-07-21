@@ -7,7 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { clearAgentRecentRunsForTests, listAgentRecentRuns } from "../../../src/core/agents/status.ts";
 import { hookAgentsTools } from "../../../src/core/extensions/agents.ts";
 import { deleteExtensionProcessServiceForTests } from "../../../src/core/extensions/loader.ts";
-import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, type AgentHandle, type ExtensionAPI, getTaskSnapshot, listTasks } from "../../../src/index.ts";
+import {
+	AGENTS_ENGINE_SERVICE_ID,
+	type AgentEngine,
+	type AgentHandle,
+	type ExtensionAPI,
+	getTaskSnapshot,
+	listTasks,
+} from "../../../src/index.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 interface CapturedFork {
@@ -236,9 +243,7 @@ describe("ctx.forkAgent", () => {
 	it("hides internal forks from task enumeration while preserving direct diagnostics", async () => {
 		const captured = newCaptured();
 		const record: ContextRecord = { contexts: [] };
-		// Existing pi-memory releases already carry this metadata marker; the core
-		// compatibility path makes the fix live after only a binary promotion.
-		const { factory } = forkExtensionFactory(captured, { metadata: { intercom: { hidden: true } } });
+		const { factory } = forkExtensionFactory(captured, { hidden: true });
 		const harness = await createHarness({ extensionFactories: [factory] });
 		harnesses.push(harness);
 		makeAgentServices(harness);

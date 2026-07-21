@@ -5,7 +5,6 @@ import type { TaskSnapshot, TaskType } from "./types.ts";
 function taskTypeLabel(type: TaskType): string {
 	if (type === "local_bash") return "bash";
 	if (type === "local_agent") return "agent";
-	if (type === "intercom_peer") return "intercom";
 	return type;
 }
 
