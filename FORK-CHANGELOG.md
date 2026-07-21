@@ -8,6 +8,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Fixed
 
+- **Live compaction now clears the pre-compaction transcript view and keeps one expandable summary visible at the bottom.** The durable compaction entry still stays at the head of the kept tail for resumed-session and model-context chronology; the live TUI redraw omits that offscreen copy, appends one bottom summary card, and exposes its full markdown through the existing tool-expansion key.
+
 - **Internal extension forks can stay out of user-facing agent status.** `forkAgent({ hidden: true })` and the existing `metadata.intercom.hidden` convention now omit internal runs from default task/agent enumeration, panes, and footer attention counts while preserving explicit ID diagnostics and lifecycle control. This prevents transient pi-memory extraction failures from accumulating as agents that “need input”; model, prompt, and tool bytes are unchanged. ([#358](https://github.com/valkyriweb/pi-mono/pull/358))
 
 - **Background bash jobs are reaped when their owning child-agent session ends.** Jobs now carry the spawning session id, child-session disposal tree-kills only that session's running jobs without waking terminal listeners, and root disposal remains the all-jobs backstop. This also prevents a child session from globally killing the parent's background jobs. No system-prompt or tool-schema bytes change.
