@@ -77,6 +77,7 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
+import { createCompactionSummaryMessage } from "../../core/messages.ts";
 import {
 	defaultModelPerProvider,
 	findExactModelReferenceMatch,
@@ -3386,13 +3387,18 @@ export class InteractiveMode {
 						this.showStatus("Auto-compaction cancelled");
 					}
 				} else if (event.result) {
-					// The compaction entry is persisted (appendCompaction) before compaction_end is
-					// emitted, so rebuildChatFromMessages() -> buildSessionContext() already renders the
-					// [compaction] summary at the head of the kept tail. Appending a second synthetic
-					// summary here rendered the marker twice, sandwiching the kept recent tail
-					// (regression: see interactive-mode-compaction.test.ts).
-					this.chatContainer.clear();
-					this.rebuildChatFromMessages();
+					// Resumed sessions keep the persisted summary at the head of the kept tail for
+					// context chronology. During live compaction that head entry can sit above the
+					// bottom-anchored viewport, so redraw the kept tail without it and append exactly
+					// one visible, expandable summary at the bottom.
+					this.rebuildChatFromMessages({ skipLeadingCompactionSummary: true });
+					this.addMessageToChat(
+						createCompactionSummaryMessage(
+							event.result.summary,
+							event.result.tokensBefore,
+							new Date().toISOString(),
+						),
+					);
 					this.footer.invalidate();
 				} else if (event.errorMessage) {
 					if (event.reason === "manual") {
@@ -3698,12 +3704,19 @@ export class InteractiveMode {
 	 * @param entries Compaction-aware session entries to render
 	 * @param options.updateFooter Update footer state
 	 * @param options.populateHistory Add user messages to editor history
+	 * @param options.skipLeadingCompactionSummary Skip the persisted head summary during a live compaction redraw
 	 */
 	private renderSessionEntries(
 		entries: SessionEntry[],
-		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
+		options: {
+			updateFooter?: boolean;
+			populateHistory?: boolean;
+			skipLeadingCompactionSummary?: boolean;
+		} = {},
 	): void {
-		const items = entries.flatMap((entry): RenderSessionItem[] => {
+		const visibleEntries =
+			options.skipLeadingCompactionSummary && entries[0]?.type === "compaction" ? entries.slice(1) : entries;
+		const items = visibleEntries.flatMap((entry): RenderSessionItem[] => {
 			if (entry.type === "custom") {
 				return [entry];
 			}
@@ -3792,9 +3805,9 @@ export class InteractiveMode {
 		});
 	}
 
-	private rebuildChatFromMessages(): void {
+	private rebuildChatFromMessages(options?: { skipLeadingCompactionSummary?: boolean }): void {
 		this.chatContainer.clear();
-		this.renderSessionEntries(this.sessionManager.buildContextEntries());
+		this.renderSessionEntries(this.sessionManager.buildContextEntries(), options);
 	}
 
 	// =========================================================================
