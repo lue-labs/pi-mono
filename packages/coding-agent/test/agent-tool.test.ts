@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { AgentEngine } from "../src/core/agents/engine.ts";
 import { writeAgentOutput } from "../src/core/agents/output.ts";
 import {
 	attachAgentRecentRunController,
@@ -48,6 +49,35 @@ describe("agent tool", () => {
 			maxOutputTokens: 1200,
 		});
 		expect(result.tasks[0].maxOutputTokens).toBe(1200);
+	});
+
+	test("tool execution preserves an automatic-worktree marker, but serialized cwd input cannot carry it", async () => {
+		const marker = Symbol.for("pi.worktree.autoCwd");
+		const inputs: Array<{ tasks: Array<Record<PropertyKey, unknown>> }> = [];
+		const engine = {
+			async run(input: { tasks: Array<Record<PropertyKey, unknown>> }) {
+				inputs.push(input);
+				return { mode: "single", status: "completed", runs: [], background: false } satisfies AgentToolDetails;
+			},
+		} as unknown as AgentEngine;
+		const tool = createAgentToolDefinition(process.cwd(), { engine });
+		const automaticInput = { agent: "general", task: "work", cwd: "/tmp/worktree" } as Parameters<
+			typeof tool.execute
+		>[1] &
+			Record<PropertyKey, unknown>;
+		automaticInput[marker] = true;
+
+		await tool.execute("automatic-worktree", automaticInput, undefined, undefined, { hasUI: false } as never);
+		await tool.execute(
+			"explicit-cwd",
+			JSON.parse(JSON.stringify({ agent: "general", task: "work", cwd: "/tmp/explicit" })),
+			undefined,
+			undefined,
+			{ hasUI: false } as never,
+		);
+
+		expect(inputs[0]?.tasks[0]?.[marker]).toBe(true);
+		expect(inputs[1]?.tasks[0]?.[marker]).toBeUndefined();
 	});
 
 	test("Claude-style single-agent aliases normalize to Pi fields", () => {

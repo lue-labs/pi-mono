@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, AssistantMessage, Model, TextContent, Usage } from "@valkyriweb/pi-ai";
+import type { Api, AssistantMessage, Model, TextContent, Tool, Usage } from "@valkyriweb/pi-ai";
 import type { AgentSession } from "../agent-session.ts";
 import {
 	type AgentSessionServices,
@@ -10,6 +10,7 @@ import {
 	createAgentSessionServices,
 } from "../agent-session-services.ts";
 import type { AuthStorage } from "../auth-storage.ts";
+import { createPromptCacheAffinityKey } from "../cache-affinity.ts";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import { normalizeAutoAliasString, parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
@@ -72,6 +73,7 @@ const MAX_CONCURRENCY = 8;
 const MAX_PARALLEL_TASKS = 8;
 const BACKGROUND_MONITOR_INTERVAL_MS = 30_000;
 const BACKGROUND_STALE_PROGRESS_MS = 10 * 60_000;
+const AUTOMATIC_WORKTREE_CWD = Symbol.for("pi.worktree.autoCwd");
 
 export interface AgentToolParentServices {
 	cwd: string;
@@ -98,6 +100,10 @@ export interface AgentToolParentServices {
 export interface AgentExecutorOptions {
 	parentServices: AgentToolParentServices;
 	parentActiveTools: string[];
+	/** Frozen provider-visible parent tool metadata, in wire order. */
+	parentProviderTools?: Tool[];
+	/** Parent prompt-cache lane reused when the child inherits its stable prefix. */
+	parentCacheAffinityKey?: string;
 	parentSessionManager: ReadonlySessionManager;
 	parentModel: Model<Api> | undefined;
 	parentThinkingLevel: ThinkingLevel;
@@ -883,6 +889,7 @@ function applyMaxOutputTokens(
 
 interface PreparedChildRunContext {
 	agent: AgentDefinition;
+	cacheCompatibleGeneral: boolean;
 	inheritedSystemPrompt?: string;
 	requestedAutoModel?: string;
 	routingMetadata?: Record<string, unknown>;
@@ -919,19 +926,45 @@ async function prepareChildRunContext(options: {
 	}
 
 	// Fork mode is a permissive self-fork: it inherits the parent's transcript,
-	// model/thinking, and tools. A cache-sharing fork must bypass the cheap
-	// settings.subagents defaults unless the caller supplies an explicit override.
+	// model/thinking, and tools. A default General run without an explicit cwd
+	// override is fresh, but preserves the parent's stable provider prefix even
+	// when the runtime places it in an automatic isolation worktree.
+	// Explicit model/tool/system/cwd choices opt out because their bytes or runtime
+	// semantics intentionally differ from the caller.
 	const isForkMode = resolveContextPolicy(task.context).mode === "fork";
-	const inheritedSystemPrompt = isForkMode ? executor.parentSystemPrompt : undefined;
-	const agentDefaults = isForkMode
-		? undefined
-		: resolveAgentDefaults({
-				parentModel: executor.parentModel,
-				settingsManager: executor.parentServices.settingsManager,
-			});
+	const childCwd = resolveChildCwd(task.cwd, executor.parentServices.cwd);
+	const hasAutomaticIsolationCwd =
+		(task as NormalizedAgentTaskConfig & Record<PropertyKey, unknown>)[AUTOMATIC_WORKTREE_CWD] === true;
+	const isUnrestrictedGeneral =
+		agent.id === "general" &&
+		agent.source === "builtin" &&
+		agent.tools === "*" &&
+		(agent.denyTools === undefined || agent.denyTools.length === 0);
+	const isCacheCompatibleGeneral =
+		isUnrestrictedGeneral &&
+		task.context === "default" &&
+		task.model === undefined &&
+		task.tools === undefined &&
+		task.thinking === undefined &&
+		task.systemPrompt === undefined &&
+		(task.cwd === undefined || hasAutomaticIsolationCwd);
+	const inheritedSystemPrompt = isForkMode || isCacheCompatibleGeneral ? executor.parentSystemPrompt : undefined;
+	const agentDefaults =
+		isForkMode || isCacheCompatibleGeneral
+			? undefined
+			: resolveAgentDefaults({
+					parentModel: executor.parentModel,
+					settingsManager: executor.parentServices.settingsManager,
+				});
+	// A cache-compatible General run must retain the parent's concrete model and
+	// thinking level. Ignore profile-level auto/tier routing here: it would make
+	// the request model differ from the frozen parent cache lane.
+	const cacheCompatibleAgent: AgentDefinition = isCacheCompatibleGeneral
+		? { ...agent, model: "inherit", thinking: "inherit" }
+		: agent;
 	const selectedModelReference = resolveAgentModelReference({
 		modelReference: task.model,
-		agent,
+		agent: cacheCompatibleAgent,
 		defaults: agentDefaults,
 	});
 	const requestedAutoModel = normalizeAgentAutoModelAlias(selectedModelReference);
@@ -945,7 +978,7 @@ async function prepareChildRunContext(options: {
 	}
 	const model = resolveAgentModel({
 		modelReference: task.model,
-		agent,
+		agent: cacheCompatibleAgent,
 		defaults: agentDefaults,
 		parentModel: executor.parentModel,
 		modelRegistry: executor.parentServices.modelRegistry,
@@ -954,7 +987,7 @@ async function prepareChildRunContext(options: {
 	const thinking = resolveAgentThinking({
 		taskThinking: task.thinking,
 		toolThinking: options.toolThinking,
-		agent,
+		agent: cacheCompatibleAgent,
 		defaults: agentDefaults,
 		parentThinkingLevel: executor.parentThinkingLevel,
 		model,
@@ -970,26 +1003,30 @@ async function prepareChildRunContext(options: {
 		agent,
 		allowAgentDelegation: true,
 	}).effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
+	const profileCanDelegate = childCanDelegate && profileAllowsAgent;
 	let effectiveTools: string[];
 	let deniedTools: string[];
-	if (isForkMode) {
+	const preserveParentToolPrefix = isForkMode || (isUnrestrictedGeneral && task.tools === undefined);
+	if (preserveParentToolPrefix) {
 		const requested = task.tools ? new Set(task.tools.map((tool) => canonicalToolName(tool))) : undefined;
 		effectiveTools = requested
 			? executor.parentActiveTools.filter((tool) => requested.has(canonicalToolName(tool)))
 			: [...executor.parentActiveTools];
-		deniedTools = [];
+		// Keep the Agent schema in the provider prefix even when nesting is denied.
+		// createAgentSessionFromServices leaves its execution engine unbound, so a
+		// model call fails closed without changing the parent's tool bytes or order.
+		deniedTools = profileCanDelegate ? [] : effectiveTools.filter((tool) => canonicalToolName(tool) === "agent");
 	} else {
 		const resolved = resolveEffectiveTools({
 			parentActiveTools: executor.parentActiveTools,
 			agent,
 			requestedTools: task.tools,
-			allowAgentDelegation: childCanDelegate,
+			allowAgentDelegation: profileCanDelegate,
 		});
 		effectiveTools = resolved.effectiveTools;
 		deniedTools = resolved.deniedTools;
 	}
-	const taskCanDelegate =
-		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
+	const taskCanDelegate = profileCanDelegate && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
 		agent,
@@ -1002,9 +1039,11 @@ async function prepareChildRunContext(options: {
 		startedAt,
 	});
 	const policy = details.context;
-	const childCwd = resolveChildCwd(task.cwd, executor.parentServices.cwd);
+	// Keep cache-compatible General's system prompt byte-identical to the parent.
+	// Its role guidance belongs in the uncached task suffix; appending it to the
+	// final system block invalidates that whole cache block.
 	const roleGuidance =
-		agent.id !== "general" && (isForkMode || Boolean(task.systemPrompt))
+		(agent.id !== "general" && (isForkMode || Boolean(task.systemPrompt))) || isCacheCompatibleGeneral
 			? { agent: agent.id, prompt: buildAgentSystemAppend(agent) }
 			: undefined;
 	const childPrompt = buildChildTaskPrompt(
@@ -1036,6 +1075,7 @@ async function prepareChildRunContext(options: {
 
 	return {
 		agent,
+		cacheCompatibleGeneral: isCacheCompatibleGeneral,
 		inheritedSystemPrompt,
 		requestedAutoModel,
 		routingMetadata,
@@ -1102,10 +1142,11 @@ function applyChildSessionPolicy(
 	session: AgentSession,
 	task: NormalizedAgentTaskConfig,
 	prepared: PreparedChildRunContext,
+	retainInheritedSystemPrompt: boolean,
 ): void {
-	if (task.systemPrompt) {
+	if (task.systemPrompt !== undefined) {
 		session.overrideBaseSystemPrompt(task.systemPrompt);
-	} else if (prepared.inheritedSystemPrompt) {
+	} else if (retainInheritedSystemPrompt && prepared.inheritedSystemPrompt !== undefined) {
 		session.overrideBaseSystemPrompt(prepared.inheritedSystemPrompt);
 	} else if (prepared.agent.cacheProfile === "stable" && prepared.policy.mode === "none") {
 		session.overrideBaseSystemPrompt(buildAgentSystemAppend(prepared.agent));
@@ -1123,6 +1164,88 @@ function applyChildSessionPolicy(
 	if (task.maxTurns !== undefined && task.maxTurns > 0) {
 		session.agent.maxTurns = task.maxTurns;
 	}
+}
+
+function hasExactParentToolNames(session: AgentSession, parentProviderTools: readonly Tool[]): boolean {
+	const childToolNames = session.getActiveToolNames();
+	const parentToolNames = parentProviderTools.map((tool) => tool.name);
+	return (
+		childToolNames.length === parentToolNames.length &&
+		childToolNames.every((name, index) => name === parentToolNames[index])
+	);
+}
+
+function shouldRetainInheritedSystemPrompt(options: {
+	session: AgentSession;
+	task: NormalizedAgentTaskConfig;
+	prepared: PreparedChildRunContext;
+	parentProviderTools?: readonly Tool[];
+}): boolean {
+	const { session, task, prepared, parentProviderTools } = options;
+	// A fork preserves its parent prefix until exact schema enforcement rejects a
+	// missing handler. A default General child instead falls back to its local
+	// prompt when its automatic worktree cannot reproduce a parent tool.
+	return (
+		prepared.inheritedSystemPrompt === undefined ||
+		!prepared.cacheCompatibleGeneral ||
+		parentProviderTools === undefined ||
+		hasExactParentToolNames(session, parentProviderTools) ||
+		task.context === "fork"
+	);
+}
+
+/**
+ * Reuse the parent's cache lane only after the child has its final model-facing
+ * prefix. Fork mode preserves its normal explicit overrides; a parent affinity
+ * key is an optimization, not permission to treat a changed request as cached.
+ */
+function applyParentCacheAffinityIfCompatible(options: {
+	session: AgentSession;
+	parentProviderTools?: readonly Tool[];
+	parentCacheAffinityKey?: string;
+	parentModel: Model<Api> | undefined;
+	parentThinkingLevel: ThinkingLevel;
+	parentSystemPrompt?: string;
+	requireParentToolSchemas: boolean;
+}): void {
+	const {
+		session,
+		parentProviderTools,
+		parentCacheAffinityKey,
+		parentModel,
+		parentThinkingLevel,
+		parentSystemPrompt,
+		requireParentToolSchemas,
+	} = options;
+	if (
+		!parentProviderTools ||
+		!parentModel ||
+		parentSystemPrompt === undefined ||
+		!session.model ||
+		session.thinkingLevel !== parentThinkingLevel
+	) {
+		return;
+	}
+
+	const parentPrefixKey = createPromptCacheAffinityKey(parentModel, {
+		systemPrompt: parentSystemPrompt,
+		tools: [...parentProviderTools],
+	});
+	const childPrefixKey = createPromptCacheAffinityKey(session.model, {
+		systemPrompt: session.agent.state.systemPrompt,
+		tools: [...parentProviderTools],
+	});
+	if (childPrefixKey !== parentPrefixKey) return;
+
+	if (!hasExactParentToolNames(session, parentProviderTools)) {
+		if (requireParentToolSchemas) session.overrideActiveToolProviderSchemas(parentProviderTools);
+		return;
+	}
+
+	// Overlay only after model, system prompt, and tool order/bytes prove that
+	// this request has the parent's exact provider-visible cache prefix.
+	session.overrideActiveToolProviderSchemas(parentProviderTools);
+	if (parentCacheAffinityKey) session.overridePromptCacheAffinityKey(parentCacheAffinityKey);
 }
 
 async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
@@ -1185,12 +1308,34 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		source: "child-agent",
 	});
 	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
+	await session.bindExtensions({});
+	await session.loadDeferredExtensions();
+	session.setActiveToolsByName(effectiveTools);
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
 	}
 
-	applyChildSessionPolicy(session, options.task, prepared);
+	applyChildSessionPolicy(
+		session,
+		options.task,
+		prepared,
+		shouldRetainInheritedSystemPrompt({
+			session,
+			task: options.task,
+			prepared,
+			parentProviderTools: options.parentProviderTools,
+		}),
+	);
+	applyParentCacheAffinityIfCompatible({
+		session,
+		parentProviderTools: options.parentProviderTools,
+		parentCacheAffinityKey: options.parentCacheAffinityKey,
+		parentModel: options.parentModel,
+		parentThinkingLevel: options.parentThinkingLevel,
+		parentSystemPrompt: options.parentSystemPrompt,
+		requireParentToolSchemas: options.task.context === "fork" && options.task.tools === undefined,
+	});
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 
@@ -1380,7 +1525,29 @@ async function resumeSingleBackgroundRun(
 		source: "child-agent",
 	});
 	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
-	applyChildSessionPolicy(session, task, prepared);
+	await session.bindExtensions({});
+	await session.loadDeferredExtensions();
+	session.setActiveToolsByName(effectiveTools);
+	applyChildSessionPolicy(
+		session,
+		task,
+		prepared,
+		shouldRetainInheritedSystemPrompt({
+			session,
+			task,
+			prepared,
+			parentProviderTools: options.parentProviderTools,
+		}),
+	);
+	applyParentCacheAffinityIfCompatible({
+		session,
+		parentProviderTools: options.parentProviderTools,
+		parentCacheAffinityKey: options.parentCacheAffinityKey,
+		parentModel: options.parentModel,
+		parentThinkingLevel: options.parentThinkingLevel,
+		parentSystemPrompt: options.parentSystemPrompt,
+		requireParentToolSchemas: task.context === "fork" && task.tools === undefined,
+	});
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 

@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: General child Agents reuse a parent cache prefix only with matching builtin routing, thinking, prompt, and tool capabilities; deferred child extensions now load before parent-tool parity is enforced ([#367](https://github.com/valkyriweb/pi-mono/pull/367)).
+
 - Fix: child runs now recover terminal provider errors from persisted session history when overflow recovery cannot continue, while successful overflow recovery remains completed; move the my-pi#1210 coverage into the issue-specific regressions suite ([#359](https://github.com/valkyriweb/pi-mono/pull/359)).
 
 - Fix: internal extension forks marked with `forkAgent({ hidden: true })` or `metadata.intercom.hidden` no longer appear in default Agents panes, status, or footer attention counts; direct ID diagnostics and lifecycle control remain available ([#358](https://github.com/valkyriweb/pi-mono/pull/358)).
