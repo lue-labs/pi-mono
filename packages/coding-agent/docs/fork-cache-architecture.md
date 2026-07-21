@@ -90,10 +90,10 @@ message arrays".
 | Agent | `defaultContext` | System prompt source | Tools | Cache strategy |
 |---|---|---|---|---|
 | `worker` | `fork` | Parent's rendered bytes; worker role in trailing task message | Parent's 1:1 by default; explicit restriction opts out | **Shares prefix with parent + siblings by default** |
-| `general` | `default` | Own dedicated | Resolved from agent def | Own cache, no parent share |
+| `general` | `default` | Parent's rendered bytes when unrestricted and unoverridden; otherwise own dedicated | Parent's exact active-tool prefix when unrestricted and unoverridden; otherwise profile-resolved | Shares parent lane/prefix for the default path (including automatic worktrees); explicit model/tools/system prompt/cwd opts out |
 | `explore` | `none` | Own + `cacheProfile: "stable"` | Child-scoped read-only allow-list; installed optional search tools activate | **Stable bytes for a fixed extension set → hits across explore invocations cluster-wide** |
 | `decompose` | `none` | Own + `cacheProfile: "stable"` | Read-only subset | Same as explore |
-| `plan` | `slim` | Own | Read-only subset | Own cache |
+| `plan` | `none` | Own isolated prompt (no project instructions, append-system context, or skills) | Read-only subset | Own cache |
 | `reviewer` | `default` | Own | Defined per agent | Own cache |
 
 Two distinct strategies coexist:
