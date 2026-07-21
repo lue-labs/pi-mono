@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildAgentSystemAppend } from "../../src/core/agents/context.ts";
 import { getBuiltinAgentDefinitions } from "../../src/core/agents/definitions.ts";
 import { executeAgentTool } from "../../src/core/agents/executor.ts";
+import { createPromptCacheAffinityKey } from "../../src/core/cache-affinity.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 function executorOptions(harness: Harness) {
@@ -205,6 +206,55 @@ describe("agent tool suite: context modes", () => {
 			"Complete the requested outcome within the stated scope",
 		);
 		expect(childCacheAffinityKey).toBe(parentCacheAffinityKey);
+	});
+
+	it("does not force an unavailable parent tool schema into an automatic general worktree", async () => {
+		let childCacheAffinityKey: string | undefined;
+		let childProviderToolNames: string[] = [];
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			(context: Context) => {
+				childProviderToolNames = (context.tools ?? []).map((tool) => tool.name);
+				return fauxAssistantMessage("general done");
+			},
+		]);
+		const parentProviderTools: Tool[] = [
+			...harness.session.getActiveToolProviderSchemas(),
+			{
+				name: "parent_only_tool",
+				description: "Only available to the parent runtime",
+				parameters: { type: "object", properties: {} },
+			},
+		];
+		const parentCacheAffinityKey = createPromptCacheAffinityKey(harness.getModel(), {
+			systemPrompt: harness.session.systemPrompt,
+			tools: parentProviderTools,
+		});
+		const automaticWorktreeTask = {
+			agent: "general",
+			task: "run without unavailable parent tools",
+			cwd: join(harness.tempDir, "automatic-general-worktree"),
+			[Symbol.for("pi.worktree.autoCwd")]: true,
+		};
+		mkdirSync(automaticWorktreeTask.cwd, { recursive: true });
+
+		const details = await executeAgentTool(
+			{ mode: "single", tasks: [automaticWorktreeTask] },
+			{
+				...executorOptions(harness),
+				parentActiveTools: parentProviderTools.map((tool) => tool.name),
+				parentProviderTools,
+				parentCacheAffinityKey,
+				parentSystemPrompt: harness.session.systemPrompt,
+				onChildSessionStart: (session) => {
+					childCacheAffinityKey = session.getPromptCacheAffinityKey();
+				},
+			},
+		);
+		expect(childProviderToolNames).not.toContain("parent_only_tool");
+		expect(details.runs[0]?.effectiveTools).toContain("parent_only_tool");
+		expect(childCacheAffinityKey).not.toBe(parentCacheAffinityKey);
 	});
 
 	it("default general inherits the parent model and thinking instead of a cheap subagent pin", async () => {

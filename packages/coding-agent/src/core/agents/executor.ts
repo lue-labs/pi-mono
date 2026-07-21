@@ -1170,7 +1170,7 @@ function applyParentCacheAffinityIfCompatible(options: {
 	parentCacheAffinityKey?: string;
 	parentModel: Model<Api> | undefined;
 	parentSystemPrompt?: string;
-	expectParentToolPrefix: boolean;
+	requireParentToolSchemas: boolean;
 }): void {
 	const {
 		session,
@@ -1178,7 +1178,7 @@ function applyParentCacheAffinityIfCompatible(options: {
 		parentCacheAffinityKey,
 		parentModel,
 		parentSystemPrompt,
-		expectParentToolPrefix,
+		requireParentToolSchemas,
 	} = options;
 	if (!parentProviderTools || !parentModel || parentSystemPrompt === undefined || !session.model) return;
 
@@ -1198,7 +1198,7 @@ function applyParentCacheAffinityIfCompatible(options: {
 		childToolNames.length !== parentToolNames.length ||
 		childToolNames.some((name, index) => name !== parentToolNames[index])
 	) {
-		if (expectParentToolPrefix) session.overrideActiveToolProviderSchemas(parentProviderTools);
+		if (requireParentToolSchemas) session.overrideActiveToolProviderSchemas(parentProviderTools);
 		return;
 	}
 
@@ -1282,7 +1282,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		parentCacheAffinityKey: options.parentCacheAffinityKey,
 		parentModel: options.parentModel,
 		parentSystemPrompt: options.parentSystemPrompt,
-		expectParentToolPrefix: prepared.inheritedSystemPrompt !== undefined && options.task.tools === undefined,
+		requireParentToolSchemas: options.task.context === "fork" && options.task.tools === undefined,
 	});
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
@@ -1482,7 +1482,7 @@ async function resumeSingleBackgroundRun(
 		parentCacheAffinityKey: options.parentCacheAffinityKey,
 		parentModel: options.parentModel,
 		parentSystemPrompt: options.parentSystemPrompt,
-		expectParentToolPrefix: prepared.inheritedSystemPrompt !== undefined && task.tools === undefined,
+		requireParentToolSchemas: task.context === "fork" && task.tools === undefined,
 	});
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
