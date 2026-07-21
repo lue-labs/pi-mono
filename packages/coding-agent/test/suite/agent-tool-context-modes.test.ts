@@ -194,6 +194,51 @@ describe("agent tool suite: context modes", () => {
 		]);
 	});
 
+	it("binds session-start extension tools before a restricted fork sends its provider request", async () => {
+		const providerTools: string[][] = [];
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const extensionsDir = join(harness.tempDir, "extensions");
+		mkdirSync(extensionsDir, { recursive: true });
+		writeFileSync(
+			join(extensionsDir, "child-session-start-tool.ts"),
+			`export default function (pi) {
+				pi.on("session_start", () => {
+					for (const name of ["child_session_start_first", "child_session_start_second"]) {
+						pi.registerTool({
+							name,
+							label: name,
+							description: "Available after session start",
+							parameters: { type: "object", properties: {} },
+							execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+						});
+					}
+				});
+			}`,
+		);
+		harness.setResponses([
+			(context: Context) => {
+				providerTools.push((context.tools ?? []).map((tool) => tool.name));
+				return fauxAssistantMessage("child done");
+			},
+		]);
+
+		const details = await executeAgentTool(
+			{
+				mode: "single",
+				tasks: [{ agent: "general", task: "use the child extension", context: "fork" }],
+			},
+			{
+				...executorOptions(harness),
+				parentActiveTools: ["child_session_start_second", "child_session_start_first"],
+				parentSystemPrompt: "PARENT PROMPT",
+			},
+		);
+
+		expect(details.runs[0]?.effectiveTools).toEqual(["child_session_start_second", "child_session_start_first"]);
+		expect(providerTools).toEqual([["child_session_start_second", "child_session_start_first"]]);
+	});
+
 	it("treats an explicit fork tool restriction as a canonical parent-tool subset", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

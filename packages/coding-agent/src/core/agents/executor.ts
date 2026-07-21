@@ -1185,6 +1185,8 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		source: "child-agent",
 	});
 	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
+	await session.bindExtensions({});
+	session.setActiveToolsByName(effectiveTools);
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
@@ -1380,6 +1382,8 @@ async function resumeSingleBackgroundRun(
 		source: "child-agent",
 	});
 	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
+	await session.bindExtensions({});
+	session.setActiveToolsByName(effectiveTools);
 	applyChildSessionPolicy(session, task, prepared);
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
