@@ -10,6 +10,7 @@ import {
 	createAgentSessionServices,
 } from "../agent-session-services.ts";
 import type { AuthStorage } from "../auth-storage.ts";
+import { createPromptCacheAffinityKey } from "../cache-affinity.ts";
 import { DEFAULT_THINKING_LEVEL } from "../defaults.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import { normalizeAutoAliasString, parseModelPattern, tierModelCandidatesForParent } from "../model-resolver.ts";
@@ -1158,6 +1159,55 @@ function applyChildSessionPolicy(
 	}
 }
 
+/**
+ * Reuse the parent's cache lane only after the child has its final model-facing
+ * prefix. Fork mode preserves its normal explicit overrides; a parent affinity
+ * key is an optimization, not permission to treat a changed request as cached.
+ */
+function applyParentCacheAffinityIfCompatible(options: {
+	session: AgentSession;
+	parentProviderTools?: readonly Tool[];
+	parentCacheAffinityKey?: string;
+	parentModel: Model<Api> | undefined;
+	parentSystemPrompt?: string;
+	expectParentToolPrefix: boolean;
+}): void {
+	const {
+		session,
+		parentProviderTools,
+		parentCacheAffinityKey,
+		parentModel,
+		parentSystemPrompt,
+		expectParentToolPrefix,
+	} = options;
+	if (!parentProviderTools || !parentModel || parentSystemPrompt === undefined || !session.model) return;
+
+	const parentPrefixKey = createPromptCacheAffinityKey(parentModel, {
+		systemPrompt: parentSystemPrompt,
+		tools: [...parentProviderTools],
+	});
+	const childPrefixKey = createPromptCacheAffinityKey(session.model, {
+		systemPrompt: session.agent.state.systemPrompt,
+		tools: [...parentProviderTools],
+	});
+	if (childPrefixKey !== parentPrefixKey) return;
+
+	const childToolNames = session.getActiveToolNames();
+	const parentToolNames = parentProviderTools.map((tool) => tool.name);
+	if (
+		childToolNames.length !== parentToolNames.length ||
+		childToolNames.some((name, index) => name !== parentToolNames[index])
+	) {
+		if (expectParentToolPrefix) session.overrideActiveToolProviderSchemas(parentProviderTools);
+		return;
+	}
+
+	// Overlay only after model, system prompt, and tool order/bytes prove that
+	// this request has the parent's exact provider-visible cache prefix.
+	session.overrideActiveToolProviderSchemas(parentProviderTools);
+	if (parentCacheAffinityKey) session.overridePromptCacheAffinityKey(parentCacheAffinityKey);
+}
+
 async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	if (options.signal?.aborted) throw new Error("Agent tool aborted");
 	const prepared = await prepareChildRunContext({
@@ -1220,21 +1270,20 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
 	await session.bindExtensions({});
 	session.setActiveToolsByName(effectiveTools);
-	if (prepared.inheritedSystemPrompt && options.parentProviderTools) {
-		const effectiveToolNames = new Set(effectiveTools);
-		session.overrideActiveToolProviderSchemas(
-			options.parentProviderTools.filter((tool) => effectiveToolNames.has(tool.name)),
-		);
-	}
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
 	}
 
 	applyChildSessionPolicy(session, options.task, prepared);
-	if (prepared.inheritedSystemPrompt && options.parentCacheAffinityKey) {
-		session.overridePromptCacheAffinityKey(options.parentCacheAffinityKey);
-	}
+	applyParentCacheAffinityIfCompatible({
+		session,
+		parentProviderTools: options.parentProviderTools,
+		parentCacheAffinityKey: options.parentCacheAffinityKey,
+		parentModel: options.parentModel,
+		parentSystemPrompt: options.parentSystemPrompt,
+		expectParentToolPrefix: prepared.inheritedSystemPrompt !== undefined && options.task.tools === undefined,
+	});
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 
@@ -1426,16 +1475,15 @@ async function resumeSingleBackgroundRun(
 	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
 	await session.bindExtensions({});
 	session.setActiveToolsByName(effectiveTools);
-	if (prepared.inheritedSystemPrompt && options.parentProviderTools) {
-		const effectiveToolNames = new Set(effectiveTools);
-		session.overrideActiveToolProviderSchemas(
-			options.parentProviderTools.filter((tool) => effectiveToolNames.has(tool.name)),
-		);
-	}
 	applyChildSessionPolicy(session, task, prepared);
-	if (prepared.inheritedSystemPrompt && options.parentCacheAffinityKey) {
-		session.overridePromptCacheAffinityKey(options.parentCacheAffinityKey);
-	}
+	applyParentCacheAffinityIfCompatible({
+		session,
+		parentProviderTools: options.parentProviderTools,
+		parentCacheAffinityKey: options.parentCacheAffinityKey,
+		parentModel: options.parentModel,
+		parentSystemPrompt: options.parentSystemPrompt,
+		expectParentToolPrefix: prepared.inheritedSystemPrompt !== undefined && task.tools === undefined,
+	});
 
 	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
 

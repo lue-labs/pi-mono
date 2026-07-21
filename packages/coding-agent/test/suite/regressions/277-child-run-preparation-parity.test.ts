@@ -1,4 +1,4 @@
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage, type Tool } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { executeAgentTool } from "../../../src/core/agents/executor.ts";
 import {
@@ -6,6 +6,7 @@ import {
 	resumeAgentRecentRun,
 	waitForAgentRecentRun,
 } from "../../../src/core/agents/status.ts";
+import { createPromptCacheAffinityKey } from "../../../src/core/cache-affinity.ts";
 import { addFilter, removeFilter } from "../../../src/core/extensions/extension-hooks.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
@@ -103,6 +104,71 @@ describe("agent tool suite: child-run preparation parity (#277)", () => {
 		expect(seenMaxTurns).toEqual([3, 3]);
 		expect(seenTools[1]).toEqual(seenTools[0]);
 		expect(seenSystemPrompts).toEqual(["PARENT PROMPT", "PARENT PROMPT"]);
+	});
+
+	it("does not reuse a parent cache lane for explicit fork model, system, or tool overrides on initial or resumed turns", async () => {
+		const harness = await createHarness({
+			provider: "anthropic",
+			models: [
+				{ id: "parent-model", name: "Parent", reasoning: true },
+				{ id: "child-model", name: "Child", reasoning: true },
+			],
+		});
+		harnesses.push(harness);
+		const parentProviderTools: Tool[] = ["read", "bash", "edit", "write", "agent"].map((name) => ({
+			name,
+			description: `Parent ${name} schema`,
+			parameters: { type: "object", properties: {} },
+		}));
+		const parentCacheAffinityKey = createPromptCacheAffinityKey(harness.getModel("parent-model"), {
+			systemPrompt: "PARENT PROMPT",
+			tools: parentProviderTools,
+		});
+		const overrides = [
+			{ label: "model", model: "anthropic/child-model" },
+			{ label: "system", systemPrompt: "CHILD PROMPT" },
+			{ label: "tools", tools: ["read"] },
+		] as const;
+
+		for (const override of overrides) {
+			const observedAffinityKeys: Array<string | undefined> = [];
+			harness.setResponses([fauxAssistantMessage(`${override.label} initial`)]);
+			const initial = await executeAgentTool(
+				{
+					mode: "single",
+					background: true,
+					persistent: true,
+					tasks: [{ agent: "general", task: `override ${override.label}`, context: "fork", ...override }],
+				},
+				{
+					parentServices: {
+						cwd: harness.tempDir,
+						agentDir: harness.tempDir,
+						authStorage: harness.authStorage,
+						settingsManager: harness.settingsManager,
+						modelRegistry: harness.session.modelRegistry,
+					},
+					parentActiveTools: parentProviderTools.map((tool) => tool.name),
+					parentProviderTools,
+					parentCacheAffinityKey,
+					parentSessionManager: harness.sessionManager,
+					parentModel: harness.getModel("parent-model"),
+					parentThinkingLevel: "off",
+					parentSystemPrompt: "PARENT PROMPT",
+					onChildSessionStart: (session) => observedAffinityKeys.push(session.getPromptCacheAffinityKey()),
+				},
+			);
+
+			await waitForAgentRecentRun(initial.runId!);
+			harness.appendResponses([fauxAssistantMessage(`${override.label} resumed`)]);
+			expect((await resumeAgentRecentRun(initial.runId!, "continue")).ok).toBe(true);
+			await waitForAgentRecentRun(initial.runId!);
+
+			expect(observedAffinityKeys).toHaveLength(2);
+			for (const affinityKey of observedAffinityKeys) {
+				expect(affinityKey).not.toBe(parentCacheAffinityKey);
+			}
+		}
 	});
 
 	it("preserves the initial semantic auto route on persistent resume", async () => {

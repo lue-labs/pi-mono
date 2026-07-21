@@ -151,6 +151,8 @@ type AgentTaskParams = NonNullable<AgentToolInput["tasks"]>[number] & Record<str
 type NormalizedAgentTaskParams = AgentTaskParams & AgentTaskConfig;
 
 const unsupportedFutureFields = ["worktree", "remote", "team_name", "name", "mode"] as const;
+// Process-local provenance for trusted extensions; Symbol properties do not survive
+// ordinary serialized tool-call metadata and are not a security boundary.
 const AUTOMATIC_WORKTREE_CWD = Symbol.for("pi.worktree.autoCwd");
 
 function rejectUnsupportedFutureFields(params: Record<string, unknown>): void {
