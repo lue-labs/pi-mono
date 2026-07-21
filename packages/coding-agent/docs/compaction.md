@@ -43,7 +43,8 @@ You can also trigger manually with `/compact [instructions]`, where optional ins
 3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
 5. **Reload**: Session reloads, using summary + messages from `firstKeptEntryId` onwards
-6. **Optional resident prune**: If `compaction.residentPrune` or `PI_RESIDENT_SESSION_PRUNE=1` is enabled, Pi stubs summarized pre-boundary payloads in process memory after compaction and while loading compacted sessions on open/resume/fork. For current-version session files, Pi plans the compacted path from raw-line metadata and creates resident stubs before parsing summarized candidate payload JSON. The durable JSONL transcript is not rewritten, and tool-use/tool-result pairs are protected from split stubbing.
+6. **Redraw the live TUI**: The interactive view clears the summarized transcript, renders the kept tail, then shows one collapsed compaction summary at the bottom. Use the tool-output expansion key to reveal the full summary. Resumed sessions still render the persisted summary at the head of the kept tail so context chronology remains correct.
+7. **Optional resident prune**: If `compaction.residentPrune` or `PI_RESIDENT_SESSION_PRUNE=1` is enabled, Pi stubs summarized pre-boundary payloads in process memory after compaction and while loading compacted sessions on open/resume/fork. For current-version session files, Pi plans the compacted path from raw-line metadata and creates resident stubs before parsing summarized candidate payload JSON. The durable JSONL transcript is not rewritten, and tool-use/tool-result pairs are protected from split stubbing.
 
 ```
 Before compaction:
