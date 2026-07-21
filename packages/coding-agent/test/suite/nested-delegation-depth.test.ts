@@ -275,10 +275,12 @@ describe("agent tool suite: nested delegation depth", () => {
 			parentServices(harness, 4),
 		);
 
-		// A real child session was created at depth 5 (callerDepth 4 + 1); because
-		// canDelegateAtDepth(5, 5) === false it is denied `agent` and cannot nest on.
+		// A real child session was created at depth 5 (callerDepth 4 + 1). The
+		// Agent schema remains in the exact parent tool prefix for cache identity,
+		// while its execution engine stays unbound so the leaf cannot nest again.
 		expect(details.runs[0]?.sessionId).toBeTruthy();
 		expect(details.runs[0]?.deniedTools).toContain("agent");
-		expect(seen[0]?.tools?.map((tool) => tool.name)).not.toContain("agent");
+		expect(seen[0]?.tools?.map((tool) => tool.name)).toEqual(["read", "bash", "edit", "write", "agent"]);
+		expect(JSON.stringify(seen[0]?.messages)).toContain("`agent` tool is not available in this task");
 	});
 });

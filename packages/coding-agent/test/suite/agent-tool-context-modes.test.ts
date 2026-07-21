@@ -102,8 +102,9 @@ describe("agent tool suite: context modes", () => {
 		}
 	});
 
-	it("general starts fresh while retaining project and append-system context", async () => {
+	it("general starts fresh while retaining project context and the exact parent tool prefix", async () => {
 		let childPrompt: string | undefined;
+		let childTools: string[] = [];
 		const harness = await createHarness();
 		harnesses.push(harness);
 		writeFileSync(join(harness.tempDir, "AGENTS.md"), "GENERAL PROJECT INSTRUCTIONS MARKER");
@@ -112,6 +113,7 @@ describe("agent tool suite: context modes", () => {
 		harness.setResponses([
 			(context: Context) => {
 				childPrompt = context.systemPrompt;
+				childTools = (context.tools ?? []).map((tool) => tool.name);
 				return fauxAssistantMessage("general done");
 			},
 		]);
@@ -130,6 +132,68 @@ describe("agent tool suite: context modes", () => {
 		});
 		expect(childPrompt).toContain("GENERAL PROJECT INSTRUCTIONS MARKER");
 		expect(childPrompt).toContain("GENERAL APPEND MARKER");
+		expect(details.runs[0]?.effectiveTools).toEqual(["read", "bash", "edit", "write", "agent"]);
+		expect(details.runs[0]?.deniedTools).toEqual(["agent"]);
+		expect(childTools).toEqual(["read", "bash", "edit", "write", "agent"]);
+	});
+
+	it("general reuses the parent's model-facing tool bytes and leading system prefix", async () => {
+		let parentContext: Context | undefined;
+		let childContext: Context | undefined;
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			(context: Context) => {
+				parentContext = context;
+				return fauxAssistantMessage("parent warm");
+			},
+			(context: Context) => {
+				childContext = context;
+				return fauxAssistantMessage("general done");
+			},
+		]);
+
+		await harness.session.prompt("warm the parent prefix");
+		await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "general", task: "use the warm stable prefix" }] },
+			{
+				...executorOptions(harness),
+				parentActiveTools: harness.session.getActiveToolNames(),
+				parentSystemPrompt: parentContext?.systemPrompt,
+			},
+		);
+
+		expect(childContext).toBeDefined();
+		expect(JSON.stringify(childContext?.tools)).toBe(JSON.stringify(parentContext?.tools));
+		const parentSystem = parentContext?.systemPrompt ?? "";
+		const childSystem = childContext?.systemPrompt ?? "";
+		expect(childSystem.startsWith(parentSystem)).toBe(true);
+	});
+
+	it("default general inherits the parent model and thinking instead of a cheap subagent pin", async () => {
+		const harness = await createHarness({
+			provider: "anthropic",
+			models: [
+				{ id: "parent-model", name: "Parent", reasoning: true },
+				{ id: "pinned-cheap-model", name: "Pinned", reasoning: true },
+			],
+			settings: {
+				subagents: {
+					providers: { anthropic: { model: "anthropic/pinned-cheap-model", thinking: "low" } },
+				},
+			},
+		});
+		harnesses.push(harness);
+		harness.session.setThinkingLevel("high");
+		harness.setResponses([fauxAssistantMessage("general done")]);
+
+		const details = await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "general", task: "reuse the parent cache lane" }] },
+			{ ...executorOptions(harness), parentThinkingLevel: harness.session.thinkingLevel },
+		);
+
+		expect(details.runs[0]?.model?.id).toBe("parent-model");
+		expect(details.runs[0]?.thinking).toBe("high");
 	});
 
 	it("renders different child system prompts for slim and none", async () => {

@@ -919,11 +919,25 @@ async function prepareChildRunContext(options: {
 	}
 
 	// Fork mode is a permissive self-fork: it inherits the parent's transcript,
-	// model/thinking, and tools. A cache-sharing fork must bypass the cheap
-	// settings.subagents defaults unless the caller supplies an explicit override.
+	// model/thinking, and tools. A default same-cwd General run is a fresh task,
+	// but preserves the parent's stable model/tool/system prefix for cache reuse.
+	// Explicit model/tool/system/cwd choices opt out because their bytes or runtime
+	// semantics intentionally differ from the caller.
 	const isForkMode = resolveContextPolicy(task.context).mode === "fork";
-	const inheritedSystemPrompt = isForkMode ? executor.parentSystemPrompt : undefined;
-	const agentDefaults = isForkMode
+	const childCwd = resolveChildCwd(task.cwd, executor.parentServices.cwd);
+	const isCacheCompatibleGeneral =
+		agent.id === "general" &&
+		task.context === "default" &&
+		task.model === undefined &&
+		task.tools === undefined &&
+		task.systemPrompt === undefined &&
+		childCwd === executor.parentServices.cwd;
+	const inheritedSystemPrompt = isForkMode
+		? executor.parentSystemPrompt
+		: isCacheCompatibleGeneral && executor.parentSystemPrompt
+			? `${executor.parentSystemPrompt}\n\n${buildAgentSystemAppend(agent)}`
+			: undefined;
+	const agentDefaults = isForkMode || isCacheCompatibleGeneral
 		? undefined
 		: resolveAgentDefaults({
 				parentModel: executor.parentModel,
@@ -970,26 +984,34 @@ async function prepareChildRunContext(options: {
 		agent,
 		allowAgentDelegation: true,
 	}).effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
+	const profileCanDelegate = childCanDelegate && profileAllowsAgent;
 	let effectiveTools: string[];
 	let deniedTools: string[];
-	if (isForkMode) {
+	const preserveParentToolPrefix =
+		isForkMode || (agent.id === "general" && agent.tools === "*" && task.tools === undefined);
+	if (preserveParentToolPrefix) {
 		const requested = task.tools ? new Set(task.tools.map((tool) => canonicalToolName(tool))) : undefined;
 		effectiveTools = requested
 			? executor.parentActiveTools.filter((tool) => requested.has(canonicalToolName(tool)))
 			: [...executor.parentActiveTools];
-		deniedTools = [];
+		// Keep the Agent schema in the provider prefix even when nesting is denied.
+		// createAgentSessionFromServices leaves its execution engine unbound, so a
+		// model call fails closed without changing the parent's tool bytes or order.
+		deniedTools = profileCanDelegate
+			? []
+			: effectiveTools.filter((tool) => canonicalToolName(tool) === "agent");
 	} else {
 		const resolved = resolveEffectiveTools({
 			parentActiveTools: executor.parentActiveTools,
 			agent,
 			requestedTools: task.tools,
-			allowAgentDelegation: childCanDelegate,
+			allowAgentDelegation: profileCanDelegate,
 		});
 		effectiveTools = resolved.effectiveTools;
 		deniedTools = resolved.deniedTools;
 	}
 	const taskCanDelegate =
-		childCanDelegate && profileAllowsAgent && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
+		profileCanDelegate && effectiveTools.some((tool) => canonicalToolName(tool) === "agent");
 	const startedAt = Date.now();
 	const details = createInitialRunDetails({
 		agent,
@@ -1002,7 +1024,6 @@ async function prepareChildRunContext(options: {
 		startedAt,
 	});
 	const policy = details.context;
-	const childCwd = resolveChildCwd(task.cwd, executor.parentServices.cwd);
 	const roleGuidance =
 		agent.id !== "general" && (isForkMode || Boolean(task.systemPrompt))
 			? { agent: agent.id, prompt: buildAgentSystemAppend(agent) }
