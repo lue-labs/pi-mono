@@ -3,13 +3,13 @@
  *
  * Modeled on Claude Code's `Task` interface — a single capability surface over
  * every long-running thing the TUI may want to attach to, steer, or kill:
- * agent runs, bash backgrounds, monitors, intercom peers, etc.
+ * agent runs, bash backgrounds, monitors, etc.
  *
  * v1 only ships the `local_agent` adapter (a thin facade over `AgentRecentRun`
  * in `core/agents/status.ts`). Other task types are reserved for later layers.
  */
 
-export type TaskType = "local_agent" | "local_bash" | "monitor" | "intercom_peer";
+export type TaskType = "local_agent" | "local_bash" | "monitor";
 
 /**
  * Lifecycle states. Terminal: `completed | failed | cancelled | killed`.

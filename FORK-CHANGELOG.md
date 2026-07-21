@@ -20,6 +20,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Changed
 
+- **Removed retired intercom compatibility from active core APIs.** Hidden extension forks now use only the explicit `forkAgent({ hidden: true })` option, and the unused `intercom_peer` task reservation is gone. No peer adapter ever existed; Agent Relay remains an extension-owned messaging and control plane. Model, prompt, and tool bytes are unchanged.
+
 - **Forked named Agent profiles retain role guidance without hidden tool blocking.** `context: "fork"` remains a permissive self-fork with the caller's cache-compatible system/tool prefix; the selected named prompt moves to the trailing task message, and run details warn when ordinary profile tool filtering is bypassed. Existing profile/depth caps on nested Agent access remain enforced. This matches Claude Code's “fork yourself” semantics while keeping Pi's named-profile-plus-fork compatibility.
 
 - **Agent tasks now use an outcome-first calling-agent contract instead of child/subagent identity framing.** The universal trailing task message says the Agent tool call and later course corrections direct the work, returns the completed result to the calling agent, and accurately states depth-capped Agent availability. Built-in profile prompts and model-facing Agent tool guidance are substantially shorter: they retain capabilities, constraints, expected evidence, and verification while removing duplicated tool tutorials and procedural search choreography. `Agent`/`Task` call shapes and `subagent_type` remain compatible. Static prompt/tool-description bytes rewarm once on rollout and remain deterministic; fork mode still preserves the calling session's system/tool prefix byte-for-byte.

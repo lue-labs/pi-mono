@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Remove the retired `metadata.intercom.hidden` compatibility path and unused reserved `intercom_peer` task type; no peer adapter existed, and Agent Relay remains extension-owned.
+
 - Fix: child runs now recover terminal provider errors from persisted session history when overflow recovery cannot continue, while successful overflow recovery remains completed; move the my-pi#1210 coverage into the issue-specific regressions suite ([#359](https://github.com/valkyriweb/pi-mono/pull/359)).
 
 - Fix: internal extension forks marked with `forkAgent({ hidden: true })` or `metadata.intercom.hidden` no longer appear in default Agents panes, status, or footer attention counts; direct ID diagnostics and lifecycle control remain available ([#358](https://github.com/valkyriweb/pi-mono/pull/358)).
