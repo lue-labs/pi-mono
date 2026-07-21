@@ -60,6 +60,78 @@ describe("agent tool suite: context modes", () => {
 		expect(childPrompts[0]).not.toMatch(/\b(child agent|subagent|parent agent|invoker)\b/i);
 	});
 
+	it("explore and plan omit project instructions, skills, and append-system context by default", async () => {
+		const childPrompts: Array<string | undefined> = [];
+		const harness = await createHarness();
+		harnesses.push(harness);
+		mkdirSync(join(harness.tempDir, ".pi", "skills", "project-marker"), { recursive: true });
+		writeFileSync(join(harness.tempDir, "AGENTS.md"), "PROJECT INSTRUCTIONS MARKER");
+		writeFileSync(join(harness.tempDir, ".pi", "APPEND_SYSTEM.md"), "PROJECT APPEND MARKER");
+		writeFileSync(
+			join(harness.tempDir, ".pi", "skills", "project-marker", "SKILL.md"),
+			"---\nname: project-marker\ndescription: PROJECT SKILL MARKER\n---\n\n# Project marker\n",
+		);
+		harness.setResponses([
+			(context: Context) => {
+				childPrompts.push(context.systemPrompt);
+				return fauxAssistantMessage("explore done");
+			},
+			(context: Context) => {
+				childPrompts.push(context.systemPrompt);
+				return fauxAssistantMessage("plan done");
+			},
+		]);
+
+		await executeAgentTool(
+			{
+				mode: "parallel",
+				tasks: [
+					{ agent: "explore", task: "locate the seam" },
+					{ agent: "plan", task: "plan the change" },
+				],
+				concurrency: 1,
+			},
+			executorOptions(harness),
+		);
+
+		expect(childPrompts).toHaveLength(2);
+		for (const prompt of childPrompts) {
+			expect(prompt).not.toContain("PROJECT INSTRUCTIONS MARKER");
+			expect(prompt).not.toContain("PROJECT APPEND MARKER");
+			expect(prompt).not.toContain("PROJECT SKILL MARKER");
+		}
+	});
+
+	it("general starts fresh while retaining project and append-system context", async () => {
+		let childPrompt: string | undefined;
+		const harness = await createHarness();
+		harnesses.push(harness);
+		writeFileSync(join(harness.tempDir, "AGENTS.md"), "GENERAL PROJECT INSTRUCTIONS MARKER");
+		mkdirSync(join(harness.tempDir, ".pi"), { recursive: true });
+		writeFileSync(join(harness.tempDir, ".pi", "APPEND_SYSTEM.md"), "GENERAL APPEND MARKER");
+		harness.setResponses([
+			(context: Context) => {
+				childPrompt = context.systemPrompt;
+				return fauxAssistantMessage("general done");
+			},
+		]);
+
+		const details = await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "general", task: "complete the scoped change" }] },
+			executorOptions(harness),
+		);
+
+		expect(details.runs[0]?.context).toMatchObject({
+			mode: "default",
+			includeTranscript: false,
+			includeProjectContext: true,
+			includeSkills: true,
+			includeAppendSystemPrompt: true,
+		});
+		expect(childPrompt).toContain("GENERAL PROJECT INSTRUCTIONS MARKER");
+		expect(childPrompt).toContain("GENERAL APPEND MARKER");
+	});
+
 	it("renders different child system prompts for slim and none", async () => {
 		const childPrompts: Array<string | undefined> = [];
 		const harness = await createHarness();
