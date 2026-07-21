@@ -24,12 +24,14 @@ import type {
 	Model,
 	OAuthCredentials,
 	OAuthLoginCallbacks,
+	Provider,
 	ProviderHeaders,
 	RefreshModelsContext,
 	SimpleStreamOptions,
 	TextContent,
 	ToolReferenceContent,
 	ToolResultMessage,
+	Usage,
 } from "@valkyriweb/pi-ai";
 import type {
 	AutocompleteItem,
@@ -88,7 +90,6 @@ import type { ExtensionFooterSpec, ExtensionMainPaneFactory, ExtensionOverlayFac
 export type { ExecOptions, ExecResult } from "../exec.ts";
 export type { AppKeybinding, KeybindingsManager } from "../keybindings.ts";
 export type { BuildSystemPromptOptions } from "../system-prompt.ts";
-export type { AgentToolResult, AgentToolUpdateCallback, ToolExecutionMode };
 export type {
 	AgentHandle,
 	ForkAgentOptions,
@@ -105,6 +106,7 @@ export type {
 	ExtensionOverlayAPI,
 	ExtensionOverlayFactory,
 } from "./ui-slots.ts";
+export type { AgentToolResult, AgentToolUpdateCallback, ToolExecutionMode };
 
 // ============================================================================
 // UI Context
@@ -1088,6 +1090,8 @@ interface ToolResultEventBase {
 	input: Record<string, unknown>;
 	content: (TextContent | ImageContent | ToolReferenceContent)[];
 	isError: boolean;
+	/** Usage from the tool execution itself, if available. */
+	usage?: Usage;
 	/** Agent-run id this result belongs to (sub-agent runs only; undefined for the top-level session). */
 	agentId?: string;
 	/** The run that spawned this result's agent run; undefined at top level. */
@@ -1261,6 +1265,7 @@ export interface ToolResultEventResult {
 	content?: (TextContent | ImageContent | ToolReferenceContent)[];
 	details?: unknown;
 	isError?: boolean;
+	usage?: Usage;
 }
 
 export interface MessageEndEventResult {
@@ -1293,6 +1298,7 @@ export interface SessionBeforeTreeResult {
 	summary?: {
 		summary: string;
 		details?: unknown;
+		usage?: Usage;
 	};
 	/** Override custom instructions for summarization */
 	customInstructions?: string;
@@ -1771,6 +1777,7 @@ export interface ExtensionAPI {
 	 *   }
 	 * });
 	 */
+	registerProvider(provider: Provider): void;
 	registerProvider(name: string, config: ProviderConfig): void;
 
 	/**
@@ -1873,6 +1880,8 @@ export type InlineExtension =
 			/** Display name shown as `<inline:name>` in the startup Extensions list. */
 			name: string;
 			factory: ExtensionFactory;
+			/** Omit this extension from the startup Extensions list. */
+			hidden?: boolean;
 	  };
 
 // ============================================================================
@@ -2045,6 +2054,8 @@ export interface ExtensionRuntimeState {
 	extensionConfig: Record<string, unknown>;
 	/** Provider registrations queued during extension loading, processed when runner binds */
 	pendingProviderRegistrations: Array<{ name: string; config: ProviderConfig; extensionPath: string }>;
+	/** Native pi-ai provider registrations queued during extension loading, processed when runner binds. */
+	pendingNativeProviderRegistrations: Array<{ provider: Provider; extensionPath: string }>;
 	/** Throws when this extension instance is stale after runtime replacement. */
 	assertActive: () => void;
 	/** Marks this extension instance as stale after runtime replacement or reload. */
@@ -2058,6 +2069,7 @@ export interface ExtensionRuntimeState {
 	 * After bindCore(): calls ModelRegistry directly for immediate effect.
 	 */
 	registerProvider: (name: string, config: ProviderConfig, extensionPath?: string) => void;
+	registerNativeProvider: (provider: Provider, extensionPath?: string) => void;
 	unregisterProvider: (name: string, extensionPath?: string) => void;
 	/**
 	 * Set the shared agent run registry. First call wins; later calls are
@@ -2186,6 +2198,7 @@ export interface ExtensionRuntime extends ExtensionRuntimeState, ExtensionAction
 export interface Extension {
 	path: string;
 	resolvedPath: string;
+	hidden?: boolean;
 	sourceInfo: SourceInfo;
 	handlers: Map<string, HandlerFn[]>;
 	tools: Map<string, RegisteredTool>;

@@ -1,13 +1,12 @@
-import {
-	type ImageContent,
-	type Message,
-	type Model,
-	type SimpleStreamOptions,
-	streamSimple,
-	type TextContent,
-	type ThinkingBudgets,
-	type Transport,
-} from "@valkyriweb/pi-ai/compat";
+import type {
+	ImageContent,
+	Message,
+	Model,
+	SimpleStreamOptions,
+	TextContent,
+	ThinkingBudgets,
+	Transport,
+} from "@valkyriweb/pi-ai";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
 import type {
 	AfterToolCallContext,
@@ -99,7 +98,7 @@ export interface AgentOptions {
 	initialState?: Partial<Omit<AgentState, "pendingToolCalls" | "isStreaming" | "streamingMessage" | "errorMessage">>;
 	convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
-	streamFn?: StreamFn;
+	streamFunction: StreamFn;
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	onPayload?: SimpleStreamOptions["onPayload"];
 	onResponse?: SimpleStreamOptions["onResponse"];
@@ -186,7 +185,7 @@ export class Agent {
 
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
-	public streamFn: StreamFn;
+	public streamFunction: StreamFn;
 	public getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	public onPayload?: SimpleStreamOptions["onPayload"];
 	public onResponse?: SimpleStreamOptions["onResponse"];
@@ -223,11 +222,11 @@ export class Agent {
 	/** Hard cap on assistant turns per run; undefined = unbounded. See {@link AgentLoopConfig.maxTurns}. */
 	public maxTurns?: number;
 
-	constructor(options: AgentOptions = {}) {
+	constructor(options: AgentOptions) {
 		this._state = createMutableAgentState(options.initialState);
 		this.convertToLlm = options.convertToLlm ?? defaultConvertToLlm;
 		this.transformContext = options.transformContext;
-		this.streamFn = options.streamFn ?? streamSimple;
+		this.streamFunction = options.streamFunction;
 		this.getApiKey = options.getApiKey;
 		this.onPayload = options.onPayload;
 		this.onResponse = options.onResponse;
@@ -453,7 +452,7 @@ export class Agent {
 				this.createLoopConfig(options),
 				(event) => this.processEvents(event),
 				signal,
-				this.streamFn,
+				this.streamFunction,
 			);
 		});
 	}
@@ -465,7 +464,7 @@ export class Agent {
 				this.createLoopConfig(),
 				(event) => this.processEvents(event),
 				signal,
-				this.streamFn,
+				this.streamFunction,
 			);
 		});
 	}

@@ -497,9 +497,7 @@ export async function injectAgentRecentRun(runId: string, message: string): Prom
 }
 
 export function listAgentRecentRuns(options: { includeHidden?: boolean } = {}): AgentRecentRun[] {
-	return recentRuns
-		.filter((run) => options.includeHidden === true || !run.hidden)
-		.map(cloneRecentRun);
+	return recentRuns.filter((run) => options.includeHidden === true || !run.hidden).map(cloneRecentRun);
 }
 
 /** Return a cloned snapshot of the recent run with the given id, or undefined. */

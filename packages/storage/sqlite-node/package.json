@@ -1,0 +1,37 @@
+{
+	"name": "@valkyriweb/pi-agent-sqlite-node",
+	"version": "0.83.7",
+	"description": "Node sqlite storage backend for @valkyriweb/pi-agent-core sessions",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"clean": "node -e \"import('node:fs/promises').then(fs=>fs.rm('dist',{recursive:true,force:true}))\"",
+		"build": "tsc -p tsconfig.build.json && node ./scripts/prepare-dist.mjs copy-sqlite-migrations",
+		"prepublishOnly": "npm run clean && npm run build"
+	},
+	"author": "Earendil Works",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/earendil-works/pi.git",
+		"directory": "packages/storage/sqlite-node"
+	},
+	"engines": {
+		"node": ">=24.14.0"
+	},
+	"dependencies": {
+		"@valkyriweb/pi-ai": "0.83.7",
+		"@valkyriweb/pi-agent-core": "0.83.7"
+	}
+}

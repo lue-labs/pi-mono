@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import * as _bundledPiAgentCore from "@valkyriweb/pi-agent-core";
+import type { Provider } from "@valkyriweb/pi-ai";
 import * as _bundledPiAi from "@valkyriweb/pi-ai";
 import * as _bundledPiAiCompat from "@valkyriweb/pi-ai/compat";
 import * as _bundledPiAiOauth from "@valkyriweb/pi-ai/oauth";
@@ -272,6 +273,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		flagValues: new Map(),
 		extensionConfig: {},
 		pendingProviderRegistrations: [],
+		pendingNativeProviderRegistrations: [],
 		suppressNewToolActivation: false,
 		assertActive,
 		invalidate: (message) => {
@@ -284,8 +286,14 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		registerProvider: (name, config, extensionPath = "<unknown>") => {
 			runtime.pendingProviderRegistrations.push({ name, config, extensionPath });
 		},
+		registerNativeProvider: (provider, extensionPath = "<unknown>") => {
+			runtime.pendingNativeProviderRegistrations.push({ provider, extensionPath });
+		},
 		unregisterProvider: (name) => {
 			runtime.pendingProviderRegistrations = runtime.pendingProviderRegistrations.filter((r) => r.name !== name);
+			runtime.pendingNativeProviderRegistrations = runtime.pendingNativeProviderRegistrations.filter(
+				(r) => r.provider.id !== name,
+			);
 		},
 		setRunRegistry: (registry) => {
 			if (!state.runRegistry) state.runRegistry = registry;
@@ -458,9 +466,14 @@ function createExtensionAPI(
 			runtime.setThinkingLevel(level);
 		},
 
-		registerProvider(name: string, config: ProviderConfig) {
+		registerProvider(providerOrName: Provider | string, config?: ProviderConfig) {
 			runtime.assertActive();
-			runtime.registerProvider(name, config, extension.path);
+			if (typeof providerOrName === "string") {
+				if (!config) throw new Error("Provider config is required when registering by name");
+				runtime.registerProvider(providerOrName, config, extension.path);
+				return;
+			}
+			runtime.registerNativeProvider(providerOrName, extension.path);
 		},
 
 		unregisterProvider(name: string) {

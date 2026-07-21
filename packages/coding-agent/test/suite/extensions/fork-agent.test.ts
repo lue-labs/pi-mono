@@ -7,7 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { clearAgentRecentRunsForTests, listAgentRecentRuns } from "../../../src/core/agents/status.ts";
 import { hookAgentsTools } from "../../../src/core/extensions/agents.ts";
 import { deleteExtensionProcessServiceForTests } from "../../../src/core/extensions/loader.ts";
-import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, type AgentHandle, type ExtensionAPI, getTaskSnapshot, listTasks } from "../../../src/index.ts";
+import {
+	AGENTS_ENGINE_SERVICE_ID,
+	type AgentEngine,
+	type AgentHandle,
+	type ExtensionAPI,
+	getTaskSnapshot,
+	listTasks,
+} from "../../../src/index.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 interface CapturedFork {

@@ -134,6 +134,7 @@ interface CompactionEntry<T = unknown> {
   summary: string;
   firstKeptEntryId: string;
   tokensBefore: number;
+  usage?: Usage;       // LLM usage that generated the summary
   fromHook?: boolean;  // true if provided by extension (legacy field name)
   details?: T;         // implementation-specific data
 }
@@ -145,9 +146,9 @@ interface CompactionDetails {
 }
 ```
 
-Extensions can store any JSON-serializable data in `details`. The default compaction tracks file operations, but custom extension implementations can use their own structure.
+Extensions can store any JSON-serializable data in `details`. The default compaction tracks file operations, but custom extension implementations can use their own structure. Generated and extension-provided summaries store their LLM `usage` when available so session totals include summarization work.
 
-See [`prepareCompaction()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) and [`compact()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) for the implementation.
+See [`prepareCompaction()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) and [`compact()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) for the implementation. For direct programmatic summarization, `generateSummary()` returns the summary text and `generateSummaryWithUsage()` returns `{ text, usage }`.
 
 ## Branch Summarization
 
@@ -200,6 +201,7 @@ interface BranchSummaryEntry<T = unknown> {
   timestamp: number;
   summary: string;
   fromId: string;      // Entry we navigated from
+  usage?: Usage;       // LLM usage that generated the summary
   fromHook?: boolean;  // true if provided by extension (legacy field name)
   details?: T;         // implementation-specific data
 }
@@ -305,6 +307,7 @@ pi.on("session_before_compact", async (event, ctx) => {
       summary: "Your summary...",
       firstKeptEntryId: preparation.firstKeptEntryId,
       tokensBefore: preparation.tokensBefore,
+      // usage: summaryResponse.usage, // Optional; included in session totals
       details: { /* custom data */ },
     }
   };
@@ -333,13 +336,14 @@ pi.on("session_before_compact", async (event, ctx) => {
   // [Tool result]: output text
 
   // Now send to your model for summarization
-  const summary = await myModel.summarize(conversationText);
+  const { summary, usage } = await myModel.summarize(conversationText);
   
   return {
     compaction: {
       summary,
       firstKeptEntryId: preparation.firstKeptEntryId,
       tokensBefore: preparation.tokensBefore,
+      usage,
     }
   };
 });
@@ -369,6 +373,7 @@ pi.on("session_before_tree", async (event, ctx) => {
     return {
       summary: {
         summary: "Your summary...",
+        // usage: summaryResponse.usage, // Optional; included in session totals
         details: { /* custom data */ },
       }
     };

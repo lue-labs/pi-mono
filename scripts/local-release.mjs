@@ -210,6 +210,10 @@ const bunInstallDirectory = join(outDir, "bun-install");
 const binaryDirectory = join(outDir, "bun");
 mkdirSync(tarballDirectory, { recursive: true });
 
+// Release artifacts always use a freshly generated, strictly validated catalog,
+// including when checks or tests are explicitly skipped.
+run("npm", ["run", "generate:models"], { cwd: repoRoot });
+
 if (!options.skipCheck) {
 	run("npm", ["run", "check"], { cwd: repoRoot });
 }
@@ -220,7 +224,7 @@ if (!options.skipTest) {
 
 for (const pkg of packages) {
 	run("npm", ["run", "clean"], { cwd: pkg.directory });
-	run("npm", ["run", "build"], { cwd: pkg.directory });
+	run("npm", ["run", pkg.directory === "packages/ai" ? "build:offline" : "build"], { cwd: pkg.directory });
 }
 
 const tarballs = new Map();

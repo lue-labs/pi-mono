@@ -274,7 +274,9 @@ export function visibleWidth(str: string): number {
  * Normalize text for terminal output without changing logical editor content.
  * Some terminals render precomposed Thai/Lao AM vowels inconsistently during
  * differential repaint. Their compatibility decompositions have the same cell
- * width but avoid stale-cell artifacts in terminal renderers.
+ * width but avoid stale-cell artifacts in terminal renderers. Visible tabs are
+ * expanded to the fixed width used by layout so terminal tab stops cannot wrap
+ * a logical line, while tabs inside terminal string sequences stay untouched.
  */
 const THAI_LAO_AM_REGEX = /[\u0e33\u0eb3]/;
 const THAI_LAO_AM_GLOBAL_REGEX = /[\u0e33\u0eb3]/g;
@@ -710,7 +712,7 @@ export function wrapTextWithAnsi(text: string, width: number): string[] {
 
 	// Handle newlines by processing each line separately
 	// Track ANSI state across lines so styles carry over after literal newlines
-	const inputLines = text.split("\n");
+	const inputLines = text.split(/\r\n|\r|\n/);
 	const result: string[] = [];
 	const tracker = new AnsiCodeTracker();
 

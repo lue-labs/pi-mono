@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { AgentMessage, AgentTool } from "@valkyriweb/pi-agent-core";
 import { Agent } from "@valkyriweb/pi-agent-core";
 import type { FauxModelDefinition, FauxProviderRegistration, FauxResponseStep, Model } from "@valkyriweb/pi-ai";
-import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
+import { registerFauxProvider, streamSimple } from "@valkyriweb/pi-ai/compat";
 import { type AgentRunIdentity, AgentSession, type AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
@@ -137,6 +137,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 
 	const agent = new Agent({
 		getApiKey: () => (withConfiguredAuth ? "faux-key" : undefined),
+		streamFunction: streamSimple,
 		initialState: {
 			model,
 			systemPrompt: options.systemPrompt ?? "You are a test assistant.",

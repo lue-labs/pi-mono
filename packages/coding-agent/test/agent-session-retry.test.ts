@@ -83,7 +83,7 @@ describe("AgentSession retry", () => {
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn: () => {
+			streamFunction: () => {
 				callCount++;
 				const stream = new MockAssistantStream();
 				queueMicrotask(() => {
@@ -205,7 +205,7 @@ describe("AgentSession retry", () => {
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn,
+			streamFunction: streamFn,
 		});
 		const sessionManager = SessionManager.inMemory();
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
@@ -258,7 +258,7 @@ describe("AgentSession retry", () => {
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn: () => {
+			streamFunction: () => {
 				callCount++;
 				const stream = new MockAssistantStream();
 				queueMicrotask(() => {
