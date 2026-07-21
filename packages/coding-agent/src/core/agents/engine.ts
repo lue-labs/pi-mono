@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model } from "@valkyriweb/pi-ai";
+import type { Api, Model, Tool } from "@valkyriweb/pi-ai";
 import type { AgentHandle, ForkAgentOptions, ForkAgentResult } from "../extensions/types.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
 import type { AgentToolInput } from "../tools/agent.ts";
@@ -19,6 +19,8 @@ export const AGENTS_ENGINE_SERVICE_ID = "agents.engine";
 
 export interface AgentParentSnapshot {
 	activeTools: string[];
+	providerTools: Tool[];
+	cacheAffinityKey?: string;
 	sessionManager: ReadonlySessionManager;
 	model: Model<Api> | undefined;
 	thinkingLevel: ThinkingLevel;
@@ -87,6 +89,8 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 		return {
 			parentServices: options.parentServices,
 			parentActiveTools: snapshot.activeTools,
+			parentProviderTools: snapshot.providerTools,
+			parentCacheAffinityKey: snapshot.cacheAffinityKey,
 			parentSessionManager: snapshot.sessionManager,
 			parentModel: snapshot.model,
 			parentThinkingLevel: snapshot.thinkingLevel,
@@ -177,6 +181,8 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 				{
 					parentServices: options.parentServices,
 					parentActiveTools: snapshot.activeTools,
+					parentProviderTools: snapshot.providerTools,
+					parentCacheAffinityKey: snapshot.cacheAffinityKey,
 					parentSessionManager: snapshot.sessionManager,
 					parentModel: snapshot.model,
 					parentThinkingLevel: snapshot.thinkingLevel,

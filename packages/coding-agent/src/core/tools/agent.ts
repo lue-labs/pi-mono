@@ -151,6 +151,7 @@ type AgentTaskParams = NonNullable<AgentToolInput["tasks"]>[number] & Record<str
 type NormalizedAgentTaskParams = AgentTaskParams & AgentTaskConfig;
 
 const unsupportedFutureFields = ["worktree", "remote", "team_name", "name", "mode"] as const;
+const AUTOMATIC_WORKTREE_CWD = Symbol.for("pi.worktree.autoCwd");
 
 function rejectUnsupportedFutureFields(params: Record<string, unknown>): void {
 	for (const field of unsupportedFutureFields) {
@@ -258,24 +259,27 @@ export function normalizeAgentToolMode(params: AgentToolInput): {
 		);
 	}
 	if (hasSingle) {
+		const task: AgentTaskConfig & Record<PropertyKey, unknown> = {
+			agent: normalized.agent ?? "",
+			task: normalized.task ?? "",
+			description: normalized.description,
+			context: normalized.context,
+			extraContext: normalized.extraContext,
+			model: normalized.model,
+			tools: normalized.tools,
+			thinking: normalized.thinking,
+			maxOutputTokens: normalized.maxOutputTokens,
+			output: normalized.output,
+			outputMode: normalized.outputMode,
+			cwd: normalized.cwd,
+		};
+		const automaticWorktreeCwd = (normalized as AgentToolInput & Record<PropertyKey, unknown>)[
+			AUTOMATIC_WORKTREE_CWD
+		];
+		if (automaticWorktreeCwd === true) task[AUTOMATIC_WORKTREE_CWD] = true;
 		return {
 			mode: "single",
-			tasks: [
-				{
-					agent: normalized.agent ?? "",
-					task: normalized.task ?? "",
-					description: normalized.description,
-					context: normalized.context,
-					extraContext: normalized.extraContext,
-					model: normalized.model,
-					tools: normalized.tools,
-					thinking: normalized.thinking,
-					maxOutputTokens: normalized.maxOutputTokens,
-					output: normalized.output,
-					outputMode: normalized.outputMode,
-					cwd: normalized.cwd,
-				},
-			],
+			tasks: [task],
 		};
 	}
 	if (hasParallel) return { mode: "parallel", tasks: tasks ?? [] };

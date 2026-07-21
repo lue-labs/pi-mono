@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Context, fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import { type Context, fauxAssistantMessage, fauxToolCall, type Tool } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildAgentSystemAppend } from "../../src/core/agents/context.ts";
 import { getBuiltinAgentDefinitions } from "../../src/core/agents/definitions.ts";
@@ -22,6 +22,20 @@ function executorOptions(harness: Harness) {
 		parentModel: harness.getModel(),
 		parentThinkingLevel: "off" as const,
 	};
+}
+
+function providerToolBytes(tool: Tool): string {
+	return JSON.stringify({
+		name: tool.name,
+		description: tool.description,
+		parameters: tool.parameters,
+		deferLoading: tool.deferLoading,
+		alwaysLoad: tool.alwaysLoad,
+		searchHint: tool.searchHint,
+		namespace: tool.namespace,
+		providers: tool.providers,
+		anthropicServerTool: tool.anthropicServerTool,
+	});
 }
 
 describe("agent tool suite: context modes", () => {
@@ -140,6 +154,7 @@ describe("agent tool suite: context modes", () => {
 	it("general reuses the parent's model-facing tool bytes and leading system prefix", async () => {
 		let parentContext: Context | undefined;
 		let childContext: Context | undefined;
+		let childCacheAffinityKey: string | undefined;
 		const harness = await createHarness();
 		harnesses.push(harness);
 		harness.setResponses([
@@ -154,12 +169,30 @@ describe("agent tool suite: context modes", () => {
 		]);
 
 		await harness.session.prompt("warm the parent prefix");
+		const parentCacheAffinityKey = harness.session.getPromptCacheAffinityKey();
+		expect(parentCacheAffinityKey).toBeTypeOf("string");
+		const automaticWorktreeCwd = join(harness.tempDir, "automatic-general-worktree");
+		mkdirSync(automaticWorktreeCwd, { recursive: true });
+		const automaticWorktreeTask = {
+			agent: "general",
+			task: "use the warm stable prefix",
+			cwd: automaticWorktreeCwd,
+			[Symbol.for("pi.worktree.autoCwd")]: true,
+		};
 		await executeAgentTool(
-			{ mode: "single", tasks: [{ agent: "general", task: "use the warm stable prefix" }] },
+			{
+				mode: "single",
+				tasks: [automaticWorktreeTask],
+			},
 			{
 				...executorOptions(harness),
 				parentActiveTools: harness.session.getActiveToolNames(),
+				parentProviderTools: harness.session.getActiveToolProviderSchemas(),
+				parentCacheAffinityKey,
 				parentSystemPrompt: parentContext?.systemPrompt,
+				onChildSessionStart: (session) => {
+					childCacheAffinityKey = session.agent.cacheAffinityKey;
+				},
 			},
 		);
 
@@ -167,7 +200,11 @@ describe("agent tool suite: context modes", () => {
 		expect(JSON.stringify(childContext?.tools)).toBe(JSON.stringify(parentContext?.tools));
 		const parentSystem = parentContext?.systemPrompt ?? "";
 		const childSystem = childContext?.systemPrompt ?? "";
-		expect(childSystem.startsWith(parentSystem)).toBe(true);
+		expect(childSystem).toBe(parentSystem);
+		expect(JSON.stringify(childContext?.messages)).toContain(
+			"Complete the requested outcome within the stated scope",
+		);
+		expect(childCacheAffinityKey).toBe(parentCacheAffinityKey);
 	});
 
 	it("default general inherits the parent model and thinking instead of a cheap subagent pin", async () => {
@@ -194,6 +231,72 @@ describe("agent tool suite: context modes", () => {
 
 		expect(details.runs[0]?.model?.id).toBe("parent-model");
 		expect(details.runs[0]?.thinking).toBe("high");
+	});
+
+	it("an explicit cwd opts general out even when model metadata forges the worktree marker", async () => {
+		const harness = await createHarness({
+			provider: "anthropic",
+			models: [
+				{ id: "parent-model", name: "Parent", reasoning: true },
+				{ id: "pinned-cheap-model", name: "Pinned", reasoning: true },
+			],
+			settings: {
+				subagents: { providers: { anthropic: { model: "anthropic/pinned-cheap-model", thinking: "low" } } },
+			},
+		});
+		harnesses.push(harness);
+		const explicitCwd = join(harness.tempDir, "explicit-child-cwd");
+		mkdirSync(explicitCwd, { recursive: true });
+		harness.setResponses([fauxAssistantMessage("general done")]);
+
+		const details = await executeAgentTool(
+			{
+				mode: "single",
+				tasks: [
+					{
+						agent: "general",
+						task: "use explicit cwd",
+						cwd: explicitCwd,
+						forkMetadata: { "pi.worktree.autoCwd": true },
+					},
+				],
+			},
+			executorOptions(harness),
+		);
+
+		expect(details.runs[0]?.model?.id).toBe("pinned-cheap-model");
+		expect(details.runs[0]?.thinking).toBe("low");
+	});
+
+	it("honors a restricted General profile instead of inheriting every parent tool", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const agentDir = join(harness.tempDir, ".pi", "agents");
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(
+			join(agentDir, "general.md"),
+			`---
+name: general
+description: Restricted General
+tools: "*"
+denyTools: bash
+model: auto
+thinking: low
+context: default
+---
+Restricted General.`,
+		);
+		harness.setResponses([fauxAssistantMessage("restricted general done")]);
+
+		const details = await executeAgentTool(
+			{ mode: "single", agentScope: "project", tasks: [{ agent: "general", task: "complete safely" }] },
+			{
+				...executorOptions(harness),
+				parentActiveTools: ["read", "bash", "edit", "write", "agent"],
+			},
+		);
+
+		expect(details.runs[0]?.effectiveTools).not.toContain("bash");
 	});
 
 	it("renders different child system prompts for slim and none", async () => {
@@ -258,8 +361,20 @@ describe("agent tool suite: context modes", () => {
 		]);
 	});
 
-	it("binds session-start extension tools before a restricted fork sends its provider request", async () => {
-		const providerTools: string[][] = [];
+	it("binds child handlers while preserving the parent's extension tool schemas and order", async () => {
+		const providerTools: Tool[][] = [];
+		const parentProviderTools: Tool[] = [
+			{
+				name: "child_session_start_second",
+				description: "Frozen parent second schema",
+				parameters: { type: "object", properties: { second: { type: "string" } }, required: ["second"] },
+			},
+			{
+				name: "child_session_start_first",
+				description: "Frozen parent first schema",
+				parameters: { type: "object", properties: { first: { type: "number" } }, required: ["first"] },
+			},
+		];
 		const harness = await createHarness();
 		harnesses.push(harness);
 		const extensionsDir = join(harness.tempDir, "extensions");
@@ -274,7 +389,7 @@ describe("agent tool suite: context modes", () => {
 							label: name,
 							description: "Available after session start",
 							parameters: { type: "object", properties: {} },
-							execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+							execute: async () => ({ content: [{ type: "text", text: "CHILD_HANDLER_OK" }] }),
 						});
 					}
 				});
@@ -282,7 +397,14 @@ describe("agent tool suite: context modes", () => {
 		);
 		harness.setResponses([
 			(context: Context) => {
-				providerTools.push((context.tools ?? []).map((tool) => tool.name));
+				providerTools.push(context.tools ?? []);
+				return fauxAssistantMessage(
+					fauxToolCall("child_session_start_second", { second: "execute child handler" }),
+					{ stopReason: "toolUse" },
+				);
+			},
+			(context: Context) => {
+				providerTools.push(context.tools ?? []);
 				return fauxAssistantMessage("child done");
 			},
 		]);
@@ -295,12 +417,45 @@ describe("agent tool suite: context modes", () => {
 			{
 				...executorOptions(harness),
 				parentActiveTools: ["child_session_start_second", "child_session_start_first"],
+				parentProviderTools,
 				parentSystemPrompt: "PARENT PROMPT",
 			},
 		);
 
 		expect(details.runs[0]?.effectiveTools).toEqual(["child_session_start_second", "child_session_start_first"]);
-		expect(providerTools).toEqual([["child_session_start_second", "child_session_start_first"]]);
+		expect(providerTools).toHaveLength(2);
+		for (const tools of providerTools) {
+			expect(tools.map(providerToolBytes)).toEqual(parentProviderTools.map(providerToolBytes));
+		}
+		expect(details.runs[0]?.toolCallCount).toBe(1);
+		expect(details.runs[0]?.recentToolCalls?.[0]?.name).toBe("child_session_start_second");
+	});
+
+	it("fails clearly when a cache-compatible child cannot reproduce a parent tool", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("must not run")]);
+
+		await expect(
+			executeAgentTool(
+				{
+					mode: "single",
+					tasks: [{ agent: "general", task: "use the missing parent tool", context: "fork" }],
+				},
+				{
+					...executorOptions(harness),
+					parentActiveTools: ["parent_only_tool"],
+					parentProviderTools: [
+						{
+							name: "parent_only_tool",
+							description: "Only registered in the parent",
+							parameters: { type: "object", properties: {} },
+						},
+					],
+					parentSystemPrompt: "PARENT PROMPT",
+				},
+			),
+		).rejects.toThrow(/child tools.*do not match parent tools/i);
 	});
 
 	it("treats an explicit fork tool restriction as a canonical parent-tool subset", async () => {

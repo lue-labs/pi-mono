@@ -33,6 +33,7 @@ import type {
 	Model,
 	ProviderHeaders,
 	TextContent,
+	Tool,
 	ToolResultMessage,
 } from "@valkyriweb/pi-ai";
 import {
@@ -536,6 +537,9 @@ export class AgentSession {
 	private _toolNamespaces: Map<string, string> = new Map();
 	private _toolPromptSnippets: Map<string, string> = new Map();
 	private _toolPromptGuidelines: Map<string, string[]> = new Map();
+	private _activeToolProviderSchemaOverrides?: Map<string, Tool>;
+	private _activeToolProviderSchemaOrder?: string[];
+	private _activeToolProviderSchemaCache = new WeakMap<AgentTool, AgentTool>();
 
 	// Base system prompt (without extension appends) - used to apply fresh appends each turn
 	private _baseSystemPrompt = "";
@@ -1360,6 +1364,79 @@ export class AgentSession {
 		return this.agent.state.tools.map((t) => t.name);
 	}
 
+	/** Provider-visible metadata for the currently active tools, in wire order. */
+	getActiveToolProviderSchemas(): Tool[] {
+		return this.agent.state.tools.map((tool) => ({
+			name: tool.name,
+			description: tool.description,
+			parameters: tool.parameters,
+			deferLoading: tool.deferLoading,
+			alwaysLoad: tool.alwaysLoad,
+			searchHint: tool.searchHint,
+			namespace: tool.namespace,
+			providers: tool.providers,
+			anthropicServerTool: tool.anthropicServerTool,
+		}));
+	}
+
+	/**
+	 * Overlay frozen provider metadata while retaining this session's local
+	 * execute handlers. Used by cache-compatible children so tools serialize
+	 * exactly like the parent without inheriting parent-bound closures.
+	 */
+	overrideActiveToolProviderSchemas(schemas: readonly Tool[]): void {
+		const currentNames = this.getActiveToolNames();
+		const schemaNames = schemas.map((schema) => schema.name);
+		if (
+			currentNames.length !== schemaNames.length ||
+			currentNames.some((name, index) => name !== schemaNames[index])
+		) {
+			throw new Error(
+				`Cannot preserve parent tool schemas: child tools [${currentNames.join(", ")}] do not match parent tools [${schemaNames.join(", ")}]`,
+			);
+		}
+		this._activeToolProviderSchemaOverrides = new Map(schemas.map((schema) => [schema.name, schema]));
+		this._activeToolProviderSchemaOrder = schemaNames;
+		this._activeToolProviderSchemaCache = new WeakMap();
+		this.agent.state.tools = this._applyActiveToolProviderSchemaOverrides(this.agent.state.tools);
+	}
+
+	/** Reuse a parent's cache-affinity lane for an inherited prompt prefix. */
+	overridePromptCacheAffinityKey(key: string): void {
+		this.agent.cacheAffinityKey = key;
+	}
+
+	/** The exact affinity key the SDK would send for the current model-facing prefix. */
+	getPromptCacheAffinityKey(): string | undefined {
+		const model = this.model;
+		if (!model) return undefined;
+		return this.agent.cacheAffinityKey ?? createPromptCacheAffinityKey(model, this.agent.state);
+	}
+
+	private _applyActiveToolProviderSchemaOverrides(tools: AgentTool[]): AgentTool[] {
+		const overrides = this._activeToolProviderSchemaOverrides;
+		if (!overrides) return tools;
+		const expectedNames = this._activeToolProviderSchemaOrder ?? [];
+		const actualNames = tools.map((tool) => tool.name);
+		if (
+			actualNames.length !== expectedNames.length ||
+			actualNames.some((name, index) => name !== expectedNames[index])
+		) {
+			throw new Error(
+				`Cannot preserve parent tool schemas after registry refresh: child tools [${actualNames.join(", ")}] do not match parent tools [${expectedNames.join(", ")}]`,
+			);
+		}
+		return tools.map((tool) => {
+			const schema = overrides.get(tool.name);
+			if (!schema) return tool;
+			const cached = this._activeToolProviderSchemaCache.get(tool);
+			if (cached) return cached;
+			const overlaid = { ...tool, ...schema };
+			this._activeToolProviderSchemaCache.set(tool, overlaid);
+			return overlaid;
+		});
+	}
+
 	/**
 	 * Get all configured tools with name, description, parameter schema, prompt guidelines, and source metadata.
 	 */
@@ -1499,11 +1576,17 @@ export class AgentSession {
 		// (_baseSystemPromptOptions is set only by _rebuildSystemPrompt). On init the
 		// empty→empty case is reference-equal but the prompt has never been built, and
 		// there is no warm cache to protect — the first build must run.
+		const providerStableTools = this._applyActiveToolProviderSchemaOverrides(tools);
 		const current = this.agent.state.tools;
-		if (this._baseSystemPromptOptions && current.length === tools.length && current.every((t, i) => t === tools[i]))
+		if (
+			this._baseSystemPromptOptions &&
+			current.length === providerStableTools.length &&
+			current.every((t, i) => t === providerStableTools[i])
+		)
 			return;
 
-		this.agent.state.tools = tools;
+		this.agent.state.tools = providerStableTools;
+		if (this._systemPromptFrozen) return;
 
 		// Rebuild base system prompt with new tool set. The rebuild is UNFILTERED
 		// (skips systemPrompt:build); mark for re-filtering before the next send.
@@ -3624,6 +3707,8 @@ export class AgentSession {
 	private _getAgentParentSnapshot(): AgentParentSnapshot {
 		return {
 			activeTools: this.getActiveToolNames(),
+			providerTools: this.getActiveToolProviderSchemas(),
+			cacheAffinityKey: this.getPromptCacheAffinityKey(),
 			sessionManager: this.sessionManager,
 			model: this.model,
 			thinkingLevel: this.thinkingLevel,
