@@ -3613,6 +3613,11 @@ export class AgentSession {
 		this._scheduleDeferredExtensionLoading();
 	}
 
+	/** Load deferred extensions now when a child must activate a parent-visible tool. */
+	async loadDeferredExtensions(): Promise<void> {
+		await this._extensionRunner.loadDeferredExtensions();
+	}
+
 	private _scheduleDeferredExtensionLoading(): void {
 		const runner = this._extensionRunner;
 		if (runner.getDeferredExtensionPaths().length === 0) return;

@@ -889,6 +889,7 @@ function applyMaxOutputTokens(
 
 interface PreparedChildRunContext {
 	agent: AgentDefinition;
+	cacheCompatibleGeneral: boolean;
 	inheritedSystemPrompt?: string;
 	requestedAutoModel?: string;
 	routingMetadata?: Record<string, unknown>;
@@ -935,12 +936,16 @@ async function prepareChildRunContext(options: {
 	const hasAutomaticIsolationCwd =
 		(task as NormalizedAgentTaskConfig & Record<PropertyKey, unknown>)[AUTOMATIC_WORKTREE_CWD] === true;
 	const isUnrestrictedGeneral =
-		agent.id === "general" && agent.tools === "*" && (agent.denyTools === undefined || agent.denyTools.length === 0);
+		agent.id === "general" &&
+		agent.source === "builtin" &&
+		agent.tools === "*" &&
+		(agent.denyTools === undefined || agent.denyTools.length === 0);
 	const isCacheCompatibleGeneral =
 		isUnrestrictedGeneral &&
 		task.context === "default" &&
 		task.model === undefined &&
 		task.tools === undefined &&
+		task.thinking === undefined &&
 		task.systemPrompt === undefined &&
 		(task.cwd === undefined || hasAutomaticIsolationCwd);
 	const inheritedSystemPrompt = isForkMode || isCacheCompatibleGeneral ? executor.parentSystemPrompt : undefined;
@@ -1070,6 +1075,7 @@ async function prepareChildRunContext(options: {
 
 	return {
 		agent,
+		cacheCompatibleGeneral: isCacheCompatibleGeneral,
 		inheritedSystemPrompt,
 		requestedAutoModel,
 		routingMetadata,
@@ -1136,10 +1142,11 @@ function applyChildSessionPolicy(
 	session: AgentSession,
 	task: NormalizedAgentTaskConfig,
 	prepared: PreparedChildRunContext,
+	retainInheritedSystemPrompt: boolean,
 ): void {
 	if (task.systemPrompt !== undefined) {
 		session.overrideBaseSystemPrompt(task.systemPrompt);
-	} else if (prepared.inheritedSystemPrompt) {
+	} else if (retainInheritedSystemPrompt && prepared.inheritedSystemPrompt !== undefined) {
 		session.overrideBaseSystemPrompt(prepared.inheritedSystemPrompt);
 	} else if (prepared.agent.cacheProfile === "stable" && prepared.policy.mode === "none") {
 		session.overrideBaseSystemPrompt(buildAgentSystemAppend(prepared.agent));
@@ -1159,6 +1166,34 @@ function applyChildSessionPolicy(
 	}
 }
 
+function hasExactParentToolNames(session: AgentSession, parentProviderTools: readonly Tool[]): boolean {
+	const childToolNames = session.getActiveToolNames();
+	const parentToolNames = parentProviderTools.map((tool) => tool.name);
+	return (
+		childToolNames.length === parentToolNames.length &&
+		childToolNames.every((name, index) => name === parentToolNames[index])
+	);
+}
+
+function shouldRetainInheritedSystemPrompt(options: {
+	session: AgentSession;
+	task: NormalizedAgentTaskConfig;
+	prepared: PreparedChildRunContext;
+	parentProviderTools?: readonly Tool[];
+}): boolean {
+	const { session, task, prepared, parentProviderTools } = options;
+	// A fork preserves its parent prefix until exact schema enforcement rejects a
+	// missing handler. A default General child instead falls back to its local
+	// prompt when its automatic worktree cannot reproduce a parent tool.
+	return (
+		prepared.inheritedSystemPrompt === undefined ||
+		!prepared.cacheCompatibleGeneral ||
+		parentProviderTools === undefined ||
+		hasExactParentToolNames(session, parentProviderTools) ||
+		task.context === "fork"
+	);
+}
+
 /**
  * Reuse the parent's cache lane only after the child has its final model-facing
  * prefix. Fork mode preserves its normal explicit overrides; a parent affinity
@@ -1169,6 +1204,7 @@ function applyParentCacheAffinityIfCompatible(options: {
 	parentProviderTools?: readonly Tool[];
 	parentCacheAffinityKey?: string;
 	parentModel: Model<Api> | undefined;
+	parentThinkingLevel: ThinkingLevel;
 	parentSystemPrompt?: string;
 	requireParentToolSchemas: boolean;
 }): void {
@@ -1177,10 +1213,19 @@ function applyParentCacheAffinityIfCompatible(options: {
 		parentProviderTools,
 		parentCacheAffinityKey,
 		parentModel,
+		parentThinkingLevel,
 		parentSystemPrompt,
 		requireParentToolSchemas,
 	} = options;
-	if (!parentProviderTools || !parentModel || parentSystemPrompt === undefined || !session.model) return;
+	if (
+		!parentProviderTools ||
+		!parentModel ||
+		parentSystemPrompt === undefined ||
+		!session.model ||
+		session.thinkingLevel !== parentThinkingLevel
+	) {
+		return;
+	}
 
 	const parentPrefixKey = createPromptCacheAffinityKey(parentModel, {
 		systemPrompt: parentSystemPrompt,
@@ -1192,12 +1237,7 @@ function applyParentCacheAffinityIfCompatible(options: {
 	});
 	if (childPrefixKey !== parentPrefixKey) return;
 
-	const childToolNames = session.getActiveToolNames();
-	const parentToolNames = parentProviderTools.map((tool) => tool.name);
-	if (
-		childToolNames.length !== parentToolNames.length ||
-		childToolNames.some((name, index) => name !== parentToolNames[index])
-	) {
+	if (!hasExactParentToolNames(session, parentProviderTools)) {
 		if (requireParentToolSchemas) session.overrideActiveToolProviderSchemas(parentProviderTools);
 		return;
 	}
@@ -1269,18 +1309,30 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	});
 	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
 	await session.bindExtensions({});
+	await session.loadDeferredExtensions();
 	session.setActiveToolsByName(effectiveTools);
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
 	}
 
-	applyChildSessionPolicy(session, options.task, prepared);
+	applyChildSessionPolicy(
+		session,
+		options.task,
+		prepared,
+		shouldRetainInheritedSystemPrompt({
+			session,
+			task: options.task,
+			prepared,
+			parentProviderTools: options.parentProviderTools,
+		}),
+	);
 	applyParentCacheAffinityIfCompatible({
 		session,
 		parentProviderTools: options.parentProviderTools,
 		parentCacheAffinityKey: options.parentCacheAffinityKey,
 		parentModel: options.parentModel,
+		parentThinkingLevel: options.parentThinkingLevel,
 		parentSystemPrompt: options.parentSystemPrompt,
 		requireParentToolSchemas: options.task.context === "fork" && options.task.tools === undefined,
 	});
@@ -1474,13 +1526,25 @@ async function resumeSingleBackgroundRun(
 	});
 	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
 	await session.bindExtensions({});
+	await session.loadDeferredExtensions();
 	session.setActiveToolsByName(effectiveTools);
-	applyChildSessionPolicy(session, task, prepared);
+	applyChildSessionPolicy(
+		session,
+		task,
+		prepared,
+		shouldRetainInheritedSystemPrompt({
+			session,
+			task,
+			prepared,
+			parentProviderTools: options.parentProviderTools,
+		}),
+	);
 	applyParentCacheAffinityIfCompatible({
 		session,
 		parentProviderTools: options.parentProviderTools,
 		parentCacheAffinityKey: options.parentCacheAffinityKey,
 		parentModel: options.parentModel,
+		parentThinkingLevel: options.parentThinkingLevel,
 		parentSystemPrompt: options.parentSystemPrompt,
 		requireParentToolSchemas: task.context === "fork" && task.tools === undefined,
 	});

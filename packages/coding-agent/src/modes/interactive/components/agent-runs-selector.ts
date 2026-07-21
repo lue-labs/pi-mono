@@ -90,7 +90,7 @@ export function formatAgentRunRow(run: AgentRecentRun, selected: boolean): strin
 	const execution = run.execution === "background" ? "bg" : "fg";
 	const resumable = run.resumable ? theme.fg("warning", " resumable") : "";
 	const attention = run.needsAttention
-		? theme.fg("warning", " needs attention: " + (run.attentionMessage || "check run"))
+		? theme.fg("warning", ` needs attention: ${run.attentionMessage || "check run"}`)
 		: "";
 	const nesting = run.depth > 0 ? theme.fg("muted", ` ↳L${run.depth}`) : "";
 	// Total is the requested task count (`tasks`), not observed `runs`: children still

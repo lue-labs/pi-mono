@@ -211,11 +211,13 @@ describe("agent tool suite: context modes", () => {
 	it("does not force an unavailable parent tool schema into an automatic general worktree", async () => {
 		let childCacheAffinityKey: string | undefined;
 		let childProviderToolNames: string[] = [];
+		let childSystemPrompt: string | undefined;
 		const harness = await createHarness();
 		harnesses.push(harness);
 		harness.setResponses([
 			(context: Context) => {
 				childProviderToolNames = (context.tools ?? []).map((tool) => tool.name);
+				childSystemPrompt = context.systemPrompt;
 				return fauxAssistantMessage("general done");
 			},
 		]);
@@ -246,7 +248,7 @@ describe("agent tool suite: context modes", () => {
 				parentActiveTools: parentProviderTools.map((tool) => tool.name),
 				parentProviderTools,
 				parentCacheAffinityKey,
-				parentSystemPrompt: harness.session.systemPrompt,
+				parentSystemPrompt: "PARENT-ONLY-TOOL-INSTRUCTIONS",
 				onChildSessionStart: (session) => {
 					childCacheAffinityKey = session.getPromptCacheAffinityKey();
 				},
@@ -255,6 +257,38 @@ describe("agent tool suite: context modes", () => {
 		expect(childProviderToolNames).not.toContain("parent_only_tool");
 		expect(details.runs[0]?.effectiveTools).toContain("parent_only_tool");
 		expect(childCacheAffinityKey).not.toBe(parentCacheAffinityKey);
+		expect(childSystemPrompt).not.toBe("PARENT-ONLY-TOOL-INSTRUCTIONS");
+	});
+
+	it("preserves an empty inherited parent system prompt for cache-compatible general", async () => {
+		let childSystemPrompt: string | undefined;
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("parent warm"),
+			(context: Context) => {
+				childSystemPrompt = context.systemPrompt;
+				return fauxAssistantMessage("general done");
+			},
+		]);
+		await harness.session.prompt("warm the parent tools");
+		const parentProviderTools = harness.session.getActiveToolProviderSchemas();
+
+		await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "general", task: "preserve the empty prefix" }] },
+			{
+				...executorOptions(harness),
+				parentActiveTools: harness.session.getActiveToolNames(),
+				parentProviderTools,
+				parentCacheAffinityKey: createPromptCacheAffinityKey(harness.getModel(), {
+					systemPrompt: "",
+					tools: parentProviderTools,
+				}),
+				parentSystemPrompt: "",
+			},
+		);
+
+		expect(childSystemPrompt).toBe("");
 	});
 
 	it("default general inherits the parent model and thinking instead of a cheap subagent pin", async () => {
@@ -281,6 +315,62 @@ describe("agent tool suite: context modes", () => {
 
 		expect(details.runs[0]?.model?.id).toBe("parent-model");
 		expect(details.runs[0]?.thinking).toBe("high");
+	});
+
+	it("an explicit general thinking override opts out of the parent cache defaults", async () => {
+		const harness = await createHarness({
+			provider: "anthropic",
+			models: [
+				{ id: "parent-model", name: "Parent", reasoning: true },
+				{ id: "pinned-cheap-model", name: "Pinned", reasoning: true },
+			],
+			settings: {
+				subagents: {
+					providers: { anthropic: { model: "anthropic/pinned-cheap-model", thinking: "low" } },
+				},
+			},
+		});
+		harnesses.push(harness);
+		harness.session.setThinkingLevel("high");
+		harness.setResponses([fauxAssistantMessage("general done")]);
+
+		const details = await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "general", task: "use low thinking", thinking: "low" }] },
+			{ ...executorOptions(harness), parentThinkingLevel: harness.session.thinkingLevel },
+		);
+
+		expect(details.runs[0]?.model?.id).toBe("pinned-cheap-model");
+		expect(details.runs[0]?.thinking).toBe("low");
+	});
+
+	it("does not apply a parent cache affinity key when a fork overrides thinking", async () => {
+		let childCacheAffinityKey: string | undefined;
+		const harness = await createHarness({
+			provider: "anthropic",
+			models: [{ id: "parent-model", name: "Parent", reasoning: true }],
+		});
+		harnesses.push(harness);
+		harness.session.setThinkingLevel("high");
+		harness.setResponses([fauxAssistantMessage("general done")]);
+		const parentProviderTools = harness.session.getActiveToolProviderSchemas();
+
+		const details = await executeAgentTool(
+			{ mode: "single", tasks: [{ agent: "general", task: "use low thinking", context: "fork", thinking: "low" }] },
+			{
+				...executorOptions(harness),
+				parentActiveTools: harness.session.getActiveToolNames(),
+				parentProviderTools,
+				parentCacheAffinityKey: "parent-cache-affinity",
+				parentSystemPrompt: "PARENT PROMPT",
+				parentThinkingLevel: harness.session.thinkingLevel,
+				onChildSessionStart: (session) => {
+					childCacheAffinityKey = session.getPromptCacheAffinityKey();
+				},
+			},
+		);
+
+		expect(details.runs[0]?.thinking).toBe("low");
+		expect(childCacheAffinityKey).not.toBe("parent-cache-affinity");
 	});
 
 	it("an explicit cwd opts general out even when model metadata forges the worktree marker", async () => {
@@ -347,6 +437,41 @@ Restricted General.`,
 		);
 
 		expect(details.runs[0]?.effectiveTools).not.toContain("bash");
+	});
+
+	it("preserves a custom General profile's model and thinking defaults", async () => {
+		const harness = await createHarness({
+			provider: "anthropic",
+			models: [
+				{ id: "parent-model", name: "Parent", reasoning: true },
+				{ id: "specialized-model", name: "Specialized", reasoning: true },
+			],
+		});
+		harnesses.push(harness);
+		const agentDir = join(harness.tempDir, ".pi", "agents");
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(
+			join(agentDir, "general.md"),
+			`---
+name: general
+description: Specialized General
+tools: "*"
+model: anthropic/specialized-model
+thinking: low
+context: default
+---
+Specialized General.`,
+		);
+		harness.session.setThinkingLevel("high");
+		harness.setResponses([fauxAssistantMessage("specialized general done")]);
+
+		const details = await executeAgentTool(
+			{ mode: "single", agentScope: "project", tasks: [{ agent: "general", task: "use specialized routing" }] },
+			{ ...executorOptions(harness), parentThinkingLevel: harness.session.thinkingLevel },
+		);
+
+		expect(details.runs[0]?.model?.id).toBe("specialized-model");
+		expect(details.runs[0]?.thinking).toBe("low");
 	});
 
 	it("renders different child system prompts for slim and none", async () => {

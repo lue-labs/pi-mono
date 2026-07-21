@@ -120,14 +120,14 @@ describe("agent tool suite: child-run preparation parity (#277)", () => {
 			description: `Parent ${name} schema`,
 			parameters: { type: "object", properties: {} },
 		}));
-		const parentCacheAffinityKey = createPromptCacheAffinityKey(harness.getModel("parent-model"), {
+		const parentCacheAffinityKey = createPromptCacheAffinityKey(harness.getModel("parent-model")!, {
 			systemPrompt: "PARENT PROMPT",
 			tools: parentProviderTools,
 		});
 		const overrides = [
 			{ label: "model", model: "anthropic/child-model" },
 			{ label: "system", systemPrompt: "CHILD PROMPT" },
-			{ label: "tools", tools: ["read"] },
+			{ label: "tools", tools: ["read"] as string[] },
 		] as const;
 
 		for (const override of overrides) {
