@@ -1137,7 +1137,7 @@ function applyChildSessionPolicy(
 	task: NormalizedAgentTaskConfig,
 	prepared: PreparedChildRunContext,
 ): void {
-	if (task.systemPrompt) {
+	if (task.systemPrompt !== undefined) {
 		session.overrideBaseSystemPrompt(task.systemPrompt);
 	} else if (prepared.inheritedSystemPrompt) {
 		session.overrideBaseSystemPrompt(prepared.inheritedSystemPrompt);

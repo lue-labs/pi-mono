@@ -171,6 +171,66 @@ describe("agent tool suite: child-run preparation parity (#277)", () => {
 		}
 	});
 
+	it("honors an empty General system override on initial and resumed turns", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const parentProviderTools = harness.session.getActiveToolProviderSchemas();
+		const parentCacheAffinityKey = createPromptCacheAffinityKey(harness.getModel(), {
+			systemPrompt: "PARENT PROMPT",
+			tools: parentProviderTools,
+		});
+		const seenSystemPrompts: string[] = [];
+		const observedAffinityKeys: Array<string | undefined> = [];
+		harness.setResponses([
+			(context) => {
+				seenSystemPrompts.push(context.systemPrompt ?? "");
+				return fauxAssistantMessage("initial complete");
+			},
+		]);
+
+		const initial = await executeAgentTool(
+			{
+				mode: "single",
+				background: true,
+				persistent: true,
+				tasks: [{ agent: "general", task: "Use no base prompt", systemPrompt: "" }],
+			},
+			{
+				parentServices: {
+					cwd: harness.tempDir,
+					agentDir: harness.tempDir,
+					authStorage: harness.authStorage,
+					settingsManager: harness.settingsManager,
+					modelRegistry: harness.session.modelRegistry,
+				},
+				parentActiveTools: harness.session.getActiveToolNames(),
+				parentProviderTools,
+				parentCacheAffinityKey,
+				parentSessionManager: harness.sessionManager,
+				parentModel: harness.getModel(),
+				parentThinkingLevel: "off",
+				parentSystemPrompt: "PARENT PROMPT",
+				onChildSessionStart: (session) => observedAffinityKeys.push(session.getPromptCacheAffinityKey()),
+			},
+		);
+
+		await waitForAgentRecentRun(initial.runId!);
+		harness.appendResponses([
+			(context) => {
+				seenSystemPrompts.push(context.systemPrompt ?? "");
+				return fauxAssistantMessage("resumed complete");
+			},
+		]);
+		expect((await resumeAgentRecentRun(initial.runId!, "continue")).ok).toBe(true);
+		await waitForAgentRecentRun(initial.runId!);
+
+		expect(seenSystemPrompts).toEqual(["", ""]);
+		expect(observedAffinityKeys).toHaveLength(2);
+		for (const affinityKey of observedAffinityKeys) {
+			expect(affinityKey).not.toBe(parentCacheAffinityKey);
+		}
+	});
+
 	it("preserves the initial semantic auto route on persistent resume", async () => {
 		const harness = await createHarness({
 			models: [
