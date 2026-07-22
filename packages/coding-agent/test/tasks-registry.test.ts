@@ -265,6 +265,7 @@ describe("tasks registry — LocalBashTask adapter", () => {
 		expect(snap).toMatchObject({ id: job.id, type: "local_bash", status: "running", resumable: false });
 		expect(snap?.description).toContain("sleep 2");
 		expect(snap?.startedAt).toBeGreaterThan(0);
+		expect(snap?.outputPath).toBe(job.logPath);
 	});
 
 	test("kill stops a running background job", async () => {

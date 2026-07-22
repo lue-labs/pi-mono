@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	createBashKillToolDefinition,
@@ -54,6 +55,33 @@ describe("bash foreground-timeout disposition seam", () => {
 			await kill.execute("t3", { bgId }, undefined, undefined, ctx);
 		} finally {
 			restore();
+		}
+	});
+
+	it("counts the timeout-adoption diagnostic against the output cap", async () => {
+		const priorLimit = process.env.PI_BASH_BG_MAX_OUTPUT_BYTES;
+		process.env.PI_BASH_BG_MAX_OUTPUT_BYTES = "64";
+		const restore = onBashTimeout((t) => ({ backgroundedJobId: t.background().id }));
+		const bash = createBashToolDefinition(process.cwd());
+		try {
+			const result = await bash.execute(
+				"t1",
+				{ command: "node -e 'setTimeout(() => {}, 3000)'", timeout: 1 },
+				undefined,
+				undefined,
+				ctx,
+			);
+			const job = getBashBgJob(bgIdOf(result));
+			for (let attempt = 0; attempt < 20 && job?.status === "running"; attempt++) await delay(20);
+
+			expect(job?.status).toBe("killed");
+			expect(job?.lifecycle?.terminalReason).toBe("output_limit");
+			expect(job?.lifecycle?.outputBytes).toBe(64);
+			expect(job ? statSync(job.logPath).size : 0).toBe(64);
+		} finally {
+			restore();
+			if (priorLimit === undefined) delete process.env.PI_BASH_BG_MAX_OUTPUT_BYTES;
+			else process.env.PI_BASH_BG_MAX_OUTPUT_BYTES = priorLimit;
 		}
 	});
 

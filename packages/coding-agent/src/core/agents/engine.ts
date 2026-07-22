@@ -32,6 +32,7 @@ export interface AgentEngineOptions {
 	parentServices: AgentToolParentServices;
 	getParentSnapshot(): AgentParentSnapshot;
 	onBackgroundTerminal(notification: AgentBackgroundCompletion): void;
+	onBackgroundTerminalListener?(unsubscribe: () => void): void;
 }
 
 export interface AgentEngineRunOptions {
@@ -96,6 +97,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 			parentThinkingLevel: snapshot.thinkingLevel,
 			parentSystemPrompt: snapshot.systemPrompt,
 			onBackgroundTerminal: options.onBackgroundTerminal,
+			onBackgroundTerminalListener: options.onBackgroundTerminalListener,
 			signal: runOptions?.signal,
 			onProgress: runOptions?.onProgress,
 		};
@@ -195,6 +197,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 					// feedback via ctx.transcript.append. Set silent:false to restore the
 					// standard agent_completion notification.
 					onBackgroundTerminal: opts.silent !== false ? undefined : options.onBackgroundTerminal,
+					onBackgroundTerminalListener: opts.silent !== false ? undefined : options.onBackgroundTerminalListener,
 					// Note: executor's background path replaces `signal` with its own
 					// AbortController. We chain the caller's signal below via
 					// cancelAgentRecentRun(runId) so abort still propagates.
