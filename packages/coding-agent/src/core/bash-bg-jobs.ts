@@ -562,6 +562,7 @@ function trimBashBgLogToOutputLimit(job: OwnedBashBgJob): void {
 type BoundedBashBgOutputSink = {
 	append(data: Buffer): void;
 	close(): void;
+	onError(handler: (error: Error) => void): void;
 };
 
 type BashBgStopRequest = {
@@ -632,6 +633,7 @@ function stopBashBgJob(
  */
 function createBoundedBashBgOutputSink(job: OwnedBashBgJob, fd: number): BoundedBashBgOutputSink {
 	let closed = false;
+	let errorHandler: ((error: Error) => void) | undefined;
 	const close = () => {
 		if (closed) return;
 		closed = true;
@@ -658,9 +660,10 @@ function createBoundedBashBgOutputSink(job: OwnedBashBgJob, fd: number): Bounded
 				if (count <= 0) break;
 				written += count;
 			}
-		} catch {
-			// Preserve the terminal process lifecycle even if its diagnostic log is
-			// no longer writable.
+		} catch (error) {
+			close();
+			errorHandler?.(error instanceof Error ? error : new Error(String(error)));
+			return;
 		}
 		job.lifecycle.outputBytes += written;
 
@@ -670,7 +673,13 @@ function createBoundedBashBgOutputSink(job: OwnedBashBgJob, fd: number): Bounded
 			stopBashBgJob(job, "output_limit", true);
 		}
 	};
-	return { append, close };
+	return {
+		append,
+		close,
+		onError(handler) {
+			errorHandler = handler;
+		},
+	};
 }
 
 function finalizeBashBgChild(job: OwnedBashBgJob, lifecycle: BashBgChildLifecycle): void {
@@ -762,6 +771,7 @@ function bindBashBgChildLifecycle(
 		sink,
 	};
 	bashBgChildLifecycles.set(job, lifecycle);
+	sink.onError((error) => stopForBashBgStreamError(job, lifecycle, error));
 	bindBashBgOutputStream(job, lifecycle, child.stdout, "stdout");
 	bindBashBgOutputStream(job, lifecycle, child.stderr, "stderr");
 	child.on("error", (error) => {
@@ -863,12 +873,19 @@ export function spawnBashBackground(
 	if (!existsSync(cwd)) {
 		throw new Error(`Working directory does not exist: ${cwd}`);
 	}
-	const child = spawn(shell, [...args, resolvedCommand], {
-		cwd,
-		detached: process.platform !== "win32",
-		env: getShellEnv(),
-		stdio: ["ignore", "pipe", "pipe"],
-	});
+	const outputFd = openSync(logPath, "a");
+	let child: ReturnType<typeof spawn>;
+	try {
+		child = spawn(shell, [...args, resolvedCommand], {
+			cwd,
+			detached: process.platform !== "win32",
+			env: getShellEnv(),
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+	} catch (error) {
+		closeSync(outputFd);
+		throw error;
+	}
 	if (child.pid) trackDetachedChildPid(child.pid);
 	const job: OwnedBashBgJob = {
 		id,
@@ -893,7 +910,7 @@ export function spawnBashBackground(
 		},
 	};
 	bashBgJobs.set(id, job);
-	const sink = createBoundedBashBgOutputSink(job, openSync(logPath, "a"));
+	const sink = createBoundedBashBgOutputSink(job, outputFd);
 	bashBgWatchStates.set(id, {
 		lastOutputBytes: 0,
 		lastGrowthAt: job.startedAt,
@@ -925,6 +942,20 @@ function adoptBashBackground(
 	const outputLimitBytes = outputLimitForBashBgJob(jobOptions);
 	const id = nextBashBgId();
 	const logPath = join(bashBgLogDir(), `${id}.log`);
+	let outputFd: number;
+	try {
+		outputFd = openSync(logPath, "a");
+	} catch (error) {
+		if (child.pid) {
+			try {
+				killProcessTree(child.pid);
+			} catch {
+				// Preserve the log-open failure; the child may already have exited.
+			}
+			untrackDetachedChildPid(child.pid);
+		}
+		throw error;
+	}
 	const job: OwnedBashBgJob = {
 		id,
 		command,
@@ -956,7 +987,7 @@ function adoptBashBackground(
 	evictTerminalBashBgJobs();
 	startBashBgWatchdog();
 	notifyBashBgJobsChanged();
-	const sink = createBoundedBashBgOutputSink(job, openSync(logPath, "a"));
+	const sink = createBoundedBashBgOutputSink(job, outputFd);
 	bindBashBgChildLifecycle(child, job, sink);
 	// This diagnostic is output too. Routing it through the same sink preserves
 	// the exact cap when a foreground process is adopted after timeout.
