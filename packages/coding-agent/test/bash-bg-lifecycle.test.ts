@@ -83,6 +83,8 @@ describe("background bash lifecycle watchdog", () => {
 			expect(looksLikeBashBgPrompt(`progress\n${prompt}`)).toBe(true);
 		}
 		expect(looksLikeBashBgPrompt("Continue?\nnow compiling")).toBe(false);
+		expect(looksLikeBashBgPrompt("progress: Continue? later")).toBe(false);
+		expect(looksLikeBashBgPrompt("selected (y/n) earlier")).toBe(false);
 		expect(looksLikeBashBgPrompt("quiet build output")).toBe(false);
 	});
 
@@ -375,6 +377,27 @@ describe("background bash terminal reasons", () => {
 		expect(LocalBashTask.snapshot(nonZero.id)?.status).toBe("failed");
 		expect(LocalBashTask.snapshot(nonZero.id)?.needsInput).toBe(true);
 	});
+
+	it.skipIf(process.platform === "win32")(
+		"reaps a descendant that keeps pipes open after its shell exits",
+		async () => {
+			const childPidPath = join(cwd, "orphan-descendant.pid");
+			const job = spawnBashBackground(
+				`(sleep 30) & child=$!; printf %s "$child" > ${JSON.stringify(childPidPath)}; exit 0`,
+				cwd,
+			);
+			await waitForFile(childPidPath, 1);
+			const childPid = Number.parseInt(readFileSync(childPidPath, "utf8"), 10);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			expect(job.status).toBe("running");
+			killBashBgJob(job.id);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			expect(job.lifecycle?.terminalReason).toBe("manual_kill");
+			expect(() => process.kill(childPid, 0)).toThrow();
+		},
+	);
 
 	it.skipIf(process.platform === "win32").each(["manual", "output-limit", "dispose"] as const)(
 		"reaps descendants when stopped by %s",

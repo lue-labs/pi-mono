@@ -506,15 +506,11 @@ function readBashBgLogTailBytes(logPath: string, maxBytes: number): string {
 }
 
 const BASH_BG_PROMPT_PATTERNS = [
-	/\(y\/n\)/iu,
-	/\(Y\/n\)/u,
-	/\(y\/N\)/u,
-	/\[y\/n\]/iu,
-	/\(yes\/no\)/iu,
+	/\((?:y\/n|yes\/no)\)\s*$/iu,
+	/\[y\/n\]\s*$/iu,
 	/\b(?:Do you|Would you|Shall I|Are you sure|Ready to)\b.*\?\s*$/iu,
-	/Press (?:any key|Enter)/iu,
-	/Continue\?/iu,
-	/Overwrite\?/iu,
+	/Press (?:any key|Enter)(?: to continue)?\s*$/iu,
+	/\b(?:Continue|Overwrite)\?\s*$/iu,
 ];
 
 /** Last-line prompt recognizer used by the output-stall watchdog. */
@@ -593,13 +589,7 @@ function stopBashBgJob(
 	notifyOwner: boolean,
 ): { job: BashBgJob; error?: string } {
 	const lifecycle = bashBgChildLifecycles.get(job);
-	if (
-		job.status !== "running" ||
-		!lifecycle ||
-		lifecycle.stopRequest ||
-		(reason === "manual_kill" && lifecycle.processSettled)
-	)
-		return { job };
+	if (job.status !== "running" || !lifecycle || lifecycle.stopRequest) return { job };
 	if (reason === "output_limit") {
 		job.error = `Background output exceeded ${formatSize(job.lifecycle.outputLimitBytes)} limit`;
 	}
