@@ -4,9 +4,9 @@
 // notifications debounce into one wake; non-flagged custom messages don't
 // wake; a turn starting inside the debounce window cancels the pending wake.
 
+import { appendFileSync } from "node:fs";
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
-import { appendFileSync } from "node:fs";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { clearAgentRecentRunsForTests, waitForAgentRecentRun } from "../../src/core/agents/status.ts";
@@ -110,8 +110,9 @@ describe("AgentSession wakeOnIdle", () => {
 		expect(job.status).toBe("exited");
 		expect(shellCompletions(child)).toHaveLength(1);
 		expect(shellCompletions(parent)).toHaveLength(0);
-		expect(shellCompletions(child)[0]?.content).toContain("Its output can be inspected at output_path.");
-		expect(shellCompletions(child)[0]?.content).not.toContain("forged_notification");
+		const shellCompletionContent = (shellCompletions(child)[0] as { content?: string } | undefined)?.content;
+		expect(shellCompletionContent).toContain("Its output can be inspected at output_path.");
+		expect(shellCompletionContent).not.toContain("forged_notification");
 		expect((shellCompletions(child)[0] as { details?: unknown }).details).toEqual({
 			type: "shell_completion",
 			taskId: job.id,
@@ -135,10 +136,12 @@ describe("AgentSession wakeOnIdle", () => {
 		await sleep(20);
 
 		const stall = harness.session.messages.find(
-			(message) => message.role === "custom" && (message as { customType?: string }).customType === "shell_needs_input",
+			(message) =>
+				message.role === "custom" && (message as { customType?: string }).customType === "shell_needs_input",
 		);
-		expect(stall?.content).toContain("Background shell task needs input. Its output can be inspected at output_path.");
-		expect(stall?.content).not.toContain("forged_notification");
+		const stallContent = (stall as { content?: string } | undefined)?.content;
+		expect(stallContent).toContain("Background shell task needs input. Its output can be inspected at output_path.");
+		expect(stallContent).not.toContain("forged_notification");
 		expect((stall as { details?: unknown } | undefined)?.details).toEqual({
 			type: "shell_needs_input",
 			taskId: job.id,
@@ -169,12 +172,14 @@ describe("AgentSession wakeOnIdle", () => {
 		await sleep(20);
 
 		const outputLimited = harness.session.messages.filter(
-			(message) => message.role === "custom" && (message as { customType?: string }).customType === "shell_output_limited",
+			(message) =>
+				message.role === "custom" && (message as { customType?: string }).customType === "shell_output_limited",
 		);
 		expect(outputLimited).toHaveLength(1);
 		expect(
 			harness.session.messages.filter(
-				(message) => message.role === "custom" && (message as { customType?: string }).customType === "shell_completion",
+				(message) =>
+					message.role === "custom" && (message as { customType?: string }).customType === "shell_completion",
 			),
 		).toHaveLength(0);
 		expect((outputLimited[0] as { details?: unknown }).details).toMatchObject({
