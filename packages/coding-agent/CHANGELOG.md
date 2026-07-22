@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Background shells now have owner-scoped lifecycle notifications, prompt-stall attention, bounded persisted output, explicit terminal reasons, and process-tree cleanup across manual stop and session disposal.
+
 - Fix: General child Agents reuse a parent cache prefix only with matching builtin routing, thinking, prompt, and tool capabilities; deferred child extensions now load before parent-tool parity is enforced ([#367](https://github.com/valkyriweb/pi-mono/pull/367)).
 
 - Fix: child runs now recover terminal provider errors from persisted session history when overflow recovery cannot continue, while successful overflow recovery remains completed; move the my-pi#1210 coverage into the issue-specific regressions suite ([#359](https://github.com/valkyriweb/pi-mono/pull/359)).

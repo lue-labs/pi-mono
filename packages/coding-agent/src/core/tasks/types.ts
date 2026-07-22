@@ -50,6 +50,8 @@ export interface TaskSnapshot {
 	 * that has no live in-process controller left to attach to.
 	 */
 	sessionPath?: string;
+	/** Path to persisted task output when the adapter exposes one (e.g. a bash log). */
+	outputPath?: string;
 	/**
 	 * True when this task wants user attention right now: an ordinary (non-
 	 * persistent-parked) interrupted run, a failed run, or a running run that
@@ -61,6 +63,18 @@ export interface TaskSnapshot {
 	needsInput?: boolean;
 	/** Internal task omitted from ordinary user-facing task enumeration. */
 	hidden?: boolean;
+	/**
+	 * Optional runtime lifecycle evidence for the task pane. This stays out of
+	 * model-facing tool parameters so adapters can add detail without changing
+	 * control schemas.
+	 */
+	lifecycle?: {
+		ownerSessionId?: string;
+		terminalReason?: string;
+		promptStalled?: boolean;
+		outputBytes?: number;
+		outputLimitBytes?: number;
+	};
 	/**
 	 * Id to use for control-plane operations (kill/requestShutdown/injectMessage,
 	 * and any other API that dispatches on a task id — including consumers that

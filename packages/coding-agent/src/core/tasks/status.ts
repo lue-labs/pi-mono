@@ -63,7 +63,14 @@ export function formatTaskStatus(tasks = listTasks(), detailId?: string): string
 		const type = taskTypeLabel(task.type);
 		const resumable = task.resumable ? " resumable" : "";
 		const error = task.error ? ` error: ${task.error}` : "";
-		lines.push(`${task.id} [${type}] ${task.status}${resumable} ${elapsed(task)} ${task.description}${error}`);
+		const lifecycle = task.lifecycle?.promptStalled
+			? " waiting for prompt"
+			: task.lifecycle?.terminalReason
+				? ` reason: ${task.lifecycle.terminalReason}`
+				: "";
+		lines.push(
+			`${task.id} [${type}] ${task.status}${resumable} ${elapsed(task)} ${task.description}${lifecycle}${error}`,
+		);
 	}
 	lines.push(
 		"",

@@ -32,7 +32,7 @@ export function renderBashBgOutput(
 	job: BashBgJob,
 	options?: { mode?: "tail" | "head" | "all"; maxLines?: number },
 ): { text: string; fullOutputPath: string } {
-	const { text, shownLines, totalLines, truncated } = readBashBgLog(job, {
+	const { text, shownLines, totalLines, lineCountExact, truncated } = readBashBgLog(job, {
 		mode: options?.mode ?? "tail",
 		maxLines: options?.maxLines ?? 200,
 	});
@@ -47,10 +47,11 @@ export function renderBashBgOutput(
 		(job.status === "exited" ? ` (exit ${job.exitCode})` : "") +
 		(job.status === "killed" && job.signal ? ` (${job.signal})` : "") +
 		(job.status === "failed" && job.error ? ` (${job.error})` : "") +
+		(job.lifecycle?.terminalReason ? `\nreason: ${job.lifecycle.terminalReason}` : "") +
 		`\nelapsed: ${elapsed.toFixed(1)}s\n` +
-		`log: ${job.logPath} (${(logSize / 1024).toFixed(1)} KB, ${totalLines} lines)` +
+		`log: ${job.logPath} (${(logSize / 1024).toFixed(1)} KB, ${lineCountExact ? totalLines : `at least ${totalLines}`} lines)` +
 		(truncated
-			? ` \u2014 showing ${shownLines} of ${totalLines}, capped at ${formatSize(BASH_MAX_OUTPUT_BYTES)}`
+			? ` \u2014 showing ${shownLines}${lineCountExact ? ` of ${totalLines}` : "+"}, capped at ${formatSize(BASH_MAX_OUTPUT_BYTES)}`
 			: "");
 	const body = text || "(no output yet)";
 	return { text: `${header}\n\n${body}`, fullOutputPath: job.logPath };
@@ -91,8 +92,16 @@ export function renderOrphanedBashBgOutput(
 		logPath,
 		endedAt: undefined,
 		error: "registry entry missing; process may have exited or pi may have restarted",
+		lifecycle: {
+			kind: "bash",
+			outputBytes: 0,
+			outputLimitBytes: 0,
+			terminalReason: undefined,
+			promptStalledAt: undefined,
+			promptStallTail: undefined,
+		},
 	};
-	const { text, shownLines, totalLines, truncated } = readBashBgLog(job, {
+	const { text, shownLines, totalLines, lineCountExact, truncated } = readBashBgLog(job, {
 		mode: options?.mode ?? "tail",
 		maxLines: options?.maxLines ?? 200,
 	});
@@ -103,8 +112,10 @@ export function renderOrphanedBashBgOutput(
 	const header =
 		`bgId: ${id}\n` +
 		`status: registry-missing (persisted log found; exit status/pid unavailable)\n` +
-		`log: ${logPath} (${(logSize / 1024).toFixed(1)} KB, ${totalLines} lines)` +
-		(truncated ? ` — showing ${shownLines} of ${totalLines}, capped at ${formatSize(BASH_MAX_OUTPUT_BYTES)}` : "") +
+		`log: ${logPath} (${(logSize / 1024).toFixed(1)} KB, ${lineCountExact ? totalLines : `at least ${totalLines}`} lines)` +
+		(truncated
+			? ` — showing ${shownLines}${lineCountExact ? ` of ${totalLines}` : "+"}, capped at ${formatSize(BASH_MAX_OUTPUT_BYTES)}`
+			: "") +
 		`\nnext: inspect the log above; if the command may still be running, verify externally (for example with ps) before restarting it.`;
 	const body = text || "(log exists but has no output yet)";
 	return { text: `${header}\n\n${body}`, fullOutputPath: logPath };

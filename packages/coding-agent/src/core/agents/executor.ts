@@ -127,6 +127,8 @@ export interface AgentExecutorOptions {
 	 * `agent_completion` custom message instead of polling status.
 	 */
 	onBackgroundTerminal?: (notification: AgentBackgroundCompletion) => void;
+	/** Register a terminal-listener cleanup with the parent session's disposer. */
+	onBackgroundTerminalListener?: (unsubscribe: () => void) => void;
 }
 
 export interface AgentToolExecutionInput {
@@ -1790,9 +1792,10 @@ async function executeManagedAgentRun(
 		if (terminalListenerAttached || !options.onBackgroundTerminal) return;
 		terminalListenerAttached = true;
 		const notify = options.onBackgroundTerminal;
-		attachAgentRecentRunTerminalListener(recentRun.id, (run) => {
+		const unsubscribe = attachAgentRecentRunTerminalListener(recentRun.id, (run) => {
 			notify(buildBackgroundCompletion(run));
 		});
+		options.onBackgroundTerminalListener?.(unsubscribe);
 	};
 	const detachFromParentAbort = () => {
 		if (!parentAbortListener || !options.signal) return;

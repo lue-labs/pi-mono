@@ -140,7 +140,12 @@ import {
 	stripModelFacingContextImages,
 } from "./tool-artifacts.ts";
 
-import { type BashBgJob, type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
+import {
+	type BackgroundShellNotification,
+	type BashOperations,
+	createLocalBashOperations,
+	subscribeBashBgNotificationForOwner,
+} from "./tools/bash.ts";
 import { allToolNames, createAllToolDefinitions, type ToolName } from "./tools/index.ts";
 
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
@@ -480,6 +485,8 @@ export class AgentSession {
 	/** Debounce timer for wakeOnIdle continuation turns (see sendCustomMessage). */
 	private _idleWakeTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 	private _disposed = false;
+	private _unsubscribeBashBgNotification?: () => void;
+	private _backgroundAgentTerminalUnsubscribers = new Set<() => void>();
 
 	// Branch summarization state
 	private _branchSummaryAbortController: AbortController | undefined = undefined;
@@ -580,6 +587,13 @@ export class AgentSession {
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 		this._pendingAutoModelRequest = config.pendingAutoModelRequest;
 		if (config.source) this._source = config.source;
+		// Background bash ownership belongs to every AgentSession, not only the
+		// interactive TUI. One owner-scoped lifecycle subscription gives child,
+		// RPC, and print sessions exactly one wake per lifecycle event.
+		this._unsubscribeBashBgNotification = subscribeBashBgNotificationForOwner(this.sessionId, (notification) => {
+			if (notification.type === "shell_needs_input") this.emitBashStall(notification);
+			else this.emitBashCompletion(notification);
+		});
 
 		// Host reads are live (getters/closures) — never snapshots of session state.
 		const session = this;
@@ -1244,6 +1258,10 @@ export class AgentSession {
 	 */
 	dispose(): void {
 		this._disposed = true;
+		for (const unsubscribe of this._backgroundAgentTerminalUnsubscribers) unsubscribe();
+		this._backgroundAgentTerminalUnsubscribers.clear();
+		this._unsubscribeBashBgNotification?.();
+		this._unsubscribeBashBgNotification = undefined;
 		// Fire extension dispose hooks before invalidating the runner so handlers
 		// can still observe their own state. Errors are isolated per handler.
 		this._extensionRunner.fireSessionDispose();
@@ -3733,6 +3751,10 @@ export class AgentSession {
 			parentServices: this._agentToolServices,
 			getParentSnapshot: () => this._getAgentParentSnapshot(),
 			onBackgroundTerminal: (notification) => this._emitAgentCompletion(notification),
+			onBackgroundTerminalListener: (unsubscribe) => {
+				if (this._disposed) unsubscribe();
+				else this._backgroundAgentTerminalUnsubscribers.add(unsubscribe);
+			},
 		});
 	}
 
@@ -3819,49 +3841,43 @@ export class AgentSession {
 	}
 
 	/**
-	 * Push a task_notification message when a background bash job completes
-	 * naturally. Mirrors `_emitAgentCompletion` and Claude Code's unified
-	 * task-notification wake: the model is told the job finished, given the
-	 * output log path, and instructed not to re-run or poll. The interactive
-	 * session wires this to `subscribeBashBgTerminal`; without it a backgrounded
-	 * command completes silently and the model parks forever waiting for a wake.
+	 * Push a task_notification message when a background bash job reaches a
+	 * terminal lifecycle event. The registry constructs the complete payload
+	 * before delivery, so output-limit stops retain their distinct notification
+	 * type instead of being flattened into ordinary completion.
 	 *
 	 * Delivery uses the same `deliverAs: "followUp", wakeOnIdle: true` strategy
 	 * as agent completions: queued when the loop is busy, picked up on the next
 	 * drain; at idle, message_start fires synchronously and wakeOnIdle drives
 	 * one debounced continuation turn.
 	 */
-	public emitBashCompletion(job: BashBgJob): void {
-		const elapsedS = job.endedAt ? ((job.endedAt - job.startedAt) / 1000).toFixed(1) : "?";
-		const command = job.command.replace(/\s+/g, " ").trim();
+	public emitBashCompletion(notification: BackgroundShellNotification): void {
+		this._emitBashNotification(notification);
+	}
+
+	/** Deliver the same structured payload for an actionable prompt stall. */
+	public emitBashStall(notification: BackgroundShellNotification): void {
+		this._emitBashNotification(notification);
+	}
+
+	private _emitBashNotification(notification: BackgroundShellNotification): void {
 		const lines: string[] = [
 			`<task_notification>`,
-			`<task_id>${job.id}</task_id>`,
+			`<task_id>${notification.taskId}</task_id>`,
 			`<task_type>background_bash</task_type>`,
-			`<status>${job.status}</status>`,
+			`<type>${notification.type}</type>`,
+			`<status>${notification.status}</status>`,
+			`<summary>${notification.summary}</summary>`,
+			`<output_path>${notification.outputPath}</output_path>`,
 		];
-		if (typeof job.exitCode === "number") lines.push(`<exit_code>${job.exitCode}</exit_code>`);
-		lines.push(`<command>${command.length > 200 ? `${command.slice(0, 199)}\u2026` : command}</command>`);
-		lines.push(`<elapsed_s>${elapsedS}</elapsed_s>`);
-		lines.push(`<output_path>${job.logPath}</output_path>`);
-		if (job.error) lines.push(`<error>${job.error}</error>`);
 		lines.push(`</task_notification>`);
-		const exitNote = typeof job.exitCode === "number" ? `, exit ${job.exitCode}` : "";
-		lines.push(
-			`\nBackground bash job ${job.id} finished (${job.status}${exitNote}). Read output_path for stdout/stderr with Read or bash_output(${job.id}) \u2014 do NOT re-run the command to "check".`,
-		);
+		lines.push(`\n${notification.summary} Its output can be inspected at output_path.`);
 		void this.sendCustomMessage(
 			{
-				customType: "bash_completion",
+				customType: notification.type,
 				content: lines.join("\n"),
 				display: false,
-				details: {
-					id: job.id,
-					status: job.status,
-					exitCode: job.exitCode,
-					logPath: job.logPath,
-					fullOutputPath: job.logPath,
-				},
+				details: notification,
 			},
 			{ deliverAs: "followUp", wakeOnIdle: true },
 		).catch(() => {
