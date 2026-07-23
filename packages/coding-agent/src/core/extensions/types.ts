@@ -1990,10 +1990,8 @@ export interface ExtensionHookHandle<Name extends string = string> {
 }
 
 export interface ExtensionHooksAPI {
-	register<Name extends ExtensionHookName>(name: Name, options?: { description?: string }): ExtensionHookHandle<Name>;
-	register(name: string, options?: { description?: string }): ExtensionHookHandle;
-	get<Name extends ExtensionHookName>(name: Name): ExtensionHookHandle<Name>;
-	get(name: string): ExtensionHookHandle;
+	register<Name extends string>(name: Name, options?: { description?: string }): ExtensionHookHandle<Name>;
+	get<Name extends string>(name: Name): ExtensionHookHandle<Name>;
 	unregister(name: string): void;
 	addAction(name: string, id: string, action: ExtensionFactory, options?: { priority?: number }): () => void;
 	removeAction(name: string, id: string): void;
