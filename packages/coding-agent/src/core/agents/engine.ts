@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
+import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type { Api, Model, Tool } from "@valkyriweb/pi-ai";
 import type { AgentHandle, ForkAgentOptions, ForkAgentResult } from "../extensions/types.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
@@ -19,6 +19,9 @@ export const AGENTS_ENGINE_SERVICE_ID = "agents.engine";
 
 export interface AgentParentSnapshot {
 	activeTools: string[];
+	/** Executable parent tools in provider order. Fork children reuse these only
+	 * when their freshly-built registry lacks a parent-active handler. */
+	executableTools: AgentTool[];
 	providerTools: Tool[];
 	cacheAffinityKey?: string;
 	sessionManager: ReadonlySessionManager;
@@ -90,6 +93,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 		return {
 			parentServices: options.parentServices,
 			parentActiveTools: snapshot.activeTools,
+			parentExecutableTools: snapshot.executableTools,
 			parentProviderTools: snapshot.providerTools,
 			parentCacheAffinityKey: snapshot.cacheAffinityKey,
 			parentSessionManager: snapshot.sessionManager,
@@ -183,6 +187,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 				{
 					parentServices: options.parentServices,
 					parentActiveTools: snapshot.activeTools,
+					parentExecutableTools: snapshot.executableTools,
 					parentProviderTools: snapshot.providerTools,
 					parentCacheAffinityKey: snapshot.cacheAffinityKey,
 					parentSessionManager: snapshot.sessionManager,
@@ -212,6 +217,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 			// Chain the caller's signal onto the background run. cancelAgentRecentRun
 			// calls the registered controller's cancel(), which aborts every active
 			// child session and drives the run to a terminal status within ~1s.
+			let removeAbortListener = () => {};
 			if (forkSignal) {
 				const onAbort = () => {
 					void cancelAgentRecentRun(runId).catch(() => {});
@@ -220,8 +226,10 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 					onAbort();
 				} else {
 					forkSignal.addEventListener("abort", onAbort, { once: true });
+					removeAbortListener = () => forkSignal.removeEventListener("abort", onAbort);
 				}
 			}
+			void waitForAgentRecentRun(runId).then(removeAbortListener, removeAbortListener);
 
 			const readStatus = (): AgentToolStatus => {
 				const run = findAgentRecentRun(runId);

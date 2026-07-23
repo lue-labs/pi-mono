@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: cache-compatible fork agents retain executable parent-only tool handlers, preserve startup failure session details, and remove parent abort listeners when terminal ([my-pi#1289](https://github.com/valkyriweb/my-pi/issues/1289), [#378](https://github.com/valkyriweb/pi-mono/pull/378)).
+
 - Chore: biome export-ordering formatting in background-shell tool modules (no behavior change) ([#372](https://github.com/valkyriweb/pi-mono/pull/372)).
 
 - Background shells now have owner-scoped lifecycle notifications, prompt-stall attention, bounded persisted output, explicit terminal reasons, and process-tree cleanup across manual stop and session disposal.

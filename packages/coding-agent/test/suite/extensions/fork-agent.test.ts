@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "@valkyriweb/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearAgentRecentRunsForTests, listAgentRecentRuns } from "../../../src/core/agents/status.ts";
 import { hookAgentsTools } from "../../../src/core/extensions/agents.ts";
 import { deleteExtensionProcessServiceForTests } from "../../../src/core/extensions/loader.ts";
@@ -98,6 +98,7 @@ function forkExtensionFactory(
 	options: {
 		allowedTools?: string[];
 		abortImmediately?: boolean;
+		signal?: AbortSignal;
 		context?: "fork" | "slim" | "none";
 		forkEveryTurn?: boolean;
 		metadata?: Record<string, unknown>;
@@ -125,7 +126,7 @@ function forkExtensionFactory(
 					...(options.hidden ? { hidden: true } : {}),
 					...(options.metadata ? { metadata: options.metadata } : {}),
 					...(options.cwd ? { cwd: options.cwd } : {}),
-					...(controller ? { signal: controller.signal } : {}),
+					...(controller || options.signal ? { signal: controller?.signal ?? options.signal } : {}),
 				});
 				captured.handle = result.handle;
 				captured.sessionId = result.sessionId;
@@ -173,6 +174,31 @@ describe("ctx.forkAgent", () => {
 		expect(record.contexts.length).toBeGreaterThanOrEqual(1);
 		expect(record.contexts.some(isChildContext)).toBe(true);
 		expect(captured.parentSystemPrompts.length).toBe(1);
+	});
+
+	it("preserves a parent-only deferred tool handler in fork mode", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured);
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.session.agent.state.tools.push({
+			name: "ctx_execute",
+			label: "ctx_execute",
+			description: "Parent-activated deferred context tool",
+			parameters: { type: "object", properties: {} },
+			execute: async () => ({ content: [{ type: "text", text: "ctx ok" }], details: {} }),
+		} as never);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+
+		expect(captured.error).toBeUndefined();
+		const details = await captured.handle!.wait();
+		expect(details.status).toBe("completed");
+		const child = record.contexts.find(isChildContext);
+		expect(child?.tools?.map((tool) => tool.name)).toContain("ctx_execute");
 	});
 
 	it("routes forkAgent({ agentType }) through the named agent definition", async () => {
@@ -429,6 +455,7 @@ describe("ctx.forkAgent", () => {
 				const engine: AgentEngine = {
 					snapshot: () => ({
 						activeTools: harness.session.getActiveToolNames(),
+						executableTools: harness.session.getActiveExecutableTools(),
 						providerTools: harness.session.getActiveToolProviderSchemas(),
 						cacheAffinityKey: harness.session.getPromptCacheAffinityKey(),
 						sessionManager: harness.sessionManager,
@@ -522,6 +549,23 @@ describe("ctx.forkAgent", () => {
 		expect(elapsed).toBeLessThan(2000);
 		expect(["cancelled", "interrupted"]).toContain(details.status);
 		expect(captured.handle!.status).toBe(details.status);
+	});
+
+	it("removes the parent abort listener after a normal terminal run", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const controller = new AbortController();
+		const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+		const { factory } = forkExtensionFactory(captured, { signal: controller.signal });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("go");
+		await captured.handle!.wait();
+
+		expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
 	});
 
 	// Regression: a settings.subagents provider model pin (the cheap model used for

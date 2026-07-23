@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
+import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type { Api, AssistantMessage, Model, TextContent, Tool, Usage } from "@valkyriweb/pi-ai";
 import type { AgentSession } from "../agent-session.ts";
 import {
@@ -100,6 +100,9 @@ export interface AgentToolParentServices {
 export interface AgentExecutorOptions {
 	parentServices: AgentToolParentServices;
 	parentActiveTools: string[];
+	/** Executable parent tools in wire order. Used only to fill handlers missing
+	 * from a cache-compatible fork child's independently-built registry. */
+	parentExecutableTools?: AgentTool[];
 	/** Frozen provider-visible parent tool metadata, in wire order. */
 	parentProviderTools?: Tool[];
 	/** Parent prompt-cache lane reused when the child inherits its stable prefix. */
@@ -1250,6 +1253,12 @@ function applyParentCacheAffinityIfCompatible(options: {
 	if (parentCacheAffinityKey) session.overridePromptCacheAffinityKey(parentCacheAffinityKey);
 }
 
+function throwChildSetupFailure(details: AgentRunDetails, error: unknown): never {
+	details.status = "failed";
+	details.error = error instanceof Error ? error.message : String(error);
+	throw Object.assign(new Error(details.error), { details });
+}
+
 async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	if (options.signal?.aborted) throw new Error("Agent tool aborted");
 	const prepared = await prepareChildRunContext({
@@ -1277,69 +1286,84 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	childSessionManager.newSession({ parentSession: options.parentSessionManager.getSessionFile() });
 	details.sessionId = childSessionManager.getSessionId();
 	details.sessionPath = childSessionManager.getSessionFile();
-	const { session, modelFallbackMessage, modelRoutingFailed } = await createAgentSessionFromServices({
-		services: childServices,
-		sessionManager: childSessionManager,
-		model: effectiveModel,
-		thinkingLevel: thinking,
-		requestedModel: requestedAutoModel,
-		routingMetadata,
-		tools: effectiveTools,
-		// Keep Agent schemas inherited by fork mode for cache identity, but bind the
-		// execution engine only when both the selected profile and depth allow Agent.
-		// The depth is threaded so nested calls are enforced again by executeAgentTool.
-		disableAgentToolServices: !taskCanDelegate,
-		agentToolServices: {
-			...agentToolServices,
-			// Link this task's future delegations back to the run that spawned it.
-			parentRunId: options.taskId,
-		},
-		// Telemetry identity: this run is `options.taskId`; its parent is the caller's
-		// own run id (undefined at the top level). Lets observability exporters
-		// correlate a sub-agent's spans and link them to the spawning run.
-		agentRunIdentity: {
-			runId: options.taskId,
-			parentRunId: options.parentServices.parentRunId,
-		},
-		sessionStartEvent: { type: "session_start", reason: "startup", forkMetadata: options.task.forkMetadata },
-		// Tag the session-level source so non-input hooks (session_start,
-		// session_shutdown, turn_end, tool_call/tool_result, memory_note tool
-		// execution) can gate on `ctx.source === "child-agent"`. The per-turn
-		// `source: "child-agent"` passed to `session.prompt` below covers
-		// input/before_agent_start independently.
-		source: "child-agent",
-	});
-	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
-	await session.bindExtensions({});
-	await session.loadDeferredExtensions();
-	session.setActiveToolsByName(effectiveTools);
-
-	if (policy.includeTranscript) {
-		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
+	let createdSession: Awaited<ReturnType<typeof createAgentSessionFromServices>>;
+	try {
+		createdSession = await createAgentSessionFromServices({
+			services: childServices,
+			sessionManager: childSessionManager,
+			model: effectiveModel,
+			thinkingLevel: thinking,
+			requestedModel: requestedAutoModel,
+			routingMetadata,
+			tools: effectiveTools,
+			// Keep Agent schemas inherited by fork mode for cache identity, but bind the
+			// execution engine only when both the selected profile and depth allow Agent.
+			// The depth is threaded so nested calls are enforced again by executeAgentTool.
+			disableAgentToolServices: !taskCanDelegate,
+			agentToolServices: {
+				...agentToolServices,
+				// Link this task's future delegations back to the run that spawned it.
+				parentRunId: options.taskId,
+			},
+			// Telemetry identity: this run is `options.taskId`; its parent is the caller's
+			// own run id (undefined at the top level). Lets observability exporters
+			// correlate a sub-agent's spans and link them to the spawning run.
+			agentRunIdentity: {
+				runId: options.taskId,
+				parentRunId: options.parentServices.parentRunId,
+			},
+			sessionStartEvent: { type: "session_start", reason: "startup", forkMetadata: options.task.forkMetadata },
+			// Tag the session-level source so non-input hooks (session_start,
+			// session_shutdown, turn_end, tool_call/tool_result, memory_note tool
+			// execution) can gate on `ctx.source === "child-agent"`. The per-turn
+			// `source: "child-agent"` passed to `session.prompt` below covers
+			// input/before_agent_start independently.
+			source: "child-agent",
+		});
+	} catch (error) {
+		throwChildSetupFailure(details, error);
 	}
+	const { session, modelFallbackMessage, modelRoutingFailed } = createdSession;
+	try {
+		applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
+		await session.bindExtensions({});
+		await session.loadDeferredExtensions();
+		session.setActiveToolsByName(effectiveTools);
+		if (options.task.context === "fork" && options.task.tools === undefined && options.parentExecutableTools) {
+			session.inheritMissingActiveTools(options.parentExecutableTools);
+		}
 
-	applyChildSessionPolicy(
-		session,
-		options.task,
-		prepared,
-		shouldRetainInheritedSystemPrompt({
+		if (policy.includeTranscript) {
+			session.state.messages = getFilteredForkMessages(options.parentSessionManager);
+		}
+
+		applyChildSessionPolicy(
 			session,
-			task: options.task,
+			options.task,
 			prepared,
+			shouldRetainInheritedSystemPrompt({
+				session,
+				task: options.task,
+				prepared,
+				parentProviderTools: options.parentProviderTools,
+			}),
+		);
+		applyParentCacheAffinityIfCompatible({
+			session,
 			parentProviderTools: options.parentProviderTools,
-		}),
-	);
-	applyParentCacheAffinityIfCompatible({
-		session,
-		parentProviderTools: options.parentProviderTools,
-		parentCacheAffinityKey: options.parentCacheAffinityKey,
-		parentModel: options.parentModel,
-		parentThinkingLevel: options.parentThinkingLevel,
-		parentSystemPrompt: options.parentSystemPrompt,
-		requireParentToolSchemas: options.task.context === "fork" && options.task.tools === undefined,
-	});
+			parentCacheAffinityKey: options.parentCacheAffinityKey,
+			parentModel: options.parentModel,
+			parentThinkingLevel: options.parentThinkingLevel,
+			parentSystemPrompt: options.parentSystemPrompt,
+			requireParentToolSchemas: options.task.context === "fork" && options.task.tools === undefined,
+		});
 
-	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
+		details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
+	} catch (error) {
+		refreshRunDetailsFromSession(details, session, startedAt);
+		session.dispose();
+		throwChildSetupFailure(details, error);
+	}
 
 	return driveChildSession(session, {
 		...options,
@@ -1530,6 +1554,9 @@ async function resumeSingleBackgroundRun(
 	await session.bindExtensions({});
 	await session.loadDeferredExtensions();
 	session.setActiveToolsByName(effectiveTools);
+	if (task.context === "fork" && task.tools === undefined && options.parentExecutableTools) {
+		session.inheritMissingActiveTools(options.parentExecutableTools);
+	}
 	applyChildSessionPolicy(
 		session,
 		task,

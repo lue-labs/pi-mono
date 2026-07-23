@@ -546,6 +546,7 @@ export class AgentSession {
 	private _toolPromptGuidelines: Map<string, string[]> = new Map();
 	private _activeToolProviderSchemaOverrides?: Map<string, Tool>;
 	private _activeToolProviderSchemaOrder?: string[];
+	private _inheritedForkToolFallbacks?: Map<string, AgentTool>;
 	private _activeToolProviderSchemaCache = new WeakMap<AgentTool, AgentTool>();
 
 	// Base system prompt (without extension appends) - used to apply fresh appends each turn
@@ -1382,6 +1383,20 @@ export class AgentSession {
 		return this.agent.state.tools.map((t) => t.name);
 	}
 
+	/** Executable active tools in provider order. Internal fork lifecycle input:
+	 * children prefer their own freshly-built handlers, then reuse a parent tool
+	 * only when that handler is absent (for example, a deferred process tool that
+	 * was activated after the parent session started). */
+	getActiveExecutableTools(): AgentTool[] {
+		return [...this.agent.state.tools];
+	}
+
+	inheritMissingActiveTools(parentTools: readonly AgentTool[]): void {
+		const childByName = new Map(this.agent.state.tools.map((tool) => [tool.name, tool]));
+		this._inheritedForkToolFallbacks = new Map(parentTools.map((tool) => [tool.name, tool]));
+		this.agent.state.tools = parentTools.map((parentTool) => childByName.get(parentTool.name) ?? parentTool);
+	}
+
 	/** Provider-visible metadata for the currently active tools, in wire order. */
 	getActiveToolProviderSchemas(): Tool[] {
 		return this.agent.state.tools.map((tool) => ({
@@ -1435,16 +1450,15 @@ export class AgentSession {
 		const overrides = this._activeToolProviderSchemaOverrides;
 		if (!overrides) return tools;
 		const expectedNames = this._activeToolProviderSchemaOrder ?? [];
-		const actualNames = tools.map((tool) => tool.name);
-		if (
-			actualNames.length !== expectedNames.length ||
-			actualNames.some((name, index) => name !== expectedNames[index])
-		) {
+		const byName = new Map(tools.map((tool) => [tool.name, tool]));
+		const aligned = expectedNames.map((name) => byName.get(name) ?? this._inheritedForkToolFallbacks?.get(name));
+		if (aligned.some((tool) => !tool)) {
+			const actualNames = tools.map((tool) => tool.name);
 			throw new Error(
 				`Cannot preserve parent tool schemas after registry refresh: child tools [${actualNames.join(", ")}] do not match parent tools [${expectedNames.join(", ")}]`,
 			);
 		}
-		return tools.map((tool) => {
+		return (aligned as AgentTool[]).map((tool) => {
 			const schema = overrides.get(tool.name);
 			if (!schema) return tool;
 			const cached = this._activeToolProviderSchemaCache.get(tool);
@@ -3730,6 +3744,7 @@ export class AgentSession {
 	private _getAgentParentSnapshot(): AgentParentSnapshot {
 		return {
 			activeTools: this.getActiveToolNames(),
+			executableTools: this.getActiveExecutableTools(),
 			providerTools: this.getActiveToolProviderSchemas(),
 			cacheAffinityKey: this.getPromptCacheAffinityKey(),
 			sessionManager: this.sessionManager,
