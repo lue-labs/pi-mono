@@ -35,8 +35,9 @@ private setup. Everything operator-specific lives in the sibling
   prompts, and tools work without `my-pi`, claude-bridge, clawrouter, or any
   private service. Those remain optional layers.
 - Every fork commit is classifiable as **upstream-native**, **platform delta**
-  (generic, upstreamable), or **behavior delta** (forbidden as an inline core
-  patch — must live in an extension).
+  (generic, upstreamable), or **behavior delta**. Behavior deltas are kept
+  explicit, documented, and as small as practical; extension seams remain the
+  preferred home when they can express the behavior cleanly.
 - The fork rebases onto `upstream/main` with a shrinking, well-understood
   conflict set; the weekly `upstream-sync` workflow stays green or produces a
   clear conflict PR.
@@ -49,9 +50,10 @@ private setup. Everything operator-specific lives in the sibling
 
 - **Works out of the box.** Sensible defaults for someone who has never seen
   this repo; power features are discoverable, not required.
-- **No behavior delta in core.** Opinions about what Pi *does* (prompts, tool
-  logic, routing) live in extensions and ride the hooks/filters layer, never
-  inline in `packages/coding-agent`.
+- **Minimize behavior delta in core.** Opinions about what Pi *does* (prompts,
+  tool logic, routing) should live in extensions and ride the hooks/filters
+  layer. Core behavior patches require a clear platform-level reason and must
+  stay documented so they can be reconsidered as extension seams improve.
 - **Platform primitives are written to be upstream-PR-able.** Each one that
   lands upstream shrinks the fork's rebase surface.
 - **Cache stability is sacred.** Never add/remove/reorder skills or `tools[]`
@@ -69,7 +71,8 @@ private setup. Everything operator-specific lives in the sibling
    quickstart + extension-author docs; remove or gate any code path that
    assumes the maintainer's local stack.
 2. **Seam quality:** typed, tested, documented hooks/filters registry
-   (deterministic ordering, error isolation, chain test harness).
+   (deterministic ordering, explicit error policy with fail-fast defaults,
+   chain test harness).
 3. Shrink the rebase surface: upstream the generic platform primitives;
    replace remaining inline core patches with extension seams + hooks.
 4. Keep the prompt-cache contract enforced by `test:build-gate`; keep CI
@@ -79,8 +82,8 @@ private setup. Everything operator-specific lives in the sibling
 
 - Becoming a permanently divergent hard fork with bespoke behavior baked into
   core.
-- Inline behavior patches in `packages/coding-agent` when an extension seam
-  exists or can be added.
+- Undocumented inline behavior patches in `packages/coding-agent`, especially
+  when an existing extension seam can express the behavior cleanly.
 - Shipping the maintainer's personal extensions, routing, or memory stack in
   this repo — that is `my-pi`'s job.
 - Publishing under or impersonating the upstream `@earendil-works/*` scope.
@@ -108,13 +111,16 @@ private setup. Everything operator-specific lives in the sibling
   this session via explicit paths.
 - Requires approval: new runtime dependencies, core behavior changes, releases,
   force-pushes, and anything that mutates the GitHub repo or upstream.
-- Direction and runbooks: this file, root `AGENTS.md`, `CONTRIBUTING.md`,
-  `docs/RELEASING.md`, and the sibling `my-pi/docs/` (fork-patch inventory,
-  cache strategy, platform program).
+- Public direction and runbooks: this file, root `AGENTS.md`,
+  `CONTRIBUTING.md`, and `docs/RELEASING.md`. Maintainer-only planning and
+  operator-stack records live outside this public repository and are not
+  required to install, use, or contribute to the fork.
 
 ## Open questions
 
 - Which platform primitives are ready to PR upstream next (owner: @valkyriweb)
-  — tracked in `my-pi/docs/pi-fork-patch-inventory.md`.
+  — tracked in the maintainer's private planning system; public candidates
+  should become issues in this repository before external contributors need
+  to act on them.
 - What the minimum viable quickstart covers (providers, extension install,
   binary vs npm) and where it lives (README vs docs site).
