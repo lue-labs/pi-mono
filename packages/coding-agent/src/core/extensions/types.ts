@@ -1959,21 +1959,50 @@ export interface ExtensionServiceHandle<T> {
 
 export type ExtensionFilter<T = unknown> = (value: T, ...args: unknown[]) => T | Promise<T>;
 
-export interface ExtensionHookHandle {
-	name: string;
+/** Payloads for core-owned filter hooks. String hook names remain supported for extension compatibility. */
+export interface ExtensionHookFilterMap {
+	"systemPrompt:build": string;
+	"model:resolve": ModelResolveFilterValue;
+	"message:end": AgentMessage;
+	"provider:beforeRequest": unknown;
+}
+
+export type ExtensionHookName = keyof ExtensionHookFilterMap;
+
+export interface ModelResolveFilterValue {
+	requestedModel: string;
+	model: Model<Api>;
+	thinkingLevel: ThinkingLevel;
+	metadata?: Record<string, unknown>;
+}
+
+export interface ExtensionHookHandle<Name extends string = string> {
+	name: Name;
 	action(id: string, action: ExtensionFactory, options?: { priority?: number }): () => void;
-	filter<T = unknown>(id: string, filter: ExtensionFilter<T>, options?: { priority?: number }): () => void;
+	filter<T = Name extends ExtensionHookName ? ExtensionHookFilterMap[Name] : unknown>(
+		id: string,
+		filter: ExtensionFilter<T>,
+		options?: { priority?: number },
+	): () => void;
 	removeAction(id: string): void;
 	removeFilter(id: string): void;
 	unregister(): void;
 }
 
 export interface ExtensionHooksAPI {
+	register<Name extends ExtensionHookName>(name: Name, options?: { description?: string }): ExtensionHookHandle<Name>;
 	register(name: string, options?: { description?: string }): ExtensionHookHandle;
+	get<Name extends ExtensionHookName>(name: Name): ExtensionHookHandle<Name>;
 	get(name: string): ExtensionHookHandle;
 	unregister(name: string): void;
 	addAction(name: string, id: string, action: ExtensionFactory, options?: { priority?: number }): () => void;
 	removeAction(name: string, id: string): void;
+	addFilter<Name extends ExtensionHookName>(
+		name: Name,
+		id: string,
+		filter: ExtensionFilter<ExtensionHookFilterMap[Name]>,
+		options?: { priority?: number },
+	): () => void;
 	addFilter<T = unknown>(
 		name: string,
 		id: string,
@@ -1981,6 +2010,11 @@ export interface ExtensionHooksAPI {
 		options?: { priority?: number },
 	): () => void;
 	removeFilter(name: string, id: string): void;
+	applyFilters<Name extends ExtensionHookName>(
+		name: Name,
+		value: ExtensionHookFilterMap[Name],
+		...args: unknown[]
+	): Promise<ExtensionHookFilterMap[Name]>;
 	applyFilters<T = unknown>(name: string, value: T, ...args: unknown[]): Promise<T>;
 }
 

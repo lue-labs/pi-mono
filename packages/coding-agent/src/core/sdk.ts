@@ -9,7 +9,7 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
-import { applyFilters } from "./extensions/extension-hooks.ts";
+import { applyFilters, extensionHookNames } from "./extensions/extension-hooks.ts";
 import type {
 	ExtensionRunner,
 	InputSource,
@@ -330,7 +330,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	if (requestedModel && model && !hasExistingSession && !pendingRequestedModel) {
 		const before = model;
 		const resolved = await applyFilters(
-			"model:resolve",
+			extensionHookNames.modelResolve,
 			{
 				requestedModel,
 				model,
