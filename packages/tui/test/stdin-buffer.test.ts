@@ -435,6 +435,75 @@ describe("StdinBuffer", () => {
 		});
 	});
 
+	describe("Unbracketed Paste Heuristic", () => {
+		let emittedPaste: string[] = [];
+
+		beforeEach(() => {
+			buffer = new StdinBuffer({ timeout: 10 });
+			emittedSequences = [];
+			buffer.on("data", (sequence) => {
+				emittedSequences.push(sequence);
+			});
+			emittedPaste = [];
+			buffer.on("paste", (data) => {
+				emittedPaste.push(data);
+			});
+		});
+
+		it("should treat a plain multi-line chunk as a single paste", () => {
+			const content = "line1\nline2\nline3";
+			processInput(content);
+
+			assert.deepStrictEqual(emittedPaste, [content]);
+			assert.deepStrictEqual(emittedSequences, []);
+		});
+
+		it("should treat CR-separated multi-line chunks as a single paste", () => {
+			const content = "line1\rline2\r";
+			processInput(content);
+
+			assert.deepStrictEqual(emittedPaste, [content]);
+			assert.deepStrictEqual(emittedSequences, []);
+		});
+
+		it("should not treat single-line text with trailing newline as paste", () => {
+			// Programmatic "type command + Enter" flows must keep submitting.
+			processInput("command\r");
+
+			assert.deepStrictEqual(emittedPaste, []);
+			assert.deepStrictEqual(emittedSequences, ["c", "o", "m", "m", "a", "n", "d", "\r"]);
+		});
+
+		it("should not treat a lone Enter as paste", () => {
+			processInput("\r");
+
+			assert.deepStrictEqual(emittedPaste, []);
+			assert.deepStrictEqual(emittedSequences, ["\r"]);
+		});
+
+		it("should not apply heuristic to chunks containing escape sequences", () => {
+			processInput("\x1b[Aline1\nline2");
+
+			assert.deepStrictEqual(emittedPaste, []);
+			assert.ok(emittedSequences.length > 0);
+		});
+
+		it("should not apply heuristic while a partial escape sequence is buffered", () => {
+			processInput("\x1b[<35");
+			processInput("line1\nline2");
+
+			assert.deepStrictEqual(emittedPaste, []);
+			buffer.clear(); // drop the pending flush timeout so it cannot leak into later tests
+		});
+
+		it("should keep bracketed paste handling unchanged", () => {
+			processInput("\x1b[200~line1\nline2\x1b[201~");
+
+			assert.deepStrictEqual(emittedPaste, ["line1\nline2"]);
+			assert.deepStrictEqual(emittedSequences, []);
+		});
+	});
+
 	describe("Destroy", () => {
 		it("should clear buffer on destroy", () => {
 			processInput("\x1b[<35");

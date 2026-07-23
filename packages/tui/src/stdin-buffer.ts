@@ -310,6 +310,23 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 			return;
 		}
 
+		// Unbracketed paste heuristic: terminals/muxes that strip bracketed-paste
+		// markers (e.g. tmux -CC control-mode clients) deliver a multi-line paste as
+		// one plain-text chunk. Without this, every newline would act as a submit and
+		// the paste is shredded into one message per line. A chunk with no escape
+		// sequences whose content spans multiple lines cannot be typed input, so
+		// treat it as a paste. A single line with only a trailing newline (e.g.
+		// programmatic "command\r") is intentionally NOT a paste, so automation that
+		// types text-plus-Enter keeps working.
+		if (!this.pasteMode && this.buffer.length === 0 && !str.includes(ESC)) {
+			const core = str.replace(/^[\r\n]+|[\r\n]+$/g, "");
+			if (/[\r\n]/.test(core)) {
+				this.pendingKittyPrintableCodepoint = undefined;
+				this.emit("paste", str);
+				return;
+			}
+		}
+
 		this.buffer += str;
 
 		if (this.pasteMode) {
