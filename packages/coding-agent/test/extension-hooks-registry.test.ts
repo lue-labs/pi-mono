@@ -100,6 +100,17 @@ describe("extension hook registry", () => {
 		expect(events).toEqual(["first:start", "first:end", "second"]);
 	});
 
+	it("uses the registrations that existed when the chain started", async () => {
+		const hookName = createHookName();
+		addFilter(hookName, "first", (value: string) => {
+			addFilter(hookName, "added-during-apply", (next: string) => `${next}B`);
+			return `${value}A`;
+		});
+
+		expect(await applyFilters(hookName, "")).toBe("A");
+		expect(await applyFilters(hookName, "")).toBe("AB");
+	});
+
 	it("preserves an explicit undefined result from a filter", async () => {
 		const hookName = createHookName();
 		addFilter<string | undefined>(hookName, "undefined", () => undefined);

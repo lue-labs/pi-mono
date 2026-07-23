@@ -91,7 +91,7 @@ export function createFakeHooksAPI(): FakeHooksAPI {
 		},
 		async applyFilters<T = unknown>(name: string, value: T, ...args: unknown[]): Promise<T> {
 			let current = value;
-			for (const entry of filters.get(name) ?? []) current = (await entry.filter(current, ...args)) as T;
+			for (const entry of [...(filters.get(name) ?? [])]) current = (await entry.filter(current, ...args)) as T;
 			return current;
 		},
 	};

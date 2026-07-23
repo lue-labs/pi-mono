@@ -95,7 +95,8 @@ class FilterChain {
 
 	async apply<T>(value: T, args: unknown[]): Promise<T> {
 		let current = value;
-		for (const { filter, errorPolicy } of this.entries) {
+		const entries = [...this.entries];
+		for (const { filter, errorPolicy } of entries) {
 			try {
 				current = await (filter.callback as FilterCallback<T>)(current, ...args);
 			} catch (error) {
