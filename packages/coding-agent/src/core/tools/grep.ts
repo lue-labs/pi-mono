@@ -80,7 +80,8 @@ const grepSchema = Type.Object({
 	),
 	multiline: Type.Optional(
 		Type.Boolean({
-			description: "Unsupported in Pi native grep until ugrep/rg backend parity is verified",
+			description:
+				"Enable multiline matching so the pattern can span lines and . matches newlines (ripgrep -U --multiline-dotall). Requires the rg backend.",
 		}),
 	),
 	timeout: Type.Optional(
@@ -136,9 +137,11 @@ export function buildRgArgs(input: {
 	ignoreCase?: boolean;
 	literal?: boolean;
 	type?: string;
+	multiline?: boolean;
 }): string[] {
 	const args = ["--json", "--line-number", "--color=never", "--hidden"];
 	for (const vcsDir of VCS_DIRS) args.push("--glob", `!${vcsDir}`);
+	if (input.multiline) args.push("--multiline", "--multiline-dotall");
 	if (input.ignoreCase) args.push("--ignore-case");
 	if (input.literal) args.push("--fixed-strings");
 	if (input.type) args.push("--type", input.type);
@@ -154,11 +157,13 @@ export async function resolveGrepBackend(input: {
 	ignoreCase?: boolean;
 	literal?: boolean;
 	type?: string;
+	multiline?: boolean;
 }): Promise<GrepBackendCommand | undefined> {
 	const rgPath = await ensureTool("rg", true);
 	if (rgPath) return { backend: "rg", command: rgPath, args: buildRgArgs(input) };
 
-	if (!input.type) {
+	// ugrep needs -o for cross-line patterns, which changes output semantics — rg only.
+	if (!input.type && !input.multiline) {
 		const ugrepPath = getOptionalSearchToolPath("ugrep");
 		if (ugrepPath)
 			return {
@@ -549,16 +554,6 @@ export function createGrepToolDefinition(
 							return;
 						}
 
-						if (multiline) {
-							settle(() =>
-								reject(
-									new Error(
-										"grep multiline is not supported by Pi native grep yet; backend flags are not verified",
-									),
-								),
-							);
-							return;
-						}
 						let outputOptions: {
 							mode: GrepOutputMode;
 							headLimit?: number;
@@ -611,10 +606,17 @@ export function createGrepToolDefinition(
 							ignoreCase,
 							literal,
 							type,
+							multiline,
 						});
 						if (!backendCommand) {
 							settle(() =>
-								reject(new Error("Neither ugrep nor ripgrep (rg) is available and rg could not be downloaded")),
+								reject(
+									new Error(
+										multiline
+											? "grep multiline requires ripgrep (rg), which is unavailable and could not be downloaded"
+											: "Neither ugrep nor ripgrep (rg) is available and rg could not be downloaded",
+									),
+								),
 							);
 							return;
 						}
@@ -659,6 +661,30 @@ export function createGrepToolDefinition(
 						child.stderr?.on("data", (chunk) => {
 							stderr += chunk.toString();
 						});
+
+						// Format an inline match (no context). Multiline matches render their first
+						// line as "path:N: text" and continuation lines context-style ("path-N+i- text").
+						const appendInlineMatch = (match: {
+							filePath: string;
+							lineNumber: number;
+							lineText: string;
+						}): boolean => {
+							const relativePath = formatPath(match.filePath);
+							const sanitized = match.lineText.replace(/\r\n/g, "\n").replace(/\r/g, "").replace(/\n$/, "");
+							const lines = sanitized.split("\n");
+							for (let i = 0; i < lines.length; i++) {
+								const { text: truncatedText, wasTruncated } = full
+									? { text: lines[i], wasTruncated: false }
+									: truncateLine(lines[i]);
+								if (wasTruncated) linesTruncated = true;
+								const prefix =
+									i === 0
+										? `${relativePath}:${match.lineNumber}: `
+										: `${relativePath}-${match.lineNumber + i}- `;
+								if (!output.append(prefix + truncatedText)) return false;
+							}
+							return true;
+						};
 
 						const formatBlock = async (filePath: string, lineNumber: number): Promise<string[]> => {
 							const relativePath = formatPath(filePath);
@@ -731,13 +757,10 @@ export function createGrepToolDefinition(
 							if (timedOut) {
 								for (const match of matches) {
 									if (contextValue === 0 && match.lineText !== undefined) {
-										const relativePath = formatPath(match.filePath);
-										const sanitized = match.lineText
-											.replace(/\r\n/g, "\n")
-											.replace(/\r/g, "")
-											.replace(/\n$/, "");
-										const { text: truncatedText } = full ? { text: sanitized } : truncateLine(sanitized);
-										if (!output.append(`${relativePath}:${match.lineNumber}: ${truncatedText}`)) break;
+										if (
+											!appendInlineMatch(match as { filePath: string; lineNumber: number; lineText: string })
+										)
+											break;
 									} else {
 										const block = await formatBlock(match.filePath, match.lineNumber);
 										if (!output.appendMany(block)) break;
@@ -863,16 +886,8 @@ export function createGrepToolDefinition(
 							// Format matches after streaming finishes so custom readFile() backends can be async.
 							for (const match of pagedMatches.items) {
 								if (contextValue === 0 && match.lineText !== undefined) {
-									const relativePath = formatPath(match.filePath);
-									const sanitized = match.lineText
-										.replace(/\r\n/g, "\n")
-										.replace(/\r/g, "")
-										.replace(/\n$/, "");
-									const { text: truncatedText, wasTruncated } = full
-										? { text: sanitized, wasTruncated: false }
-										: truncateLine(sanitized);
-									if (wasTruncated) linesTruncated = true;
-									if (!output.append(`${relativePath}:${match.lineNumber}: ${truncatedText}`)) break;
+									if (!appendInlineMatch(match as { filePath: string; lineNumber: number; lineText: string }))
+										break;
 								} else {
 									const block = await formatBlock(match.filePath, match.lineNumber);
 									if (!output.appendMany(block)) break;

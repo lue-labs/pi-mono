@@ -1254,17 +1254,32 @@ describe("Coding Agent Tools", () => {
 			expect(result.details?.truncation?.outputBytes).toBeLessThanOrEqual(50 * 1024);
 		});
 
-		it("should reject unsupported multiline mode clearly", async () => {
+		it("should match across lines with multiline:true", async () => {
 			const testFile = join(testDir, "multiline.txt");
+			writeFileSync(testFile, "needle\nacross\nunrelated\n");
+
+			const result = await grepTool.execute("test-call-grep-multiline", {
+				pattern: "needle.*across",
+				path: testFile,
+				multiline: true,
+			});
+			const output = getTextOutput(result);
+
+			expect(output).toContain("multiline.txt:1: needle");
+			expect(output).toContain("multiline.txt-2- across");
+			expect(output).not.toContain("unrelated");
+		});
+
+		it("should not match across lines without multiline", async () => {
+			const testFile = join(testDir, "multiline-off.txt");
 			writeFileSync(testFile, "needle\nacross\n");
 
-			await expect(
-				grepTool.execute("test-call-grep-multiline", {
-					pattern: "needle.*across",
-					path: testFile,
-					multiline: true,
-				}),
-			).rejects.toThrow(/multiline is not supported/);
+			const result = await grepTool.execute("test-call-grep-multiline-off", {
+				pattern: "needle.*across",
+				path: testFile,
+			});
+
+			expect(getTextOutput(result)).toContain("No matches found");
 		});
 
 		it("should honor explicit higher grep timeout", async () => {
