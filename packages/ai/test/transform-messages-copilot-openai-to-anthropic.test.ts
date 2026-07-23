@@ -46,6 +46,21 @@ function makeAssistantMessage(content: AssistantMessage["content"]): AssistantMe
 	};
 }
 
+function makeClawrouterCodexModel(): Model<"openai-codex-responses"> {
+	return {
+		id: "gpt-5.6-sol",
+		name: "GPT-5.6 Sol",
+		api: "openai-codex-responses",
+		provider: "clawrouter",
+		baseUrl: "https://example.com",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 16000,
+	};
+}
+
 describe("OpenAI to Anthropic session migration for Copilot Claude", () => {
 	it("converts thinking blocks to plain text when source model differs", () => {
 		const model = makeCopilotClaudeModel();
@@ -187,6 +202,46 @@ describe("OpenAI to Anthropic session migration for Copilot Claude", () => {
 			toolName: "bash",
 			content: [{ type: "text", text: "No result provided" }],
 		});
+	});
+
+	it("drops fork placeholders paired with aborted assistant tool calls", () => {
+		const model = makeClawrouterCodexModel();
+		const toolCallId = "call_Rz0igER6sLjZH68Of9OcVxyN|fc_0dd9ea4dece0ac35016a61cb0301888191a2e0685e230cf925";
+		const messages: Message[] = [
+			{ role: "user", content: "parent task", timestamp: Date.now() },
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: toolCallId, name: "bash", arguments: { command: "pwd" } }],
+				api: model.api,
+				provider: model.provider,
+				model: model.id,
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "aborted",
+				errorMessage: "Operation aborted",
+				timestamp: Date.now(),
+			},
+			{
+				role: "toolResult",
+				toolCallId,
+				toolName: "bash",
+				content: [{ type: "text", text: "Another Agent task is in progress." }],
+				isError: false,
+				timestamp: 0,
+			},
+			{ role: "user", content: "child task", timestamp: Date.now() },
+		];
+
+		const result = transformMessages(messages, model);
+
+		expect(result.map((message) => message.role)).toEqual(["user", "user"]);
+		expect(JSON.stringify(result)).not.toContain(toolCallId);
 	});
 
 	it("does not let hidden empty user messages synthesize duplicate tool results", () => {

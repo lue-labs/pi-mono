@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: drop tool results paired with error- or abort-stopped assistant turns during shared message transformation, preventing fork placeholders for unresolved tool calls from becoming orphaned Codex Responses `function_call_output` items (`No tool call found for function call output`).
+
 - Feat: opt-in `compat.inlineDeferredTools` (anthropic-messages) — message-anchored schema delivery for gateways without the native deferral wire (`supportsToolReferences: false` lanes such as the clawrouter CC adapter / claude-bridge OAuth). Tools activated mid-session via toolResult `addedToolNames` are permanently excluded from wire `tools[]`; their full definition is delivered once as a `<tool-loaded>` text block after the activating tool_result, keeping the prompt-cache prefix byte-stable (previously each activation re-billed the full prefix, observed 109k tokens) ([#372](https://github.com/valkyriweb/pi-mono/pull/372)).
 
 - Fix: preserve valid OAuth/deferred `tool_reference` blocks by normalizing canonical names to their serialized Claude Code wire names before request membership checks (`read` → `Read`) ([#359](https://github.com/valkyriweb/pi-mono/pull/359)).
