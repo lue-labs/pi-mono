@@ -178,7 +178,9 @@ describe("background bash lifecycle watchdog", () => {
 
 	it("sends exact one-shot owner payloads for clean, failed, and signalled terminals", async () => {
 		const notifications: BackgroundShellNotification[] = [];
-		const unsubscribe = subscribeBashBgNotificationForOwner("owner", (notification) => notifications.push(notification));
+		const unsubscribe = subscribeBashBgNotificationForOwner("owner", (notification) =>
+			notifications.push(notification),
+		);
 		const clean = spawnBashBackground("true", cwd, undefined, undefined, "owner");
 		const failed = spawnBashBackground("exit 7", cwd, undefined, undefined, "owner");
 		const signalled = spawnBashBackground("kill -TERM $$", cwd, undefined, undefined, "owner");
@@ -226,7 +228,9 @@ describe("background bash lifecycle watchdog", () => {
 
 	it("distinguishes owner prompt and output-limit payloads without duplicate wakes", async () => {
 		const notifications: BackgroundShellNotification[] = [];
-		const unsubscribe = subscribeBashBgNotificationForOwner("owner", (notification) => notifications.push(notification));
+		const unsubscribe = subscribeBashBgNotificationForOwner("owner", (notification) =>
+			notifications.push(notification),
+		);
 		const stalled = spawnBashBackground("sleep 30", cwd, undefined, undefined, "owner");
 		const limited = spawnBashBackground(
 			`node -e 'process.stdout.write("x".repeat(4096))'`,

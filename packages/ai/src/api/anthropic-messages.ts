@@ -314,6 +314,7 @@ function getAnthropicCompat(
 		supportsTemperature: model.compat?.supportsTemperature ?? true,
 		allowEmptySignature: model.compat?.allowEmptySignature ?? false,
 		supportsToolReferences: model.compat?.supportsToolReferences ?? defaultSupportsToolReferences(model),
+		inlineDeferredTools: model.compat?.inlineDeferredTools ?? false,
 	};
 }
 
@@ -1314,18 +1315,33 @@ function buildParams(
 	// names) and `Tool.name` agree on identity.
 	const normalizeToolName = (name: string): string =>
 		canonicalToWire.get(name) ?? (isOAuthToken ? toClaudeCodeName(name) : name);
-	const toolPlacement = splitDeferredTools(context, compat.supportsToolReferences, normalizeToolName);
+	// Inline-schema lane (opt-in, gateways that drop the native deferral wire):
+	// transcript-activated tools are excluded from wire tools[] permanently and
+	// their schemas are delivered as text after the activating tool_result, so
+	// tools[] stays byte-stable and activation never busts the cache prefix.
+	const inlineDeferred = compat.inlineDeferredTools && !compat.supportsToolReferences;
+	const toolPlacement = splitDeferredTools(
+		context,
+		compat.supportsToolReferences || inlineDeferred,
+		normalizeToolName,
+		inlineDeferred,
+	);
 	// Never defer every tool — Anthropic still needs at least one immediate
 	// definition, so an all-deferred split falls back to sending everything now.
-	const deferredToolNames: ReadonlySet<string> =
+	const messageAnchoredNames: ReadonlySet<string> =
 		toolPlacement.immediate.length > 0 ? new Set(toolPlacement.deferred.keys()) : new Set();
+	// tool_reference lanes mark message-anchored tools as defer_loading stubs in
+	// tools[]; the inline lane must not (the gateway drops the field and would
+	// send full schemas — the exact prefix mutation this lane exists to avoid).
+	const deferredToolNames: ReadonlySet<string> = inlineDeferred ? new Set() : messageAnchoredNames;
+	const inlineToolSchemas: ReadonlyMap<string, Tool> | undefined =
+		inlineDeferred && messageAnchoredNames.size > 0 ? toolPlacement.deferred : undefined;
+	const wireTools: Tool[] | undefined = inlineToolSchemas !== undefined ? toolPlacement.immediate : context.tools;
 	// Wire names of every tool serialized into this request's tools[] (same
 	// expression as convertTools). Transcript tool_reference blocks are filtered
 	// against this set — Anthropic rejects the request when a reference names a
 	// tool that is not in tools[].
-	const requestToolNames: ReadonlySet<string> = new Set(
-		(context.tools ?? []).map((tool) => normalizeToolName(tool.name)),
-	);
+	const requestToolNames: ReadonlySet<string> = new Set((wireTools ?? []).map((tool) => normalizeToolName(tool.name)));
 	const params: MessageCreateParamsStreaming = {
 		model: model.id,
 		messages: convertMessages(
@@ -1339,6 +1355,7 @@ function buildParams(
 			deferredToolNames,
 			normalizeToolName,
 			requestToolNames,
+			inlineToolSchemas,
 		),
 		max_tokens: options?.maxTokens ?? model.maxTokens,
 		stream: true,
@@ -1366,14 +1383,14 @@ function buildParams(
 		params.temperature = options.temperature;
 	}
 
-	if (context.tools && context.tools.length > 0) {
+	if (wireTools && wireTools.length > 0) {
 		// Claude Code (OAuth identity) never puts cache_control on tools — only on
 		// system prompt blocks and messages. Providers that support it get a
 		// cache_control marker on the last tool definition (skipped when that tool
 		// is deferred: the API rejects both defer_loading and cache_control on the
 		// same tool definition).
 		params.tools = convertTools(
-			context.tools,
+			wireTools,
 			model,
 			isOAuthToken,
 			compat.supportsEagerToolInputStreaming,
@@ -1454,6 +1471,7 @@ function convertMessages(
 	deferredToolNames: ReadonlySet<string> = new Set(),
 	normalizeToolName: (name: string) => string = (name) => name,
 	requestToolNames: ReadonlySet<string> = new Set(),
+	inlineToolSchemas?: ReadonlyMap<string, Tool>,
 ): MessageParam[] {
 	const params: MessageParam[] = [];
 	const loadedToolNames = new Set<string>();
@@ -1595,7 +1613,23 @@ function convertMessages(
 				const references: { type: "tool_reference"; tool_name: string }[] = [];
 				for (const name of result.addedToolNames ?? []) {
 					const normalizedName = normalizeToolName(name);
-					if (!deferredToolNames.has(normalizedName) || loadedToolNames.has(normalizedName)) continue;
+					if (loadedToolNames.has(normalizedName)) continue;
+					// Inline-schema lane: deliver the activated tool's full definition as
+					// a text block after this tool_result batch. tools[] never mutates,
+					// so activation stays append-only for the prompt cache. Rendered via
+					// convertOneTool so the model sees the exact tools[] shape
+					// (deterministic key order — byte-stable across replays).
+					const inlineTool = inlineToolSchemas?.get(normalizedName);
+					if (inlineTool) {
+						loadedToolNames.add(normalizedName);
+						const definition = convertOneTool(inlineTool, model, false, false, normalizedName);
+						siblingContent.push({
+							type: "text",
+							text: `<tool-loaded>\n${JSON.stringify(definition)}\n</tool-loaded>\nThis tool is now available. Invoke it by name like any other tool.`,
+						});
+						continue;
+					}
+					if (!deferredToolNames.has(normalizedName)) continue;
 					loadedToolNames.add(normalizedName);
 					references.push({
 						type: "tool_reference",

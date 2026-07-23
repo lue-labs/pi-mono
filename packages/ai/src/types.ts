@@ -640,6 +640,18 @@ export interface AnthropicMessagesCompat {
 	/** Whether the provider supports deferred tool references in tool results. Default: true. */
 	supportsToolReferences?: boolean;
 	/**
+	 * Message-anchored schema delivery for gateways with NO native deferral wire
+	 * (`supportsToolReferences: false` lanes such as OAuth bridges that drop
+	 * `defer_loading`/`tool_reference`). When true, tools activated mid-session
+	 * (marked via toolResult `addedToolNames`) are permanently excluded from the
+	 * wire `tools[]` and their JSON schema is delivered once as a plain text
+	 * block appended after the activating tool_result — keeping `tools[]`
+	 * byte-stable so activation never busts the prompt-cache prefix.
+	 * Ignored when `supportsToolReferences` resolves true.
+	 * Default: false.
+	 */
+	inlineDeferredTools?: boolean;
+	/**
 	 * Whether to send the `x-session-affinity` header from `options.sessionId`
 	 * when caching is enabled. Required for providers like Fireworks that use
 	 * session affinity for prompt cache routing (requests to the same replica

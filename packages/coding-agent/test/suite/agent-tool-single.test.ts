@@ -52,13 +52,7 @@ describe("agent tool suite: single", () => {
 		expect(details.runs[0]?.sessionPath).toContain(".jsonl");
 		expect(details.runs[0]?.messageCount).toBeGreaterThan(0);
 		expect(details.runs[0]?.usage?.totalTokens).toBeGreaterThanOrEqual(0);
-		expect(seenChildContexts[0]?.tools?.map((tool) => tool.name)).toEqual([
-			"read",
-			"bash",
-			"edit",
-			"write",
-			"agent",
-		]);
+		expect(seenChildContexts[0]?.tools?.map((tool) => tool.name)).toEqual(["read", "bash", "edit", "write", "agent"]);
 		expect(JSON.stringify(seenChildContexts[0]?.messages)).toContain("`agent` tool is not available in this task");
 	});
 
