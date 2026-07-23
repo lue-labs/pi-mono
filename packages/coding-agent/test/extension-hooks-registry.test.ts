@@ -118,19 +118,29 @@ describe("extension hook registry", () => {
 		expect(await applyFilters<string | undefined>(hookName, "value")).toBeUndefined();
 	});
 
-	it("fails fast and does not run later filters", async () => {
+	it("fails fast for thrown and rejected filters", async () => {
 		const hookName = createHookName();
-		const error = new Error("filter failed");
+		const thrown = new Error("filter threw");
+		const rejected = new Error("filter rejected");
 		let laterFilterRan = false;
-		addFilter(hookName, "failing", () => {
-			throw error;
+		addFilter(hookName, "throwing", () => {
+			throw thrown;
 		});
 		addFilter(hookName, "later", (value: string) => {
 			laterFilterRan = true;
 			return value;
 		});
 
-		await expect(applyFilters(hookName, "value")).rejects.toBe(error);
+		await expect(applyFilters(hookName, "value")).rejects.toBe(thrown);
+		expect(laterFilterRan).toBe(false);
+		removeHook(hookName);
+		addFilter(hookName, "rejecting", async () => Promise.reject(rejected));
+		addFilter(hookName, "later", (value: string) => {
+			laterFilterRan = true;
+			return value;
+		});
+
+		await expect(applyFilters(hookName, "value")).rejects.toBe(rejected);
 		expect(laterFilterRan).toBe(false);
 	});
 });
