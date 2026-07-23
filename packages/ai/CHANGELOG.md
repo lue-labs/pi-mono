@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Feat: opt-in `compat.inlineDeferredTools` (anthropic-messages) — message-anchored schema delivery for gateways without the native deferral wire (`supportsToolReferences: false` lanes such as the clawrouter CC adapter / claude-bridge OAuth). Tools activated mid-session via toolResult `addedToolNames` are permanently excluded from wire `tools[]`; their full definition is delivered once as a `<tool-loaded>` text block after the activating tool_result, keeping the prompt-cache prefix byte-stable (previously each activation re-billed the full prefix, observed 109k tokens) ([#372](https://github.com/valkyriweb/pi-mono/pull/372)).
+
 - Fix: preserve valid OAuth/deferred `tool_reference` blocks by normalizing canonical names to their serialized Claude Code wire names before request membership checks (`read` → `Read`) ([#359](https://github.com/valkyriweb/pi-mono/pull/359)).
 
 - Fix: filter transcript `tool_reference` blocks (assistant messages and tool-result content) against the current request's serialized `tools[]` wire names during Anthropic serialization. Anthropic 400s the whole request when a reference names a tool absent from `tools[]` ("Tool reference 'X' not found in available tools") — hit by forked child sessions with filtered tools, profile changes, and resumed sessions. References to present tools serialize byte-identically (prompt-cache safe); a mixed tool result whose only surviving content was ghost references gets a placeholder text block ([my-pi#1210](https://github.com/valkyriweb/my-pi/issues/1210), [#354](https://github.com/valkyriweb/pi-mono/pull/354)).

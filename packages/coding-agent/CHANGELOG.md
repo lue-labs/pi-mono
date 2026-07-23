@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Chore: biome export-ordering formatting in background-shell tool modules (no behavior change) ([#372](https://github.com/valkyriweb/pi-mono/pull/372)).
+
 - Background shells now have owner-scoped lifecycle notifications, prompt-stall attention, bounded persisted output, explicit terminal reasons, and process-tree cleanup across manual stop and session disposal.
 
 - Fix: General child Agents reuse a parent cache prefix only with matching builtin routing, thinking, prompt, and tool capabilities; deferred child extensions now load before parent-tool parity is enforced ([#367](https://github.com/valkyriweb/pi-mono/pull/367)).
