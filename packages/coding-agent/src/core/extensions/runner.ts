@@ -17,7 +17,7 @@ import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
 import { recordTiming, timingsEnabled } from "../timings.ts";
 import { loadDeferredExtensionsBatch } from "./deferred-loading.ts";
-import { applyFilters } from "./extension-hooks.ts";
+import { applyFilters, extensionHookNames } from "./extension-hooks.ts";
 import { getExtensionProcessService } from "./loader.ts";
 import {
 	collectRegisteredAgentChains,
@@ -1072,7 +1072,7 @@ export class ExtensionRunner {
 			// CACHE CRITICAL: message:end filters rewrite finalized transcript
 			// messages. Non-deterministic rewrites of prior turns change the next
 			// cached message prefix, so filters must be stable for the same input.
-			const filteredMessage = await applyFilters("message:end", currentMessage, event);
+			const filteredMessage = await applyFilters(extensionHookNames.messageEnd, currentMessage, event);
 			if (filteredMessage !== currentMessage) {
 				if (filteredMessage.role !== currentMessage.role) {
 					this.emitError({
@@ -1296,7 +1296,7 @@ export class ExtensionRunner {
 		}
 
 		try {
-			currentPayload = await applyFilters("provider:beforeRequest", currentPayload);
+			currentPayload = await applyFilters(extensionHookNames.providerBeforeRequest, currentPayload);
 		} catch (err) {
 			this.emitError({
 				extensionPath: "<hook-filter:provider:beforeRequest>",
@@ -1389,7 +1389,7 @@ export class ExtensionRunner {
 	): Promise<string> {
 		if (this.staleMessage) return systemPrompt;
 		try {
-			return await applyFilters("systemPrompt:build", systemPrompt, systemPromptOptions, {
+			return await applyFilters(extensionHookNames.systemPromptBuild, systemPrompt, systemPromptOptions, {
 				prompt: "",
 				images: undefined,
 				preview: true,
@@ -1419,11 +1419,16 @@ export class ExtensionRunner {
 			// CACHE CRITICAL: systemPrompt:build feeds the cached system prefix.
 			// Keep output byte-stable across turns; put cwd/session/timestamp/file
 			// data in messages or after the cacheable prefix instead.
-			currentSystemPrompt = await applyFilters("systemPrompt:build", currentSystemPrompt, systemPromptOptions, {
-				prompt,
-				images,
-				preview,
-			});
+			currentSystemPrompt = await applyFilters(
+				extensionHookNames.systemPromptBuild,
+				currentSystemPrompt,
+				systemPromptOptions,
+				{
+					prompt,
+					images,
+					preview,
+				},
+			);
 		} catch (err) {
 			this.emitError({
 				extensionPath: "<hook-filter:systemPrompt:build>",

@@ -83,7 +83,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { isDeferredTool } from "./deferred-tools.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
-import { applyFilters } from "./extensions/extension-hooks.ts";
+import { applyFilters, extensionHookNames } from "./extensions/extension-hooks.ts";
 import {
 	type ContextUsage,
 	type ExtensionCommandContextActions,
@@ -2758,7 +2758,7 @@ export class AgentSession {
 			promptLength: promptText.length,
 		};
 		const resolved = await applyFilters(
-			"model:resolve",
+			extensionHookNames.modelResolve,
 			{
 				requestedModel: pending.requestedModel,
 				model: currentModel,
