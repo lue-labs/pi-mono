@@ -318,6 +318,14 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 		// treat it as a paste. A single line with only a trailing newline (e.g.
 		// programmatic "command\r") is intentionally NOT a paste, so automation that
 		// types text-plus-Enter keeps working.
+		//
+		// Explicit tradeoff: a driver that batches MULTIPLE newline-terminated
+		// commands into one write ("a\nb\n") loses per-line submit and gets one
+		// pasted blob instead. Known drivers (tmux send-keys -l + separate Enter,
+		// herdr send-text/send-keys) send text and Enter as separate writes and are
+		// unaffected; batching several prompts into one write was already broken
+		// (later lines submitted mid-turn) and is not a supported driving pattern.
+		// This matches Claude Code's paste handling.
 		if (!this.pasteMode && this.buffer.length === 0 && !str.includes(ESC)) {
 			const core = str.replace(/^[\r\n]+|[\r\n]+$/g, "");
 			if (/[\r\n]/.test(core)) {
