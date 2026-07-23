@@ -606,31 +606,35 @@ Specialized General.`,
 		expect(details.runs[0]?.recentToolCalls?.[0]?.name).toBe("child_session_start_second");
 	});
 
-	it("fails clearly when a cache-compatible child cannot reproduce a parent tool", async () => {
+	it("returns actionable startup diagnostics when a cache-compatible child cannot reproduce a parent tool", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("must not run")]);
 
-		await expect(
-			executeAgentTool(
-				{
-					mode: "single",
-					tasks: [{ agent: "general", task: "use the missing parent tool", context: "fork" }],
-				},
-				{
-					...executorOptions(harness),
-					parentActiveTools: ["parent_only_tool"],
-					parentProviderTools: [
-						{
-							name: "parent_only_tool",
-							description: "Only registered in the parent",
-							parameters: { type: "object", properties: {} },
-						},
-					],
-					parentSystemPrompt: "PARENT PROMPT",
-				},
-			),
-		).rejects.toThrow(/child tools.*do not match parent tools/i);
+		const details = await executeAgentTool(
+			{
+				mode: "single",
+				tasks: [{ agent: "general", task: "use the missing parent tool", context: "fork" }],
+			},
+			{
+				...executorOptions(harness),
+				parentActiveTools: ["parent_only_tool"],
+				parentProviderTools: [
+					{
+						name: "parent_only_tool",
+						description: "Only registered in the parent",
+						parameters: { type: "object", properties: {} },
+					},
+				],
+				parentSystemPrompt: "PARENT PROMPT",
+			},
+		);
+
+		expect(details.status).toBe("failed");
+		expect(details.runs[0]?.status).toBe("failed");
+		expect(details.runs[0]?.error).toMatch(/child tools.*do not match parent tools/i);
+		expect(details.runs[0]?.sessionId).toBeTruthy();
+		expect(details.runs[0]?.sessionPath).toBeTruthy();
 	});
 
 	it("treats an explicit fork tool restriction as a canonical parent-tool subset", async () => {
