@@ -81,6 +81,8 @@ export interface SettingsConfig {
 	defaultProjectTrust: DefaultProjectTrust;
 	clearOnShrink: boolean;
 	showTerminalProgress: boolean;
+	toolOutput: "compact" | "expanded";
+	motion: "full" | "reduced";
 	warnings: WarningSettings;
 }
 
@@ -112,6 +114,8 @@ export interface SettingsCallbacks {
 	onDefaultProjectTrustChange: (defaultProjectTrust: DefaultProjectTrust) => void;
 	onClearOnShrinkChange: (enabled: boolean) => void;
 	onShowTerminalProgressChange: (enabled: boolean) => void;
+	onToolOutputChange: (toolOutput: "compact" | "expanded") => void;
+	onMotionChange: (motion: "full" | "reduced") => void;
 	onWarningsChange: (warnings: WarningSettings) => void;
 	onCancel: () => void;
 }
@@ -730,6 +734,27 @@ export class SettingsSelectorComponent extends Container {
 			values: ["true", "false"],
 		});
 
+		// Tool output and motion preferences stay with other terminal display settings.
+		const terminalProgressIndex = items.findIndex((item) => item.id === "terminal-progress");
+		items.splice(
+			terminalProgressIndex + 1,
+			0,
+			{
+				id: "tool-output",
+				label: "Tool output",
+				description: "Default tool detail level; Ctrl+O toggles this for the current session",
+				currentValue: config.toolOutput,
+				values: ["compact", "expanded"],
+			},
+			{
+				id: "motion",
+				label: "Motion",
+				description: "Use static activity indicators instead of animation",
+				currentValue: config.motion,
+				values: ["full", "reduced"],
+			},
+		);
+
 		// Add borders
 		this.addChild(new DynamicBorder());
 
@@ -820,6 +845,12 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "terminal-progress":
 						callbacks.onShowTerminalProgressChange(newValue === "true");
+						break;
+					case "tool-output":
+						callbacks.onToolOutputChange(newValue as "compact" | "expanded");
+						break;
+					case "motion":
+						callbacks.onMotionChange(newValue as "full" | "reduced");
 						break;
 					case "theme":
 						callbacks.onThemeChange(newValue);

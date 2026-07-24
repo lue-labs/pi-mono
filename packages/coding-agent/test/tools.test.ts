@@ -362,23 +362,7 @@ describe("Coding Agent Tools", () => {
 			expect(result.details.patch).toContain("+Hello, testing!");
 			expect(applyPatch(originalContent, result.details.patch)).toBe("Hello, testing!");
 			expect("originalContent" in result.details).toBe(false);
-			expect(result.details.originalContentPreview).toBe(originalContent);
-		});
-
-		it("should cap original content stored in edit details", async () => {
-			const testFile = join(testDir, "edit-large-original.txt");
-			const originalContent = `${"x".repeat(5000)}\nneedle\n`;
-			writeFileSync(testFile, originalContent);
-
-			const result = await editTool.execute("test-call-5b", {
-				path: testFile,
-				edits: [{ oldText: "needle", newText: "thread" }],
-			});
-
-			expect(result.details).toBeDefined();
-			expect("originalContent" in result.details).toBe(false);
-			expect(result.details.originalContentPreview).toBe(originalContent.slice(0, 4000));
-			expect(result.details.originalContentPreview.length).toBeLessThanOrEqual(4000);
+			expect("originalContentPreview" in result.details).toBe(false);
 		});
 
 		it("should fail if text not found", async () => {

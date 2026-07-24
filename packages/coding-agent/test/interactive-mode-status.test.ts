@@ -117,6 +117,18 @@ describe("InteractiveMode.showStatus", () => {
 	});
 });
 
+describe("InteractiveMode reduced motion", () => {
+	test("preserves an extension indicator that explicitly hides its frames", () => {
+		const hiddenIndicator = { frames: [] as string[], intervalMs: 80 };
+		const fakeThis: any = {
+			settingsManager: { getMotion: () => "reduced" },
+			workingIndicatorOptions: hiddenIndicator,
+		};
+
+		expect((InteractiveMode as any).prototype.getWorkingIndicatorForMotion.call(fakeThis)).toBe(hiddenIndicator);
+	});
+});
+
 describe("InteractiveMode.setToolsExpanded", () => {
 	test("applies expansion state to the active header and chat entries", () => {
 		const header = { setExpanded: vi.fn() };

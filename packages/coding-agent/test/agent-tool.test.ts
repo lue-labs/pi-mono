@@ -209,7 +209,7 @@ describe("agent tool", () => {
 		expect(guidelines).toContain("self-verification evidence");
 	});
 
-	test("collapsed render shows per-agent work activity", () => {
+	test("collapsed result stays empty because the call card owns Agent activity", () => {
 		const tool = createAgentToolDefinition(process.cwd());
 		const details: AgentToolDetails = {
 			mode: "parallel",
@@ -249,10 +249,7 @@ describe("agent tool", () => {
 		const context = {} as unknown as Parameters<typeof renderResult>[3];
 		const component = renderResult(result, { expanded: false, isPartial: false }, theme, context);
 		const text = component.render(120).join("\n");
-		expect(text).toContain("└─");
-		expect(text).toContain("explore");
-		expect(text).toContain("⎿  grep: AgentProgressLine");
-		expect(text).toContain("Warning: explore running on frontier model clawrouter/claude-fable-5-200k");
+		expect(text).toBe("");
 	});
 
 	test("project agent confirmation cannot be bypassed by tool arguments", async () => {
