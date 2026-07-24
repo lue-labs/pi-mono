@@ -322,16 +322,18 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.6-sol");
 	});
 
-	test('"frontier" alias keeps clawrouter Claude parents on claude-opus-4-8-200k', () => {
+	test('"frontier" alias keeps clawrouter Claude parents on claude-opus-5-200k', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
 			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
-			{ id: "claude-opus-4-8-200k", name: "Claude Opus 200k", reasoning: true },
+			{ id: "claude-opus-4-8-200k", name: "Claude Opus 4.8 200k", reasoning: true },
+			{ id: "claude-opus-5", name: "Claude Opus 5", reasoning: true },
+			{ id: "claude-opus-5-200k", name: "Claude Opus 5 200k", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "frontier" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("clawrouter");
-		expect(selected?.id).toBe("claude-opus-4-8-200k");
+		expect(selected?.id).toBe("claude-opus-5-200k");
 	});
 
 	test('"ultra" alias uses fable now and GPT-5.6 for GPT parents when available', () => {

@@ -55,7 +55,7 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 	anthropic: {
 		fast: ["claude-haiku-4-5"],
 		medium: ["claude-sonnet-4-6"],
-		frontier: ["claude-opus-4-8"],
+		frontier: ["claude-opus-5", "claude-opus-4-8"],
 		ultra: ["claude-fable-5-200k", "claude-fable-5"],
 	},
 	"amazon-bedrock": {
@@ -120,13 +120,13 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 	"claude-bridge": {
 		fast: ["claude-haiku-4-5"],
 		medium: ["claude-sonnet-5", "claude-sonnet-4-6"],
-		frontier: ["claude-opus-4-8-200k", "claude-opus-4-8"],
+		frontier: ["claude-opus-5-200k", "claude-opus-5", "claude-opus-4-8-200k", "claude-opus-4-8"],
 		ultra: ["claude-fable-5-200k", "claude-fable-5"],
 	},
 	clawrouter: {
 		fast: ["gpt-5.6-luna", "claude-haiku-4-5"],
 		medium: ["gpt-5.6-terra", "gpt-5.3-codex-spark", "claude-sonnet-5", "claude-sonnet-4-6"],
-		frontier: ["gpt-5.6-sol", "claude-opus-4-8-200k", "claude-opus-4-8"],
+		frontier: ["gpt-5.6-sol", "claude-opus-5-200k", "claude-opus-5", "claude-opus-4-8-200k", "claude-opus-4-8"],
 		ultra: ["gpt-5.6", "claude-fable-5-200k", "claude-fable-5"],
 	},
 };
@@ -150,7 +150,7 @@ const modelFamilyTierCandidatesByProvider: Record<
 			candidates: {
 				fast: ["claude-haiku-4-5"],
 				medium: ["claude-sonnet-5", "claude-sonnet-4-6"],
-				frontier: ["claude-opus-4-8-200k", "claude-opus-4-8"],
+				frontier: ["claude-opus-5-200k", "claude-opus-5", "claude-opus-4-8-200k", "claude-opus-4-8"],
 				ultra: ["claude-fable-5-200k", "claude-fable-5"],
 			},
 		},
@@ -186,7 +186,7 @@ export const mediumModelPerProvider: Record<string, string> = firstCandidatePerP
 export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	"amazon-bedrock": "us.anthropic.claude-opus-4-6-v1",
 	"ant-ling": "Ring-2.6-1T",
-	anthropic: "claude-opus-4-8",
+	anthropic: "claude-opus-5",
 	openai: "gpt-5.6-sol",
 	"azure-openai-responses": "gpt-5.6-sol",
 	"openai-codex": "gpt-5.3-codex-spark",
