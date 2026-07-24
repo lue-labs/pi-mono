@@ -43,6 +43,7 @@ import {
 	getAgentRecentRunGeneration,
 	markAgentRecentRunBackgrounded,
 	markAgentRecentRunNeedsAttention,
+	reapAgentRecentRun,
 	restartAgentRecentRun,
 	startAgentRecentRun,
 	updateAgentRecentRunProgress,
@@ -1807,12 +1808,28 @@ async function executeManagedAgentRun(
 				return;
 			}
 			const staleMs = Date.now() - lastActivityAt;
-			if (staleMs >= BACKGROUND_STALE_PROGRESS_MS) {
-				markAgentRecentRunNeedsAttention(
+			if (staleMs < BACKGROUND_STALE_PROGRESS_MS) return;
+			if (activeSessions.size === 0) {
+				// Zombie: stale past the threshold with no live child session left to
+				// produce progress. Force-settle to terminal (CC-style reaper) instead
+				// of flagging for attention — nothing can legitimately still be
+				// driving this run, so waiting on the user is pure noise.
+				stopMonitor();
+				abortStatus = "cancelled";
+				abortController.abort();
+				reapAgentRecentRun(
 					recentRun,
-					`No child progress for ${formatAgentDurationMs(staleMs)}; inspect or stop it with /agents runs`,
+					`reaped: no progress for ${formatAgentDurationMs(staleMs)} and no live child session`,
+					generation,
 				);
+				return;
 			}
+			// A live-but-quiet child may be mid long tool call (e.g. a silent
+			// build); never kill it — surface an informational nudge only.
+			markAgentRecentRunNeedsAttention(
+				recentRun,
+				`No child progress for ${formatAgentDurationMs(staleMs)}; inspect or stop it with /agents runs`,
+			);
 		}, BACKGROUND_MONITOR_INTERVAL_MS);
 	};
 	const attachTerminalNotification = () => {
