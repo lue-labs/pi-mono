@@ -354,6 +354,8 @@ function isAnthropicAdaptiveThinkingModel(modelId: string): boolean {
 		modelId.includes("opus-4.7") ||
 		modelId.includes("opus-4-8") ||
 		modelId.includes("opus-4.8") ||
+		modelId.includes("opus-5") ||
+		modelId.includes("opus.5") ||
 		modelId.includes("sonnet-4-6") ||
 		modelId.includes("sonnet-4.6") ||
 		modelId.includes("sonnet-5") ||
@@ -364,7 +366,14 @@ function isAnthropicAdaptiveThinkingModel(modelId: string): boolean {
 
 function isAnthropicTemperatureUnsupportedModel(modelId: string): boolean {
 	const id = modelId.toLowerCase();
-	return id.includes("opus-4-7") || id.includes("opus-4.7") || id.includes("opus-4-8") || id.includes("opus-4.8");
+	return (
+		id.includes("opus-4-7") ||
+		id.includes("opus-4.7") ||
+		id.includes("opus-4-8") ||
+		id.includes("opus-4.8") ||
+		id.includes("opus-5") ||
+		id.includes("opus.5")
+	);
 }
 
 const OPENAI_COMPLETIONS_DEFAULT_COMPAT = {
@@ -579,7 +588,7 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	}
 	// Anthropic adaptive-thinking effort support (per Anthropic adaptive thinking docs):
 	// - "max" is available on all adaptive-thinking Claude models.
-	// - "xhigh" is only available on Opus 4.7/4.8, Sonnet 5, and Fable 5.
+	// - "xhigh" is only available on Opus 4.7/4.8/5, Sonnet 5, and Fable 5.
 	if (
 		model.id.includes("opus-4-6") ||
 		model.id.includes("opus-4.6") ||
@@ -593,6 +602,8 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 		model.id.includes("opus-4.7") ||
 		model.id.includes("opus-4-8") ||
 		model.id.includes("opus-4.8") ||
+		model.id.includes("opus-5") ||
+		model.id.includes("opus.5") ||
 		model.id.includes("sonnet-5") ||
 		model.id.includes("sonnet.5")
 	) {
@@ -1874,6 +1885,27 @@ async function generateModels() {
 		allModels.push({
 			id: "claude-opus-4-8",
 			name: "Claude Opus 4.8",
+			api: "anthropic-messages",
+			baseUrl: "https://api.anthropic.com",
+			provider: "anthropic",
+			reasoning: true,
+			input: ["text", "image"],
+			cost: {
+				input: 5,
+				output: 25,
+				cacheRead: 0.5,
+				cacheWrite: 6.25,
+			},
+			contextWindow: 1000000,
+			maxTokens: 128000,
+		});
+	}
+
+	// Add missing Claude Opus 5 until models.dev publishes it.
+	if (!allModels.some(m => m.provider === "anthropic" && m.id === "claude-opus-5")) {
+		allModels.push({
+			id: "claude-opus-5",
+			name: "Claude Opus 5",
 			api: "anthropic-messages",
 			baseUrl: "https://api.anthropic.com",
 			provider: "anthropic",

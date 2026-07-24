@@ -9,12 +9,15 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).not.toContain("xhigh");
 	});
 
-	it("includes xhigh and max for Anthropic Opus 4.8 on anthropic-messages API", () => {
-		const model = getModel("anthropic", "claude-opus-4-8");
-		expect(model).toBeDefined();
-		expect(getSupportedThinkingLevels(model!)).toContain("xhigh");
-		expect(getSupportedThinkingLevels(model!)).toContain("max");
-	});
+	it.each(["claude-opus-4-8", "claude-opus-5"] as const)(
+		"includes xhigh and max for Anthropic %s on anthropic-messages API",
+		(modelId) => {
+			const model = getModel("anthropic", modelId);
+			expect(model).toBeDefined();
+			expect(getSupportedThinkingLevels(model!)).toContain("xhigh");
+			expect(getSupportedThinkingLevels(model!)).toContain("max");
+		},
+	);
 
 	it("includes max but not xhigh for Anthropic Sonnet 4.6 on anthropic-messages API", () => {
 		const model = getModel("anthropic", "claude-sonnet-4-6");

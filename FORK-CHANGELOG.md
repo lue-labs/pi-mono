@@ -6,6 +6,10 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Opus 5 is available in the built-in Anthropic catalog and replaces Opus 4.8 in frontier routing.** The generated model fallback registers `claude-opus-5` with the announced Opus 4.8-equivalent pricing and the existing 1M/128k Opus surface; direct Anthropic frontier routing now selects it exclusively, while `claude-bridge` and `clawrouter` frontier candidates use the governed `claude-opus-5-200k` alias before the 1M route without retaining Opus 4.8 candidates. Model metadata only; no system-prompt or tool-schema bytes change.
+
 ### Fixed
 
 - **Background agents no longer pile up as "N needs input"; zombie runs are reaped.** Pi subagents have no blocking path (no permission prompts; child `AskUserQuestion` auto-proceeds without UI), so `taskNeedsInput()` is now an explicit provider claim only — never derived from interrupted/failed status. Agent tasks always report `needsInput: false`; bash jobs claim it only when stalled on an interactive prompt (a failed job is settled state). New `reapAgentRecentRun()`: the stale watchdog force-settles a run with no progress past the 10-minute threshold and no live child session to `failed` (Claude Code-style reaper), bumping the run generation so a late settle cannot clobber the reaped status; a live-but-quiet child (mid long tool call) gets only the informational needs-attention nudge. Runtime registry state only — no system-prompt or tool-schema bytes change.
