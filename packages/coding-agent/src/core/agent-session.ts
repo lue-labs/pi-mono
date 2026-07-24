@@ -2494,8 +2494,17 @@ export class AgentSession {
 						// Promote to _baseSystemPrompt for the same reason as in prompt():
 						// one-shot extension injections must persist as the stable prefix.
 						this._baseSystemPrompt = beforeStart.systemPrompt;
+						// CACHE CRITICAL: preserve as an override during mid-turn tool
+						// refresh, mirroring prompt(). Without it, a mid-turn
+						// setActiveTools (deferred-tool activation) swaps the raw
+						// rebuilt prompt onto the wire — dropping handler-returned
+						// content and mutating the stable system block, which busts the
+						// prompt cache on machine-driven turns (monitor wakes, goal
+						// continuations via sendCustomMessage({triggerTurn:true})).
+						this._systemPromptOverride = beforeStart.systemPrompt;
 						this.agent.state.systemPrompt = beforeStart.systemPrompt;
 					} else if (this._baseSystemPrompt) {
+						this._systemPromptOverride = undefined;
 						this.agent.state.systemPrompt = this._baseSystemPrompt;
 					}
 				}
