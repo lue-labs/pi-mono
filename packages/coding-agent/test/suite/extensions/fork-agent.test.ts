@@ -175,6 +175,31 @@ describe("ctx.forkAgent", () => {
 		expect(captured.parentSystemPrompts.length).toBe(1);
 	});
 
+	it("preserves a parent-only deferred tool handler in fork mode", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured);
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.session.agent.state.tools.push({
+			name: "ctx_execute",
+			label: "ctx_execute",
+			description: "Parent-activated deferred context tool",
+			parameters: { type: "object", properties: {} },
+			execute: async () => ({ content: [{ type: "text", text: "ctx ok" }], details: {} }),
+		} as never);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+
+		expect(captured.error).toBeUndefined();
+		const details = await captured.handle!.wait();
+		expect(details.status).toBe("completed");
+		const child = record.contexts.find(isChildContext);
+		expect(child?.tools?.map((tool) => tool.name)).toContain("ctx_execute");
+	});
+
 	it("routes forkAgent({ agentType }) through the named agent definition", async () => {
 		const captured = newCaptured();
 		const record: ContextRecord = { contexts: [] };

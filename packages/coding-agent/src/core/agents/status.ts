@@ -401,6 +401,29 @@ export function failAgentRecentRun(run: AgentRecentRun, error: unknown, expected
 	maybeFireTerminal(run);
 }
 
+/**
+ * Force-settle a zombie run (CC-style reaper): a run that is still "running"
+ * but has made no progress past the stale threshold with no live child session
+ * left to produce any. Terminal `failed` with the reap reason; bumping the run
+ * generation makes any late settle attempt from the reaped generation a no-op,
+ * so the reaped status and error are never clobbered.
+ */
+export function reapAgentRecentRun(run: AgentRecentRun, reason: string, expectedGeneration?: number): void {
+	if (!isExpectedGeneration(run, expectedGeneration)) return;
+	if (run.status !== "running") return;
+	runGenerations.set(run, getRunGeneration(run) + 1);
+	run.status = "failed";
+	run.parked = false;
+	updateRunTimestamps(run, true);
+	run.error = reason;
+	run.resumable = false;
+	run.needsAttention = false;
+	run.attentionMessage = undefined;
+	liveRunControllers.delete(run.id);
+	notifyAgentRecentRunsChanged();
+	maybeFireTerminal(run);
+}
+
 export function attachAgentRecentRunController(runId: string, controller: AgentRecentRunController): void {
 	liveRunControllers.set(runId, controller);
 }

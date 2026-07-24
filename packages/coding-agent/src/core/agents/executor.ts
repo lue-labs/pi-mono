@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
+import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type { Api, AssistantMessage, Model, TextContent, Tool, Usage } from "@valkyriweb/pi-ai";
 import type { AgentSession } from "../agent-session.ts";
 import {
@@ -43,6 +43,7 @@ import {
 	getAgentRecentRunGeneration,
 	markAgentRecentRunBackgrounded,
 	markAgentRecentRunNeedsAttention,
+	reapAgentRecentRun,
 	restartAgentRecentRun,
 	startAgentRecentRun,
 	updateAgentRecentRunProgress,
@@ -100,6 +101,9 @@ export interface AgentToolParentServices {
 export interface AgentExecutorOptions {
 	parentServices: AgentToolParentServices;
 	parentActiveTools: string[];
+	/** Executable parent tools in wire order. Used only to fill handlers missing
+	 * from a cache-compatible fork child's independently-built registry. */
+	parentExecutableTools?: AgentTool[];
 	/** Frozen provider-visible parent tool metadata, in wire order. */
 	parentProviderTools?: Tool[];
 	/** Parent prompt-cache lane reused when the child inherits its stable prefix. */
@@ -1250,6 +1254,12 @@ function applyParentCacheAffinityIfCompatible(options: {
 	if (parentCacheAffinityKey) session.overridePromptCacheAffinityKey(parentCacheAffinityKey);
 }
 
+function throwChildSetupFailure(details: AgentRunDetails, error: unknown): never {
+	details.status = "failed";
+	details.error = error instanceof Error ? error.message : String(error);
+	throw Object.assign(new Error(details.error), { details });
+}
+
 async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	if (options.signal?.aborted) throw new Error("Agent tool aborted");
 	const prepared = await prepareChildRunContext({
@@ -1277,7 +1287,9 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 	childSessionManager.newSession({ parentSession: options.parentSessionManager.getSessionFile() });
 	details.sessionId = childSessionManager.getSessionId();
 	details.sessionPath = childSessionManager.getSessionFile();
-	const { session, modelFallbackMessage, modelRoutingFailed } = await createAgentSessionFromServices({
+	let createdSession: Awaited<ReturnType<typeof createAgentSessionFromServices>>;
+	try {
+		createdSession = await createAgentSessionFromServices({
 		services: childServices,
 		sessionManager: childSessionManager,
 		model: effectiveModel,
@@ -1301,18 +1313,26 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 			runId: options.taskId,
 			parentRunId: options.parentServices.parentRunId,
 		},
-		sessionStartEvent: { type: "session_start", reason: "startup", forkMetadata: options.task.forkMetadata },
-		// Tag the session-level source so non-input hooks (session_start,
-		// session_shutdown, turn_end, tool_call/tool_result, memory_note tool
-		// execution) can gate on `ctx.source === "child-agent"`. The per-turn
-		// `source: "child-agent"` passed to `session.prompt` below covers
-		// input/before_agent_start independently.
-		source: "child-agent",
-	});
-	applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
+			sessionStartEvent: { type: "session_start", reason: "startup", forkMetadata: options.task.forkMetadata },
+			// Tag the session-level source so non-input hooks (session_start,
+			// session_shutdown, turn_end, tool_call/tool_result, memory_note tool
+			// execution) can gate on `ctx.source === "child-agent"`. The per-turn
+			// `source: "child-agent"` passed to `session.prompt` below covers
+			// input/before_agent_start independently.
+			source: "child-agent",
+		});
+	} catch (error) {
+		throwChildSetupFailure(details, error);
+	}
+	const { session, modelFallbackMessage, modelRoutingFailed } = createdSession;
+	try {
+		applyChildSessionResolution({ session, prepared, modelFallbackMessage, modelRoutingFailed });
 	await session.bindExtensions({});
 	await session.loadDeferredExtensions();
 	session.setActiveToolsByName(effectiveTools);
+	if (options.task.context === "fork" && options.task.tools === undefined && options.parentExecutableTools) {
+		session.inheritMissingActiveTools(options.parentExecutableTools);
+	}
 
 	if (policy.includeTranscript) {
 		session.state.messages = getFilteredForkMessages(options.parentSessionManager);
@@ -1339,7 +1359,12 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		requireParentToolSchemas: options.task.context === "fork" && options.task.tools === undefined,
 	});
 
-	details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
+		details.loadedSkills = childServices.resourceLoader.getSkills().skills.map((skill) => skill.name);
+	} catch (error) {
+		refreshRunDetailsFromSession(details, session, startedAt);
+		session.dispose();
+		throwChildSetupFailure(details, error);
+	}
 
 	return driveChildSession(session, {
 		...options,
@@ -1530,6 +1555,9 @@ async function resumeSingleBackgroundRun(
 	await session.bindExtensions({});
 	await session.loadDeferredExtensions();
 	session.setActiveToolsByName(effectiveTools);
+	if (task.context === "fork" && task.tools === undefined && options.parentExecutableTools) {
+		session.inheritMissingActiveTools(options.parentExecutableTools);
+	}
 	applyChildSessionPolicy(
 		session,
 		task,
@@ -1780,12 +1808,28 @@ async function executeManagedAgentRun(
 				return;
 			}
 			const staleMs = Date.now() - lastActivityAt;
-			if (staleMs >= BACKGROUND_STALE_PROGRESS_MS) {
-				markAgentRecentRunNeedsAttention(
+			if (staleMs < BACKGROUND_STALE_PROGRESS_MS) return;
+			if (activeSessions.size === 0) {
+				// Zombie: stale past the threshold with no live child session left to
+				// produce progress. Force-settle to terminal (CC-style reaper) instead
+				// of flagging for attention — nothing can legitimately still be
+				// driving this run, so waiting on the user is pure noise.
+				stopMonitor();
+				abortStatus = "cancelled";
+				abortController.abort();
+				reapAgentRecentRun(
 					recentRun,
-					`No child progress for ${formatAgentDurationMs(staleMs)}; inspect or stop it with /agents runs`,
+					`reaped: no progress for ${formatAgentDurationMs(staleMs)} and no live child session`,
+					generation,
 				);
+				return;
 			}
+			// A live-but-quiet child may be mid long tool call (e.g. a silent
+			// build); never kill it — surface an informational nudge only.
+			markAgentRecentRunNeedsAttention(
+				recentRun,
+				`No child progress for ${formatAgentDurationMs(staleMs)}; inspect or stop it with /agents runs`,
+			);
 		}, BACKGROUND_MONITOR_INTERVAL_MS);
 	};
 	const attachTerminalNotification = () => {
