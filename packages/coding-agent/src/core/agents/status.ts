@@ -300,7 +300,14 @@ function markRunStopped(run: AgentRecentRun, status: "interrupted" | "cancelled"
 	run.status = status;
 	run.parked = false;
 	updateRunTimestamps(run, true);
-	run.runs = run.runs.map((child) => (child.status === "running" ? { ...child, status } : child));
+	// Interrupting only stops still-running children (a real interruption mid-
+	// turn). Cancelling is terminal for the whole run tree, so it also settles
+	// children left "interrupted" by an earlier interrupt of this same run
+	// (#303: interrupted children become cancelled when their interrupted
+	// parent is cancelled) — otherwise those children survive as permanently
+	// stale rows with a dead controller and no way to dismiss them.
+	const childStopStatuses: AgentToolStatus[] = status === "cancelled" ? ["running", "interrupted"] : ["running"];
+	run.runs = run.runs.map((child) => (childStopStatuses.includes(child.status) ? { ...child, status } : child));
 	refreshRunSummary(run, run.runs);
 	if (message) run.error = message;
 	run.resumable = canResumeRun(run);
@@ -486,12 +493,36 @@ export async function interruptAgentRecentRun(runId: string): Promise<AgentRunCo
 export async function cancelAgentRecentRun(runId: string): Promise<AgentRunControlResult> {
 	const run = findMutableRun(runId);
 	if (!run) return { ok: false, message: `Run not found: ${runId}` };
+	if (run.status === "cancelled") {
+		return { ok: true, message: `${runId} is already cancelled`, run: cloneRecentRun(run) };
+	}
 	if (run.status !== "running" && run.status !== "interrupted") {
-		return { ok: false, message: `${runId} is not cancellable (status: ${run.status})`, run: cloneRecentRun(run) };
+		// Other terminal states (completed/failed) already settled on their own;
+		// treat a cancel request against them as a no-op success instead of an
+		// error so bulk operations (e.g. kill-all) don't need to special-case
+		// runs that finished by the time the request landed.
+		return { ok: true, message: `${runId} is already settled (status: ${run.status})`, run: cloneRecentRun(run) };
 	}
 	const controller = liveRunControllers.get(runId);
-	if (!controller?.cancel) return { ok: false, message: `${runId} is not cancellable`, run: cloneRecentRun(run) };
-	await controller.cancel();
+	if (controller?.cancel) {
+		await controller.cancel();
+		markRunStopped(run, "cancelled", "Cancelled by operator");
+		return { ok: true, message: `Cancelled ${runId}`, run: cloneRecentRun(run) };
+	}
+	if (controller && run.status === "running") {
+		// A live controller without the optional cancel verb is still driving the
+		// run — force-settling here would report success while the executor keeps
+		// working. Keep the old refusal for this case.
+		return { ok: false, message: `${runId} is not cancellable`, run: cloneRecentRun(run) };
+	}
+	// Dead controller (or an interrupted run whose executor loop has already
+	// detached): a zombie "running" run has no session left to drive it — the
+	// reaper would eventually force-settle it to "failed", but an explicit
+	// operator cancel should not have to wait for the 10-minute stale
+	// threshold; see #303. Settle directly and bump the run generation so any
+	// late progress callback from the stale generation cannot clobber the
+	// cancelled status (mirrors reapAgentRecentRun's guard).
+	runGenerations.set(run, getRunGeneration(run) + 1);
 	markRunStopped(run, "cancelled", "Cancelled by operator");
 	return { ok: true, message: `Cancelled ${runId}`, run: cloneRecentRun(run) };
 }
