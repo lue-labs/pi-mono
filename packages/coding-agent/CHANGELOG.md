@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- TUI: compact Edit summaries with `Ctrl+O` expansion, source-ordered grouped tool output, reduced-motion indicators, and live Agent rows with resolved model/thinking metadata.
+
 - Refactor: preserve extension hook/filter behavior behind a typed `FilterChain` registry with deterministic ordering, apply-start snapshots, diagnostics, and dedicated registry tests ([#373](https://github.com/valkyriweb/pi-mono/pull/373)).
 
 - Fix: cache-compatible fork agents retain executable parent-only tool handlers, preserve startup failure session details, and remove parent abort listeners when terminal ([my-pi#1289](https://github.com/valkyriweb/my-pi/issues/1289), [#378](https://github.com/valkyriweb/pi-mono/pull/378)).
