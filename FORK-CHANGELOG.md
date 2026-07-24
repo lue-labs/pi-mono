@@ -8,7 +8,7 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Added
 
-- **Claude Opus 5 is available in the built-in Anthropic catalog and preferred by frontier routing.** The generated model fallback registers `claude-opus-5` with the announced Opus 4.8-equivalent pricing and the existing 1M/128k Opus surface; direct Anthropic defaults prefer it, while `claude-bridge` and `clawrouter` frontier candidates prefer the governed `claude-opus-5-200k` alias before the 1M route and retain Opus 4.8 fallbacks. Model metadata only; no system-prompt or tool-schema bytes change.
+- **Claude Opus 5 is available in the built-in Anthropic catalog and replaces Opus 4.8 in frontier routing.** The generated model fallback registers `claude-opus-5` with the announced Opus 4.8-equivalent pricing and the existing 1M/128k Opus surface; direct Anthropic frontier routing now selects it exclusively, while `claude-bridge` and `clawrouter` frontier candidates use the governed `claude-opus-5-200k` alias before the 1M route without retaining Opus 4.8 candidates. Model metadata only; no system-prompt or tool-schema bytes change.
 
 ### Fixed
 
