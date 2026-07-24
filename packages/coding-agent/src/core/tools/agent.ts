@@ -11,6 +11,7 @@ import {
 	formatAgentDurationMs,
 	formatAgentStatus,
 	formatAgentTokenCount,
+	injectAgentRecentRun,
 	interruptAgentRecentRun,
 	resumeAgentRecentRun,
 	subscribeAgentRecentRuns,
@@ -632,6 +633,22 @@ async function executeLegacyAgentControlAction(params: AgentToolInput): Promise<
 	if (!params.runId) throw new Error(`agent control action ${params.action} requires runId`);
 	if (params.action === "inject") {
 		if (!params.message) throw new Error("agent control action inject requires message");
+		// Prefer live steering; interrupt+resume is destructive and must never be
+		// used on a run that cannot resume (it would discard all of its work).
+		const injected = await injectAgentRecentRun(params.runId, params.message);
+		// A run only becomes resumable after an interrupt, and only when it is a
+		// single background run with one live child session. Interrupting anything
+		// else (a parallel fan-out) throws its work away with no way back.
+		const unresumable = !injected.ok && !(injected.run?.mode === "single" && injected.run.execution === "background");
+		if (injected.ok || unresumable) {
+			const text = injected.ok
+				? injected.message
+				: `${params.runId} cannot accept an injected message (${injected.message}); the run was left untouched`;
+			return {
+				content: [{ type: "text", text: `${text}\n\n${formatAgentStatus(undefined, params.runId)}` }],
+				details: detailsFromControlResult(injected),
+			};
+		}
 		await interruptAgentRecentRun(params.runId);
 		const resumed = await resumeAgentRecentRun(params.runId, params.message);
 		const detailText = formatAgentStatus(undefined, params.runId);
@@ -810,6 +827,16 @@ export function createAgentToolDefinition(
 					`${actionMarker(actionState, theme)} ${theme.fg("toolTitle", theme.bold(verb))}${metadata ? theme.fg("muted", ` · ${metadata}`) : ""}${rows.length > 0 ? `\n${rows.join("\n")}` : ""}`,
 				);
 			} catch (error) {
+				// Streaming tool-call arguments arrive incrementally, so a half-parsed
+				// `tasks`/`chain` entry legitimately misses required fields until the
+				// call is complete. Rendering that as a failure showed phantom "✗ Agent
+				// … require subagent_type and prompt" errors for calls that then ran fine.
+				if (!context.argsComplete) {
+					text.setText(
+						`${actionMarker("preparing", theme)} ${theme.fg("toolTitle", theme.bold(`${label} preparing delegation`))}`,
+					);
+					return text;
+				}
 				const message = error instanceof Error ? error.message : "invalid mode";
 				text.setText(
 					`${theme.fg("error", "✗")} ${theme.fg("toolTitle", theme.bold(label))} ${theme.fg("error", message)}`,

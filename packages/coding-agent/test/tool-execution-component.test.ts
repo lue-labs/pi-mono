@@ -275,6 +275,44 @@ describe("ToolExecutionComponent parity", () => {
 		expect(stripAnsi(control?.render(120).join("\n") ?? "")).toContain("Agent status complete · agent-7");
 	});
 
+	test("does not surface validation errors while Agent arguments are still streaming", () => {
+		const definition = createAgentToolDefinition(process.cwd());
+		// Half-streamed parallel call: the trailing task has no prompt yet.
+		const partialArgs = {
+			background: true,
+			tasks: [
+				{ subagent_type: "explore", description: "Disk usage snapshot", prompt: "inventory disk" },
+				{ subagent_type: "explore", description: "Git repos inventory" },
+			],
+		};
+		const renderPartial = (argsComplete: boolean) =>
+			stripAnsi(
+				definition
+					.renderCall?.(partialArgs, theme, {
+						args: partialArgs,
+						toolCallId: "agent-partial-args",
+						invalidate: () => {},
+						lastComponent: undefined,
+						state: {},
+						cwd: process.cwd(),
+						executionStarted: false,
+						argsComplete,
+						isPartial: true,
+						expanded: false,
+						showImages: false,
+						isError: false,
+					})
+					.render(120)
+					.join("\n") ?? "",
+			);
+
+		const streaming = renderPartial(false);
+		expect(streaming).not.toContain("require subagent_type and prompt");
+		expect(streaming).toContain("preparing delegation");
+		// Once arguments are complete the same shape is a genuine caller error.
+		expect(renderPartial(true)).toContain("require subagent_type and prompt");
+	});
+
 	test("keeps parallel Agent rows in source order while routing resolved run metadata", () => {
 		const definition = createAgentToolDefinition(process.cwd());
 		const args = {
