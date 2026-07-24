@@ -121,6 +121,20 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 			if (!input.runId) throw new Error(`agent control action ${action} requires runId`);
 			if (action === "inject") {
 				if (!input.message) throw new Error("agent control action inject requires message");
+				// Steer the live child sessions first: a running background run accepts
+				// input without losing its work. Only fall back to the destructive
+				// interrupt+resume path when the run can actually resume — otherwise an
+				// inject killed an unresumable run and discarded everything it had done.
+				const injected = await injectAgentRecentRun(input.runId, input.message);
+				if (injected.ok) return controlDetailsFromRun(injected.run, injected.message);
+				// Only a single background run can come back from an interrupt; a parallel
+				// fan-out would lose every child's work with no way to resume it.
+				if (!(injected.run?.mode === "single" && injected.run.execution === "background")) {
+					return controlDetailsFromRun(
+						injected.run,
+						`${input.runId} cannot accept an injected message (${injected.message}); the run was left untouched`,
+					);
+				}
 				await interruptAgentRecentRun(input.runId);
 				const resumed = await resumeAgentRecentRun(input.runId, input.message);
 				return controlDetailsFromRun(resumed.run, resumed.message);

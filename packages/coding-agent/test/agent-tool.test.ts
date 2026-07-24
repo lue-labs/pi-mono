@@ -273,7 +273,59 @@ describe("agent tool", () => {
 		).rejects.toThrow("Project agents require interactive confirmation");
 	});
 
-	test("action=inject interrupts a running run then resumes with the message", async () => {
+	test("action=inject steers a live run instead of interrupting it", async () => {
+		clearAgentRecentRunsForTests();
+		const run = startAgentRecentRun("parallel", [{ agent: "explore", task: "Inventory A" }], {
+			background: true,
+		});
+		const interrupt = vi.fn();
+		const resume = vi.fn();
+		const inject = vi.fn();
+		attachAgentRecentRunController(run.id, { interrupt, resume, inject });
+
+		const tool = createAgentToolDefinition(process.cwd());
+		const result = await tool.execute(
+			"tool-inject-live",
+			{ action: "inject", runId: run.id, message: "new evidence" } as Parameters<typeof tool.execute>[1],
+			undefined,
+			undefined,
+			{ hasUI: false } as Parameters<typeof tool.execute>[4],
+		);
+
+		expect(inject).toHaveBeenCalledWith("new evidence");
+		expect(interrupt).not.toHaveBeenCalled();
+		expect(resume).not.toHaveBeenCalled();
+		expect((result.content[0] as { text: string }).text).toContain(`Queued message for ${run.id}`);
+		clearAgentRecentRunsForTests();
+	});
+
+	test("action=inject leaves an unsteerable parallel run untouched", async () => {
+		clearAgentRecentRunsForTests();
+		const run = startAgentRecentRun("parallel", [{ agent: "explore", task: "Inventory A" }], {
+			background: true,
+		});
+		const interrupt = vi.fn();
+		const resume = vi.fn();
+		attachAgentRecentRunController(run.id, { interrupt, resume });
+
+		const tool = createAgentToolDefinition(process.cwd());
+		const result = await tool.execute(
+			"tool-inject-unresumable",
+			{ action: "inject", runId: run.id, message: "new evidence" } as Parameters<typeof tool.execute>[1],
+			undefined,
+			undefined,
+			{ hasUI: false } as Parameters<typeof tool.execute>[4],
+		);
+
+		// Regression: this used to interrupt the fan-out and then fail to resume it,
+		// destroying every child agent's work.
+		expect(interrupt).not.toHaveBeenCalled();
+		expect(resume).not.toHaveBeenCalled();
+		expect((result.content[0] as { text: string }).text).toContain("left untouched");
+		clearAgentRecentRunsForTests();
+	});
+
+	test("action=inject falls back to interrupt+resume for a single background run", async () => {
 		clearAgentRecentRunsForTests();
 		const dir = await makeTempDir();
 		const sessionPath = join(dir, "child-session.jsonl");
