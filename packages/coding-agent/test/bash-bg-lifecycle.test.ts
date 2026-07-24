@@ -379,7 +379,9 @@ describe("background bash terminal reasons", () => {
 		expect(signalled.lifecycle?.terminalReason).toBe("signal");
 		expect(manual.lifecycle?.terminalReason).toBe("manual_kill");
 		expect(LocalBashTask.snapshot(nonZero.id)?.status).toBe("failed");
-		expect(LocalBashTask.snapshot(nonZero.id)?.needsInput).toBe(true);
+		// A failed job is settled state (failure already delivered via
+		// task_notification), not a pending user action.
+		expect(LocalBashTask.snapshot(nonZero.id)?.needsInput).toBe(false);
 	});
 
 	it.skipIf(process.platform === "win32")(

@@ -14,9 +14,11 @@ import {
 	formatAgentFooterStatus,
 	formatAgentStatus,
 	formatAgentTokenCount,
+	getAgentRecentRunGeneration,
 	interruptAgentRecentRun,
 	listAgentRecentRuns,
 	markAgentRecentRunNeedsAttention,
+	reapAgentRecentRun,
 	restartAgentRecentRun,
 	resumeAgentRecentRun,
 	startAgentRecentRun,
@@ -103,6 +105,56 @@ describe("native agent status", () => {
 		expect(formatAgentStatus()).toContain("agent-1 single foreground completed");
 		expect(formatAgentStatus()).not.toContain("unsupported");
 		expect(formatAgentStatus(undefined, "agent-1")).toContain("session:");
+	});
+
+	test("reaping a zombie run force-settles it to failed and detaches its controller", async () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [makeRunDetails("running")] });
+		attachAgentRecentRunController(run.id, { cancel: async () => {} });
+		markAgentRecentRunNeedsAttention(run, "stale");
+		const terminal: string[] = [];
+		attachAgentRecentRunTerminalListener(run.id, (snapshot) => terminal.push(snapshot.status));
+		const generation = getAgentRecentRunGeneration(run);
+
+		reapAgentRecentRun(run, "reaped: no progress for 10m and no live child session", generation);
+
+		expect(run.status).toBe("failed");
+		expect(run.error).toBe("reaped: no progress for 10m and no live child session");
+		expect(run.needsAttention).toBe(false);
+		expect(run.resumable).toBe(false);
+		expect(terminal).toEqual(["failed"]);
+		// Controller was dropped with the run: control verbs now refuse.
+		const cancelled = await cancelAgentRecentRun(run.id);
+		expect(cancelled.ok).toBe(false);
+	});
+
+	test("a late settle from the reaped generation cannot clobber the reaped status", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [makeRunDetails("running")] });
+		const generation = getAgentRecentRunGeneration(run);
+		reapAgentRecentRun(run, "reaped: no progress", generation);
+
+		// The hung completion promise finally settles (e.g. the abort propagated)
+		// with the pre-reap generation — it must be ignored.
+		finishAgentRecentRun(
+			run,
+			{ mode: "single", status: "cancelled", runs: [makeRunDetails("cancelled")] },
+			generation,
+		);
+		failAgentRecentRun(run, new Error("late failure"), generation);
+
+		expect(run.status).toBe("failed");
+		expect(run.error).toBe("reaped: no progress");
+	});
+
+	test("reap is a no-op on a run that already settled", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		finishAgentRecentRun(run, { mode: "single", status: "completed", runs: [makeRunDetails()] });
+
+		reapAgentRecentRun(run, "reaped: no progress");
+
+		expect(run.status).toBe("completed");
+		expect(run.error).toBeUndefined();
 	});
 
 	test("keeps parked persistent runs when bounded history evicts terminal runs", () => {

@@ -51,9 +51,10 @@ function snapshotFromJob(job: BashBgJob): TaskSnapshot {
 		// Background bash jobs cannot resume once stopped.
 		resumable: false,
 		error: job.error,
-		// A failed background job wants the user's attention, same bucket as a
-		// failed/interrupted agent run in the unified footer/pane.
-		needsInput: mapStatus(job) === "failed" || lifecycle?.promptStalledAt !== undefined,
+		// Needs-input only for a genuine user wait: the job stalled on an
+		// interactive prompt. A failed job is settled state (its failure is
+		// already delivered via task_notification), not a pending user action.
+		needsInput: lifecycle?.promptStalledAt !== undefined,
 		lifecycle: {
 			ownerSessionId: job.ownerSessionId,
 			terminalReason: lifecycle?.terminalReason,
