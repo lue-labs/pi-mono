@@ -509,11 +509,17 @@ export async function cancelAgentRecentRun(runId: string): Promise<AgentRunContr
 		markRunStopped(run, "cancelled", "Cancelled by operator");
 		return { ok: true, message: `Cancelled ${runId}`, run: cloneRecentRun(run) };
 	}
-	// No live controller — either an interrupted run whose executor loop has
-	// already detached, or a zombie "running" run with no session left to
-	// drive it (the reaper would eventually force-settle it to "failed", but an
-	// explicit operator cancel should not have to wait for the 10-minute stale
-	// threshold; see #303). Settle directly and bump the run generation so any
+	if (controller && run.status === "running") {
+		// A live controller without the optional cancel verb is still driving the
+		// run — force-settling here would report success while the executor keeps
+		// working. Keep the old refusal for this case.
+		return { ok: false, message: `${runId} is not cancellable`, run: cloneRecentRun(run) };
+	}
+	// Dead controller (or an interrupted run whose executor loop has already
+	// detached): a zombie "running" run has no session left to drive it — the
+	// reaper would eventually force-settle it to "failed", but an explicit
+	// operator cancel should not have to wait for the 10-minute stale
+	// threshold; see #303. Settle directly and bump the run generation so any
 	// late progress callback from the stale generation cannot clobber the
 	// cancelled status (mirrors reapAgentRecentRun's guard).
 	runGenerations.set(run, getRunGeneration(run) + 1);

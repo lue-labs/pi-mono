@@ -423,6 +423,20 @@ describe("native agent status", () => {
 		expect(run.status).toBe("cancelled");
 	});
 
+	test("a running run with a live controller lacking the cancel verb is still refused, not force-settled", async () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [makeRunDetails("running")] });
+		// Live controller that only supports interrupt/resume — the executor is
+		// still driving this run, so cancel must refuse rather than report a
+		// success it did not perform.
+		attachAgentRecentRunController(run.id, { interrupt: vi.fn(), resume: vi.fn() });
+
+		const refused = await cancelAgentRecentRun(run.id);
+		expect(refused.ok).toBe(false);
+		expect(refused.message).toContain("not cancellable");
+		expect(run.status).toBe("running");
+	});
+
 	test("cancelling an already-cancelled or otherwise settled run is an idempotent no-op", async () => {
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		const cancel = vi.fn();
