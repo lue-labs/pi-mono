@@ -40,6 +40,8 @@ export interface TerminalSettings {
 	imageWidthCells?: number; // default: 60 (preferred inline image width in terminal cells)
 	clearOnShrink?: boolean; // default: false (clear empty rows when content shrinks)
 	showTerminalProgress?: boolean; // default: false (OSC 9;4 terminal progress indicators)
+	toolOutput?: "compact" | "expanded"; // default: compact
+	motion?: "full" | "reduced"; // default: full
 }
 
 export interface ImageSettings {
@@ -1253,6 +1255,32 @@ export class SettingsManager {
 
 	getShowTerminalProgress(): boolean {
 		return this.settings.terminal?.showTerminalProgress ?? false;
+	}
+
+	getToolOutput(): "compact" | "expanded" {
+		return this.settings.terminal?.toolOutput === "expanded" ? "expanded" : "compact";
+	}
+
+	setToolOutput(toolOutput: "compact" | "expanded"): void {
+		if (!this.globalSettings.terminal) {
+			this.globalSettings.terminal = {};
+		}
+		this.globalSettings.terminal.toolOutput = toolOutput;
+		this.markModified("terminal", "toolOutput");
+		this.save();
+	}
+
+	getMotion(): "full" | "reduced" {
+		return this.settings.terminal?.motion === "reduced" ? "reduced" : "full";
+	}
+
+	setMotion(motion: "full" | "reduced"): void {
+		if (!this.globalSettings.terminal) {
+			this.globalSettings.terminal = {};
+		}
+		this.globalSettings.terminal.motion = motion;
+		this.markModified("terminal", "motion");
+		this.save();
 	}
 
 	setShowTerminalProgress(enabled: boolean): void {

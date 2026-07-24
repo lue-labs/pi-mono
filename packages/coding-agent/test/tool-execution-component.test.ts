@@ -1,15 +1,22 @@
 import { join, resolve } from "node:path";
 import { Text, type TUI } from "@valkyriweb/pi-tui";
 import { Type } from "typebox";
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 import { getReadmePath } from "../src/config.ts";
+import {
+	clearAgentRecentRunsForTests,
+	startAgentRecentRun,
+	updateAgentRecentRunProgress,
+} from "../src/core/agents/status.ts";
+import type { AgentRunDetails, AgentToolDetails } from "../src/core/agents/types.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { createAgentToolDefinition } from "../src/core/tools/agent.ts";
 import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.ts";
 import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { ToolExecutionGroupComponent } from "../src/modes/interactive/components/tool-execution-group.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
 function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
@@ -66,6 +73,70 @@ describe("ToolExecutionComponent parity", () => {
 		const rendered = stripAnsi(component.render(120).join("\n"));
 		expect(rendered).toContain("custom call");
 		expect(rendered).toContain("custom result");
+	});
+
+	test("groups local tools in source order while their completions arrive out of order", () => {
+		const first = new ToolExecutionComponent(
+			"first_tool",
+			"first",
+			{},
+			{},
+			{
+				...createBaseToolDefinition("first_tool"),
+				renderCall: () => new Text("first call", 0, 0),
+				renderResult: (_result, options) => new Text(options.expanded ? "first expanded" : "first compact", 0, 0),
+			},
+			createFakeTui(),
+			process.cwd(),
+		);
+		const second = new ToolExecutionComponent(
+			"second_tool",
+			"second",
+			{},
+			{},
+			{
+				...createBaseToolDefinition("second_tool"),
+				renderCall: () => new Text("second call", 0, 0),
+				renderResult: () => new Text("second result", 0, 0),
+			},
+			createFakeTui(),
+			process.cwd(),
+		);
+		const group = new ToolExecutionGroupComponent();
+		group.setSourceOrder(["first", "second"]);
+		group.addTool(second);
+		group.addTool(first);
+
+		second.markExecutionStarted();
+		second.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false);
+		first.markExecutionStarted();
+		first.updateResult({ content: [{ type: "text", text: "partial" }], details: {}, isError: false }, true);
+
+		const compact = stripAnsi(group.render(120).join("\n"));
+		expect(compact).toContain("Parallel · 2 tools · 1 running · 1 done");
+		expect(compact.indexOf("first call")).toBeLessThan(compact.indexOf("second call"));
+		expect(compact).toContain("first compact");
+
+		group.setExpanded(true);
+		expect(stripAnsi(group.render(120).join("\n"))).toContain("first expanded");
+	});
+
+	test("does not render a parallel header when every grouped tool is hidden", () => {
+		const group = new ToolExecutionGroupComponent();
+		for (const id of ["hidden-1", "hidden-2"]) {
+			group.addTool(
+				new ToolExecutionComponent(
+					"hidden_tool",
+					id,
+					{},
+					{},
+					{ ...createBaseToolDefinition("hidden_tool"), renderShell: "hidden" },
+					createFakeTui(),
+					process.cwd(),
+				),
+			);
+		}
+		expect(group.render(120)).toEqual([]);
 	});
 
 	test("hidden render shell suppresses tool output blocks", () => {
@@ -138,9 +209,9 @@ describe("ToolExecutionComponent parity", () => {
 		);
 		let rendered = stripAnsi(component.render(120).join("\n"));
 		// Tool label is capitalized in the TUI ("Agent") while the underlying tool id stays lowercase.
-		expect(rendered).toContain("Agent");
-		expect(rendered).toContain("single: explore");
-		expect(rendered).toContain("model claude-bridge/claude-opus-4-8");
+		expect(rendered).toContain("Preparing delegation");
+		expect(rendered).toContain("Find files · explore");
+		expect(rendered).toContain("inherits claude-bridge/claude-opus-4-8");
 		expect(rendered).toContain("thinking high");
 
 		component.updateResult(
@@ -152,10 +223,319 @@ describe("ToolExecutionComponent parity", () => {
 			false,
 		);
 		rendered = stripAnsi(component.render(120).join("\n"));
-		// Renderer drives display from structured `details`, not the message content,
-		// so with empty runs the body shows the summary line rather than per-run text.
-		expect(rendered).toContain("Agent single");
-		expect(rendered).toContain("completed");
+		// Renderer drives display from structured `details`, not the message content.
+		expect(rendered).toContain("Delegated 1 agent");
+		expect(rendered).not.toContain("agent single: completed");
+	});
+
+	test("renders Agent lifecycle and control-action headlines", () => {
+		const definition = createAgentToolDefinition(process.cwd());
+		const args = { agent: "explore", task: "Map renderer" };
+		const render = (overrides: Record<string, unknown> = {}) =>
+			stripAnsi(
+				definition
+					.renderCall?.(args, theme, {
+						args,
+						toolCallId: "agent-render-state",
+						invalidate: () => {},
+						lastComponent: undefined,
+						state: {},
+						cwd: process.cwd(),
+						executionStarted: false,
+						argsComplete: false,
+						isPartial: true,
+						expanded: false,
+						showImages: false,
+						isError: false,
+						...overrides,
+					})
+					.render(120)
+					.join("\n") ?? "",
+			);
+
+		expect(render()).toContain("Preparing delegation");
+		expect(render({ executionStarted: true, argsComplete: true })).toContain("Delegating 1 agent");
+		expect(render({ executionStarted: true, argsComplete: true, isPartial: false, isError: true })).toContain(
+			"Delegation failed",
+		);
+		const control = definition.renderCall?.({ action: "status", runId: "agent-7" }, theme, {
+			args: { action: "status", runId: "agent-7" },
+			toolCallId: "agent-control",
+			invalidate: () => {},
+			lastComponent: undefined,
+			state: {},
+			cwd: process.cwd(),
+			executionStarted: true,
+			argsComplete: true,
+			isPartial: false,
+			expanded: false,
+			showImages: false,
+			isError: false,
+		});
+		expect(stripAnsi(control?.render(120).join("\n") ?? "")).toContain("Agent status complete · agent-7");
+	});
+
+	test("keeps parallel Agent rows in source order while routing resolved run metadata", () => {
+		const definition = createAgentToolDefinition(process.cwd());
+		const args = {
+			tasks: [
+				{ agent: "explore", task: "First task", description: "First child" },
+				{ agent: "reviewer", task: "Second task", description: "Second child" },
+			],
+		};
+		const run = (
+			agent: string,
+			task: string,
+			description: string,
+			provider: string,
+			id: string,
+		): AgentRunDetails => ({
+			agent,
+			source: "builtin",
+			task,
+			description,
+			status: "running",
+			context: {
+				mode: "default",
+				includeTranscript: false,
+				includeProjectContext: true,
+				includeSkills: true,
+				includeAppendSystemPrompt: true,
+			},
+			model: { provider, id },
+			thinking: "high",
+			effectiveTools: [],
+			deniedTools: [],
+			durationMs: 100,
+			toolCallCount: 1,
+			messageCount: 1,
+			currentToolName: "read",
+			currentToolArgsPreview: task,
+			recentToolCalls: [],
+			recentOutputSnippets: [],
+			loadedSkills: [],
+			invokedSkills: { count: 0, names: [] },
+		});
+		const details: AgentToolDetails = {
+			mode: "parallel",
+			status: "running",
+			// Registry snapshots may arrive in completion/update order; presentation must not.
+			runs: [
+				run("reviewer", "Second task", "Second child", "openai", "gpt-5.6"),
+				run("explore", "First task", "First child", "anthropic", "claude-opus-4-8"),
+			],
+		};
+		const component = definition.renderCall?.(args, theme, {
+			args,
+			toolCallId: "parallel-source-order",
+			invalidate: () => {},
+			lastComponent: undefined,
+			state: { details },
+			cwd: process.cwd(),
+			executionStarted: true,
+			argsComplete: true,
+			isPartial: true,
+			expanded: false,
+			showImages: false,
+			isError: false,
+		});
+		const rendered = stripAnsi(component?.render(180).join("\n") ?? "");
+		expect(rendered.indexOf("First child")).toBeLessThan(rendered.indexOf("Second child"));
+		expect(rendered).toContain("First child · explore");
+		expect(rendered).toContain("anthropic/claude-opus-4-8 · thinking high");
+		expect(rendered).toContain("Second child · reviewer");
+		expect(rendered).toContain("openai/gpt-5.6 · thinking high");
+	});
+
+	test("distinguishes parked Agent runs from real interruptions", () => {
+		const definition = createAgentToolDefinition(process.cwd());
+		const args = { agent: "general", task: "Persistent helper", description: "Persistent helper" };
+		const run = {
+			agent: "general",
+			source: "builtin" as const,
+			task: "Persistent helper",
+			description: "Persistent helper",
+			status: "interrupted" as const,
+			context: {
+				mode: "default" as const,
+				includeTranscript: false,
+				includeProjectContext: true,
+				includeSkills: true,
+				includeAppendSystemPrompt: true,
+			},
+			model: { provider: "clawrouter", id: "gpt-5.6" },
+			thinking: "high" as const,
+			effectiveTools: [],
+			deniedTools: [],
+			durationMs: 100,
+			toolCallCount: 0,
+			messageCount: 1,
+			recentToolCalls: [],
+			recentOutputSnippets: [],
+			loadedSkills: [],
+			invokedSkills: { count: 0, names: [] },
+		};
+		const render = (parked: boolean) =>
+			stripAnsi(
+				definition
+					.renderCall?.(args, theme, {
+						args,
+						toolCallId: `parked-${parked}`,
+						invalidate: () => {},
+						lastComponent: undefined,
+						state: { details: { mode: "single", status: "interrupted", runs: [run], parked } },
+						cwd: process.cwd(),
+						executionStarted: true,
+						argsComplete: true,
+						isPartial: false,
+						expanded: false,
+						showImages: false,
+						isError: false,
+					})
+					?.render(160)
+					.join("\n") ?? "",
+			);
+		expect(render(true)).toContain("Delegated 1 agent");
+		expect(render(true)).toContain("Idle");
+		expect(render(false)).toContain("Delegation failed");
+		expect(render(false)).toContain("Interrupted");
+	});
+
+	test("keeps a settled background Agent row live from the recent-run registry", async () => {
+		clearAgentRecentRunsForTests();
+		const requestRender = vi.fn();
+		const ui = { requestRender } as unknown as TUI;
+		const run = startAgentRecentRun("parallel", [{ agent: "explore", task: "Map renderer" }], { background: true });
+		const running = {
+			mode: "parallel" as const,
+			status: "running" as const,
+			runs: [
+				{
+					agent: "explore",
+					source: "builtin" as const,
+					task: "Map renderer",
+					description: "Map Agent renderer",
+					status: "running" as const,
+					context: {
+						mode: "default" as const,
+						includeTranscript: false,
+						includeProjectContext: true,
+						includeSkills: true,
+						includeAppendSystemPrompt: true,
+					},
+					model: { provider: "clawrouter", id: "claude-sonnet" },
+					thinking: "high" as const,
+					effectiveTools: [],
+					deniedTools: [],
+					durationMs: 1200,
+					toolCallCount: 1,
+					messageCount: 1,
+					currentToolName: "grep",
+					currentToolArgsPreview: "Agent renderer",
+					recentToolCalls: [],
+					recentOutputSnippets: [],
+					loadedSkills: [],
+					invokedSkills: { count: 0, names: [] },
+				},
+			],
+		};
+		updateAgentRecentRunProgress(run, running);
+		const args = {
+			tasks: [{ agent: "explore", task: "Map renderer", description: "Map Agent renderer" }],
+			background: true,
+		};
+		const definition = createAgentToolDefinition(process.cwd());
+		const direct = definition.renderCall?.(args, theme, {
+			args,
+			toolCallId: "direct",
+			invalidate: () => {},
+			lastComponent: undefined,
+			state: { runId: run.id, details: { ...running, runId: run.id, background: true } },
+			cwd: process.cwd(),
+			executionStarted: true,
+			argsComplete: true,
+			isPartial: false,
+			expanded: false,
+			showImages: false,
+			isError: false,
+		});
+		expect(stripAnsi(direct?.render(140).join("\n") ?? "")).toContain("Delegating 1 agent");
+		const component = new ToolExecutionComponent(
+			"agent",
+			"tool-agent-background",
+			args,
+			{},
+			definition,
+			ui,
+			process.cwd(),
+		);
+		component.markExecutionStarted();
+		component.setArgsComplete();
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "started" }],
+				details: { ...running, runId: run.id, background: true },
+				isError: false,
+			},
+			false,
+		);
+		await Promise.resolve();
+
+		let rendered = stripAnsi(component.render(140).join("\n"));
+		expect(rendered).toContain("Delegating 1 agent");
+		expect(rendered).toContain("Map Agent renderer · explore");
+		expect(rendered).toContain("clawrouter/claude-sonnet · thinking high");
+		expect(rendered).toContain("grep: Agent renderer");
+
+		const detachedRequestRender = vi.fn();
+		const detached = new ToolExecutionComponent(
+			"agent",
+			"tool-agent-detached",
+			args,
+			{},
+			definition,
+			{ requestRender: detachedRequestRender } as unknown as TUI,
+			process.cwd(),
+		);
+		detached.markExecutionStarted();
+		detached.setArgsComplete();
+		detached.updateResult(
+			{ content: [], details: { ...running, runId: run.id, background: true }, isError: false },
+			false,
+		);
+		detachedRequestRender.mockClear();
+		detached.dispose();
+		await Promise.resolve();
+		expect(detachedRequestRender).not.toHaveBeenCalled();
+		updateAgentRecentRunProgress(run, {
+			...running,
+			runs: [{ ...running.runs[0], currentToolName: "read", currentToolArgsPreview: "next.ts" }],
+		});
+		expect(detachedRequestRender).not.toHaveBeenCalled();
+
+		updateAgentRecentRunProgress(run, {
+			...running,
+			status: "completed",
+			runs: [
+				{
+					...running.runs[0],
+					status: "completed",
+					currentToolName: undefined,
+					durationMs: 2200,
+					toolCallCount: 2,
+					finalOutput: "hidden until expanded",
+				},
+			],
+		});
+		expect(requestRender).toHaveBeenCalled();
+		rendered = stripAnsi(component.render(140).join("\n"));
+		expect(rendered).toContain("Delegated 1 agent");
+		expect(rendered.match(/Done · 2 tool uses · 2s/g)).toHaveLength(1);
+		expect(rendered).not.toContain("hidden until expanded");
+
+		component.setExpanded(true);
+		expect(stripAnsi(component.render(140).join("\n"))).toContain("hidden until expanded");
+		clearAgentRecentRunsForTests();
 	});
 
 	test("uses built-in rendering for built-in overrides without custom renderers", () => {

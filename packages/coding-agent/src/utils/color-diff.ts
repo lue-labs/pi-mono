@@ -509,25 +509,29 @@ function wrapText(h: Highlight, width: number, theme: Theme): void {
 }
 
 function addLineNumber(h: Highlight, theme: Theme, maxDigits: number, fullDim: boolean): void {
-	const style: Style = {
+	const changedStyle: Style = {
 		foreground: h.marker ? decorationColor(h.marker, theme) : theme.foreground,
 		background: h.marker ? lineBackground(h.marker, theme) : theme.background,
 	};
+	const neutralStyle: Style = { foreground: theme.foreground, background: theme.background };
 	const shouldDim = h.marker === null || h.marker === " ";
 	for (let i = 0; i < h.lines.length; i++) {
 		const prefix = i === 0 ? ` ${String(h.lineNumber).padStart(maxDigits)} ` : " ".repeat(maxDigits + 2);
-		const wrapped = shouldDim && !fullDim ? `${DIM}${prefix}${UNDIM}` : prefix;
-		h.lines[i]!.unshift([style, wrapped]);
+		const wrapped = (shouldDim || i > 0) && !fullDim ? `${DIM}${prefix}${UNDIM}` : prefix;
+		h.lines[i]!.unshift([i === 0 ? changedStyle : neutralStyle, wrapped]);
 	}
 }
 
 function addMarker(h: Highlight, theme: Theme): void {
 	if (!h.marker) return;
-	const style: Style = {
+	const changedStyle: Style = {
 		foreground: decorationColor(h.marker, theme),
 		background: lineBackground(h.marker, theme),
 	};
-	for (const line of h.lines) line.unshift([style, h.marker]);
+	const neutralStyle: Style = { foreground: theme.foreground, background: theme.background };
+	for (let i = 0; i < h.lines.length; i++) {
+		h.lines[i]!.unshift([i === 0 ? changedStyle : neutralStyle, i === 0 ? h.marker : " "]);
+	}
 }
 
 function dimContent(h: Highlight): void {

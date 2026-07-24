@@ -10,6 +10,8 @@ export interface ToolExecutionOptions {
 	imageWidthCells?: number;
 }
 
+export type ToolExecutionState = "queued" | "running" | "completed" | "error";
+
 export class ToolExecutionComponent extends Container {
 	private contentBox: Box;
 	private contentText: Text;
@@ -39,6 +41,7 @@ export class ToolExecutionComponent extends Container {
 	};
 	private convertedImages: Map<number, { data: string; mimeType: string }> = new Map();
 	private hideComponent = false;
+	private disposed = false;
 
 	constructor(
 		toolName: string,
@@ -117,6 +120,7 @@ export class ToolExecutionComponent extends Container {
 			args: this.args,
 			toolCallId: this.toolCallId,
 			invalidate: () => {
+				if (this.disposed) return;
 				this.invalidate();
 				this.ui.requestRender();
 			},
@@ -189,7 +193,7 @@ export class ToolExecutionComponent extends Container {
 
 			const index = i;
 			convertToPng(img.data, img.mimeType).then((converted) => {
-				if (converted) {
+				if (converted && !this.disposed) {
 					this.convertedImages.set(index, converted);
 					this.updateDisplay();
 					this.ui.requestRender();
@@ -213,13 +217,36 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
+	getToolCallId(): string {
+		return this.toolCallId;
+	}
+
+	isVisible(): boolean {
+		return !this.hideComponent;
+	}
+
+	getExecutionState(): ToolExecutionState {
+		if (this.result?.isError) return "error";
+		if (this.result && !this.isPartial) return "completed";
+		return this.executionStarted ? "running" : "queued";
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		const disposeRenderer = this.rendererState?.dispose;
+		if (typeof disposeRenderer === "function") disposeRenderer();
+		this.rendererState = {};
+	}
+
 	override invalidate(): void {
+		if (this.disposed) return;
 		super.invalidate();
 		this.updateDisplay();
 	}
 
 	override render(width: number): string[] {
-		if (this.hideComponent) {
+		if (this.disposed || this.hideComponent) {
 			return [];
 		}
 
@@ -251,6 +278,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private updateDisplay(): void {
+		if (this.disposed) return;
 		if (this.getRenderShell() === "hidden") {
 			this.hideComponent = true;
 			return;

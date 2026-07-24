@@ -6,7 +6,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { computeEditsDiff, type Edit } from "../src/core/tools/edit-diff.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 class FakeTerminal implements Terminal {
 	columns = 80;
@@ -143,6 +143,7 @@ describe("edit tool TUI rendering", () => {
 		await waitForRender();
 
 		component.setArgsComplete();
+		component.setExpanded(true);
 		tui.requestRender();
 		await waitForRender();
 		await waitForRender();
@@ -210,6 +211,7 @@ describe("edit tool TUI rendering", () => {
 		tui.start();
 		await waitForRender();
 
+		component.setExpanded(true);
 		component.updateResult(
 			{
 				content: [{ type: "text", text: `Successfully replaced ${edits.length} block(s) in ${filePath}.` }],
@@ -246,6 +248,7 @@ describe("edit tool TUI rendering", () => {
 		tui.addChild(component);
 		tui.start();
 		await waitForRender();
+		component.setExpanded(true);
 
 		const rendered = await waitForRenderedText(
 			() => stripAnsi(component.render(80).join("\n")),
@@ -255,6 +258,98 @@ describe("edit tool TUI rendering", () => {
 		expect(rendered).toContain("const value = 'before';");
 		expect(rendered).toContain("const value = 'after';");
 		expect(rendered).not.toContain("Successfully replaced");
+	});
+
+	it("keeps a long literal \\t edit compact until explicitly expanded", () => {
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const longValue = String.raw`const\t${"transport".repeat(16)} = "before";`;
+		const replacement = String.raw`const\t${"transport".repeat(16)} = "after";`;
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-compact-tab",
+			{ path: "src/transport.ts", edits: [{ oldText: longValue, newText: replacement }] },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "done" }],
+				details: {
+					diff: `-1 ${longValue}\n+1 ${replacement}`,
+					hunks: [
+						{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [`-${longValue}`, `+${replacement}`] },
+					],
+				},
+				isError: false,
+			},
+			false,
+		);
+
+		const compact = stripAnsi(component.render(80).join("\n"));
+		expect(compact).toContain("src/transport.ts");
+		expect(compact).toContain("+1 -1");
+		expect(compact).not.toContain(replacement);
+
+		component.setExpanded(true);
+		const expanded = stripAnsi(component.render(80).join("\n"));
+		expect(expanded).toContain(String.raw`const\ttransport`);
+		expect(expanded).toContain("after");
+	});
+
+	it("counts proposed changes per replacement instead of diffing unrelated blocks together", () => {
+		const tui = new TUI(new FakeTerminal());
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-independent-summary",
+			{
+				path: "src/swap.ts",
+				edits: [
+					{ oldText: "alpha", newText: "beta" },
+					{ oldText: "beta", newText: "alpha" },
+				],
+			},
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+
+		expect(stripAnsi(component.render(80).join("\n"))).toContain("+2 -2");
+	});
+
+	it("uses the error background when execution fails after a successful preview", () => {
+		const tui = new TUI(new FakeTerminal());
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-error-after-preview",
+			{ path: "src/transport.ts", edits: [{ oldText: "before", newText: "after" }] },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "Successfully replaced 1 block(s)." }],
+				details: {
+					diff: "-before\n+after",
+					firstChangedLine: 1,
+					hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-before", "+after"] }],
+				},
+				isError: false,
+			},
+			false,
+		);
+		component.updateResult(
+			{ content: [{ type: "text", text: "Edit failed" }], details: undefined, isError: true },
+			false,
+		);
+
+		const errorBackgroundPrefix = theme.bg("toolErrorBg", "X").split("X", 1)[0];
+		expect(component.render(80).join("\n")).toContain(errorBackgroundPrefix);
 	});
 
 	it("uses Pierre for the legacy no-hunks diff renderer when enabled", async () => {
@@ -285,6 +380,7 @@ describe("edit tool TUI rendering", () => {
 			);
 			tui.addChild(component);
 			tui.start();
+			component.setExpanded(true);
 			component.updateResult(
 				{
 					content: [{ type: "text", text: "done" }],
@@ -309,7 +405,7 @@ describe("edit tool TUI rendering", () => {
 		}
 	});
 
-	it("shows a preflight error without rendering a diff when the edits do not apply", async () => {
+	it("shows only a proposed summary before execution validates the edits", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-edit-preflight-"));
 		tempDirs.push(dir);
 		const filePath = join(dir, "missing-edit.txt");
@@ -335,13 +431,9 @@ describe("edit tool TUI rendering", () => {
 		await waitForRender();
 		await waitForRender();
 
-		const rendered = await waitForRenderedText(
-			() => stripAnsi(component.render(80).join("\n")),
-			"Could not find",
-			() => tui.requestRender(true),
-		);
-		expect(rendered).not.toContain("+1 ");
-		expect(rendered).not.toContain("-1 ");
+		const rendered = stripAnsi(component.render(80).join("\n"));
+		expect(rendered).toContain("+1 -1");
+		expect(rendered).not.toContain("Could not find");
 	});
 
 	it("wraps the final error text from failed edit execution", async () => {
