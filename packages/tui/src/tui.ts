@@ -1564,12 +1564,34 @@ export class TUI extends Container {
 			return;
 		}
 
-		// Differential rendering can only touch what was actually visible.
-		// If the first changed line is above the previous viewport, we need a full redraw.
-		if (firstChanged < prevViewportTop) {
-			logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
+		// Differential rendering can only touch what was actually visible. Lines above
+		// the previous viewport have already scrolled into the terminal's scrollback,
+		// which no escape sequence can rewrite in place. Clearing scrollback and
+		// replaying the whole buffer used to be the answer, but that destroys the
+		// user's scroll position and history every time an off-screen line mutates —
+		// which happens constantly while background agents update status rows above
+		// the fold. Repaint the visible remainder instead, and skip the paint entirely
+		// when nothing on screen changed.
+		// Shrinking content still needs the full redraw: rows the buffer no longer has
+		// are stale on screen and only a clear removes them.
+		if (firstChanged < prevViewportTop && newLines.length < this.previousLines.length) {
+			logRedraw(`firstChanged < viewportTop with shrink (${firstChanged} < ${prevViewportTop})`);
 			fullRender(true);
 			return;
+		}
+		if (firstChanged < prevViewportTop) {
+			if (lastChanged < prevViewportTop) {
+				logRedraw(`offscreen-only change (${firstChanged}..${lastChanged} < ${prevViewportTop})`);
+				this.positionHardwareCursor(cursorPos, newLines.length);
+				this.previousLines = newLines;
+				this.previousKittyImageIds = this.collectKittyImageIds(newLines);
+				this.previousWidth = width;
+				this.previousHeight = height;
+				this.previousViewportTop = prevViewportTop;
+				return;
+			}
+			logRedraw(`clamped firstChanged to viewportTop (${firstChanged} -> ${prevViewportTop})`);
+			firstChanged = prevViewportTop;
 		}
 
 		// Render from first changed line to end

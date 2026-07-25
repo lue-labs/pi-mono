@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Differential rendering: stop clearing the terminal's scrollback when a line above the viewport changes. Off-screen-only changes now paint nothing, changes spanning the viewport boundary repaint only the visible remainder, and shrinking content still takes the full redraw (stale rows genuinely need clearing). Background agents mutating status rows above the fold used to nuke scrollback and snap the terminal to the bottom several times a minute.
+
 - StdinBuffer: treat an unbracketed multi-line stdin chunk (no escape sequences, content spanning multiple lines) as a single paste event. Prevents terminals/muxes that strip bracketed-paste markers (e.g. tmux `-CC` control-mode clients) from shredding a paste into one submitted message per line. Single-line chunks with a trailing newline still submit, so programmatic text-plus-Enter automation is unaffected.
 
 - Memory: bound the OSC 11 background-color pending-query backlog. Timed-out queries are still consumed if the terminal answers late, but on a terminal that never answers the backlog (and its reply counter) no longer grows without limit.
