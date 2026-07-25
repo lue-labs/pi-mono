@@ -34,6 +34,8 @@
 			"packages/*/test/**/*.ts",
 			"packages/coding-agent/examples/**/*.ts",
 			"!**/node_modules/**/*",
+			"!.worktrees",
+			"!.pi",
 			"!**/test-sessions.ts",
 			"!**/models.generated.ts",
 			"!**/*.models.ts",
