@@ -1314,6 +1314,85 @@ describe("Coding Agent Tools", () => {
 			expect(outputLines).toContain(".secret/hidden.txt");
 		});
 
+		it("should support outputMode=count, offset, and sort=name", async () => {
+			writeFileSync(join(testDir, "b.txt"), "b");
+			writeFileSync(join(testDir, "a.txt"), "a");
+			writeFileSync(join(testDir, "c.txt"), "c");
+
+			const countResult = await globTool.execute("test-call-glob-count", {
+				pattern: "*.txt",
+				path: testDir,
+				outputMode: "count",
+			});
+			expect(getTextOutput(countResult).trim()).toBe("3");
+
+			const sortedResult = await globTool.execute("test-call-glob-sort-name", {
+				pattern: "*.txt",
+				path: testDir,
+				sort: "name",
+			});
+			expect(
+				getTextOutput(sortedResult)
+					.split("\n")
+					.map((line) => line.trim())
+					.filter(Boolean),
+			).toEqual(["a.txt", "b.txt", "c.txt"]);
+
+			const pagedResult = await globTool.execute("test-call-glob-offset", {
+				pattern: "*.txt",
+				path: testDir,
+				sort: "name",
+				limit: 1,
+				offset: 1,
+			});
+			// One page of a 3-match set: the page itself, plus a continuation notice —
+			// the remaining match is only knowable because the sort saw every result.
+			const pagedOutput = getTextOutput(pagedResult);
+			expect(pagedOutput.split("\n")[0].trim()).toBe("b.txt");
+			expect(pagedOutput).toContain("offset=2");
+		});
+
+		it("counts and sorts over the whole result set, not the limited window", async () => {
+			for (const name of ["e.txt", "d.txt", "c.txt", "b.txt", "a.txt"]) {
+				writeFileSync(join(testDir, name), name);
+			}
+
+			// `limit` caps returned paths, never the reported total.
+			const countResult = await globTool.execute("test-call-glob-count-beyond-limit", {
+				pattern: "*.txt",
+				path: testDir,
+				outputMode: "count",
+				limit: 2,
+			});
+			expect(getTextOutput(countResult).trim()).toBe("5");
+
+			// A sort must order every match before paging, so a limit returns the
+			// globally-first entries rather than whatever the backend happened to find first.
+			const sortedResult = await globTool.execute("test-call-glob-sort-beyond-limit", {
+				pattern: "*.txt",
+				path: testDir,
+				sort: "name",
+				limit: 2,
+			});
+			expect(
+				getTextOutput(sortedResult)
+					.split("\n")
+					.map((line) => line.trim())
+					.filter((line) => line.endsWith(".txt")),
+			).toEqual(["a.txt", "b.txt"]);
+		});
+
+		it("should reject conflicting outputMode and output_mode", async () => {
+			await expect(
+				globTool.execute("test-call-glob-mode-conflict", {
+					pattern: "*.txt",
+					path: testDir,
+					outputMode: "count",
+					output_mode: "paths",
+				} as any),
+			).rejects.toThrow("outputMode and output_mode differ");
+		});
+
 		it("should respect .gitignore with the rg backend", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");
@@ -1564,6 +1643,14 @@ describe("Coding Agent Tools", () => {
 			expect((definition.parameters as any).properties.timeout).toBeDefined();
 			expect((definition.parameters as any).properties.timeout.exclusiveMinimum).toBe(0);
 			expect((definition.parameters as any).properties.timeout.maximum).toBe(300);
+		});
+
+		it("should expose outputMode, output_mode, offset, and sort in the schema", () => {
+			const properties = (createGlobToolDefinition(process.cwd()).parameters as any).properties;
+			expect(properties.outputMode).toBeDefined();
+			expect(properties.output_mode).toBeDefined();
+			expect(properties.offset).toBeDefined();
+			expect(properties.sort).toBeDefined();
 		});
 
 		it("should time out slow Glob calls with an actionable result", async () => {
