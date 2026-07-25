@@ -58,6 +58,21 @@ function anthropicModel(id = "claude-sonnet-4-5"): Model<Api> {
 	};
 }
 
+function codexModel(id = "gpt-5.5"): Model<Api> {
+	return {
+		id,
+		name: id,
+		api: "openai-codex-responses",
+		provider: "openai-codex",
+		baseUrl: "https://example.invalid",
+		reasoning: true,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 272000,
+		maxTokens: 32000,
+	};
+}
+
 describe("isDeferredTool", () => {
 	it("returns true only when deferLoading is true and alwaysLoad is not true", () => {
 		expect(isDeferredTool(makeDefinition("plain"))).toBe(false);
@@ -250,6 +265,24 @@ describe("planDeferredToolSearchForModel — native vs fallback decision", () =>
 		expect(plan.cacheMayBust).toBe(true);
 	});
 
+	it("uses native mode for openai-codex Responses models", () => {
+		const plan = planDeferredToolSearchForModel(definitions, ["alpha"], codexModel(), []);
+		expect(plan.mode).toBe("native");
+		expect(plan.referenceBlocks).toEqual([{ type: "tool_reference", name: "alpha" }]);
+		expect(plan.activateToolNames).toEqual([]);
+		expect(plan.cacheMayBust).toBe(false);
+		expect(plan.capabilities?.nativeDeferredTools).toBe(true);
+	});
+
+	it("uses fallback mode when openai-codex model.compat disables deferred tools", () => {
+		const model = codexModel();
+		(model as { compat?: { supportsDeferredTools?: boolean } }).compat = { supportsDeferredTools: false };
+		const plan = planDeferredToolSearchForModel(definitions, ["alpha"], model, []);
+		expect(plan.mode).toBe("fallback");
+		expect(plan.cacheMayBust).toBe(true);
+		expect(plan.capabilities?.fallbackReason).toMatch(/codex/i);
+	});
+
 	it("uses fallback mode for non-anthropic-messages APIs", () => {
 		const openai: Model<Api> = {
 			id: "gpt-x",
@@ -300,6 +333,19 @@ describe("executeDeferredToolSearchForModel — mutates active list only on fall
 			},
 		};
 		const plan = executeDeferredToolSearchForModel(definitions, ["alpha"], anthropicModel(), actions, []);
+		expect(plan.mode).toBe("native");
+		expect(activeWrites).toBe(0);
+	});
+
+	it("openai-codex native mode does not call setActiveTools", () => {
+		let activeWrites = 0;
+		const actions = {
+			getActiveToolNames: () => ["existing"],
+			setActiveTools: (_: string[]) => {
+				activeWrites++;
+			},
+		};
+		const plan = executeDeferredToolSearchForModel(definitions, ["alpha"], codexModel(), actions, []);
 		expect(plan.mode).toBe("native");
 		expect(activeWrites).toBe(0);
 	});

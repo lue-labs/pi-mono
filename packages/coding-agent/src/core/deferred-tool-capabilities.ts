@@ -34,6 +34,18 @@ export function getDeferredToolCapabilities(model: Model<Api> | undefined): Defe
 		return { nativeDeferredTools: true, toolReferenceResults: true };
 	}
 
+	if (supportsNativeCodexDeferredTools(model)) {
+		const compat = model.compat as { supportsDeferredTools?: boolean } | undefined;
+		if (compat?.supportsDeferredTools === false) {
+			return {
+				nativeDeferredTools: false,
+				toolReferenceResults: false,
+				fallbackReason: `${model.provider}/${model.id} disables Codex deferred tools; activation may bust prompt cache once.`,
+			};
+		}
+		return { nativeDeferredTools: true, toolReferenceResults: true };
+	}
+
 	return {
 		nativeDeferredTools: false,
 		toolReferenceResults: false,
@@ -43,4 +55,8 @@ export function getDeferredToolCapabilities(model: Model<Api> | undefined): Defe
 
 function supportsNativeAnthropicDeferredTools(model: Model<Api>): boolean {
 	return model.api === "anthropic-messages";
+}
+
+function supportsNativeCodexDeferredTools(model: Model<Api>): boolean {
+	return model.api === "openai-codex-responses";
 }
