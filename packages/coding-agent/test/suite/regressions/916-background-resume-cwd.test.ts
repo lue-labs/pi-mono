@@ -5,7 +5,11 @@ import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../../../src/core/agent-session.ts";
 import { executeAgentTool } from "../../../src/core/agents/executor.ts";
-import { clearAgentRecentRunsForTests, resumeAgentRecentRun, waitForAgentRecentRun } from "../../../src/core/agents/status.ts";
+import {
+	clearAgentRecentRunsForTests,
+	resumeAgentRecentRun,
+	waitForAgentRecentRun,
+} from "../../../src/core/agents/status.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 // Regression for valkyriweb/my-pi#916: a background Agent dispatch routes the
