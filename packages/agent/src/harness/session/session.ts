@@ -10,6 +10,7 @@ import type {
 	LabelEntry,
 	MessageEntry,
 	ModelChangeEntry,
+	RetainedSuffix,
 	SessionContext,
 	SessionInfoEntry,
 	SessionMetadata,
@@ -66,11 +67,19 @@ export function defaultContextEntryTransform(pathEntries: readonly SessionTreeEn
 	}
 
 	const entries: SessionTreeEntry[] = [compaction];
+	// New records can explicitly retain no suffix. Keep accepting the historical
+	// firstKeptEntryId field so old JSONL sessions retain their old semantics.
+	if (compaction.retainedSuffix?.kind === "none") return entries;
+	const firstKeptEntryId =
+		compaction.retainedSuffix?.kind === "from-entry"
+			? compaction.retainedSuffix.firstEntryId
+			: compaction.firstKeptEntryId;
+	if (!firstKeptEntryId) return entries;
 	const compactionIdx = pathEntries.findIndex((entry) => entry.type === "compaction" && entry.id === compaction.id);
 	let foundFirstKept = false;
 	for (let i = 0; i < compactionIdx; i++) {
 		const entry = pathEntries[i]!;
-		if (entry.id === compaction.firstKeptEntryId) foundFirstKept = true;
+		if (entry.id === firstKeptEntryId) foundFirstKept = true;
 		if (foundFirstKept) entries.push(entry);
 	}
 	for (let i = compactionIdx + 1; i < pathEntries.length; i++) {
@@ -243,18 +252,21 @@ export class Session<TMetadata extends SessionMetadata = SessionMetadata> {
 
 	async appendCompaction<T = unknown>(
 		summary: string,
-		firstKeptEntryId: string,
+		retainedSuffix: RetainedSuffix | string,
 		tokensBefore: number,
 		details?: T,
 		fromHook?: boolean,
 	): Promise<string> {
+		const normalizedSuffix: RetainedSuffix =
+			typeof retainedSuffix === "string" ? { kind: "from-entry", firstEntryId: retainedSuffix } : retainedSuffix;
 		return this.appendTypedEntry({
 			type: "compaction",
 			id: await this.storage.createEntryId(),
 			parentId: await this.storage.getLeafId(),
 			timestamp: new Date().toISOString(),
 			summary,
-			firstKeptEntryId,
+			...(normalizedSuffix.kind === "from-entry" ? { firstKeptEntryId: normalizedSuffix.firstEntryId } : {}),
+			retainedSuffix: normalizedSuffix,
 			tokensBefore,
 			details,
 			fromHook,
@@ -322,8 +334,10 @@ export class Session<TMetadata extends SessionMetadata = SessionMetadata> {
 		if (entryId !== null && !(await this.storage.getEntry(entryId))) {
 			throw new SessionError("not_found", `Entry ${entryId} not found`);
 		}
-		await this.storage.setLeafId(entryId);
-		if (!summary) return undefined;
+		if (!summary) {
+			await this.storage.setLeafId(entryId);
+			return undefined;
+		}
 		return this.appendTypedEntry({
 			type: "branch_summary",
 			id: await this.storage.createEntryId(),

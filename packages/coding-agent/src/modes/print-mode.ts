@@ -91,6 +91,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 				navigateTree: async (targetId, navigateOptions) => {
 					const result = await session.navigateTree(targetId, {
 						summarize: navigateOptions?.summarize,
+						position: navigateOptions?.position,
 						customInstructions: navigateOptions?.customInstructions,
 						replaceInstructions: navigateOptions?.replaceInstructions,
 						label: navigateOptions?.label,

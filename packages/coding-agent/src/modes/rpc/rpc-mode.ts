@@ -328,6 +328,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				navigateTree: async (targetId, options) => {
 					const result = await session.navigateTree(targetId, {
 						summarize: options?.summarize,
+						position: options?.position,
 						customInstructions: options?.customInstructions,
 						replaceInstructions: options?.replaceInstructions,
 						label: options?.label,

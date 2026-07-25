@@ -57,11 +57,13 @@ import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type {
 	BranchSummaryEntry,
+	CommittedSessionUnit,
 	CompactionEntry,
 	CustomEntry,
 	ReadonlySessionManager,
 	SessionEntry,
 	SessionManager,
+	SessionUnitDraft,
 } from "../session-manager.ts";
 import type { SlashCommandInfo } from "../slash-commands.ts";
 import type { SourceInfo } from "../source-info.ts";
@@ -448,7 +450,13 @@ export interface ExtensionCommandContext extends ExtensionContext {
 	/** Navigate to a different point in the session tree. */
 	navigateTree(
 		targetId: string,
-		options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
+		options?: {
+			summarize?: boolean;
+			position?: "before" | "at";
+			customInstructions?: string;
+			replaceInstructions?: boolean;
+			label?: string;
+		},
 	): Promise<{ cancelled: boolean }>;
 
 	/** Switch to a different session file. */
@@ -1286,6 +1294,8 @@ export interface SessionBeforeForkResult {
 export interface SessionBeforeCompactResult {
 	cancel?: boolean;
 	compaction?: CompactionResult;
+	/** Ordered opaque custom entries committed atomically after the compaction primary. */
+	buildCompanions?: SessionUnitDraft["buildCompanions"];
 }
 
 export interface SessionBeforeTreeResult {
@@ -1294,6 +1304,8 @@ export interface SessionBeforeTreeResult {
 		summary: string;
 		details?: unknown;
 	};
+	/** Ordered opaque custom entries committed atomically after the branch-summary primary. */
+	buildCompanions?: SessionUnitDraft["buildCompanions"];
 	/** Override custom instructions for summarization */
 	customInstructions?: string;
 	/** Override whether customInstructions replaces the default prompt */
@@ -1656,6 +1668,13 @@ export interface ExtensionAPI {
 	/** Append a custom entry to the session for state persistence (not sent to LLM). */
 	appendEntry<T = unknown>(customType: string, data?: T): void;
 
+	/**
+	 * Atomically publish one generic session-tree unit. The primary id is assigned
+	 * before companion serialization; opaque companions may embed it. This is
+	 * extension runtime control-plane API, not a model-visible tool.
+	 */
+	commitSessionUnit(draft: SessionUnitDraft): Promise<CommittedSessionUnit>;
+
 	// =========================================================================
 	// Session Metadata
 	// =========================================================================
@@ -1913,6 +1932,8 @@ export type SendUserMessageHandler = (
 
 export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => void;
 
+export type CommitSessionUnitHandler = (draft: SessionUnitDraft) => Promise<CommittedSessionUnit>;
+
 export type SetSessionNameHandler = (name: string) => void;
 
 export type GetSessionNameHandler = () => string | undefined;
@@ -2142,6 +2163,7 @@ export interface ExtensionActions {
 	sendMessage: SendMessageHandler;
 	sendUserMessage: SendUserMessageHandler;
 	appendEntry: AppendEntryHandler;
+	commitSessionUnit: CommitSessionUnitHandler;
 	setSessionName: SetSessionNameHandler;
 	getSessionName: GetSessionNameHandler;
 	setLabel: SetLabelHandler;
@@ -2199,7 +2221,13 @@ export interface ExtensionCommandContextActions {
 	) => Promise<{ cancelled: boolean }>;
 	navigateTree: (
 		targetId: string,
-		options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
+		options?: {
+			summarize?: boolean;
+			position?: "before" | "at";
+			customInstructions?: string;
+			replaceInstructions?: boolean;
+			label?: string;
+		},
 	) => Promise<{ cancelled: boolean }>;
 	switchSession: (
 		sessionPath: string,

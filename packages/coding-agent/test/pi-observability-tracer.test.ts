@@ -61,6 +61,7 @@ describe("pi-observability tracer (issue 09)", () => {
 		sendMessage: () => {},
 		sendUserMessage: () => {},
 		appendEntry: () => {},
+		commitSessionUnit: (draft) => sessionManager.commitSessionUnit(draft),
 		setSessionName: () => {},
 		getSessionName: () => undefined,
 		setLabel: () => {},

@@ -12,6 +12,8 @@ longer append their full changelog here.
 
 ## Unreleased
 
+- Add exact retained-suffix positioning and atomic append contracts to the agent harness session and compaction APIs.
+
 - Add `max` to `ThinkingLevel` (GPT-5.6+ reasoning effort above `xhigh`).
 - Add opt-in `ultra` to `ThinkingLevel` for client-side maximum-reasoning orchestration.
 

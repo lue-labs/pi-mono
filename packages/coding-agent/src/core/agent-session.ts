@@ -121,11 +121,14 @@ import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import type {
 	BranchSummaryEntry,
+	CommittedSessionUnit,
 	CompactionEntry,
 	CustomEntry,
 	ResidentPruneResult,
+	RetainedSuffix,
 	SessionEntry,
 	SessionManager,
+	SessionUnitDraft,
 } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
@@ -179,6 +182,41 @@ export function parseSkillBlock(text: string): ParsedSkillBlock | null {
 
 function estimateSystemPromptTokens(systemPrompt: string): number {
 	return Math.ceil(systemPrompt.length / 4);
+}
+
+function resolveCompactionRetainedSuffix(result: CompactionResult): RetainedSuffix {
+	const hasRetainedSuffix = Object.hasOwn(result, "retainedSuffix");
+	const retainedSuffix = result.retainedSuffix as RetainedSuffix | null | undefined;
+	const firstKeptEntryId = result.firstKeptEntryId;
+	if (hasRetainedSuffix) {
+		if (!retainedSuffix || typeof retainedSuffix !== "object") {
+			throw new Error("Compaction result has an invalid retained suffix");
+		}
+		if (retainedSuffix.kind === "none") {
+			if (Object.hasOwn(retainedSuffix, "firstEntryId")) {
+				throw new Error("Compaction result has an invalid retained suffix");
+			}
+			if (firstKeptEntryId !== undefined) {
+				throw new Error("Compaction result has conflicting retained suffix fields");
+			}
+			return retainedSuffix;
+		}
+		if (
+			retainedSuffix.kind !== "from-entry" ||
+			typeof retainedSuffix.firstEntryId !== "string" ||
+			retainedSuffix.firstEntryId.length === 0
+		) {
+			throw new Error("Compaction result has an invalid retained suffix");
+		}
+		if (firstKeptEntryId !== undefined && firstKeptEntryId !== retainedSuffix.firstEntryId) {
+			throw new Error("Compaction result has conflicting retained suffix fields");
+		}
+		return retainedSuffix;
+	}
+	if (typeof firstKeptEntryId === "string" && firstKeptEntryId.length > 0) {
+		return { kind: "from-entry", firstEntryId: firstKeptEntryId };
+	}
+	throw new Error("Compaction result has no retained suffix");
 }
 
 export interface PendingAutoModelRequest {
@@ -484,6 +522,11 @@ export class AgentSession {
 	private readonly _cacheHeartbeat: CacheHeartbeatManager;
 	/** Debounce timer for wakeOnIdle continuation turns (see sendCustomMessage). */
 	private _idleWakeTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+	/** One owning scheduler drains durable session-unit actions after projection. */
+	private _sessionActionDrainTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+	private _sessionActionDrainRequested = false;
+	private _sessionActionDrainActive = false;
+	private _extensionsBound = false;
 	private _disposed = false;
 	private _unsubscribeBashBgNotification?: () => void;
 	private _backgroundAgentTerminalUnsubscribers = new Set<() => void>();
@@ -868,6 +911,7 @@ export class AgentSession {
 			this._emit({ type: "agent_settled" });
 		} finally {
 			this._resolveIdleWaitIfIdle();
+			if (this.sessionManager.getScheduledActions().length > 0) this._requestSessionActionDrain();
 		}
 	}
 
@@ -1285,6 +1329,10 @@ export class AgentSession {
 		if (this._idleWakeTimer) {
 			clearTimeout(this._idleWakeTimer);
 			this._idleWakeTimer = undefined;
+		}
+		if (this._sessionActionDrainTimer) {
+			clearTimeout(this._sessionActionDrainTimer);
+			this._sessionActionDrainTimer = undefined;
 		}
 		cleanupSessionResources(this.sessionId);
 	}
@@ -1896,20 +1944,50 @@ export class AgentSession {
 	// Prompting
 	// =========================================================================
 
-	private async _withActiveTurnCall<T>(operation: () => Promise<T>): Promise<T> {
+	private async _withActiveTurnCall<T>(
+		operation: () => Promise<T>,
+		options: { drainActionsOnExit?: boolean } = {},
+	): Promise<T> {
 		this._activeTurnCalls++;
 		try {
 			return await this._turnCallScope.run((this._turnCallScope.getStore() ?? 0) + 1, operation);
 		} finally {
 			this._activeTurnCalls--;
+			let attemptedSessionActionDrain = false;
+			if (
+				options.drainActionsOnExit !== false &&
+				this._activeTurnCalls === 0 &&
+				(this._sessionActionDrainRequested || this.sessionManager.getScheduledActions().length > 0)
+			) {
+				attemptedSessionActionDrain = true;
+				this._sessionActionDrainRequested = false;
+				this._sessionActionDrainActive = true;
+				try {
+					await this._drainScheduledSessionActions();
+				} catch (error) {
+					this._extensionRunner.emitError({
+						extensionPath: "<runtime>",
+						event: "session_unit_dispatch",
+						error: error instanceof Error ? error.message : String(error),
+					});
+				} finally {
+					this._sessionActionDrainActive = false;
+				}
+			}
 			// Turn-call exit can complete an idle window that the settle emit saw as
 			// busy (the settling prompt's own call was still unwinding); wake waiters
-			// so they re-check isIdle in their own context.
+			// and the durable action scheduler so they re-check isIdle.
 			this._resolveIdleWaitIfIdle();
+			if (
+				!attemptedSessionActionDrain &&
+				(this._sessionActionDrainRequested || this.sessionManager.getScheduledActions().length > 0)
+			) {
+				this._requestSessionActionDrain();
+			}
 		}
 	}
 
-	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+	private async _runAgentLoop(start: () => Promise<void>, options: { allowRetry?: boolean } = {}): Promise<void> {
 		this._isAgentRunActive = true;
 		try {
 			// A turn is starting — cancel any pending idle wake. The notification
@@ -1920,8 +1998,8 @@ export class AgentSession {
 			await this._refilterSystemPromptIfNeeded();
 			this._cacheHeartbeat.setSessionTarget(this._findLastAssistantMessage()?.timestamp);
 			this._cacheHeartbeat.noteActivity();
-			await this.agent.prompt(messages);
-			while (await this._handlePostAgentRun()) {
+			await start();
+			while (await this._handlePostAgentRun({ allowRetry: options.allowRetry })) {
 				await this.agent.continue();
 			}
 		} finally {
@@ -1931,14 +2009,110 @@ export class AgentSession {
 		}
 	}
 
-	private async _handlePostAgentRun(): Promise<boolean> {
+	private _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		return this._runAgentLoop(() => this.agent.prompt(messages));
+	}
+
+	private _runScheduledSessionAction(): Promise<void> {
+		return this._runAgentLoop(() => this.agent.continue(), { allowRetry: false });
+	}
+
+	private async _commitSessionUnit(
+		draft: SessionUnitDraft,
+		options: { requestActionDrain?: boolean } = {},
+	): Promise<CommittedSessionUnit> {
+		const committed = await this.sessionManager.commitSessionUnit(draft);
+		// SessionManager has already crossed the durable boundary. Swap the exact
+		// model projection prevalidated with that commit before observation.
+		this.agent.state.messages = this.sessionManager._getCommittedSessionContext(committed).messages;
+		for (const entryId of committed.entryIds) {
+			const entry = this.sessionManager.getEntry(entryId);
+			if (entry) this._emit({ type: "entry_appended", entry });
+		}
+		if (committed.scheduledActionId && options.requestActionDrain !== false) this._requestSessionActionDrain();
+		return committed;
+	}
+
+	private _requestSessionActionDrain(): void {
+		this._sessionActionDrainRequested = true;
+		if (
+			this._disposed ||
+			!this._extensionsBound ||
+			this._sessionActionDrainActive ||
+			this._sessionActionDrainTimer !== undefined
+		) {
+			return;
+		}
+		this._sessionActionDrainTimer = setTimeout(() => {
+			this._sessionActionDrainTimer = undefined;
+			if (this._disposed || !this._extensionsBound || this._sessionActionDrainActive || !this.isIdle) return;
+			this._sessionActionDrainRequested = false;
+			this._sessionActionDrainActive = true;
+			let drainFailed = false;
+			void this._withActiveTurnCall(() => this._drainScheduledSessionActions(), { drainActionsOnExit: false })
+				.catch((error) => {
+					drainFailed = true;
+					this._extensionRunner.emitError({
+						extensionPath: "<runtime>",
+						event: "session_unit_dispatch",
+						error: error instanceof Error ? error.message : String(error),
+					});
+				})
+				.finally(() => {
+					this._sessionActionDrainActive = false;
+					if (
+						!drainFailed &&
+						(this._sessionActionDrainRequested || this.sessionManager.getScheduledActions().length > 0)
+					) {
+						this._requestSessionActionDrain();
+					}
+				});
+		}, 0);
+	}
+
+	private async _drainScheduledSessionActions(): Promise<void> {
+		while (!this._disposed) {
+			const action = this.sessionManager.getScheduledActions()[0];
+			if (!action) return;
+			if (!this.sessionManager.getEntry(action.entryId)) {
+				this.sessionManager.markActionStarted(action.actionId);
+				throw new Error(`Scheduled session action ${action.actionId} references missing entry ${action.entryId}`);
+			}
+
+			let messages = this.sessionManager.buildSessionContext().messages;
+			if (action.kind === "overflow_retry") {
+				const lastMessage = messages.at(-1);
+				if (lastMessage?.role === "assistant" && (lastMessage as AssistantMessage).stopReason === "error") {
+					messages = messages.slice(0, -1);
+				}
+			}
+			this.agent.state.messages = messages;
+
+			// The durable started receipt is the at-most-once dispatch boundary.
+			if (!this.sessionManager.markActionStarted(action.actionId)) continue;
+			if (action.kind === "overflow_retry") this._overflowRecoveryAttempted = true;
+			try {
+				await this._runScheduledSessionAction();
+				this.sessionManager.markActionCompleted(action.actionId);
+			} catch (error) {
+				this._extensionRunner.emitError({
+					extensionPath: "<runtime>",
+					event: `session_unit_${action.kind}`,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return;
+			}
+		}
+	}
+
+	private async _handlePostAgentRun(options: { allowRetry?: boolean } = {}): Promise<boolean> {
 		const msg = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
 		if (!msg) {
 			return false;
 		}
 
-		if (this._isRetryableError(msg) && (await this._prepareRetry(msg))) {
+		if (options.allowRetry !== false && this._isRetryableError(msg) && (await this._prepareRetry(msg))) {
 			return true;
 		}
 
@@ -3057,8 +3231,16 @@ export class AgentSession {
 	): void {
 		const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
 		if (!settings.residentPrune) return;
-		const result = this.sessionManager.pruneResidentHistoryAfterCompaction(compactionEntryId);
-		this._emit({ type: "resident_prune", reason, result });
+		try {
+			const result = this.sessionManager.pruneResidentHistoryAfterCompaction(compactionEntryId);
+			this._emit({ type: "resident_prune", reason, result });
+		} catch (error) {
+			this._extensionRunner.emitError({
+				extensionPath: "<runtime>",
+				event: "resident_prune",
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	/**
@@ -3093,6 +3275,7 @@ export class AgentSession {
 			}
 
 			let extensionCompaction: CompactionResult | undefined;
+			let buildCompanions: SessionUnitDraft["buildCompanions"];
 			let fromExtension = false;
 
 			if (this._extensionRunner.hasHandlers("session_before_compact")) {
@@ -3114,17 +3297,20 @@ export class AgentSession {
 					extensionCompaction = result.compaction;
 					fromExtension = true;
 				}
+				buildCompanions = result?.buildCompanions;
 			}
 
 			let summary: string;
-			let firstKeptEntryId: string;
+			let retainedSuffix: RetainedSuffix;
+			let firstKeptEntryId: string | undefined;
 			let tokensBefore: number;
 			let details: unknown;
 
 			if (extensionCompaction) {
 				// Extension provided compaction content
 				summary = extensionCompaction.summary;
-				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
+				retainedSuffix = resolveCompactionRetainedSuffix(extensionCompaction);
+				firstKeptEntryId = retainedSuffix.kind === "from-entry" ? retainedSuffix.firstEntryId : undefined;
 				tokensBefore = extensionCompaction.tokensBefore;
 				details = extensionCompaction.details;
 			} else {
@@ -3146,7 +3332,8 @@ export class AgentSession {
 					},
 				);
 				summary = result.summary;
-				firstKeptEntryId = result.firstKeptEntryId;
+				retainedSuffix = resolveCompactionRetainedSuffix(result);
+				firstKeptEntryId = retainedSuffix.kind === "from-entry" ? retainedSuffix.firstEntryId : undefined;
 				tokensBefore = result.tokensBefore;
 				details = result.details;
 			}
@@ -3155,23 +3342,25 @@ export class AgentSession {
 				throw new Error("Compaction cancelled");
 			}
 
-			const compactionEntryId = this.sessionManager.appendCompaction(
-				summary,
-				firstKeptEntryId,
-				tokensBefore,
-				details,
-				fromExtension,
-			);
+			const committed = await this._commitSessionUnit({
+				targetLeafId: this.sessionManager.getLeafId(),
+				primary: {
+					kind: "compaction",
+					summary,
+					retainedSuffix,
+					tokensBefore,
+					details,
+					fromHook: fromExtension,
+				},
+				buildCompanions,
+			});
+			const compactionEntryId = committed.primaryEntryId;
 			this._pruneResidentHistoryAfterCompaction("manual", compactionEntryId);
-			const newEntries = this.sessionManager.getEntries();
-			const sessionContext = this.sessionManager.buildSessionContext();
-			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			const estimatedTokensAfter = estimateMessagesTokens(this.agent.state.messages);
 
-			// Get the saved compaction entry for the extension event
-			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
-				| CompactionEntry
-				| undefined;
+			// The commit allocates the canonical primary id before persistence; never
+			// rediscover a compaction by its non-unique summary text.
+			const savedCompactionEntry = this.sessionManager.getEntry(compactionEntryId) as CompactionEntry | undefined;
 
 			if (this._extensionRunner && savedCompactionEntry) {
 				await this._extensionRunner.emit({
@@ -3186,6 +3375,7 @@ export class AgentSession {
 			const compactionResult: CompactionResult = {
 				summary,
 				firstKeptEntryId,
+				retainedSuffix,
 				tokensBefore,
 				estimatedTokensAfter,
 				details,
@@ -3298,14 +3488,9 @@ export class AgentSession {
 				return false;
 			}
 
-			this._overflowRecoveryAttempted = true;
-			// Remove the error message from agent state (it IS saved to session for history,
-			// but we don't want it in context for the retry)
-			const messages = this.agent.state.messages;
-			if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
-				this.agent.state.messages = messages.slice(0, -1);
-			}
-			return await this._runAutoCompaction("overflow", willRetry);
+			// The retry budget is consumed only after the compaction and retry action
+			// are durably committed. The session-tree scheduler owns continuation.
+			return await this._runAutoCompaction("overflow", willRetry, skipAbortedCheck);
 		}
 
 		// Case 2: Threshold - context is getting large
@@ -3343,7 +3528,11 @@ export class AgentSession {
 	/**
 	 * Internal: Run auto-compaction with events.
 	 */
-	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
+	private async _runAutoCompaction(
+		reason: "overflow" | "threshold",
+		willRetry: boolean,
+		scheduleRetryAction = willRetry,
+	): Promise<boolean> {
 		// Failure circuit breaker: checked before anything else, including the rapid-refill
 		// check below (CC 2.1.201 parity). Once tripped, auto-compaction is disabled for
 		// the rest of the session and this short-circuit must not emit repeatedly.
@@ -3431,6 +3620,7 @@ export class AgentSession {
 			started = true;
 
 			let extensionCompaction: CompactionResult | undefined;
+			let buildCompanions: SessionUnitDraft["buildCompanions"];
 			let fromExtension = false;
 
 			if (this._extensionRunner.hasHandlers("session_before_compact")) {
@@ -3459,21 +3649,31 @@ export class AgentSession {
 					extensionCompaction = extensionResult.compaction;
 					fromExtension = true;
 				}
+				buildCompanions = extensionResult?.buildCompanions;
 			}
 
 			let summary: string;
-			let firstKeptEntryId: string;
+			let retainedSuffix: RetainedSuffix;
+			let firstKeptEntryId: string | undefined;
 			let tokensBefore: number;
 			let details: unknown;
 
 			if (extensionCompaction) {
 				// Extension provided compaction content
 				summary = extensionCompaction.summary;
-				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
+				retainedSuffix = resolveCompactionRetainedSuffix(extensionCompaction);
+				firstKeptEntryId = retainedSuffix.kind === "from-entry" ? retainedSuffix.firstEntryId : undefined;
 				tokensBefore = extensionCompaction.tokensBefore;
 				details = extensionCompaction.details;
 			} else {
 				// Generate compaction result
+				let cacheSafeMessages = this.agent.state.messages;
+				if (willRetry) {
+					const lastMessage = cacheSafeMessages.at(-1);
+					if (lastMessage?.role === "assistant" && (lastMessage as AssistantMessage).stopReason === "error") {
+						cacheSafeMessages = cacheSafeMessages.slice(0, -1);
+					}
+				}
 				const compactResult = await compact(
 					preparation,
 					this.model,
@@ -3486,12 +3686,13 @@ export class AgentSession {
 					env,
 					{
 						systemPrompt: this.systemPrompt,
-						messages: stripModelFacingContextImages(await convertToLlm(this.agent.state.messages)),
+						messages: stripModelFacingContextImages(await convertToLlm(cacheSafeMessages)),
 						tools: this.agent.state.tools,
 					},
 				);
 				summary = compactResult.summary;
-				firstKeptEntryId = compactResult.firstKeptEntryId;
+				retainedSuffix = resolveCompactionRetainedSuffix(compactResult);
+				firstKeptEntryId = retainedSuffix.kind === "from-entry" ? retainedSuffix.firstEntryId : undefined;
 				tokensBefore = compactResult.tokensBefore;
 				details = compactResult.details;
 			}
@@ -3507,23 +3708,27 @@ export class AgentSession {
 				return false;
 			}
 
-			const compactionEntryId = this.sessionManager.appendCompaction(
-				summary,
-				firstKeptEntryId,
-				tokensBefore,
-				details,
-				fromExtension,
-			);
+			const committed = await this._commitSessionUnit({
+				targetLeafId: this.sessionManager.getLeafId(),
+				primary: {
+					kind: "compaction",
+					summary,
+					retainedSuffix,
+					tokensBefore,
+					details,
+					fromHook: fromExtension,
+				},
+				buildCompanions,
+				postCommit: willRetry && scheduleRetryAction ? { kind: "overflow_retry", entry: "primary" } : undefined,
+			});
+			if (willRetry && scheduleRetryAction) this._overflowRecoveryAttempted = true;
+			const compactionEntryId = committed.primaryEntryId;
 			this._pruneResidentHistoryAfterCompaction(reason, compactionEntryId);
-			const newEntries = this.sessionManager.getEntries();
-			const sessionContext = this.sessionManager.buildSessionContext();
-			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			const estimatedTokensAfter = estimateMessagesTokens(this.agent.state.messages);
 
-			// Get the saved compaction entry for the extension event
-			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
-				| CompactionEntry
-				| undefined;
+			// The commit allocates the canonical primary id before persistence; never
+			// rediscover a compaction by its non-unique summary text.
+			const savedCompactionEntry = this.sessionManager.getEntry(compactionEntryId) as CompactionEntry | undefined;
 
 			if (this._extensionRunner && savedCompactionEntry) {
 				await this._extensionRunner.emit({
@@ -3538,6 +3743,7 @@ export class AgentSession {
 			const result: CompactionResult = {
 				summary,
 				firstKeptEntryId,
+				retainedSuffix,
 				tokensBefore,
 				estimatedTokensAfter,
 				details,
@@ -3546,12 +3752,9 @@ export class AgentSession {
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });
 
 			if (willRetry) {
-				const messages = this.agent.state.messages;
-				const lastMsg = messages[messages.length - 1];
-				if (lastMsg?.role === "assistant" && (lastMsg as AssistantMessage).stopReason === "error") {
-					this.agent.state.messages = messages.slice(0, -1);
-				}
-				return true;
+				// Post-run overflow recovery is scheduler-owned. Pre-prompt callers
+				// already own the next prompt/continuation and must not enqueue a second one.
+				return !scheduleRetryAction;
 			}
 
 			// Auto-compaction can complete while follow-up/steering/custom messages are waiting.
@@ -3651,6 +3854,24 @@ export class AgentSession {
 		this._applyExtensionBindings(this._extensionRunner);
 		await this._extensionRunner.emit(this._sessionStartEvent);
 		await this.extendResourcesFromExtensions(this._sessionStartEvent.reason === "reload" ? "reload" : "startup");
+		this._extensionsBound = true;
+		if (this.sessionManager.getScheduledActions().length > 0 && this.isIdle && !this._sessionActionDrainActive) {
+			this._sessionActionDrainRequested = false;
+			this._sessionActionDrainActive = true;
+			try {
+				await this._drainScheduledSessionActions();
+			} catch (error) {
+				this._extensionRunner.emitError({
+					extensionPath: "<runtime>",
+					event: "session_unit_dispatch",
+					error: error instanceof Error ? error.message : String(error),
+				});
+			} finally {
+				this._sessionActionDrainActive = false;
+			}
+		} else if (this.sessionManager.getScheduledActions().length > 0) {
+			this._requestSessionActionDrain();
+		}
 		this._scheduleDeferredExtensionLoading();
 	}
 
@@ -4015,6 +4236,7 @@ export class AgentSession {
 						this._emit({ type: "entry_appended", entry });
 					}
 				},
+				commitSessionUnit: (draft) => this._commitSessionUnit(draft),
 				setSessionName: (name) => {
 					this.setSessionName(name);
 				},
@@ -4621,7 +4843,13 @@ export class AgentSession {
 	 */
 	async navigateTree(
 		targetId: string,
-		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
+		options: {
+			summarize?: boolean;
+			position?: "before" | "at";
+			customInstructions?: string;
+			replaceInstructions?: boolean;
+			label?: string;
+		} = {},
 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
 		const oldLeafId = this.sessionManager.getLeafId();
 
@@ -4668,6 +4896,7 @@ export class AgentSession {
 
 		try {
 			let extensionSummary: { summary: string; details?: unknown } | undefined;
+			let extensionBuildCompanions: SessionUnitDraft["buildCompanions"];
 			let fromExtension = false;
 
 			// Emit session_before_tree event
@@ -4686,6 +4915,7 @@ export class AgentSession {
 					extensionSummary = result.summary;
 					fromExtension = true;
 				}
+				extensionBuildCompanions = result?.buildCompanions;
 
 				// Allow extensions to override instructions and label
 				if (result?.customInstructions !== undefined) {
@@ -4739,11 +4969,11 @@ export class AgentSession {
 
 			if (targetEntry.type === "message" && targetEntry.message.role === "user") {
 				// User message: leaf = parent (null if root), text goes to editor
-				newLeafId = targetEntry.parentId;
+				newLeafId = options.position === "at" ? targetId : targetEntry.parentId;
 				editorText = this._extractUserMessageText(targetEntry.message.content);
 			} else if (targetEntry.type === "custom_message") {
 				// Custom message: leaf = parent (null if root), text goes to editor
-				newLeafId = targetEntry.parentId;
+				newLeafId = options.position === "at" ? targetId : targetEntry.parentId;
 				editorText =
 					typeof targetEntry.content === "string"
 						? targetEntry.content
@@ -4756,22 +4986,37 @@ export class AgentSession {
 				newLeafId = targetId;
 			}
 
-			// Switch leaf (with or without summary)
-			// Summary is attached at the navigation target position (newLeafId), not the old branch
+			if (this._branchSummaryAbortController.signal.aborted) {
+				return { cancelled: true, aborted: true };
+			}
+
+			// Switch leaf (with or without summary). A published branch summary and
+			// opaque extension companions share one persist-before-visibility unit
+			// at the exact navigation target.
 			let summaryEntry: BranchSummaryEntry | undefined;
 			if (summaryText) {
-				// Create summary at target position (can be null for root)
-				const summaryId = this.sessionManager.branchWithSummary(
-					newLeafId,
-					summaryText,
-					summaryDetails,
-					fromExtension,
-				);
-				summaryEntry = this.sessionManager.getEntry(summaryId) as BranchSummaryEntry;
-
-				// Attach label to the summary entry
+				const committed = await this._commitSessionUnit({
+					targetLeafId: newLeafId,
+					primary: {
+						kind: "branch_summary",
+						fromId: newLeafId ?? "root",
+						summary: summaryText,
+						details: summaryDetails,
+						fromHook: fromExtension,
+					},
+					buildCompanions: extensionBuildCompanions,
+				});
+				summaryEntry = this.sessionManager.getEntry(committed.primaryEntryId) as BranchSummaryEntry;
 				if (label) {
-					this.sessionManager.appendLabelChange(summaryId, label);
+					try {
+						this.sessionManager.appendLabelChange(committed.primaryEntryId, label);
+					} catch (error) {
+						this._extensionRunner.emitError({
+							extensionPath: "<runtime>",
+							event: "session_tree_label",
+							error: error instanceof Error ? error.message : String(error),
+						});
+					}
 				}
 			} else if (newLeafId === null) {
 				// No summary, navigating to root - reset leaf
@@ -4786,9 +5031,12 @@ export class AgentSession {
 				this.sessionManager.appendLabelChange(targetId, label);
 			}
 
-			// Update agent state
-			const sessionContext = this.sessionManager.buildSessionContext();
-			this.agent.state.messages = sessionContext.messages;
+			// Transactional summary publication already swapped its prevalidated
+			// projection. Compatibility-only pointer navigation still rebuilds here.
+			if (!summaryText) {
+				const sessionContext = this.sessionManager.buildSessionContext();
+				this.agent.state.messages = sessionContext.messages;
+			}
 
 			// Emit session_tree event
 			await this._extensionRunner.emit({
@@ -4798,8 +5046,6 @@ export class AgentSession {
 				summaryEntry,
 				fromExtension: summaryText ? fromExtension : undefined,
 			});
-
-			// Emit to custom tools
 
 			return { editorText, cancelled: false, summaryEntry };
 		} finally {

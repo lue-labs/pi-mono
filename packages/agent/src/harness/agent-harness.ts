@@ -29,6 +29,7 @@ import type {
 	NavigateTreeResult,
 	PendingSessionWrite,
 	PromptTemplate,
+	RetainedSuffix,
 	Session,
 	Skill,
 } from "./types.ts";
@@ -136,6 +137,44 @@ function normalizeHarnessError(error: unknown, fallbackCode: AgentHarnessError["
 
 function normalizeHookError(error: unknown): AgentHarnessError {
 	return normalizeHarnessError(error, "hook");
+}
+
+function resolveCompactionRetainedSuffix(result: {
+	firstKeptEntryId?: string;
+	retainedSuffix?: RetainedSuffix;
+}): RetainedSuffix {
+	const hasRetainedSuffix = Object.hasOwn(result, "retainedSuffix");
+	const retainedSuffix = result.retainedSuffix as RetainedSuffix | null | undefined;
+	const firstKeptEntryId = result.firstKeptEntryId;
+	if (hasRetainedSuffix) {
+		if (!retainedSuffix || typeof retainedSuffix !== "object") {
+			throw new AgentHarnessError("compaction", "Compaction result has an invalid retained suffix");
+		}
+		if (retainedSuffix.kind === "none") {
+			if (Object.hasOwn(retainedSuffix, "firstEntryId")) {
+				throw new AgentHarnessError("compaction", "Compaction result has an invalid retained suffix");
+			}
+			if (firstKeptEntryId !== undefined) {
+				throw new AgentHarnessError("compaction", "Compaction result has conflicting retained suffix fields");
+			}
+			return retainedSuffix;
+		}
+		if (
+			retainedSuffix.kind !== "from-entry" ||
+			typeof retainedSuffix.firstEntryId !== "string" ||
+			retainedSuffix.firstEntryId.length === 0
+		) {
+			throw new AgentHarnessError("compaction", "Compaction result has an invalid retained suffix");
+		}
+		if (firstKeptEntryId !== undefined && firstKeptEntryId !== retainedSuffix.firstEntryId) {
+			throw new AgentHarnessError("compaction", "Compaction result has conflicting retained suffix fields");
+		}
+		return retainedSuffix;
+	}
+	if (typeof firstKeptEntryId === "string" && firstKeptEntryId.length > 0) {
+		return { kind: "from-entry", firstEntryId: firstKeptEntryId };
+	}
+	throw new AgentHarnessError("compaction", "Compaction result has no retained suffix");
 }
 
 interface AgentHarnessTurnState<
@@ -683,9 +722,13 @@ export class AgentHarness<
 		}
 	}
 
-	async compact(
-		customInstructions?: string,
-	): Promise<{ summary: string; firstKeptEntryId: string; tokensBefore: number; details?: unknown }> {
+	async compact(customInstructions?: string): Promise<{
+		summary: string;
+		firstKeptEntryId?: string;
+		retainedSuffix: RetainedSuffix;
+		tokensBefore: number;
+		details?: unknown;
+	}> {
 		if (this.phase !== "idle") throw new AgentHarnessError("busy", "compact() requires idle harness");
 		this.phase = "compaction";
 		try {
@@ -710,9 +753,10 @@ export class AgentHarness<
 				: await compact(preparation, this.models, model, customInstructions, undefined, this.thinkingLevel);
 			if (!compactResult.ok) throw compactResult.error;
 			const result = compactResult.value;
+			const retainedSuffix = resolveCompactionRetainedSuffix(result);
 			const entryId = await this.session.appendCompaction(
 				result.summary,
-				result.firstKeptEntryId,
+				retainedSuffix,
 				result.tokensBefore,
 				result.details,
 				provided !== undefined,
@@ -721,7 +765,7 @@ export class AgentHarness<
 			if (entry?.type === "compaction") {
 				await this.emitOwn({ type: "session_compact", compactionEntry: entry, fromHook: provided !== undefined });
 			}
-			return result;
+			return { ...result, retainedSuffix };
 		} catch (error) {
 			throw normalizeHarnessError(error, "compaction");
 		} finally {
@@ -731,7 +775,14 @@ export class AgentHarness<
 
 	async navigateTree(
 		targetId: string,
-		options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
+		options?: {
+			summarize?: boolean;
+			/** Preserve the selected user/custom message as the active leaf. */
+			position?: "before" | "at";
+			customInstructions?: string;
+			replaceInstructions?: boolean;
+			label?: string;
+		},
 	): Promise<NavigateTreeResult> {
 		if (this.phase !== "idle") throw new AgentHarnessError("busy", "navigateTree() requires idle harness");
 		this.phase = "branch_summary";
@@ -780,7 +831,7 @@ export class AgentHarness<
 			let editorText: string | undefined;
 			let newLeafId: string | null;
 			if (targetEntry.type === "message" && targetEntry.message.role === "user") {
-				newLeafId = targetEntry.parentId;
+				newLeafId = options?.position === "at" ? targetId : targetEntry.parentId;
 				const content = targetEntry.message.content;
 				editorText =
 					typeof content === "string"
@@ -790,7 +841,7 @@ export class AgentHarness<
 								.map((c) => c.text)
 								.join("");
 			} else if (targetEntry.type === "custom_message") {
-				newLeafId = targetEntry.parentId;
+				newLeafId = options?.position === "at" ? targetId : targetEntry.parentId;
 				editorText =
 					typeof targetEntry.content === "string"
 						? targetEntry.content

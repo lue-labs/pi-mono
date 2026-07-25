@@ -67,6 +67,7 @@ describe("pi-agents tracer (issue 07)", () => {
 		sendMessage: () => {},
 		sendUserMessage: () => {},
 		appendEntry: () => {},
+		commitSessionUnit: (draft) => sessionManager.commitSessionUnit(draft),
 		setSessionName: () => {},
 		getSessionName: () => undefined,
 		setLabel: () => {},

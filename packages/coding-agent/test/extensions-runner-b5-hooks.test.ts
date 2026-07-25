@@ -50,6 +50,7 @@ describe("ExtensionRunner B5 hooks", () => {
 		sendMessage: () => {},
 		sendUserMessage: () => {},
 		appendEntry: () => {},
+		commitSessionUnit: (draft) => sessionManager.commitSessionUnit(draft),
 		setSessionName: () => {},
 		getSessionName: () => undefined,
 		setLabel: () => {},

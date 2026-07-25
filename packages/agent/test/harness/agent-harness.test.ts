@@ -86,6 +86,83 @@ describe("AgentHarness", () => {
 		expect(harness.getFollowUpMode()).toBe("one-at-a-time");
 	});
 
+	it("keeps selected user messages only when navigation requests position at", async () => {
+		const session = new Session(new InMemorySessionStorage());
+		const firstId = await session.appendMessage({
+			role: "user",
+			content: "first",
+			timestamp: Date.now(),
+		});
+		const secondId = await session.appendMessage({
+			role: "user",
+			content: "second",
+			timestamp: Date.now(),
+		});
+		const harness = new AgentHarness({
+			models,
+			env: new NodeExecutionEnv({ cwd: process.cwd() }),
+			session,
+			model: pickModel("anthropic"),
+		});
+		await session.moveTo(firstId);
+
+		await harness.navigateTree(secondId, { summarize: false });
+		expect(await session.getLeafId()).toBe(firstId);
+
+		await harness.navigateTree(secondId, { summarize: false, position: "at" });
+		expect(await session.getLeafId()).toBe(secondId);
+	});
+
+	it.each(["none-with-legacy", "mismatched-from-entry", "null-current"] as const)(
+		"rejects conflicting compaction suffix fields: %s",
+		async (conflict) => {
+			const session = new Session(new InMemorySessionStorage());
+			await session.appendMessage({ role: "user", content: "old user", timestamp: Date.now() - 1000 });
+			await session.appendMessage(fauxAssistantMessage("old assistant", { timestamp: Date.now() - 500 }));
+			const harness = new AgentHarness({
+				models,
+				env: new NodeExecutionEnv({ cwd: process.cwd() }),
+				session,
+				model: pickModel("anthropic"),
+			});
+			harness.on("session_before_compact", (event) => ({
+				compaction:
+					conflict === "none-with-legacy"
+						? {
+								summary: "conflicting summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								retainedSuffix: { kind: "none" },
+								tokensBefore: event.preparation.tokensBefore,
+							}
+						: conflict === "null-current"
+							? {
+									summary: "malformed summary",
+									firstKeptEntryId: event.preparation.firstKeptEntryId,
+									retainedSuffix: null as never,
+									tokensBefore: event.preparation.tokensBefore,
+								}
+							: {
+									summary: "conflicting summary",
+									firstKeptEntryId: `${event.preparation.firstKeptEntryId}-other`,
+									retainedSuffix: {
+										kind: "from-entry",
+										firstEntryId: event.preparation.firstKeptEntryId,
+									},
+									tokensBefore: event.preparation.tokensBefore,
+								},
+			}));
+			const entriesBefore = await session.getEntries();
+			const leafBefore = await session.getLeafId();
+
+			await expect(harness.compact()).rejects.toThrow(
+				conflict === "null-current" ? "invalid retained suffix" : "conflicting retained suffix fields",
+			);
+
+			expect(await session.getEntries()).toEqual(entriesBefore);
+			expect(await session.getLeafId()).toBe(leafBefore);
+		},
+	);
+
 	it("drains one queued steering message at a time and emits queue updates", async () => {
 		const registration = newFaux();
 		const userCounts: number[] = [];

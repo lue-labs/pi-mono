@@ -1720,6 +1720,7 @@ export class InteractiveMode {
 				navigateTree: async (targetId, options) => {
 					const result = await this.session.navigateTree(targetId, {
 						summarize: options?.summarize,
+						position: options?.position,
 						customInstructions: options?.customInstructions,
 						replaceInstructions: options?.replaceInstructions,
 						label: options?.label,

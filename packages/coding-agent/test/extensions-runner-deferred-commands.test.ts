@@ -46,6 +46,7 @@ describe("ExtensionRunner deferred extension commands", () => {
 		sendMessage: () => {},
 		sendUserMessage: () => {},
 		appendEntry: () => {},
+		commitSessionUnit: (draft) => sessionManager.commitSessionUnit(draft),
 		setSessionName: () => {},
 		getSessionName: () => undefined,
 		setLabel: () => {},

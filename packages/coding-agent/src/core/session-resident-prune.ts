@@ -31,7 +31,7 @@ import type {
 import { closeSync, openSync, readSync } from "fs";
 import { StringDecoder } from "string_decoder";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
-import type { CompactionEntry, SessionEntry, SessionHydrationOptions } from "./session-manager.ts";
+import type { CompactionEntry, RetainedSuffix, SessionEntry, SessionHydrationOptions } from "./session-manager.ts";
 
 export interface ResidentPruneOptions {
 	/** Stub summarized pre-compaction session entries in resident memory. Durable JSONL is not rewritten. */
@@ -95,6 +95,8 @@ function estimateEntryPayloadBytes(entry: SessionEntry): number {
 			return jsonByteLength(entry.thinkingLevel);
 		case "session_info":
 			return jsonByteLength(entry.name);
+		case "user_handoff":
+			return jsonByteLength(entry.content);
 	}
 }
 
@@ -290,6 +292,7 @@ export type SessionEntryMetadata = {
 	type: SessionEntry["type"];
 	timestamp: string;
 	firstKeptEntryId?: string;
+	retainedSuffix?: RetainedSuffix;
 	tokensBefore?: number;
 	messageRole?: string;
 	api?: string;
@@ -340,13 +343,6 @@ function extractJsonNullableStringField(line: string, field: string): string | n
 	return decodeJsonStringLiteral(match[2]);
 }
 
-function extractJsonNumberField(line: string, field: string): number | undefined {
-	const match = new RegExp(String.raw`"${field}"\s*:\s*(-?\d+(?:\.\d+)?)`).exec(line);
-	if (!match) return undefined;
-	const value = Number(match[1]);
-	return Number.isFinite(value) ? value : undefined;
-}
-
 function extractJsonBooleanField(line: string, field: string): boolean | undefined {
 	const match = new RegExp(String.raw`"${field}"\s*:\s*(true|false)`).exec(line);
 	if (!match) return undefined;
@@ -362,9 +358,207 @@ function isSessionEntryType(type: string | undefined): type is SessionEntry["typ
 		type === "branch_summary" ||
 		type === "custom" ||
 		type === "custom_message" ||
+		type === "user_handoff" ||
 		type === "label" ||
 		type === "session_info"
 	);
+}
+
+/** Shared structural validator for durable entries, including entries embedded in atomic units. */
+export function isValidSessionEntryRecord(entry: unknown): entry is SessionEntry {
+	if (typeof entry !== "object" || entry === null) return false;
+	const value = entry as Record<string, unknown>;
+	if (
+		typeof value.id !== "string" ||
+		value.id.length === 0 ||
+		(value.parentId !== null && (typeof value.parentId !== "string" || value.parentId.length === 0)) ||
+		typeof value.timestamp !== "string"
+	) {
+		return false;
+	}
+
+	switch (value.type) {
+		case "message": {
+			const message = value.message;
+			return (
+				typeof message === "object" && message !== null && "role" in message && typeof message.role === "string"
+			);
+		}
+		case "thinking_level_change":
+			return typeof value.thinkingLevel === "string";
+		case "model_change":
+			return typeof value.provider === "string" && typeof value.modelId === "string";
+		case "compaction": {
+			const hasRetainedSuffix = Object.hasOwn(value, "retainedSuffix");
+			const retainedSuffix = value.retainedSuffix;
+			const hasValidRetainedSuffix =
+				isRecord(retainedSuffix) &&
+				((retainedSuffix.kind === "none" && !Object.hasOwn(retainedSuffix, "firstEntryId")) ||
+					(retainedSuffix.kind === "from-entry" &&
+						typeof retainedSuffix.firstEntryId === "string" &&
+						retainedSuffix.firstEntryId.length > 0));
+			const firstKeptEntryId = value.firstKeptEntryId;
+			const hasLegacySuffix = typeof firstKeptEntryId === "string" && firstKeptEntryId.length > 0;
+			if (hasRetainedSuffix && !hasValidRetainedSuffix) return false;
+			if (firstKeptEntryId !== undefined && !hasLegacySuffix) return false;
+			if (!hasRetainedSuffix && !hasLegacySuffix) return false;
+			if (hasValidRetainedSuffix) {
+				if (retainedSuffix.kind === "none" && firstKeptEntryId !== undefined) return false;
+				if (
+					retainedSuffix.kind === "from-entry" &&
+					firstKeptEntryId !== undefined &&
+					firstKeptEntryId !== retainedSuffix.firstEntryId
+				) {
+					return false;
+				}
+			}
+			return typeof value.summary === "string" && Number.isFinite(value.tokensBefore);
+		}
+		case "branch_summary":
+			return typeof value.fromId === "string" && typeof value.summary === "string";
+		case "custom":
+			return typeof value.customType === "string";
+		case "custom_message":
+			return (
+				typeof value.customType === "string" &&
+				(typeof value.content === "string" || Array.isArray(value.content)) &&
+				typeof value.display === "boolean"
+			);
+		case "user_handoff":
+			return typeof value.content === "string" || Array.isArray(value.content);
+		case "label":
+			return typeof value.targetId === "string" && (value.label === undefined || typeof value.label === "string");
+		case "session_info":
+			return value.name === undefined || typeof value.name === "string";
+		default:
+			return false;
+	}
+}
+
+function isSessionUnitPrimaryEntryRecord(entry: SessionEntry): boolean {
+	return (
+		entry.type === "custom" ||
+		entry.type === "branch_summary" ||
+		entry.type === "user_handoff" ||
+		entry.type === "compaction"
+	);
+}
+
+export interface SessionUnitValidationContext {
+	knownEntries: ReadonlyMap<string, { readonly parentId: string | null }>;
+	knownUnitIds?: ReadonlySet<string>;
+	knownActionIds?: ReadonlySet<string>;
+}
+
+function isEntryOnKnownBranch(
+	entryId: string,
+	leafId: string | null,
+	knownEntries: ReadonlyMap<string, { readonly parentId: string | null }>,
+): boolean {
+	const visited = new Set<string>();
+	let currentId = leafId;
+	while (currentId) {
+		if (currentId === entryId) return true;
+		if (visited.has(currentId)) return false;
+		visited.add(currentId);
+		const current = knownEntries.get(currentId);
+		if (!current) return false;
+		currentId = current.parentId;
+	}
+	return false;
+}
+
+/** Validate a compaction suffix against the branch ending at its parent. */
+export function isValidCompactionEntryContext(
+	entry: CompactionEntry,
+	knownEntries: ReadonlyMap<string, { readonly parentId: string | null }>,
+): boolean {
+	if (entry.parentId !== null && !knownEntries.has(entry.parentId)) return false;
+	const firstRetainedEntryId =
+		entry.retainedSuffix?.kind === "from-entry"
+			? entry.retainedSuffix.firstEntryId
+			: entry.retainedSuffix?.kind === "none"
+				? undefined
+				: entry.firstKeptEntryId;
+	return (
+		firstRetainedEntryId === undefined || isEntryOnKnownBranch(firstRetainedEntryId, entry.parentId, knownEntries)
+	);
+}
+
+/** Shared validity boundary for committed unit envelopes before projection or resident pruning. */
+export function isValidSessionUnitCommitRecord(record: unknown, context: SessionUnitValidationContext): boolean {
+	if (typeof record !== "object" || record === null) return false;
+	const candidate = record as Record<string, unknown>;
+	if (
+		candidate.type !== "session_unit_commit" ||
+		typeof candidate.unitId !== "string" ||
+		candidate.unitId.length === 0 ||
+		typeof candidate.primaryEntryId !== "string" ||
+		candidate.primaryEntryId.length === 0 ||
+		typeof candidate.finalLeafId !== "string" ||
+		candidate.finalLeafId.length === 0 ||
+		!Array.isArray(candidate.entries) ||
+		candidate.entries.length === 0
+	) {
+		return false;
+	}
+
+	const knownUnitIds = context.knownUnitIds ?? new Set<string>();
+	const knownActionIds = context.knownActionIds ?? new Set<string>();
+	if (
+		context.knownEntries.has(candidate.unitId) ||
+		knownUnitIds.has(candidate.unitId) ||
+		knownActionIds.has(candidate.unitId)
+	) {
+		return false;
+	}
+
+	const ids = new Set<string>([...context.knownEntries.keys(), ...knownUnitIds, ...knownActionIds, candidate.unitId]);
+	let previousId: string | null | undefined;
+	let primaryEntry: SessionEntry | undefined;
+	for (const [index, item] of candidate.entries.entries()) {
+		if (typeof item !== "object" || item === null) return false;
+		const embedded = item as Record<string, unknown>;
+		if (
+			typeof embedded.id !== "string" ||
+			!isValidSessionEntryRecord(embedded.entry) ||
+			embedded.id !== embedded.entry.id ||
+			ids.has(embedded.id) ||
+			(index === 0
+				? embedded.id !== candidate.primaryEntryId ||
+					!isSessionUnitPrimaryEntryRecord(embedded.entry) ||
+					(embedded.entry.parentId !== null && !context.knownEntries.has(embedded.entry.parentId))
+				: embedded.entry.type !== "custom" || embedded.entry.parentId !== previousId)
+		) {
+			return false;
+		}
+		if (index === 0) primaryEntry = embedded.entry;
+		ids.add(embedded.id);
+		previousId = embedded.id;
+	}
+	if (previousId !== candidate.finalLeafId || !primaryEntry) return false;
+
+	if (
+		primaryEntry.type === "compaction" &&
+		(!primaryEntry.retainedSuffix || !isValidCompactionEntryContext(primaryEntry, context.knownEntries))
+	) {
+		return false;
+	}
+
+	if (candidate.scheduledAction !== undefined) {
+		if (typeof candidate.scheduledAction !== "object" || candidate.scheduledAction === null) return false;
+		const action = candidate.scheduledAction as Record<string, unknown>;
+		if (
+			typeof action.actionId !== "string" ||
+			action.actionId.length === 0 ||
+			ids.has(action.actionId) ||
+			(action.kind !== "run_turn" && action.kind !== "overflow_retry") ||
+			action.entryId !== candidate.primaryEntryId
+		) {
+			return false;
+		}
+	}
+	return true;
 }
 
 function extractMessageRole(line: string): string | undefined {
@@ -384,16 +578,43 @@ function extractToolCallIds(line: string): string[] {
 	return ids;
 }
 
-export function metadataForSessionLine(line: string): SessionEntryMetadata | "session" | undefined {
-	const trimmed = line.trim();
-	if (!trimmed) return undefined;
+export type SessionLineMetadata =
+	| "session"
+	| "record"
+	| {
+			embedded: boolean;
+			entries: SessionEntryMetadata[];
+			unitId?: string;
+			scheduledActionId?: string;
+	  };
+
+function metadataForEntryLine(
+	trimmed: string,
+	knownEntries: ReadonlyMap<string, { readonly parentId: string | null }>,
+): SessionEntryMetadata | undefined {
 	const type = extractJsonStringField(trimmed, "type");
-	if (type === "session") return "session";
 	if (!isSessionEntryType(type)) return undefined;
 
-	const id = extractJsonStringField(trimmed, "id");
-	const parentId = extractJsonNullableStringField(trimmed, "parentId");
-	const timestamp = extractJsonStringField(trimmed, "timestamp");
+	let parsedCompaction: CompactionEntry | undefined;
+	if (type === "compaction") {
+		try {
+			const parsed = JSON.parse(trimmed) as unknown;
+			if (
+				!isValidSessionEntryRecord(parsed) ||
+				parsed.type !== "compaction" ||
+				!isValidCompactionEntryContext(parsed, knownEntries)
+			) {
+				return undefined;
+			}
+			parsedCompaction = parsed;
+		} catch {
+			return undefined;
+		}
+	}
+
+	const id = parsedCompaction?.id ?? extractJsonStringField(trimmed, "id");
+	const parentId = parsedCompaction?.parentId ?? extractJsonNullableStringField(trimmed, "parentId");
+	const timestamp = parsedCompaction?.timestamp ?? extractJsonStringField(trimmed, "timestamp");
 	if (!id || parentId === undefined || !timestamp) return undefined;
 
 	return {
@@ -401,8 +622,9 @@ export function metadataForSessionLine(line: string): SessionEntryMetadata | "se
 		parentId,
 		type,
 		timestamp,
-		firstKeptEntryId: type === "compaction" ? extractJsonStringField(trimmed, "firstKeptEntryId") : undefined,
-		tokensBefore: type === "compaction" ? extractJsonNumberField(trimmed, "tokensBefore") : undefined,
+		firstKeptEntryId: parsedCompaction?.firstKeptEntryId,
+		retainedSuffix: parsedCompaction?.retainedSuffix,
+		tokensBefore: parsedCompaction?.tokensBefore,
 		messageRole: type === "message" ? extractMessageRole(trimmed) : undefined,
 		api: type === "message" ? extractJsonStringField(trimmed, "api") : undefined,
 		provider: type === "message" ? extractLastJsonStringField(trimmed, "provider") : undefined,
@@ -421,6 +643,47 @@ export function metadataForSessionLine(line: string): SessionEntryMetadata | "se
 		toolResultCallId: type === "message" ? extractJsonStringField(trimmed, "toolCallId") : undefined,
 		toolName: type === "message" ? extractJsonStringField(trimmed, "toolName") : undefined,
 	};
+}
+
+export function metadataForSessionLine(
+	line: string,
+	validationContext: SessionUnitValidationContext = { knownEntries: new Map() },
+): SessionLineMetadata | undefined {
+	const trimmed = line.trim();
+	if (!trimmed) return undefined;
+	const type = extractJsonStringField(trimmed, "type");
+	if (type === "session") return "session";
+	if (type === "session_unit_dispatch" || type === "session_unit_prepare" || type === "session_unit_abort") {
+		return "record";
+	}
+	if (type !== "session_unit_commit") {
+		const metadata = metadataForEntryLine(trimmed, validationContext.knownEntries);
+		return metadata ? { embedded: false, entries: [metadata] } : undefined;
+	}
+
+	try {
+		const record = JSON.parse(trimmed) as {
+			unitId?: unknown;
+			entries?: unknown;
+			scheduledAction?: { actionId?: unknown };
+		};
+		if (!isValidSessionUnitCommitRecord(record, validationContext)) return undefined;
+
+		const metadata: SessionEntryMetadata[] = [];
+		for (const item of record.entries as { id: string; entry: SessionEntry }[]) {
+			const entryMetadata = metadataForEntryLine(JSON.stringify(item.entry), validationContext.knownEntries);
+			if (!entryMetadata || entryMetadata.id !== item.id) return undefined;
+			metadata.push(entryMetadata);
+		}
+		return {
+			embedded: true,
+			entries: metadata,
+			unitId: record.unitId as string,
+			scheduledActionId: record.scheduledAction?.actionId as string | undefined,
+		};
+	} catch {
+		return undefined;
+	}
 }
 
 function metadataTimestampMs(metadata: SessionEntryMetadata): number {
@@ -548,12 +811,17 @@ function stubEntryFromRawMetadata(
 	if (metadata.type === "branch_summary" && options.stubSummarizedEntries && metadata.fromId) {
 		return { ...base, type: "branch_summary", fromId: metadata.fromId, summary: RESIDENT_PRUNED_TEXT };
 	}
-	if (metadata.type === "compaction" && options.stubSummarizedEntries && metadata.firstKeptEntryId) {
+	if (
+		metadata.type === "compaction" &&
+		options.stubSummarizedEntries &&
+		(metadata.firstKeptEntryId || metadata.retainedSuffix)
+	) {
 		return {
 			...base,
 			type: "compaction",
 			summary: RESIDENT_PRUNED_TEXT,
 			firstKeptEntryId: metadata.firstKeptEntryId,
+			retainedSuffix: metadata.retainedSuffix,
 			tokensBefore: metadata.tokensBefore ?? 0,
 		};
 	}
@@ -569,22 +837,36 @@ export function buildResidentLoadPrunePlan(
 	const byId = new Map<string, SessionEntryMetadata>();
 	const toolCallEntryIds = new Map<string, string>();
 	const toolResultEntryIds = new Map<string, string>();
+	const knownUnitIds = new Set<string>();
+	const knownActionIds = new Set<string>();
 	let sawInvalidMetadata = false;
 
 	readSessionFileLines(filePath, (line) => {
-		const item = metadataForSessionLine(line);
-		if (item === "session") return;
+		const item = metadataForSessionLine(line, {
+			knownEntries: byId,
+			knownUnitIds,
+			knownActionIds,
+		});
+		if (item === "session" || item === "record") return;
 		if (!item) {
 			if (line.trim()) sawInvalidMetadata = true;
 			return;
 		}
-		metadata.push(item);
-		byId.set(item.id, item);
-		for (const toolCallId of item.toolCallIds) {
-			toolCallEntryIds.set(toolCallId, item.id);
-		}
-		if (item.toolResultCallId) {
-			toolResultEntryIds.set(item.toolResultCallId, item.id);
+		if (item.unitId) knownUnitIds.add(item.unitId);
+		if (item.scheduledActionId) knownActionIds.add(item.scheduledActionId);
+		for (const entry of item.entries) {
+			if (byId.has(entry.id) || knownUnitIds.has(entry.id) || knownActionIds.has(entry.id)) {
+				sawInvalidMetadata = true;
+				return;
+			}
+			metadata.push(entry);
+			byId.set(entry.id, entry);
+			for (const toolCallId of entry.toolCallIds) {
+				toolCallEntryIds.set(toolCallId, entry.id);
+			}
+			if (entry.toolResultCallId) {
+				toolResultEntryIds.set(entry.toolResultCallId, entry.id);
+			}
 		}
 	});
 	if (sawInvalidMetadata) return undefined;
@@ -607,12 +889,22 @@ export function buildResidentLoadPrunePlan(
 		}
 	}
 	const compaction = path[compactionIndex];
-	if (!compaction?.firstKeptEntryId) return undefined;
+	if (!compaction) return undefined;
+	let candidateEnd: number;
+	if (compaction.retainedSuffix?.kind === "none") {
+		candidateEnd = compactionIndex;
+	} else {
+		const firstKeptEntryId =
+			compaction.retainedSuffix?.kind === "from-entry"
+				? compaction.retainedSuffix.firstEntryId
+				: compaction.firstKeptEntryId;
+		if (!firstKeptEntryId) return undefined;
+		const firstKeptIndex = path.findIndex((entry) => entry.id === firstKeptEntryId);
+		if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) return undefined;
+		candidateEnd = firstKeptIndex;
+	}
 
-	const firstKeptIndex = path.findIndex((entry) => entry.id === compaction.firstKeptEntryId);
-	if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) return undefined;
-
-	const candidates = path.slice(0, firstKeptIndex);
+	const candidates = path.slice(0, candidateEnd);
 	const candidateIds = new Set(candidates.map((entry) => entry.id));
 	const protectedIds = new Set<string>();
 
@@ -679,22 +971,32 @@ export function pruneResidentHistory(
 		};
 	}
 
-	const firstKeptIndex = path.findIndex((entry) => entry.id === compactionEntry.firstKeptEntryId);
-	if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) {
-		return {
-			compactionId: compactionEntry.id,
-			firstKeptEntryId: compactionEntry.firstKeptEntryId,
-			entriesVisited: 0,
-			entriesStubbed: 0,
-			protectedEntries: 0,
-			payloadBytesBefore,
-			payloadBytesAfter: payloadBytesBefore,
-			payloadBytesFreed: 0,
-			jsonlUnchanged: true,
-		};
+	const firstKeptEntryId =
+		compactionEntry.retainedSuffix?.kind === "from-entry"
+			? compactionEntry.retainedSuffix.firstEntryId
+			: compactionEntry.firstKeptEntryId;
+	let candidateEnd: number;
+	if (compactionEntry.retainedSuffix?.kind === "none") {
+		candidateEnd = compactionIndex;
+	} else {
+		const firstKeptIndex = firstKeptEntryId ? path.findIndex((entry) => entry.id === firstKeptEntryId) : -1;
+		if (firstKeptIndex < 0 || firstKeptIndex >= compactionIndex) {
+			return {
+				compactionId: compactionEntry.id,
+				firstKeptEntryId,
+				entriesVisited: 0,
+				entriesStubbed: 0,
+				protectedEntries: 0,
+				payloadBytesBefore,
+				payloadBytesAfter: payloadBytesBefore,
+				payloadBytesFreed: 0,
+				jsonlUnchanged: true,
+			};
+		}
+		candidateEnd = firstKeptIndex;
 	}
 
-	const candidates = path.slice(0, firstKeptIndex);
+	const candidates = path.slice(0, candidateEnd);
 	const candidateIds = new Set(candidates.map((entry) => entry.id));
 	const toolPairs = collectToolPairEntryIds(path);
 	let entriesStubbed = 0;
@@ -714,7 +1016,7 @@ export function pruneResidentHistory(
 	const payloadBytesAfter = estimateResidentPayloadBytes(entries);
 	return {
 		compactionId: compactionEntry.id,
-		firstKeptEntryId: compactionEntry.firstKeptEntryId,
+		firstKeptEntryId,
 		entriesVisited: candidates.length,
 		entriesStubbed,
 		protectedEntries,

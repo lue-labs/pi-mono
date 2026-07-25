@@ -514,6 +514,27 @@ describe("prepareCompaction with previous compaction", () => {
 		expect(preparation).toBeUndefined();
 	});
 
+	it("uses a retainedSuffix-only prior boundary when recompacting", () => {
+		const u1 = createMessageEntry(createUserMessage("already summarized".repeat(8)));
+		const a1 = createMessageEntry(createAssistantMessage("old assistant".repeat(8)));
+		const u2 = createMessageEntry(createUserMessage("retained user must be summarized again ".repeat(12)));
+		const a2 = createMessageEntry(createAssistantMessage("retained assistant ".repeat(12)));
+		const compaction1 = createCompactionEntry("First summary", u2.id);
+		delete compaction1.firstKeptEntryId;
+		compaction1.retainedSuffix = { kind: "from-entry", firstEntryId: u2.id };
+		const u3 = createMessageEntry(createUserMessage("new user after compaction ".repeat(12)));
+		const a3 = createMessageEntry(createAssistantMessage("new assistant ".repeat(12), createMockUsage(8000, 2000)));
+
+		const preparation = prepareCompaction([u1, a1, u2, a2, compaction1, u3, a3], {
+			...DEFAULT_COMPACTION_SETTINGS,
+			keepRecentTokens: 100,
+		});
+
+		expect(preparation).toBeDefined();
+		expect(extractText(preparation!.messagesToSummarize)).toContain("retained user must be summarized again");
+		expect(preparation!.previousSummary).toBe("First summary");
+	});
+
 	it("should re-summarize previously kept messages when the recent window moves past them", () => {
 		const u1 = createMessageEntry(createUserMessage("user msg 1 (summarized by compaction1)".repeat(4)));
 		const a1 = createMessageEntry(createAssistantMessage("assistant msg 1".repeat(4)));

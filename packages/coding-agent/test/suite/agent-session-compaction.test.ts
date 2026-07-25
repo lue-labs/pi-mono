@@ -461,7 +461,7 @@ describe("AgentSession compaction characterization", () => {
 		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(true);
 	});
 
-	it("does not retry overflow recovery more than once", async () => {
+	it("does not consume overflow retry budget before durable scheduling", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
@@ -481,10 +481,8 @@ describe("AgentSession compaction characterization", () => {
 		await sessionInternals._checkCompaction(overflowMessage);
 		await sessionInternals._checkCompaction({ ...overflowMessage, timestamp: Date.now() + 1 });
 
-		expect(runAutoCompactionSpy).toHaveBeenCalledTimes(1);
-		expect(compactionErrors).toContain(
-			"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
-		);
+		expect(runAutoCompactionSpy).toHaveBeenCalledTimes(2);
+		expect(compactionErrors).toEqual([]);
 	});
 
 	it("compacts successful overflow responses without retrying", async () => {

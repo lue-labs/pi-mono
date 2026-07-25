@@ -41,8 +41,8 @@ You can also trigger manually with `/compact [instructions]`, where optional ins
 1. **Find cut point**: Walk backwards from newest message, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached
 2. **Extract messages**: Collect messages from the previous kept boundary (or session start) up to the cut point
 3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
-4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
-5. **Reload**: Session reloads, using summary + messages from `firstKeptEntryId` onwards
+4. **Atomic publication**: Commit the `CompactionEntry` plus any opaque extension companions and optional overflow-retry receipt as one persist-before-visibility unit
+5. **Reload**: Session uses the summary plus the explicit retained suffix (`from-entry` or `none`)
 6. **Redraw the live TUI**: The interactive view clears the summarized transcript, renders the kept tail, then shows one collapsed compaction summary at the bottom. Use the tool-output expansion key to reveal the full summary. Resumed sessions still render the persisted summary at the head of the kept tail so context chronology remains correct.
 7. **Optional resident prune**: If `compaction.residentPrune` or `PI_RESIDENT_SESSION_PRUNE=1` is enabled, Pi stubs summarized pre-boundary payloads in process memory after compaction and while loading compacted sessions on open/resume/fork. For current-version session files, Pi plans the compacted path from raw-line metadata and creates resident stubs before parsing summarized candidate payload JSON. The durable JSONL transcript is not rewritten, and tool-use/tool-result pairs are protected from split stubbing.
 
@@ -78,9 +78,9 @@ What the LLM sees:
     prompt   from cmp          messages from firstKeptEntryId
 ```
 
-On repeated compactions, the summarized span starts at the previous compaction's kept boundary (`firstKeptEntryId`), not at the compaction entry itself, falling back to the entry after the previous compaction if that kept entry cannot be found in the path. This preserves messages that survived the earlier compaction by including them in the next summarization pass as well. Pi also recalculates `tokensBefore` from the rebuilt session context before writing the new `CompactionEntry`, so the token count reflects the actual pre-compaction context being replaced.
+On repeated compactions, the summarized span starts at the previous compaction's kept boundary (`retainedSuffix.firstEntryId`, or legacy `firstKeptEntryId`), not at the compaction entry itself, falling back to the entry after the previous compaction if that kept entry cannot be found in the path. A `retainedSuffix` of `{ kind: "none" }` represents a full replacement with no pre-compaction messages. Pi also recalculates `tokensBefore` from the rebuilt session context before writing the new `CompactionEntry`, so the token count reflects the actual pre-compaction context being replaced.
 
-Resident pruning is separate from transcript compaction. It is default-off and runs only after a successful compaction entry has been appended, or while hydrating an already-compacted session when the same opt-in is enabled. It mutates or loads entries before `firstKeptEntryId` as small placeholders, then rebuilds provider context from the compaction summary plus kept suffix. Pi still keeps the original JSONL complete on disk; opening without the opt-in restores the full resident transcript, while opening with the opt-in keeps summarized pre-boundary payloads stubbed from the first hydrated view. Current-version pruned hydration uses raw-line metadata plus fallback full parsing for protected or ambiguous entries; old-version session migrations rewrite full content first, then reload with resident pruning so migration never persists stubs.
+Resident pruning is separate from transcript compaction. It is default-off and runs only after a successful compaction entry has been appended, or while hydrating an already-compacted session when the same opt-in is enabled. It mutates or loads entries before the retained boundary as small placeholders; a zero suffix makes every pre-compaction entry eligible. It then rebuilds provider context from the compaction summary plus any kept suffix. Pi still keeps the original JSONL complete on disk; opening without the opt-in restores the full resident transcript, while opening with the opt-in keeps summarized pre-boundary payloads stubbed from the first hydrated view. Current-version pruned hydration uses raw-line metadata plus fallback full parsing for protected or ambiguous entries; old-version session migrations rewrite full content first, then reload with resident pruning so migration never persists stubs.
 
 Use `npm run memory:audit -- --pi ./dist/pi` to capture a structural Pi/Claude RSS report plus an isolated Pi core resident-prune probe. The probe uses synthetic JSONL only, records resident payload/heap/RSS before and after prune+GC, and checks JSONL hash/context/continuation invariants.
 
@@ -127,13 +127,18 @@ Never cut at tool results (they must stay with their tool call).
 Defined in [`session-manager.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/session-manager.ts):
 
 ```typescript
+type RetainedSuffix =
+  | { kind: "from-entry"; firstEntryId: string }
+  | { kind: "none" };
+
 interface CompactionEntry<T = unknown> {
   type: "compaction";
   id: string;
-  parentId: string;
-  timestamp: number;
+  parentId: string | null;
+  timestamp: string;
   summary: string;
-  firstKeptEntryId: string;
+  retainedSuffix?: RetainedSuffix;
+  firstKeptEntryId?: string; // legacy/from-entry compatibility
   tokensBefore: number;
   fromHook?: boolean;  // true if provided by extension (legacy field name)
   details?: T;         // implementation-specific data
@@ -146,7 +151,7 @@ interface CompactionDetails {
 }
 ```
 
-Extensions can store any JSON-serializable data in `details`. The default compaction tracks file operations, but custom extension implementations can use their own structure.
+Extensions can store any JSON-serializable data in `details`. `tokensBefore` must be finite, and a `from-entry` suffix must point to a strict pre-compaction entry on the selected target branch; use `{ kind: "none" }` for a genuine zero suffix. The default compaction tracks file operations, but custom extension implementations can use their own structure.
 
 See [`prepareCompaction()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) and [`compact()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) for the implementation.
 

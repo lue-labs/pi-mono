@@ -108,6 +108,117 @@ describe("SessionManager resident compaction pruning", () => {
 		expect(sha256File(sessionFile)).toBe(fileHashBefore);
 	});
 
+	it("discovers zero-suffix compaction boundaries inside committed unit envelopes", async () => {
+		const tempDir = makeTempDir("resident-prune-unit-envelope");
+		const session = SessionManager.create(tempDir, tempDir);
+		const oldUserId = session.appendMessage(userMsg(largeText("old unit user")));
+		const oldAssistantId = session.appendMessage(assistantMsg(largeText("old unit assistant")));
+		const committed = await session.commitSessionUnit({
+			targetLeafId: oldAssistantId,
+			primary: {
+				kind: "compaction",
+				summary: "zero suffix summary",
+				retainedSuffix: { kind: "none" },
+				tokensBefore: 100_000,
+			},
+			buildCompanions: ({ primaryEntryId }) => [
+				{ kind: "custom", customType: "state", data: { compactionEntryId: primaryEntryId } },
+			],
+		});
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("expected persisted session file");
+		const hashBefore = sha256File(sessionFile);
+		const contextBefore = JSON.stringify(session.buildSessionContext());
+
+		const result = session.pruneResidentHistoryAfterCompaction(committed.primaryEntryId);
+		expect(result.firstKeptEntryId).toBeUndefined();
+		expect(result.entriesStubbed).toBe(2);
+		expect(entryJson(session, oldUserId)).toContain("Resident session payload pruned");
+		expect(entryJson(session, oldAssistantId)).toContain("Resident session payload pruned");
+		expect(JSON.stringify(session.buildSessionContext())).toBe(contextBefore);
+		expect(sha256File(sessionFile)).toBe(hashBefore);
+
+		const reopened = SessionManager.open(sessionFile, tempDir);
+		expect(entryJson(reopened, oldUserId)).toContain("old unit user");
+		const reopenedPruned = SessionManager.open(sessionFile, tempDir, undefined, { residentPrune: true });
+		expect(entryJson(reopenedPruned, oldUserId)).toContain("Resident session payload pruned");
+		expect(entryJson(reopenedPruned, oldAssistantId)).toContain("Resident session payload pruned");
+		expect(reopenedPruned.getEntry(committed.primaryEntryId)).toMatchObject({
+			type: "compaction",
+			retainedSuffix: { kind: "none" },
+		});
+		expect(JSON.stringify(reopenedPruned.buildSessionContext())).toBe(contextBefore);
+		expect(sha256File(sessionFile)).toBe(hashBefore);
+	});
+
+	it("ignores malformed compaction envelopes instead of pruning from rejected evidence", () => {
+		const tempDir = makeTempDir("resident-prune-invalid-unit-envelope");
+		const session = SessionManager.create(tempDir, tempDir);
+		const oldUserId = session.appendMessage(userMsg(largeText("old invalid unit user")));
+		const oldAssistantId = session.appendMessage(assistantMsg(largeText("old invalid unit assistant")));
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("expected persisted session file");
+		const invalidCompactionId = "invalid-compaction-entry";
+		writeFileSync(
+			sessionFile,
+			`${JSON.stringify({
+				type: "session_unit_commit",
+				unitId: "invalid-unit",
+				primaryEntryId: invalidCompactionId,
+				entries: [
+					{
+						id: invalidCompactionId,
+						entry: {
+							type: "compaction",
+							id: invalidCompactionId,
+							parentId: oldAssistantId,
+							timestamp: new Date().toISOString(),
+							summary: "must not become pruning evidence",
+							retainedSuffix: { kind: "none" },
+						},
+					},
+				],
+				finalLeafId: invalidCompactionId,
+			})}\n`,
+			{ flag: "a" },
+		);
+		const hashBefore = sha256File(sessionFile);
+
+		const reopened = SessionManager.open(sessionFile, tempDir, undefined, { residentPrune: true });
+		expect(entryJson(reopened, oldUserId)).toContain("old invalid unit user");
+		expect(entryJson(reopened, oldAssistantId)).toContain("old invalid unit assistant");
+		expect(reopened.getEntry(invalidCompactionId)).toBeUndefined();
+		expect(sha256File(sessionFile)).toBe(hashBefore);
+	});
+
+	it("does not let an invalid raw compaction boundary prune otherwise valid resident history", () => {
+		const tempDir = makeTempDir("resident-prune-invalid-raw-compaction");
+		const session = SessionManager.create(tempDir, tempDir);
+		const oldUserId = session.appendMessage(userMsg(largeText("old raw invalid user")));
+		const oldAssistantId = session.appendMessage(assistantMsg("retained assistant"));
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("expected persisted session file");
+		const invalidCompactionId = "invalid-raw-compaction";
+		const invalidCompaction = JSON.stringify({
+			type: "compaction",
+			id: invalidCompactionId,
+			parentId: oldAssistantId,
+			timestamp: new Date().toISOString(),
+			summary: "must not become pruning evidence",
+			firstKeptEntryId: oldAssistantId,
+			tokensBefore: 1,
+		}).replace('"tokensBefore":1', '"tokensBefore":1e999');
+		writeFileSync(sessionFile, `${invalidCompaction}\n`, { flag: "a" });
+		const hashBefore = sha256File(sessionFile);
+
+		const reopened = SessionManager.open(sessionFile, tempDir, undefined, { residentPrune: true });
+
+		expect(entryJson(reopened, oldUserId)).toContain("old raw invalid user");
+		expect(reopened.getEntry(invalidCompactionId)).toBeUndefined();
+		expect(reopened.getLeafId()).toBe(oldAssistantId);
+		expect(sha256File(sessionFile)).toBe(hashBefore);
+	});
+
 	it("honors resident-prune hydration for continueRecent without rewriting durable JSONL", () => {
 		const tempDir = makeTempDir("resident-prune-continue");
 		const session = SessionManager.create(tempDir, tempDir);

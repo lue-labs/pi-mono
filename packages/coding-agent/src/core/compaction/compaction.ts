@@ -20,6 +20,7 @@ import { convertToLlm } from "../messages.ts";
 import {
 	buildSessionContext,
 	type CompactionEntry,
+	type RetainedSuffix,
 	type SessionEntry,
 	sessionEntryToContextMessages,
 } from "../session-manager.ts";
@@ -94,7 +95,10 @@ function getMessageFromEntryForCompaction(entry: SessionEntry): AgentMessage | u
 /** Result from compact() - SessionManager adds uuid/parentUuid when saving */
 export interface CompactionResult<T = unknown> {
 	summary: string;
-	firstKeptEntryId: string;
+	/** Historical suffix spelling retained for extension compatibility. */
+	firstKeptEntryId?: string;
+	/** Explicitly represents either a retained suffix or a genuine zero suffix. */
+	retainedSuffix?: RetainedSuffix;
 	tokensBefore: number;
 	estimatedTokensAfter?: number;
 	/** Extension-specific data (e.g., ArtifactIndex, version markers for structured compaction) */
@@ -746,7 +750,15 @@ export function prepareCompaction(
 	if (prevCompactionIndex >= 0) {
 		const prevCompaction = pathEntries[prevCompactionIndex] as CompactionEntry;
 		previousSummary = prevCompaction.summary;
-		const firstKeptEntryIndex = pathEntries.findIndex((entry) => entry.id === prevCompaction.firstKeptEntryId);
+		const previousFirstKeptEntryId =
+			prevCompaction.retainedSuffix?.kind === "from-entry"
+				? prevCompaction.retainedSuffix.firstEntryId
+				: prevCompaction.retainedSuffix?.kind === "none"
+					? undefined
+					: prevCompaction.firstKeptEntryId;
+		const firstKeptEntryIndex = previousFirstKeptEntryId
+			? pathEntries.findIndex((entry) => entry.id === previousFirstKeptEntryId)
+			: -1;
 		boundaryStart = firstKeptEntryIndex >= 0 ? firstKeptEntryIndex : prevCompactionIndex + 1;
 	}
 	const boundaryEnd = pathEntries.length;
@@ -919,6 +931,7 @@ export async function compact(
 	return {
 		summary,
 		firstKeptEntryId,
+		retainedSuffix: { kind: "from-entry", firstEntryId: firstKeptEntryId },
 		tokensBefore,
 		details: { readFiles, modifiedFiles } as CompactionDetails,
 	};

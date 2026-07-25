@@ -176,6 +176,28 @@ async function runSessionSuite(
 	});
 }
 
+describe("Session atomic branch-summary publication", () => {
+	it("preserves the prior leaf when the summary append fails", async () => {
+		const storage = new InMemorySessionStorage();
+		const session = new Session(storage);
+		const targetId = await session.appendMessage(createUserMessage("target"));
+		const oldLeafId = await session.appendMessage(createAssistantMessage("current leaf"));
+		const entriesBefore = await session.getEntries();
+		const appendEntry = storage.appendEntry.bind(storage);
+		storage.appendEntry = async (entry) => {
+			if (entry.type === "branch_summary") throw new Error("injected branch-summary append failure");
+			await appendEntry(entry);
+		};
+
+		await expect(session.moveTo(targetId, { summary: "summary" })).rejects.toThrow(
+			"injected branch-summary append failure",
+		);
+
+		expect(await session.getLeafId()).toBe(oldLeafId);
+		expect(await session.getEntries()).toEqual(entriesBefore);
+	});
+});
+
 runSessionSuite("Session with in-memory storage", () => new InMemorySessionStorage());
 
 runSessionSuite(

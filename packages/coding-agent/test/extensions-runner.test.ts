@@ -78,6 +78,7 @@ describe("ExtensionRunner", () => {
 		sendMessage: () => {},
 		sendUserMessage: () => {},
 		appendEntry: () => {},
+		commitSessionUnit: (draft) => sessionManager.commitSessionUnit(draft),
 		setSessionName: () => {},
 		getSessionName: () => undefined,
 		setLabel: () => {},

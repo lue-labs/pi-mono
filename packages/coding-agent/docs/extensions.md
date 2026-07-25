@@ -1445,6 +1445,45 @@ pi.on("session_start", async (_event, ctx) => {
 });
 ```
 
+### pi.commitSessionUnit(draft)
+
+Atomically publish one session-tree primary plus ordered opaque custom companions. Core preassigns the primary ID before `buildCompanions`, persists the complete unit before changing the visible tree/model projection, and returns the exact committed IDs.
+
+```typescript
+pi.registerCommand("handoff", {
+  description: "Publish state and continue from one durable handoff",
+  handler: async (_args, ctx) => {
+    const committed = await pi.commitSessionUnit({
+      targetLeafId: ctx.sessionManager.getLeafId(),
+      primary: {
+        kind: "user_handoff",
+        content: "Continue from the consolidated state.",
+      },
+      buildCompanions: ({ unitId, primaryEntryId }) => [
+        {
+          kind: "custom",
+          customType: "my-state",
+          data: { unitId, handoffEntryId: primaryEntryId },
+        },
+      ],
+      postCommit: { kind: "run_turn", entry: "primary" },
+    });
+
+    ctx.ui.notify(`Committed ${committed.primaryEntryId}`, "info");
+  },
+});
+```
+
+Supported primaries are `custom`, `branch_summary`, `user_handoff`, and `compaction`. Companions must be `custom` entries; core assigns their IDs and parent links in returned order. Draft payloads must be JSON-serializable. Core validates the durable JSON form before persistence, so non-finite required numeric fields, cyclic values, duplicate durable identities, and invalid entry links reject the whole unit without publication. Compaction primaries use an explicit suffix:
+
+```typescript
+retainedSuffix: { kind: "from-entry", firstEntryId } // must be on the target leaf's ancestor path
+// or, for a full replacement with no retained messages:
+retainedSuffix: { kind: "none" }
+```
+
+`postCommit` may schedule one `run_turn` or `overflow_retry` action against the primary. The durable commit is the enqueue point. Core writes `started` immediately before dispatch and never automatically submits that action again after `started`; `completed` is diagnostic. Use this API when primary publication, extension state, and turn scheduling must succeed or fail as one unit. Keep `appendEntry()` for independent compatibility state.
+
 ### pi.setSessionName(name)
 
 Set the session display name (shown in session selector instead of first message).

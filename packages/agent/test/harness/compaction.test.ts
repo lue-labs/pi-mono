@@ -338,6 +338,24 @@ describe("harness compaction", () => {
 		expect(loaded.messages[0]?.role).toBe("compactionSummary");
 	});
 
+	it("supports an explicit zero retained suffix while retaining legacy records", () => {
+		const user = createMessageEntry(createUserMessage("old"));
+		const assistant = createMessageEntry(createAssistantMessage("old reply"), user.id);
+		const zeroSuffix: CompactionEntry = {
+			type: "compaction",
+			id: createId(),
+			parentId: assistant.id,
+			timestamp: new Date().toISOString(),
+			summary: "summary",
+			retainedSuffix: { kind: "none" },
+			tokensBefore: 100,
+		};
+		expect(buildSessionContext([user, assistant, zeroSuffix]).messages).toHaveLength(1);
+
+		const legacy = createCompactionEntry("legacy", user.id, assistant.id);
+		expect(buildSessionContext([user, assistant, legacy]).messages).toHaveLength(3);
+	});
+
 	it("tracks model and thinking level changes in built context", () => {
 		const user = createMessageEntry(createUserMessage("1"));
 		const modelChange = createModelChangeEntry("openai", "gpt-4", user.id);
@@ -362,6 +380,33 @@ describe("harness compaction", () => {
 		expect(preparation?.previousSummary).toBe("First summary");
 		expect(preparation?.firstKeptEntryId).toBeTruthy();
 		expect(preparation?.tokensBefore).toBe(estimateContextTokens(buildSessionContext(pathEntries).messages).tokens);
+	});
+
+	it("uses a retainedSuffix-only prior boundary when recompacting", () => {
+		const u1 = createMessageEntry(createUserMessage("already summarized".repeat(8)));
+		const a1 = createMessageEntry(createAssistantMessage("old assistant".repeat(8)), u1.id);
+		const u2 = createMessageEntry(createUserMessage("retained user must be summarized again ".repeat(12)), a1.id);
+		const a2 = createMessageEntry(createAssistantMessage("retained assistant ".repeat(12)), u2.id);
+		const compaction1 = createCompactionEntry("First summary", u2.id, a2.id);
+		delete compaction1.firstKeptEntryId;
+		compaction1.retainedSuffix = { kind: "from-entry", firstEntryId: u2.id };
+		const u3 = createMessageEntry(createUserMessage("new user after compaction ".repeat(12)), compaction1.id);
+		const a3 = createMessageEntry(
+			createAssistantMessage("new assistant ".repeat(12), createMockUsage(8000, 2000)),
+			u3.id,
+		);
+
+		const preparation = getOrThrow(
+			prepareCompaction([u1, a1, u2, a2, compaction1, u3, a3], {
+				enabled: true,
+				reserveTokens: 100,
+				keepRecentTokens: 100,
+			}),
+		);
+
+		expect(preparation).toBeDefined();
+		expect(JSON.stringify(preparation!.messagesToSummarize)).toContain("retained user must be summarized again");
+		expect(preparation!.previousSummary).toBe("First summary");
 	});
 
 	it("prepares split-turn compaction with prior file-operation details", () => {

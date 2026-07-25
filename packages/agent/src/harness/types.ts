@@ -370,11 +370,16 @@ export interface ActiveToolsChangeEntry extends SessionTreeEntryBase {
 export interface CompactionEntry<T = unknown> extends SessionTreeEntryBase {
 	type: "compaction";
 	summary: string;
-	firstKeptEntryId: string;
+	/** Legacy retained-suffix spelling. New writers use retainedSuffix. */
+	firstKeptEntryId?: string;
+	/** Explicitly represents either a retained suffix or a genuine zero suffix. */
+	retainedSuffix?: RetainedSuffix;
 	tokensBefore: number;
 	details?: T;
 	fromHook?: boolean;
 }
+
+export type RetainedSuffix = { kind: "from-entry"; firstEntryId: string } | { kind: "none" };
 
 export interface BranchSummaryEntry<T = unknown> extends SessionTreeEntryBase {
 	type: "branch_summary";
@@ -744,7 +749,9 @@ export interface AbortResult {
 
 export interface CompactResult {
 	summary: string;
-	firstKeptEntryId: string;
+	/** Legacy read-compatible spelling. */
+	firstKeptEntryId?: string;
+	retainedSuffix: RetainedSuffix;
 	tokensBefore: number;
 	details?: unknown;
 }
