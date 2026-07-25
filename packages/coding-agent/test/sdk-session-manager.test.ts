@@ -92,4 +92,77 @@ describe("createAgentSession session manager defaults", () => {
 
 		session.dispose();
 	});
+
+	it("records an explicit model change when an existing session is reopened with a different model", async () => {
+		const firstModel = pickModel("anthropic");
+		const nextModel = pickModel("openai-codex");
+		expect(firstModel).toBeTruthy();
+		expect(nextModel).toBeTruthy();
+
+		const sessionManager = SessionManager.inMemory(cwd);
+		const first = await createAgentSession({ cwd, agentDir, model: firstModel!, sessionManager });
+		first.session.sessionManager.appendMessage({
+			role: "assistant",
+			provider: firstModel!.provider,
+			model: firstModel!.id,
+			content: [{ type: "text", text: "seed" }],
+			api: firstModel!.api,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: Date.now(),
+		});
+		first.session.dispose();
+
+		const resumed = await createAgentSession({ cwd, agentDir, model: nextModel!, sessionManager });
+		const modelChanges = resumed.session.sessionManager.getBranch().filter((entry) => entry.type === "model_change");
+
+		expect(modelChanges).toHaveLength(2);
+		expect(modelChanges.at(-1)).toMatchObject({
+			type: "model_change",
+			provider: nextModel!.provider,
+			modelId: nextModel!.id,
+		});
+
+		resumed.session.dispose();
+	});
+
+	it("does not duplicate the model entry when an existing session is reopened with the same explicit model", async () => {
+		const model = pickModel("anthropic");
+		expect(model).toBeTruthy();
+
+		const sessionManager = SessionManager.inMemory(cwd);
+		const first = await createAgentSession({ cwd, agentDir, model: model!, sessionManager });
+		first.session.sessionManager.appendMessage({
+			role: "assistant",
+			provider: model!.provider,
+			model: model!.id,
+			content: [{ type: "text", text: "seed" }],
+			api: model!.api,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: Date.now(),
+		});
+		first.session.dispose();
+
+		const resumed = await createAgentSession({ cwd, agentDir, model: model!, sessionManager });
+		const modelChanges = resumed.session.sessionManager.getBranch().filter((entry) => entry.type === "model_change");
+
+		expect(modelChanges).toHaveLength(1);
+
+		resumed.session.dispose();
+	});
 });
