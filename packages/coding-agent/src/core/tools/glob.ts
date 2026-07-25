@@ -470,8 +470,14 @@ export function createGlobToolDefinition(
 						// window would return "the first N found, sorted" while claiming to be
 						// the sorted first N.
 						const needsCompleteResultSet = outputModeValue === "count" || sortValue !== "none";
+						// Fetch ONE past the returned window. `finalizeGlobResults` decides
+						// "there are more matches" with `sorted.length > offset + limit`, which
+						// can never be true if the backend was capped at exactly that many —
+						// the limit-reached notice and `details.resultLimitReached` silently
+						// disappeared for every capped result set (#403). The extra row is
+						// sliced off before output; it only makes overflow observable.
 						const effectiveLimit =
-							full || needsCompleteResultSet ? Number.MAX_SAFE_INTEGER : offsetValue + requestedLimit;
+							full || needsCompleteResultSet ? Number.MAX_SAFE_INTEGER : offsetValue + requestedLimit + 1;
 						const startedAt = Date.now();
 						const respectIgnores = ignore !== false;
 						const ops = customOps ?? defaultGlobOperations;
