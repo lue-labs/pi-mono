@@ -1382,6 +1382,37 @@ describe("Coding Agent Tools", () => {
 			).toEqual(["a.txt", "b.txt"]);
 		});
 
+		it("reports the limit-reached notice on the default unsorted path (#403)", async () => {
+			// The default path (sort:"none", outputMode:"paths") asks the backend for
+			// only as many results as it returns, so overflow is invisible unless one
+			// extra row is fetched. Without it a capped list looks complete to the model.
+			for (let i = 0; i < 5; i += 1) writeFileSync(join(testDir, `cap-${i}.txt`), "x");
+
+			const result = await globTool.execute("test-call-glob-limit-notice", {
+				pattern: "cap-*.txt",
+				path: testDir,
+				limit: 3,
+			});
+
+			const paths = getTextOutput(result)
+				.split("\n")
+				.map((line) => line.trim())
+				.filter((line) => line.endsWith(".txt"));
+			expect(paths).toHaveLength(3);
+			expect(getTextOutput(result)).toContain("3 results limit reached");
+			expect(getTextOutput(result)).toContain("offset=3");
+			expect(result.details?.resultLimitReached).toBe(3);
+
+			// Exactly-at-limit is not overflow: no notice, no phantom continuation.
+			const exact = await globTool.execute("test-call-glob-limit-exact", {
+				pattern: "cap-*.txt",
+				path: testDir,
+				limit: 5,
+			});
+			expect(getTextOutput(exact)).not.toContain("results limit reached");
+			expect(exact.details?.resultLimitReached).toBeUndefined();
+		});
+
 		it("should reject conflicting outputMode and output_mode", async () => {
 			await expect(
 				globTool.execute("test-call-glob-mode-conflict", {
