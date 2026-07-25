@@ -735,6 +735,44 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
+	it("keeps scrollback when an off-screen line mutates without shrinking", async () => {
+		const terminal = new VirtualTerminal(20, 5);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = Array.from({ length: 20 }, (_, i) => `Line ${i}`);
+		tui.start();
+		await terminal.waitForRender();
+
+		const initialRedraws = tui.fullRedraws;
+
+		// A status row far above the viewport changes (what background agents do while
+		// they run). It lives in scrollback and cannot be repainted, so the visible
+		// rows must stay put instead of the whole buffer being replayed.
+		const mutated = Array.from({ length: 20 }, (_, i) => `Line ${i}`);
+		mutated[2] = "Line 2 (spinner)";
+		component.lines = mutated;
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		assert.strictEqual(tui.fullRedraws, initialRedraws, "Off-screen-only change must not clear scrollback");
+		assert.deepStrictEqual(terminal.getViewport(), ["Line 15", "Line 16", "Line 17", "Line 18", "Line 19"]);
+
+		// A change spanning the viewport boundary repaints only the visible remainder.
+		const spanning = Array.from({ length: 21 }, (_, i) => `Line ${i}`);
+		spanning[2] = "Line 2 (spinner again)";
+		spanning[18] = "Line 18 (updated)";
+		component.lines = spanning;
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		assert.strictEqual(tui.fullRedraws, initialRedraws, "Spanning change must stay on the differential path");
+		assert.deepStrictEqual(terminal.getViewport(), ["Line 16", "Line 17", "Line 18 (updated)", "Line 19", "Line 20"]);
+
+		tui.stop();
+	});
+
 	it("clears stale content when maxLinesRendered was inflated by a transient component", async () => {
 		const terminal = new VirtualTerminal(40, 10);
 		const tui = new TUI(terminal);
