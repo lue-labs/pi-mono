@@ -194,13 +194,18 @@ function sortGlobResults(paths: string[], searchPath: string, sort: GlobSort): s
 	const sorted = [...paths];
 	if (sort === "name") {
 		sorted.sort((a, b) => a.localeCompare(b));
-	} else {
-		sorted.sort((a, b) => {
-			const aTime = statSync(path.resolve(searchPath, a), { throwIfNoEntry: false })?.mtimeMs ?? 0;
-			const bTime = statSync(path.resolve(searchPath, b), { throwIfNoEntry: false })?.mtimeMs ?? 0;
-			return bTime - aTime || a.localeCompare(b);
-		});
+		return sorted;
 	}
+	// Stat each path once up front: a comparator that stats would issue ~2n*log(n)
+	// synchronous syscalls for the same n distinct answers.
+	const mtimes = new Map<string, number>();
+	for (const relativePath of sorted) {
+		mtimes.set(
+			relativePath,
+			statSync(path.resolve(searchPath, relativePath), { throwIfNoEntry: false })?.mtimeMs ?? 0,
+		);
+	}
+	sorted.sort((a, b) => (mtimes.get(b) ?? 0) - (mtimes.get(a) ?? 0) || a.localeCompare(b));
 	return sorted;
 }
 
@@ -460,8 +465,13 @@ export function createGlobToolDefinition(
 						const offsetValue = Math.max(0, offset ?? 0);
 						const sortValue: GlobSort = sort ?? "none";
 						const requestedLimit = full ? Number.MAX_SAFE_INTEGER : (limit ?? DEFAULT_LIMIT);
+						// `count` must see every match to report a true total, and a sort is only
+						// meaningful over the whole result set — ordering a backend-truncated
+						// window would return "the first N found, sorted" while claiming to be
+						// the sorted first N.
+						const needsCompleteResultSet = outputModeValue === "count" || sortValue !== "none";
 						const effectiveLimit =
-							outputModeValue === "count" || full ? requestedLimit : offsetValue + requestedLimit;
+							full || needsCompleteResultSet ? Number.MAX_SAFE_INTEGER : offsetValue + requestedLimit;
 						const startedAt = Date.now();
 						const respectIgnores = ignore !== false;
 						const ops = customOps ?? defaultGlobOperations;

@@ -1345,7 +1345,41 @@ describe("Coding Agent Tools", () => {
 				limit: 1,
 				offset: 1,
 			});
-			expect(getTextOutput(pagedResult).trim()).toBe("b.txt");
+			// One page of a 3-match set: the page itself, plus a continuation notice —
+			// the remaining match is only knowable because the sort saw every result.
+			const pagedOutput = getTextOutput(pagedResult);
+			expect(pagedOutput.split("\n")[0].trim()).toBe("b.txt");
+			expect(pagedOutput).toContain("offset=2");
+		});
+
+		it("counts and sorts over the whole result set, not the limited window", async () => {
+			for (const name of ["e.txt", "d.txt", "c.txt", "b.txt", "a.txt"]) {
+				writeFileSync(join(testDir, name), name);
+			}
+
+			// `limit` caps returned paths, never the reported total.
+			const countResult = await globTool.execute("test-call-glob-count-beyond-limit", {
+				pattern: "*.txt",
+				path: testDir,
+				outputMode: "count",
+				limit: 2,
+			});
+			expect(getTextOutput(countResult).trim()).toBe("5");
+
+			// A sort must order every match before paging, so a limit returns the
+			// globally-first entries rather than whatever the backend happened to find first.
+			const sortedResult = await globTool.execute("test-call-glob-sort-beyond-limit", {
+				pattern: "*.txt",
+				path: testDir,
+				sort: "name",
+				limit: 2,
+			});
+			expect(
+				getTextOutput(sortedResult)
+					.split("\n")
+					.map((line) => line.trim())
+					.filter((line) => line.endsWith(".txt")),
+			).toEqual(["a.txt", "b.txt"]);
 		});
 
 		it("should reject conflicting outputMode and output_mode", async () => {
