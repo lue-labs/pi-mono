@@ -17,6 +17,7 @@ type InteractiveCompactionTestThis = {
 	chatContainer: Container;
 	loadedResourcesContainer: Container;
 	pendingTools: Map<string, never>;
+	clearChatForRebuild(): void;
 	rebuildChatFromMessages(options?: { skipLeadingCompactionSummary?: boolean }): void;
 	renderSessionEntries(
 		entries: SessionEntry[],
@@ -112,6 +113,7 @@ describe("InteractiveMode compaction events", () => {
 			chatContainer,
 			loadedResourcesContainer: new Container(),
 			pendingTools: new Map<string, never>(),
+			clearChatForRebuild: Reflect.get(InteractiveMode.prototype, "clearChatForRebuild"),
 			rebuildChatFromMessages: Reflect.get(InteractiveMode.prototype, "rebuildChatFromMessages"),
 			renderSessionEntries: Reflect.get(InteractiveMode.prototype, "renderSessionEntries"),
 			renderSessionItems: Reflect.get(InteractiveMode.prototype, "renderSessionItems"),

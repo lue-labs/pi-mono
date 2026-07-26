@@ -70,7 +70,9 @@ describe("color diff width", () => {
 
 		const changedGutter = ansiPrefixForVisibleWidth(lines[0]!, 4);
 		const continuationGutter = ansiPrefixForVisibleWidth(lines[1]!, 4);
-		const changedBackground = changedGutter.match(/\x1b\[48;2;\d+;\d+;\d+m/)?.[0];
+		// Match either background encoding: the renderer emits truecolor (48;2;r;g;b)
+		// or 256-color (48;5;n) depending on the terminal's detected color depth.
+		const changedBackground = changedGutter.match(/\x1b\[48;(?:2;\d+;\d+;\d+|5;\d+)m/)?.[0];
 		expect(changedBackground).toBeDefined();
 		expect(continuationGutter).not.toContain(changedBackground);
 	});

@@ -410,6 +410,12 @@ export function parseModelPattern(
 		return result;
 	} else {
 		// Invalid suffix
+		// A provider-qualified reference must never degrade into a *different*
+		// model by shedding its suffix: `openai/gpt-4o:extended` resolving to
+		// `gpt-4o` silently answers with a model the caller did not ask for.
+		if (pattern.includes("/")) {
+			return { model: undefined, thinkingLevel: undefined, warning: undefined };
+		}
 		const allowFallback = options?.allowInvalidThinkingLevelFallback ?? true;
 		if (!allowFallback) {
 			// In strict mode (CLI --model parsing), treat it as part of the model id and fail.

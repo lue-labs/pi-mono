@@ -217,13 +217,11 @@ async function runLoop(
 			const toolResults: ToolResultMessage[] = [];
 			hasMoreToolCalls = false;
 			if (toolCalls.length > 0) {
-				// A "length" stop means the output was cut off by the token limit, so
-				// every tool call in the message may carry truncated arguments. Fail
-				// them all instead of executing potentially borked calls.
-				const executedToolBatch =
-					message.stopReason === "length"
-						? await failToolCallsFromTruncatedMessage(toolCalls, emit)
-						: await executeToolCalls(currentContext, message, config, signal, emit);
+				// A "length" stop can only have cut the *trailing* tool call: arguments
+				// stream to completion one call at a time, so every earlier call in the
+				// message is whole. `prepareToolCall` blocks exactly that trailing call
+				// and lets the complete ones run.
+				const executedToolBatch = await executeToolCalls(currentContext, message, config, signal, emit);
 				toolResults.push(...executedToolBatch.messages);
 				hasMoreToolCalls = !executedToolBatch.terminate;
 
@@ -396,40 +394,6 @@ async function streamAssistantResponse(
 	}
 	await emit({ type: "message_end", message: finalMessage });
 	return finalMessage;
-}
-
-/**
- * Fail all tool calls from an assistant message that was truncated by the
- * output token limit. Streamed tool-call arguments are finalized with a
- * best-effort JSON salvage parser, so a truncated message can yield tool calls
- * whose arguments parse and validate but are silently incomplete. None of them
- * are safe to execute; report each as an error so the model can re-issue them.
- */
-async function failToolCallsFromTruncatedMessage(
-	toolCalls: AgentToolCall[],
-	emit: AgentEventSink,
-): Promise<ExecutedToolCallBatch> {
-	const messages: ToolResultMessage[] = [];
-	for (const toolCall of toolCalls) {
-		await emit({
-			type: "tool_execution_start",
-			toolCallId: toolCall.id,
-			toolName: toolCall.name,
-			args: toolCall.arguments,
-		});
-		const finalized: FinalizedToolCallOutcome = {
-			toolCall,
-			result: createErrorToolResult(
-				`Tool call "${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`,
-			),
-			isError: true,
-		};
-		await emitToolExecutionEnd(finalized, emit);
-		const toolResultMessage = createToolResultMessage(finalized);
-		await emitToolResultMessage(toolResultMessage, emit);
-		messages.push(toolResultMessage);
-	}
-	return { messages, terminate: false };
 }
 
 /**

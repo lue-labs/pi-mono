@@ -137,7 +137,7 @@ describe("AgentSession dynamic tool registration", () => {
 		session.dispose();
 	});
 
-	it("adds tool_search when a deferred extension is the first deferred-tool provider", async () => {
+	it("registers a deferred extension tool without activating it, and adds no core tool_search", async () => {
 		writeFileSync(
 			join(tempDir, "package.json"),
 			JSON.stringify({ pi: { extensions: [{ path: "./deferred-extension.mjs", load: "deferred" }] } }),
@@ -175,10 +175,12 @@ describe("AgentSession dynamic tool registration", () => {
 		await session.bindExtensions({});
 		await new Promise((resolve) => setTimeout(resolve, 350));
 
-		expect(session.getAllTools().map((tool) => tool.name)).toEqual(
-			expect.arrayContaining(["late_deferred_tool", "tool_search"]),
-		);
-		expect(session.getActiveToolNames()).toContain("tool_search");
+		// The deferred-tool engine and `tool_search` left fork core in e304781a9
+		// (my-pi#1076); the my-pi pi-deferred-tools extension owns them now. Core
+		// still registers a deferred tool and keeps it out of the active set, but
+		// it no longer conjures a search tool of its own.
+		expect(session.getAllTools().map((tool) => tool.name)).toEqual(expect.arrayContaining(["late_deferred_tool"]));
+		expect(session.getAllTools().map((tool) => tool.name)).not.toContain("tool_search");
 		expect(session.getActiveToolNames()).not.toContain("late_deferred_tool");
 
 		session.dispose();

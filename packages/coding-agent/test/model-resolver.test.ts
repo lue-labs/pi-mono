@@ -136,11 +136,17 @@ describe("parseModelPattern", () => {
 		});
 	});
 
-	describe("OpenRouter models with colons in IDs", () => {
-		test("qwen3-coder:exacto matches the model with undefined thinking level", () => {
+	describe("models whose ids contain slashes and colons", () => {
+		// Policy: a slash always means `provider/id`. Aggregator-style ids that
+		// embed a vendor (`qwen/qwen3-coder:exacto` under provider `openrouter`,
+		// `mlx-community/...` under `turboquant-local`) must be provider-qualified.
+		// Resolving them bare would let any proxy that happens to expose the id
+		// `openai/gpt-5` answer a request meant for OpenAI — see
+		// agent-model-selection.test.ts "provider-qualified model refs do not
+		// fuzzy-match proxy provider ids".
+		test("a bare vendor-prefixed id does not resolve without its provider", () => {
 			const result = parseModelPattern("qwen/qwen3-coder:exacto", allModels);
-			expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
-			expect(result.thinkingLevel).toBeUndefined();
+			expect(result.model).toBeUndefined();
 			expect(result.warning).toBeUndefined();
 		});
 
@@ -152,11 +158,9 @@ describe("parseModelPattern", () => {
 			expect(result.warning).toBeUndefined();
 		});
 
-		test("qwen3-coder:exacto:high matches model with high thinking level", () => {
+		test("a bare vendor-prefixed id does not resolve even with a valid thinking level", () => {
 			const result = parseModelPattern("qwen/qwen3-coder:exacto:high", allModels);
-			expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
-			expect(result.thinkingLevel).toBe("high");
-			expect(result.warning).toBeUndefined();
+			expect(result.model).toBeUndefined();
 		});
 
 		test("openrouter/qwen/qwen3-coder:exacto:high matches with provider and thinking level", () => {
@@ -167,29 +171,26 @@ describe("parseModelPattern", () => {
 			expect(result.warning).toBeUndefined();
 		});
 
-		test("gpt-4o:extended matches the extended model with undefined thinking level", () => {
+		test("a provider-qualified reference never degrades into a different model", () => {
+			// `openai/gpt-4o:extended` used to shed its unknown `:extended` suffix and
+			// silently return plain `gpt-4o` — a model the caller never asked for.
 			const result = parseModelPattern("openai/gpt-4o:extended", allModels);
-			expect(result.model?.id).toBe("openai/gpt-4o:extended");
-			expect(result.thinkingLevel).toBeUndefined();
-			expect(result.warning).toBeUndefined();
+			expect(result.model).toBeUndefined();
 		});
 	});
 
-	describe("invalid thinking levels with OpenRouter models", () => {
-		test("qwen3-coder:exacto:random returns model with undefined thinking level and warning", () => {
+	describe("invalid thinking levels on provider-qualified references", () => {
+		test("an unknown suffix on a slashed reference resolves nothing rather than guessing", () => {
 			const result = parseModelPattern("qwen/qwen3-coder:exacto:random", allModels);
-			expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
-			expect(result.thinkingLevel).toBeUndefined();
-			expect(result.warning).toContain("Invalid thinking level");
-			expect(result.warning).toContain("random");
+			expect(result.model).toBeUndefined();
+			expect(result.warning).toBeUndefined();
 		});
 
-		test("qwen3-coder:exacto:high:random returns model with undefined thinking level and warning", () => {
-			const result = parseModelPattern("qwen/qwen3-coder:exacto:high:random", allModels);
+		test("provider-qualified reference with a valid level keeps the level", () => {
+			const result = parseModelPattern("openrouter/qwen/qwen3-coder:exacto:high", allModels);
 			expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
-			expect(result.thinkingLevel).toBeUndefined();
-			expect(result.warning).toContain("Invalid thinking level");
-			expect(result.warning).toContain("random");
+			expect(result.model?.provider).toBe("openrouter");
+			expect(result.thinkingLevel).toBe("high");
 		});
 	});
 
