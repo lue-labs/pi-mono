@@ -62,6 +62,8 @@ export type KnownProvider =
 	| "kimi-coding"
 	| "cloudflare-workers-ai"
 	| "cloudflare-ai-gateway"
+	| "qwen-token-plan"
+	| "qwen-token-plan-cn"
 	| "xiaomi"
 	| "xiaomi-token-plan-cn"
 	| "xiaomi-token-plan-ams"
@@ -388,7 +390,7 @@ export interface Usage {
 	};
 }
 
-export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
+export type StopReason = "pending" | "stop" | "length" | "toolUse" | "error" | "aborted";
 
 export interface UserMessage {
 	role: "user";
@@ -417,6 +419,8 @@ export interface ToolResultMessage<TDetails = any> {
 	toolName: string;
 	content: (TextContent | ImageContent | ToolReferenceContent)[]; // Supports text, images, and provider-native tool references
 	details?: TDetails;
+	/** Usage from the tool execution itself, if available. Not part of main LLM context accounting. */
+	usage?: Usage;
 	/**
 	 * Names from `Context.tools` that became available after this result.
 	 * Providers with native deferred tool loading use this as the load point;
@@ -459,6 +463,28 @@ export function stripSystemPromptDynamicBoundary(systemPrompt: string): string {
 	return systemPrompt.replaceAll(SYSTEM_PROMPT_DYNAMIC_BOUNDARY, "");
 }
 
+/** OpenAI grammar variants for constrained sampling. */
+export type GrammarFormat = "openai_lark" | "openai_regex";
+
+export type GrammarVariants = Partial<Record<GrammarFormat, string>>;
+
+/**
+ * Optional provider-side constrained sampling configs for a tool.
+ *
+ * The `json_schema` value roughly maps to the concept of `strict` in APIs which is
+ * implemented as json-schema constrained sampling by APIs. Grammar variants let
+ * callers provide provider-specific encodings of the same intended language.
+ */
+export type ConstrainedSamplingConfig =
+	| {
+			type: "json_schema";
+			strict: "prefer" | "require";
+	  }
+	| {
+			type: "grammar";
+			variants: GrammarVariants;
+	  };
+
 export interface Tool<TParameters extends TSchema = TSchema> {
 	name: string;
 	description: string;
@@ -485,6 +511,7 @@ export interface Tool<TParameters extends TSchema = TSchema> {
 	 * old name-based web_fetch/web_search interception.
 	 */
 	anthropicServerTool?: Record<string, unknown>;
+	constrainedSampling?: false | ConstrainedSamplingConfig;
 }
 
 export interface Context {
@@ -580,13 +607,17 @@ export interface OpenAICompletionsCompat {
 	vercelGatewayRouting?: VercelGatewayRouting;
 	/** Whether z.ai supports top-level `tool_stream: true` for streaming tool call deltas. Default: false. */
 	zaiToolStream?: boolean;
+	/** Whether the provider supports OpenAI custom tools with Lark/regex grammar formats. When false, grammar-constrained tools fall back to normal function tools. Default: false; the generated model catalog enables it for capable models. */
+	supportsOpenAIGrammarTools?: boolean;
 	/** Whether the provider supports the `strict` field in tool definitions. Default: true. */
 	supportsStrictMode?: boolean;
-	/** Cache control convention for prompt caching. "anthropic" applies Anthropic-style `cache_control` markers to the system prompt, last tool definition, and last user/assistant text content. */
+	/** Cache control convention for prompt caching. "anthropic" applies Anthropic-style `cache_control` markers to the system prompt, last tool definition, and last user, assistant, or tool-result text content. */
 	cacheControlFormat?: "anthropic";
 	/** Whether to send known session-affinity headers (`session_id`, `x-client-request-id`, `x-session-affinity`) from `options.sessionId` when caching is enabled. Default: false. */
 	sendSessionAffinityHeaders?: boolean;
-	/** Session-affinity header format. Default: auto-detected. */
+	/** Provider-specific deferred tool serialization mode. */
+	deferredToolsMode?: "kimi";
+	/** Session-affinity header format: `openai` sends `session_id`, `x-client-request-id`, and `x-session-affinity`; `openai-nosession` sends `x-client-request-id` and `x-session-affinity`; `openrouter` sends `x-session-id`. Does not affect the `prompt_cache_key` body param, which is governed by cache retention. Default: auto-detected. */
 	sessionAffinityFormat?: SessionAffinityFormat;
 	/** Whether the provider supports long prompt cache retention (`prompt_cache_retention: "24h"` or Anthropic-style `cache_control.ttl: "1h"`, depending on format). Default: true. */
 	supportsLongCacheRetention?: boolean;
@@ -600,6 +631,10 @@ export interface OpenAIResponsesCompat {
 	sessionAffinityFormat?: SessionAffinityFormat;
 	/** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
 	supportsLongCacheRetention?: boolean;
+	/** Whether the provider supports strict JSON-schema function tools. Defaults are API-specific; generated OpenAI models enable it explicitly. */
+	supportsStrictMode?: boolean;
+	/** Whether to emit OpenAI custom tools with Lark/regex grammar formats. When false, grammar-constrained tools fall back to normal function tools. Default: false; the generated model catalog enables it for capable models. */
+	supportsOpenAIGrammarTools?: boolean;
 	/** Whether the model supports client-executed tool search for deferred tools. Default: false. */
 	supportsToolSearch?: boolean;
 	/**
@@ -609,19 +644,21 @@ export interface OpenAIResponsesCompat {
 	 * user message. Older models reject breakpoint fields, so this must be opt-in per model.
 	 */
 	promptCacheApi?: "legacy" | "breakpoints";
-}
-
-/** Compatibility settings for OpenAI Codex Responses APIs. */
-export interface OpenAICodexResponsesCompat {
-	/** Whether to derive and send the ChatGPT account header. Default: true. */
+	/** Whether the model accepts `prompt_cache_options` (OpenAI GPT-5.6+ explicit prompt caching). Older OpenAI models reject the parameter. Default: false. */
+	supportsExplicitPromptCacheMode?: boolean;
+	/** Whether to derive and send the ChatGPT account header (Codex Responses only). Default: true. */
 	sendChatgptAccountId?: boolean;
-	/** Whether the endpoint accepts the Codex WebSocket transport. Default: true. */
+	/** Whether the endpoint accepts the Codex WebSocket transport (Codex Responses only). Default: true. */
 	supportsWebSocketTransport?: boolean;
-	/** Whether the model supports client-executed tool search for deferred tools. Default: false. */
-	supportsToolSearch?: boolean;
-	/** Whether SSE request bodies may use Content-Encoding: zstd. Default: true. */
+	/** Whether SSE request bodies may use Content-Encoding: zstd (Codex Responses only). Default: true. */
 	supportsZstdRequestCompression?: boolean;
 }
+
+/**
+ * Compatibility settings for OpenAI Codex Responses APIs. Codex lanes share
+ * {@link OpenAIResponsesCompat}; the Codex-only flags live there as optional fields.
+ */
+export type OpenAICodexResponsesCompat = OpenAIResponsesCompat;
 
 /** Compatibility settings for Anthropic Messages-compatible APIs. */
 export interface AnthropicMessagesCompat {
@@ -685,6 +722,14 @@ export interface AnthropicMessagesCompat {
 	forceAdaptiveThinking?: boolean;
 	/** Whether to replay empty thinking signatures as `signature: ""` instead of converting thinking to text. Default: false. */
 	allowEmptySignature?: boolean;
+	/** Whether the provider supports Anthropic strict tool schemas. Default: false; generated Anthropic models enable it explicitly. */
+	supportsStrictTools?: boolean;
+}
+
+/** Compatibility settings for Amazon Bedrock models. */
+export interface BedrockCompat {
+	/** Whether the model supports Bedrock strict tool schemas. Default: false. */
+	supportsStrictMode?: boolean;
 }
 
 /**
@@ -810,12 +855,12 @@ export interface Model<TApi extends Api> {
 	/** Compatibility overrides for OpenAI-compatible APIs. If not set, auto-detected from baseUrl. */
 	compat?: TApi extends "openai-completions"
 		? OpenAICompletionsCompat
-		: TApi extends "openai-responses"
+		: TApi extends "openai-responses" | "azure-openai-responses" | "openai-codex-responses"
 			? OpenAIResponsesCompat
-			: TApi extends "openai-codex-responses"
-				? OpenAICodexResponsesCompat
-				: TApi extends "anthropic-messages"
-					? AnthropicMessagesCompat
+			: TApi extends "anthropic-messages"
+				? AnthropicMessagesCompat
+				: TApi extends "bedrock-converse-stream"
+					? BedrockCompat
 					: never;
 }
 

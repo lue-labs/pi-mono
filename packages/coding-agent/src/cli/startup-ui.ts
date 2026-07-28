@@ -23,7 +23,7 @@ import {
 	type Theme,
 } from "../modes/interactive/theme/theme.ts";
 
-const OFFICIAL_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
+const OFFICIAL_PACKAGE_NAME = "@valkyriweb/pi-coding-agent";
 const OFFICIAL_APP_NAME = "pi";
 const OFFICIAL_CONFIG_DIR_NAME = ".pi";
 
@@ -79,7 +79,7 @@ export async function createStartupTui(settingsManager: SettingsManager): Promis
 	const terminalTheme = detectTerminalBackgroundFromEnv().theme;
 	initTheme(resolveThemeSetting(settingsManager.getThemeSetting(), terminalTheme) ?? terminalTheme);
 	setKeybindings(KeybindingsManager.create());
-	const ui = new TUI(new ProcessTerminal(), settingsManager.getShowHardwareCursor());
+	const ui = new TUI(new ProcessTerminal(), settingsManager.getShowHardwareCursor(), getAgentDir());
 	ui.setClearOnShrink(settingsManager.getClearOnShrink());
 	return ui;
 }

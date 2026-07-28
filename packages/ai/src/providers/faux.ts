@@ -319,7 +319,7 @@ async function streamWithDeltas(
 	tokensPerSecond: number | undefined,
 	signal: AbortSignal | undefined,
 ): Promise<void> {
-	const partial: AssistantMessage = { ...message, content: [] };
+	const partial: AssistantMessage = { ...message, content: [], stopReason: "pending" };
 	if (signal?.aborted) {
 		const aborted = createAbortedMessage(partial);
 		stream.push({ type: "error", reason: "aborted", error: aborted });
@@ -401,6 +401,9 @@ async function streamWithDeltas(
 		stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: { ...partial } });
 	}
 
+	if (message.stopReason === "pending") {
+		throw new Error("Faux response ended without a stop reason");
+	}
 	if (message.stopReason === "error" || message.stopReason === "aborted") {
 		stream.push({ type: "error", reason: message.stopReason, error: message });
 		stream.end(message);

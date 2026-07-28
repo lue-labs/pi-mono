@@ -31,7 +31,7 @@ import {
 	semanticExitForBashCommand,
 } from "../bash-policy.ts";
 import { segmentCommand } from "../bash-script-segmenter.ts";
-import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
+import type { ExtensionContext, ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import {
 	GUIDELINE_BASH_SHELL_WORK,
 	GUIDELINE_NATIVE_FILE_TOOLS,
@@ -224,8 +224,31 @@ export interface BashSpawnContext {
 
 export type BashSpawnHook = (context: BashSpawnContext) => BashSpawnContext;
 
-function resolveSpawnContext(command: string, cwd: string, spawnHook?: BashSpawnHook): BashSpawnContext {
-	const baseContext: BashSpawnContext = { command, cwd, env: { ...getShellEnv() } };
+function resolveSpawnContext(
+	command: string,
+	cwd: string,
+	spawnHook: BashSpawnHook | undefined,
+	exposeSessionEnvironment: boolean,
+	ctx: ExtensionContext | undefined,
+): BashSpawnContext {
+	const env = { ...getShellEnv() };
+	delete env.PI_SESSION_ID;
+	delete env.PI_SESSION_FILE;
+	delete env.PI_PROVIDER;
+	delete env.PI_MODEL;
+	delete env.PI_REASONING_LEVEL;
+	if (exposeSessionEnvironment && ctx) {
+		const model = ctx.model;
+		env.PI_SESSION_ID = ctx.sessionManager.getSessionId();
+		const sessionFile = ctx.sessionManager.getSessionFile();
+		if (sessionFile) env.PI_SESSION_FILE = sessionFile;
+		if (model) {
+			env.PI_PROVIDER = model.provider;
+			env.PI_MODEL = model.id;
+		}
+		if (ctx.thinkingLevel) env.PI_REASONING_LEVEL = ctx.thinkingLevel;
+	}
+	const baseContext: BashSpawnContext = { command, cwd, env };
 	return spawnHook ? spawnHook(baseContext) : baseContext;
 }
 
@@ -238,6 +261,8 @@ export interface BashToolOptions {
 	commandPrefix?: string;
 	/** Optional explicit shell path from settings */
 	shellPath?: string;
+	/** Expose current Pi session metadata as PI_* environment variables. Default: true */
+	exposeSessionEnvironment?: boolean;
 	/** Hook to adjust command, cwd, or env before execution */
 	spawnHook?: BashSpawnHook;
 }
@@ -399,6 +424,7 @@ export function createBashToolDefinition(
 ): ToolDefinition<typeof bashSchema, BashToolDetails | undefined, BashRenderState> {
 	const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
 	const commandPrefix = options?.commandPrefix;
+	const exposeSessionEnvironment = options?.exposeSessionEnvironment ?? true;
 	const spawnHook = options?.spawnHook;
 	const toolName = options?.toolName ?? "bash";
 	const label = options?.label ?? "Bash";
@@ -419,6 +445,9 @@ export function createBashToolDefinition(
 			GUIDELINE_NATIVE_FILE_TOOLS,
 			GUIDELINE_BASH_SHELL_WORK,
 			GUIDELINE_READ_EDIT_WRITE,
+			...(exposeSessionEnvironment
+				? ["Inspect PI_* environment variables for current model and session details."]
+				: []),
 		],
 		parameters: bashSchema,
 		async execute(
@@ -505,7 +534,13 @@ export function createBashToolDefinition(
 			const timeoutSeconds = resolveBashTimeout(timeout);
 			const startedAt = Date.now();
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
-			const spawnContext = resolveSpawnContext(resolvedCommand, effectiveCwd, spawnHook);
+			const spawnContext = resolveSpawnContext(
+				resolvedCommand,
+				effectiveCwd,
+				spawnHook,
+				exposeSessionEnvironment,
+				ctx,
+			);
 			const output = new OutputAccumulator({
 				tempFilePrefix: "pi-bash",
 				maxBytes: full ? Number.POSITIVE_INFINITY : BASH_MAX_OUTPUT_BYTES,
@@ -700,7 +735,13 @@ export function createBashToolDefinition(
 }
 
 export function createBashTool(cwd: string, options?: BashToolOptions): AgentTool<typeof bashSchema> {
-	return wrapToolDefinition(createBashToolDefinition(cwd, options));
+	const definition = createBashToolDefinition(cwd, options);
+	const tool = wrapToolDefinition(definition);
+	Object.assign(tool, {
+		promptSnippet: definition.promptSnippet,
+		promptGuidelines: definition.promptGuidelines,
+	});
+	return tool;
 }
 
 export function createUppercaseBashToolDefinition(

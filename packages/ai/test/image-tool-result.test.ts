@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { complete } from "../src/compat.ts";
+import { complete, getModel } from "../src/compat.ts";
 import type { Api, Context, Model, Tool, ToolResultMessage } from "../src/index.ts";
 import type { StreamOptions } from "../src/types.ts";
 
@@ -381,6 +381,30 @@ describe("Tool Results with Images", () => {
 			});
 		},
 	);
+
+	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_API_KEY)("Qwen Token Plan Provider (qwen3.7-max)", () => {
+		const llm = getModel("qwen-token-plan", "qwen3.7-max");
+
+		it("should handle tool result with only image", { retry: 3, timeout: 30000 }, async () => {
+			await handleToolWithImageResult(llm);
+		});
+
+		it("should handle tool result with text and image", { retry: 3, timeout: 30000 }, async () => {
+			await handleToolWithTextAndImageResult(llm);
+		});
+	});
+
+	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_CN_API_KEY)("Qwen Token Plan (CN) Provider (qwen3.7-max)", () => {
+		const llm = getModel("qwen-token-plan-cn", "qwen3.7-max");
+
+		it("should handle tool result with only image", { retry: 3, timeout: 30000 }, async () => {
+			await handleToolWithImageResult(llm);
+		});
+
+		it("should handle tool result with text and image", { retry: 3, timeout: 30000 }, async () => {
+			await handleToolWithTextAndImageResult(llm);
+		});
+	});
 
 	describe.skipIf(!process.env.KIMI_API_KEY)("Kimi For Coding Provider (kimi-for-coding)", () => {
 		const llm = pickModel("kimi-coding", supportsImages);

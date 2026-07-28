@@ -13,6 +13,7 @@
  *   pi --extension examples/extensions/custom-compaction.ts
  */
 
+import { uuidv7 } from "@valkyriweb/pi-ai";
 import { complete } from "@valkyriweb/pi-ai/compat";
 import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
 import { convertToLlm, serializeConversation } from "@valkyriweb/pi-coding-agent";
@@ -96,6 +97,8 @@ ${conversationText}
 					env: auth.env,
 					maxTokens: 8192,
 					signal,
+					cacheRetention: "none",
+					sessionId: uuidv7(),
 				},
 			);
 
@@ -116,6 +119,7 @@ ${conversationText}
 					summary,
 					firstKeptEntryId,
 					tokensBefore,
+					usage: response.usage,
 				},
 			};
 		} catch (error) {

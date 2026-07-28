@@ -1,4 +1,6 @@
+import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
+import { getModel } from "../src/compat.ts";
 
 const bedrockMock = vi.hoisted(() => ({
 	constructorCalls: [] as Array<Record<string, unknown>>,
@@ -50,9 +52,9 @@ import { pickModel } from "./helpers/models.ts";
 
 const baseModel = pickModel("amazon-bedrock", (m) => m.id.startsWith("us."));
 
-async function capturePayload(context: Context): Promise<unknown> {
+async function capturePayload(context: Context, model = baseModel): Promise<unknown> {
 	let capturedPayload: unknown;
-	const s = streamBedrock(baseModel, context, {
+	const s = streamBedrock(model, context, {
 		cacheRetention: "none",
 		signal: AbortSignal.abort(),
 		onPayload: (payload) => {
@@ -65,6 +67,34 @@ async function capturePayload(context: Context): Promise<unknown> {
 	}
 	return capturedPayload;
 }
+
+describe("Bedrock constrained sampling", () => {
+	it("gates native strict tool use by model capability", async () => {
+		const context: Context = {
+			messages: [{ role: "user", content: "Use the tool", timestamp: Date.now() }],
+			tools: [
+				{
+					name: "lookup",
+					description: "Look up a value",
+					parameters: Type.Object({ value: Type.String() }),
+					constrainedSampling: { type: "json_schema", strict: "require" },
+				},
+			],
+		};
+		const payload = await capturePayload(context);
+		const toolConfig = (payload as { toolConfig: { tools: Array<{ toolSpec: { strict?: boolean } }> } }).toolConfig;
+		expect(toolConfig.tools[0].toolSpec.strict).toBe(true);
+
+		context.tools![0].constrainedSampling = { type: "json_schema", strict: "prefer" };
+		const novaPayload = await capturePayload(context, getModel("amazon-bedrock", "amazon.nova-lite-v1:0"));
+		const novaToolConfig = (
+			novaPayload as {
+				toolConfig: { tools: Array<{ toolSpec: { strict?: boolean } }> };
+			}
+		).toolConfig;
+		expect(novaToolConfig.tools[0].toolSpec.strict).toBeUndefined();
+	});
+});
 
 describe("bedrock convertMessages skips unknown content types", () => {
 	it("skips unknown user content blocks instead of throwing", async () => {

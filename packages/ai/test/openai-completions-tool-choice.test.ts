@@ -1055,6 +1055,18 @@ describe("openai-completions tool_choice", () => {
 		}
 	});
 
+	it("stores Qwen Token Plan reasoning replay compat in built-in metadata", () => {
+		const providers = ["qwen-token-plan", "qwen-token-plan-cn"] as const;
+
+		for (const provider of providers) {
+			const model = getModel(provider, "qwen3.7-max")!;
+			expect(model.compat?.thinkingFormat).toBe("qwen");
+			expect(model.compat?.requiresReasoningContentOnAssistantMessages).toBeUndefined();
+			expect(model.compat?.supportsDeveloperRole).toBe(false);
+			expect(model.compat?.supportsStore).toBe(false);
+		}
+	});
+
 	it("replays Xiaomi MiMo assistant tool calls with empty reasoning_content when thinking is missing", async () => {
 		const model = pickModel("xiaomi", hasCompatFlag("requiresReasoningContentOnAssistantMessages"));
 		const assistantMessage: AssistantMessage = {
@@ -1213,6 +1225,7 @@ describe("openai-completions tool_choice", () => {
 				chatTemplateKwargs: {},
 				zaiToolStream: false,
 				supportsStrictMode: true,
+				supportsOpenAIGrammarTools: false,
 				sendSessionAffinityHeaders: false,
 				sessionAffinityFormat: "openai",
 				supportsLongCacheRetention: true,

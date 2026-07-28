@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { Agent, type AgentMessage, type ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { clampThinkingLevel, type Message, type Model, modelsAreEqual } from "@valkyriweb/pi-ai/compat";
+import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@valkyriweb/pi-agent-core";
+import { clampThinkingLevel, type Message, type Model, modelsAreEqual, streamSimple } from "@valkyriweb/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { type AgentRunIdentity, AgentSession } from "./agent-session.ts";
@@ -43,6 +43,11 @@ import {
 	createWriteTool,
 	withFileMutationQueue,
 } from "./tools/index.ts";
+
+// Preserve the pre-0.81 fallback for extensions that construct Agent instances
+// or invoke low-level agent loops without supplying streamFn. Agent core remains
+// provider-agnostic and does not import pi-ai/compat itself.
+setDefaultStreamFn(streamSimple);
 
 export interface CreateAgentSessionOptions {
 	/** Working directory for project-local discovery. Default: process.cwd() */

@@ -9,8 +9,9 @@ const packages = [
 	{ directory: "packages/ai", name: "@valkyriweb/pi-ai" },
 	{ directory: "packages/tui", name: "@valkyriweb/pi-tui" },
 	{ directory: "packages/agent", name: "@valkyriweb/pi-agent-core" },
+	{ directory: "packages/storage/sqlite-node", name: "@valkyriweb/pi-storage-sqlite-node" },
 	{ directory: "packages/coding-agent", name: "@valkyriweb/pi-coding-agent" },
-	{ directory: "packages/orchestrator", name: "@valkyriweb/pi-orchestrator" },
+	{ directory: "packages/server", name: "@valkyriweb/pi-server" },
 ];
 
 function printUsage() {
@@ -210,17 +211,21 @@ const bunInstallDirectory = join(outDir, "bun-install");
 const binaryDirectory = join(outDir, "bun");
 mkdirSync(tarballDirectory, { recursive: true });
 
+// Release artifacts always use a freshly generated, strictly validated catalog,
+// including when checks or tests are explicitly skipped.
+run("npm", ["run", "generate:models"], { cwd: repoRoot });
+
 if (!options.skipCheck) {
 	run("npm", ["run", "check"], { cwd: repoRoot });
 }
 
-if (!options.skipTest) {
-	run("./test.sh", [], { cwd: repoRoot });
-}
-
 for (const pkg of packages) {
 	run("npm", ["run", "clean"], { cwd: pkg.directory });
-	run("npm", ["run", "build"], { cwd: pkg.directory });
+	run("npm", ["run", pkg.directory === "packages/ai" ? "build:offline" : "build"], { cwd: pkg.directory });
+}
+
+if (!options.skipTest) {
+	run("./test.sh", [], { cwd: repoRoot });
 }
 
 const tarballs = new Map();

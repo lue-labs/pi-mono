@@ -19,17 +19,20 @@ import type {
 	Api,
 	AssistantMessageEvent,
 	AssistantMessageEventStream,
+	ConstrainedSamplingConfig,
 	Context,
 	ImageContent,
 	Model,
 	OAuthCredentials,
 	OAuthLoginCallbacks,
+	Provider,
 	ProviderHeaders,
 	RefreshModelsContext,
 	SimpleStreamOptions,
 	TextContent,
 	ToolReferenceContent,
 	ToolResultMessage,
+	Usage,
 } from "@valkyriweb/pi-ai";
 import type {
 	AutocompleteItem,
@@ -368,6 +371,8 @@ export interface ExtensionContext {
 	modelRegistry: ModelRegistry;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
+	/** Current thinking level, when provided by the session runtime. */
+	thinkingLevel?: ThinkingLevel;
 	/** Whether no turn-starting call, compaction, or agent run is active. */
 	isIdle(): boolean;
 	/** Whether project-local trust is active for this context. */
@@ -576,6 +581,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	providers?: string[];
 	/** Parameter schema (TypeBox) */
 	parameters: TParams;
+	/** Optional provider-side constrained sampling request for this tool. Set false to explicitly disable it, equivalent to leaving it undefined. */
+	constrainedSampling?: false | ConstrainedSamplingConfig;
 	/** Controls whether ToolExecutionComponent renders the standard colored shell or the tool renders its own framing. */
 	renderShell?: "default" | "self" | "hidden";
 
@@ -1092,6 +1099,8 @@ interface ToolResultEventBase {
 	agentId?: string;
 	/** The run that spawned this result's agent run; undefined at top level. */
 	parentAgentId?: string;
+	/** Usage from the tool execution itself, if available. */
+	usage?: Usage;
 }
 
 export interface BashToolResultEvent extends ToolResultEventBase {
@@ -1261,6 +1270,7 @@ export interface ToolResultEventResult {
 	content?: (TextContent | ImageContent | ToolReferenceContent)[];
 	details?: unknown;
 	isError?: boolean;
+	usage?: Usage;
 }
 
 export interface MessageEndEventResult {
@@ -1293,6 +1303,7 @@ export interface SessionBeforeTreeResult {
 	summary?: {
 		summary: string;
 		details?: unknown;
+		usage?: Usage;
 	};
 	/** Override custom instructions for summarization */
 	customInstructions?: string;
@@ -1308,6 +1319,8 @@ export interface SessionBeforeTreeResult {
 
 export interface MessageRenderOptions {
 	expanded: boolean;
+	/** Horizontal padding configured by the outputPad setting. */
+	outputPad: number;
 }
 
 export interface EntryRenderOptions {
@@ -1771,6 +1784,7 @@ export interface ExtensionAPI {
 	 *   }
 	 * });
 	 */
+	registerProvider(provider: Provider): void;
 	registerProvider(name: string, config: ProviderConfig): void;
 
 	/**
@@ -1873,6 +1887,8 @@ export type InlineExtension =
 			/** Display name shown as `<inline:name>` in the startup Extensions list. */
 			name: string;
 			factory: ExtensionFactory;
+			/** Omit this extension from the startup Extensions list. */
+			hidden?: boolean;
 	  };
 
 // ============================================================================
@@ -2075,8 +2091,10 @@ export interface ExtensionRuntimeState {
 	 * extensions read it at handler/init time via `pi.getExtensionConfig(ns)`.
 	 */
 	extensionConfig: Record<string, unknown>;
-	/** Provider registrations queued during extension loading, processed when runner binds */
+	/** Legacy provider-config registrations queued during extension loading, processed when runner binds. */
 	pendingProviderRegistrations: Array<{ name: string; config: ProviderConfig; extensionPath: string }>;
+	/** Native pi-ai provider registrations queued during extension loading, processed when runner binds. */
+	pendingNativeProviderRegistrations: Array<{ provider: Provider; extensionPath: string }>;
 	/** Throws when this extension instance is stale after runtime replacement. */
 	assertActive: () => void;
 	/** Marks this extension instance as stale after runtime replacement or reload. */
@@ -2090,6 +2108,7 @@ export interface ExtensionRuntimeState {
 	 * After bindCore(): calls ModelRegistry directly for immediate effect.
 	 */
 	registerProvider: (name: string, config: ProviderConfig, extensionPath?: string) => void;
+	registerNativeProvider: (provider: Provider, extensionPath?: string) => void;
 	unregisterProvider: (name: string, extensionPath?: string) => void;
 	/**
 	 * Set the shared agent run registry. First call wins; later calls are
@@ -2218,6 +2237,7 @@ export interface ExtensionRuntime extends ExtensionRuntimeState, ExtensionAction
 export interface Extension {
 	path: string;
 	resolvedPath: string;
+	hidden?: boolean;
 	sourceInfo: SourceInfo;
 	handlers: Map<string, HandlerFn[]>;
 	tools: Map<string, RegisteredTool>;

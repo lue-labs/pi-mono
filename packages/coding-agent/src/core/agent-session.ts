@@ -29,13 +29,14 @@ import type {
 	AssistantMessage,
 	AuthResult,
 	ImageContent,
-	Message,
 	Model,
 	ProviderHeaders,
 	TextContent,
 	Tool,
 	ToolResultMessage,
+	Usage,
 } from "@valkyriweb/pi-ai";
+import { contentText } from "@valkyriweb/pi-ai";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -43,6 +44,7 @@ import {
 	isContextOverflow,
 	isRetryableAssistantError,
 	modelsAreEqual,
+	type RetryCallbacks,
 	resetApiProviders,
 	streamSimple,
 } from "@valkyriweb/pi-ai/compat";
@@ -149,6 +151,7 @@ import {
 import { allToolNames, createAllToolDefinitions, type ToolName } from "./tools/index.ts";
 
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
+import { addUsageToTotals, createUsageTotals } from "./usage-totals.ts";
 
 // ============================================================================
 // Skill Block Parsing
@@ -261,7 +264,23 @@ export type AgentSessionEvent =
 			turn: number;
 			model: string;
 			timestamp: string;
-	  });
+	  })
+	| {
+			type: "summarization_retry_scheduled";
+			attempt: number;
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+	  }
+	| { type: "summarization_retry_attempt_start"; source: "branchSummary" }
+	| {
+			type: "summarization_retry_attempt_start";
+			source: "compaction";
+			reason: "manual" | "threshold" | "overflow";
+	  }
+	| { type: "summarization_retry_finished" }
+	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+	| { type: "bash_execution_update"; id?: string; delta: string };
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -496,7 +515,7 @@ export class AgentSession {
 	private _retryAttempt = 0;
 
 	// Bash execution state
-	private _bashAbortController: AbortController | undefined = undefined;
+	private readonly _bashAbortControllers = new Set<AbortController>();
 	private _pendingBashMessages: BashExecutionMessage[] = [];
 
 	// Extension system
@@ -643,7 +662,7 @@ export class AgentSession {
 	}
 
 	private async _getRequiredRequestAuth(model: Model<any>): Promise<{
-		apiKey: string;
+		apiKey?: string;
 		headers?: Record<string, string>;
 		env?: Record<string, string>;
 	}> {
@@ -657,7 +676,7 @@ export class AgentSession {
 			}
 			throw error;
 		}
-		if (result?.auth.apiKey) {
+		if (result && (result.auth.apiKey || result.auth.headers)) {
 			return {
 				apiKey: result.auth.apiKey,
 				headers: withoutDeletedHeaders(result.auth.headers),
@@ -681,7 +700,7 @@ export class AgentSession {
 		headers?: Record<string, string>;
 		env?: Record<string, string>;
 	}> {
-		if (this.agent.streamFn === streamSimple) {
+		if (this.agent.streamFunction === streamSimple) {
 			return this._getRequiredRequestAuth(model);
 		}
 
@@ -745,6 +764,7 @@ export class AgentSession {
 						content: result.content,
 						details: result.details,
 						isError,
+						usage: result.usage,
 						...this._agentRunEventIdentity(),
 					})
 				: undefined;
@@ -771,6 +791,7 @@ export class AgentSession {
 				...(shouldReturnContent ? { content: cappedContent ?? imageSafeContent } : {}),
 				details: hookResult ? hookResult.details : result.details,
 				isError: hookResult?.isError ?? isError,
+				usage: hookResult?.usage ?? result.usage,
 			};
 		};
 
@@ -880,7 +901,7 @@ export class AgentSession {
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
 			this._overflowRecoveryAttempted = false;
-			const messageText = this._getUserMessageText(event.message);
+			const messageText = contentText(event.message.content, "");
 			if (messageText) {
 				// Check steering queue first
 				const steeringIndex = this._steeringMessages.indexOf(messageText);
@@ -1072,15 +1093,6 @@ export class AgentSession {
 			}
 		}
 		return false;
-	}
-
-	/** Extract text content from a message */
-	private _getUserMessageText(message: Message): string {
-		if (message.role !== "user") return "";
-		const content = message.content;
-		if (typeof content === "string") return content;
-		const textBlocks = content.filter((c) => c.type === "text");
-		return textBlocks.map((c) => (c as TextContent).text).join("");
 	}
 
 	/** Find the last assistant message in agent state (including aborted ones) */
@@ -3119,6 +3131,7 @@ export class AgentSession {
 			let summary: string;
 			let firstKeptEntryId: string;
 			let tokensBefore: number;
+			let usage: Usage | undefined;
 			let details: unknown;
 
 			if (extensionCompaction) {
@@ -3126,6 +3139,7 @@ export class AgentSession {
 				summary = extensionCompaction.summary;
 				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
 				tokensBefore = extensionCompaction.tokensBefore;
+				usage = extensionCompaction.usage;
 				details = extensionCompaction.details;
 			} else {
 				// Generate compaction result
@@ -3137,8 +3151,10 @@ export class AgentSession {
 					customInstructions,
 					this._compactionAbortController.signal,
 					this.thinkingLevel,
-					this.agent.streamFn,
+					this.agent.streamFunction,
 					env,
+					this.settingsManager.getRetrySettings(),
+					this._summarizationRetryCallbacks({ source: "compaction", reason: "manual" }),
 					{
 						systemPrompt: this.systemPrompt,
 						messages: stripModelFacingContextImages(await convertToLlm(this.agent.state.messages)),
@@ -3148,6 +3164,7 @@ export class AgentSession {
 				summary = result.summary;
 				firstKeptEntryId = result.firstKeptEntryId;
 				tokensBefore = result.tokensBefore;
+				usage = result.usage;
 				details = result.details;
 			}
 
@@ -3161,6 +3178,7 @@ export class AgentSession {
 				tokensBefore,
 				details,
 				fromExtension,
+				usage,
 			);
 			this._pruneResidentHistoryAfterCompaction("manual", compactionEntryId);
 			const newEntries = this.sessionManager.getEntries();
@@ -3188,6 +3206,7 @@ export class AgentSession {
 				firstKeptEntryId,
 				tokensBefore,
 				estimatedTokensAfter,
+				usage,
 				details,
 			};
 			this._emit({
@@ -3409,12 +3428,8 @@ export class AgentSession {
 			let apiKey: string | undefined;
 			let headers: Record<string, string> | undefined;
 			let env: Record<string, string> | undefined;
-			if (this.agent.streamFn === streamSimple) {
-				const authResult = await this._modelRuntime.getAuth(this.model);
-				if (!authResult?.auth.apiKey) return false;
-				apiKey = authResult.auth.apiKey;
-				headers = withoutDeletedHeaders(authResult.auth.headers);
-				env = authResult.env;
+			if (this.agent.streamFunction === streamSimple) {
+				({ apiKey, headers, env } = await this._getRequiredRequestAuth(this.model));
 			} else {
 				({ apiKey, headers, env } = await this._getSummarizationRequestAuth(this.model));
 			}
@@ -3464,6 +3479,7 @@ export class AgentSession {
 			let summary: string;
 			let firstKeptEntryId: string;
 			let tokensBefore: number;
+			let usage: Usage | undefined;
 			let details: unknown;
 
 			if (extensionCompaction) {
@@ -3471,6 +3487,7 @@ export class AgentSession {
 				summary = extensionCompaction.summary;
 				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
 				tokensBefore = extensionCompaction.tokensBefore;
+				usage = extensionCompaction.usage;
 				details = extensionCompaction.details;
 			} else {
 				// Generate compaction result
@@ -3482,8 +3499,10 @@ export class AgentSession {
 					undefined,
 					this._autoCompactionAbortController.signal,
 					this.thinkingLevel,
-					this.agent.streamFn,
+					this.agent.streamFunction,
 					env,
+					this.settingsManager.getRetrySettings(),
+					this._summarizationRetryCallbacks({ source: "compaction", reason }),
 					{
 						systemPrompt: this.systemPrompt,
 						messages: stripModelFacingContextImages(await convertToLlm(this.agent.state.messages)),
@@ -3493,6 +3512,7 @@ export class AgentSession {
 				summary = compactResult.summary;
 				firstKeptEntryId = compactResult.firstKeptEntryId;
 				tokensBefore = compactResult.tokensBefore;
+				usage = compactResult.usage;
 				details = compactResult.details;
 			}
 
@@ -3513,6 +3533,7 @@ export class AgentSession {
 				tokensBefore,
 				details,
 				fromExtension,
+				usage,
 			);
 			this._pruneResidentHistoryAfterCompaction(reason, compactionEntryId);
 			const newEntries = this.sessionManager.getEntries();
@@ -3540,6 +3561,7 @@ export class AgentSession {
 				firstKeptEntryId,
 				tokensBefore,
 				estimatedTokensAfter,
+				usage,
 				details,
 			};
 			this._consecutiveCompactionFailures = 0;
@@ -4093,6 +4115,10 @@ export class AgentSession {
 					this._modelRuntime.registerProvider(name, config);
 					this._refreshCurrentModelFromRegistry();
 				},
+				registerNativeProvider: (provider) => {
+					this._modelRuntime.registerNativeProvider(provider);
+					this._refreshCurrentModelFromRegistry();
+				},
 				unregisterProvider: (name) => {
 					this._modelRuntime.unregisterProvider(name);
 					this._refreshCurrentModelFromRegistry();
@@ -4404,6 +4430,37 @@ export class AgentSession {
 	}
 
 	/**
+	 * Retry policy + callbacks shared by compaction and branch-summary summarization calls.
+	 * Uses the same `settings.retry` budget/backoff as agent-turn retries so a single transient
+	 * stream drop no longer fails the whole operation. `source` carries the context
+	 * the TUI needs to render the retry and recreate the underlying indicator.
+	 */
+	private _summarizationRetryCallbacks(
+		source: { source: "branchSummary" } | { source: "compaction"; reason: "manual" | "threshold" | "overflow" },
+	): RetryCallbacks {
+		return {
+			onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
+				this._emit({
+					type: "summarization_retry_scheduled",
+					attempt,
+					maxAttempts,
+					delayMs,
+					errorMessage,
+				});
+			},
+			onRetryAttemptStart: () => {
+				this._emit({
+					type: "summarization_retry_attempt_start",
+					...source,
+				});
+			},
+			onRetryFinished: () => {
+				this._emit({ type: "summarization_retry_finished" });
+			},
+		};
+	}
+
+	/**
 	 * Prepare a retryable error for continuation with exponential backoff.
 	 * @returns true if the caller should continue the agent, false otherwise
 	 */
@@ -4493,14 +4550,16 @@ export class AgentSession {
 	 * @param command The bash command to execute
 	 * @param onChunk Optional streaming callback for output
 	 * @param options.excludeFromContext If true, command output won't be sent to LLM (!! prefix)
+	 * @param options.id Optional identifier included in bash execution update events
 	 * @param options.operations Custom BashOperations for remote execution
 	 */
 	async executeBash(
 		command: string,
 		onChunk?: (chunk: string) => void,
-		options?: { excludeFromContext?: boolean; operations?: BashOperations },
+		options?: { excludeFromContext?: boolean; id?: string; operations?: BashOperations },
 	): Promise<BashResult> {
-		this._bashAbortController = new AbortController();
+		const abortController = new AbortController();
+		this._bashAbortControllers.add(abortController);
 
 		// Apply command prefix if configured (e.g., "shopt -s expand_aliases" for alias support)
 		const prefix = this.settingsManager.getShellCommandPrefix();
@@ -4513,15 +4572,18 @@ export class AgentSession {
 				this.sessionManager.getCwd(),
 				options?.operations ?? createLocalBashOperations({ shellPath }),
 				{
-					onChunk,
-					signal: this._bashAbortController.signal,
+					onChunk: (delta) => {
+						onChunk?.(delta);
+						this._emit({ type: "bash_execution_update", id: options?.id, delta });
+					},
+					signal: abortController.signal,
 				},
 			);
 
 			this.recordBashResult(command, result, options);
 			return result;
 		} finally {
-			this._bashAbortController = undefined;
+			this._bashAbortControllers.delete(abortController);
 		}
 	}
 
@@ -4559,12 +4621,14 @@ export class AgentSession {
 	 * Cancel running bash command.
 	 */
 	abortBash(): void {
-		this._bashAbortController?.abort();
+		for (const abortController of [...this._bashAbortControllers]) {
+			abortController.abort();
+		}
 	}
 
 	/** Whether a bash command is currently running */
 	get isBashRunning(): boolean {
-		return this._bashAbortController !== undefined;
+		return this._bashAbortControllers.size > 0;
 	}
 
 	/** Whether there are pending bash messages waiting to be flushed */
@@ -4667,7 +4731,7 @@ export class AgentSession {
 		this._branchSummaryAbortController = new AbortController();
 
 		try {
-			let extensionSummary: { summary: string; details?: unknown } | undefined;
+			let extensionSummary: { summary: string; details?: unknown; usage?: Usage } | undefined;
 			let fromExtension = false;
 
 			// Emit session_before_tree event
@@ -4702,6 +4766,7 @@ export class AgentSession {
 			// Run default summarizer if needed
 			let summaryText: string | undefined;
 			let summaryDetails: unknown;
+			let summaryUsage: Usage | undefined;
 			if (options.summarize && entriesToSummarize.length > 0 && !extensionSummary) {
 				const model = this.model!;
 				const { apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
@@ -4715,7 +4780,9 @@ export class AgentSession {
 					customInstructions,
 					replaceInstructions,
 					reserveTokens: branchSummarySettings.reserveTokens,
-					streamFn: this.agent.streamFn,
+					streamFn: this.agent.streamFunction,
+					retry: this.settingsManager.getRetrySettings(),
+					callbacks: this._summarizationRetryCallbacks({ source: "branchSummary" }),
 				});
 				if (result.aborted) {
 					return { cancelled: true, aborted: true };
@@ -4724,6 +4791,7 @@ export class AgentSession {
 					throw new Error(result.error);
 				}
 				summaryText = result.summary;
+				summaryUsage = result.usage;
 				summaryDetails = {
 					readFiles: result.readFiles || [],
 					modifiedFiles: result.modifiedFiles || [],
@@ -4731,6 +4799,7 @@ export class AgentSession {
 			} else if (extensionSummary) {
 				summaryText = extensionSummary.summary;
 				summaryDetails = extensionSummary.details;
+				summaryUsage = extensionSummary.usage;
 			}
 
 			// Determine the new leaf position based on target type
@@ -4740,17 +4809,11 @@ export class AgentSession {
 			if (targetEntry.type === "message" && targetEntry.message.role === "user") {
 				// User message: leaf = parent (null if root), text goes to editor
 				newLeafId = targetEntry.parentId;
-				editorText = this._extractUserMessageText(targetEntry.message.content);
+				editorText = contentText(targetEntry.message.content, "");
 			} else if (targetEntry.type === "custom_message") {
 				// Custom message: leaf = parent (null if root), text goes to editor
 				newLeafId = targetEntry.parentId;
-				editorText =
-					typeof targetEntry.content === "string"
-						? targetEntry.content
-						: targetEntry.content
-								.filter((c): c is { type: "text"; text: string } => c.type === "text")
-								.map((c) => c.text)
-								.join("");
+				editorText = contentText(targetEntry.content, "");
 			} else {
 				// Non-user message: leaf = selected node
 				newLeafId = targetId;
@@ -4766,6 +4829,7 @@ export class AgentSession {
 					summaryText,
 					summaryDetails,
 					fromExtension,
+					summaryUsage,
 				);
 				summaryEntry = this.sessionManager.getEntry(summaryId) as BranchSummaryEntry;
 
@@ -4818,24 +4882,13 @@ export class AgentSession {
 			if (entry.type !== "message") continue;
 			if (entry.message.role !== "user") continue;
 
-			const text = this._extractUserMessageText(entry.message.content);
+			const text = contentText(entry.message.content, "");
 			if (text) {
 				result.push({ entryId: entry.id, text });
 			}
 		}
 
 		return result;
-	}
-
-	private _extractUserMessageText(content: string | Array<{ type: string; text?: string }>): string {
-		if (typeof content === "string") return content;
-		if (Array.isArray(content)) {
-			return content
-				.filter((c): c is { type: "text"; text: string } => c.type === "text")
-				.map((c) => c.text)
-				.join("");
-		}
-		return "";
 	}
 
 	/**
@@ -4849,13 +4902,12 @@ export class AgentSession {
 		let toolResults = 0;
 		let totalMessages = 0;
 		let toolCalls = 0;
-		let totalInput = 0;
-		let totalOutput = 0;
-		let totalCacheRead = 0;
-		let totalCacheWrite = 0;
-		let totalCost = 0;
+		const usageTotals = createUsageTotals();
 
 		for (const entry of this.sessionManager.getEntries()) {
+			if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
+				addUsageToTotals(usageTotals, entry.usage);
+			}
 			if (entry.type !== "message") continue;
 			totalMessages++;
 			const message = entry.message;
@@ -4863,18 +4915,16 @@ export class AgentSession {
 				userMessages++;
 			} else if (message.role === "toolResult") {
 				toolResults++;
+				if (message.usage) {
+					addUsageToTotals(usageTotals, message.usage);
+				}
 			} else if (message.role === "assistant") {
 				assistantMessages++;
 				const assistantMsg = message as AssistantMessage;
 				if (Array.isArray(assistantMsg.content)) {
 					toolCalls += assistantMsg.content.filter((c) => c.type === "toolCall").length;
 				}
-				const usage = assistantMsg.usage;
-				totalInput += usage.input;
-				totalOutput += usage.output;
-				totalCacheRead += usage.cacheRead;
-				totalCacheWrite += usage.cacheWrite;
-				totalCost += usage.cost.total;
+				addUsageToTotals(usageTotals, assistantMsg.usage);
 			}
 		}
 
@@ -4887,13 +4937,13 @@ export class AgentSession {
 			toolResults,
 			totalMessages,
 			tokens: {
-				input: totalInput,
-				output: totalOutput,
-				cacheRead: totalCacheRead,
-				cacheWrite: totalCacheWrite,
-				total: totalInput + totalOutput + totalCacheRead + totalCacheWrite,
+				input: usageTotals.input,
+				output: usageTotals.output,
+				cacheRead: usageTotals.cacheRead,
+				cacheWrite: usageTotals.cacheWrite,
+				total: usageTotals.input + usageTotals.output + usageTotals.cacheRead + usageTotals.cacheWrite,
 			},
-			cost: totalCost,
+			cost: usageTotals.cost,
 			contextUsage: this.getContextUsage(),
 		};
 	}

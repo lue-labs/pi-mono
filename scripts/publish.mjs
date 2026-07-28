@@ -7,9 +7,10 @@ import { join } from "node:path";
 const packages = [
 	{ directory: "packages/ai", name: "@valkyriweb/pi-ai" },
 	{ directory: "packages/agent", name: "@valkyriweb/pi-agent-core" },
+	{ directory: "packages/storage/sqlite-node", name: "@valkyriweb/pi-storage-sqlite-node" },
 	{ directory: "packages/tui", name: "@valkyriweb/pi-tui" },
 	{ directory: "packages/coding-agent", name: "@valkyriweb/pi-coding-agent" },
-	{ directory: "packages/orchestrator", name: "@valkyriweb/pi-orchestrator" },
+	{ directory: "packages/server", name: "@valkyriweb/pi-server" },
 ];
 
 const dryRun = process.argv.includes("--dry-run");

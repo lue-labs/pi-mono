@@ -34,6 +34,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
+import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { splitSystemPromptForCache } from "./anthropic-cache-split.ts";
@@ -313,6 +314,7 @@ function getAnthropicCompat(
 		supportsCacheControlOnTools: model.compat?.supportsCacheControlOnTools ?? true,
 		supportsTemperature: model.compat?.supportsTemperature ?? true,
 		allowEmptySignature: model.compat?.allowEmptySignature ?? false,
+		supportsStrictTools: model.compat?.supportsStrictTools ?? false,
 		supportsToolReferences: model.compat?.supportsToolReferences ?? defaultSupportsToolReferences(model),
 		inlineDeferredTools: model.compat?.inlineDeferredTools ?? false,
 	};
@@ -661,7 +663,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			stopReason: "pending",
 			timestamp: Date.now(),
 		};
 
@@ -715,11 +717,18 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
-				maxRetries: options?.maxRetries ?? 0,
+				maxRetries: 0,
 			};
 			let response: Awaited<ReturnType<ReturnType<typeof client.messages.create>["asResponse"]>>;
 			try {
-				response = await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
+				response = await retryProviderRequest(
+					() => client.messages.create({ ...params, stream: true }, requestOptions).asResponse(),
+					{
+						maxRetries: options?.maxRetries,
+						maxRetryDelayMs: options?.maxRetryDelayMs,
+						signal: options?.signal,
+					},
+				);
 			} catch (error) {
 				// Graceful self-heal for the signed-thinking-block round-trip 400.
 				// Anthropic rejects a request when a thinking/redacted_thinking block
@@ -734,7 +743,14 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				// (#thinking-roundtrip)
 				if (!isLatestThinkingModifiedError(error)) throw error;
 				params = { ...params, messages: stripThinkingFromMessageParams(params.messages) };
-				response = await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
+				response = await retryProviderRequest(
+					() => client.messages.create({ ...params, stream: true }, requestOptions).asResponse(),
+					{
+						maxRetries: options?.maxRetries,
+						maxRetryDelayMs: options?.maxRetryDelayMs,
+						signal: options?.signal,
+					},
+				);
 			}
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
@@ -1068,6 +1084,9 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				throw new Error("Request was aborted");
 			}
 
+			if (output.stopReason === "pending") {
+				throw new Error("Anthropic stream ended without a stop reason");
+			}
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
 				// Preserve the upstream stop reason: "refusal"/"sensitive" map to
 				// "error" in mapStopReason, and a generic message both hides the

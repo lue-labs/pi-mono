@@ -1,3 +1,4 @@
+import { uuidv7 } from "@valkyriweb/pi-ai";
 import { complete, getModel } from "@valkyriweb/pi-ai/compat";
 import type { ExtensionAPI, ExtensionCommandContext } from "@valkyriweb/pi-coding-agent";
 import { DynamicBorder, getMarkdownTheme } from "@valkyriweb/pi-coding-agent";
@@ -193,6 +194,8 @@ export default function (pi: ExtensionAPI) {
 					headers: auth.headers,
 					env: auth.env,
 					reasoningEffort: "high",
+					cacheRetention: "none",
+					sessionId: uuidv7(),
 				},
 			);
 

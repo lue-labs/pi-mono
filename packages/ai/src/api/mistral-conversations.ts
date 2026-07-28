@@ -26,6 +26,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
+import { resolveJsonSchemaStrictSampling } from "./constrained-sampling.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
@@ -84,6 +85,9 @@ export const stream: StreamFunction<"mistral-conversations", MistralOptions> = (
 				throw new Error("Request was aborted");
 			}
 
+			if (output.stopReason === "pending") {
+				throw new Error("Mistral stream ended without a finish reason");
+			}
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
 				throw new Error("An unknown error occurred");
 			}
@@ -146,7 +150,7 @@ function createOutput(model: Model<"mistral-conversations">): AssistantMessage {
 			totalTokens: 0,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
-		stopReason: "stop",
+		stopReason: "pending",
 		timestamp: Date.now(),
 	};
 }
@@ -484,15 +488,18 @@ async function consumeChatStream(
 }
 
 function toFunctionTools(tools: Tool[]): Array<FunctionTool & { type: "function" }> {
-	return tools.map((tool) => ({
-		type: "function",
-		function: {
-			name: tool.name,
-			description: tool.description,
-			parameters: stripSymbolKeys(tool.parameters) as Record<string, unknown>,
-			strict: false,
-		},
-	}));
+	return tools.map((tool) => {
+		const strict = resolveJsonSchemaStrictSampling(tool, true);
+		return {
+			type: "function",
+			function: {
+				name: tool.name,
+				description: tool.description,
+				parameters: stripSymbolKeys(tool.parameters) as Record<string, unknown>,
+				strict: strict ?? false,
+			},
+		};
+	});
 }
 
 function stripSymbolKeys(value: unknown): unknown {

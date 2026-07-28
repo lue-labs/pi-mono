@@ -83,6 +83,7 @@ import {
 	findExactModelReferenceMatch,
 	normalizeAutoAliasString,
 	resolveModelScope,
+	resolveModelScopeWithDiagnostics,
 } from "../../core/model-resolver.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
@@ -95,6 +96,7 @@ import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import { subscribeBashBgJobs } from "../../core/tools/bash.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
+import { getUsageCostBreakdown } from "../../core/usage-totals.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
@@ -149,6 +151,7 @@ import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
+import { editInExternalEditor } from "./external-editor.ts";
 import { getModelSearchText } from "./model-search.ts";
 import {
 	getAvailableThemes,
@@ -488,7 +491,7 @@ export class InteractiveMode {
 			await this.rebindCurrentSession({ renderBeforeBind: true });
 		});
 		this.version = VERSION;
-		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
+		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor(), getAgentDir());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
 		this.headerContainer = new Container();
 		this.loadedResourcesContainer = new Container();
@@ -907,6 +910,13 @@ export class InteractiveMode {
 	async run(): Promise<void> {
 		await this.init();
 
+		if (!process.env.PI_OFFLINE) {
+			void this.session.modelRuntime
+				.refresh()
+				.then(() => this.updateAvailableProviderCount())
+				.catch(() => {});
+		}
+
 		// Start version check asynchronously
 		checkForNewPiVersion(this.version).then((newRelease) => {
 			if (newRelease) {
@@ -1150,8 +1160,16 @@ export class InteractiveMode {
 	 * Get a short path relative to the package root for display.
 	 */
 	private getShortPath(fullPath: string, sourceInfo?: SourceInfo): string {
+		const normalizedFullPath = fullPath.replace(/\\/g, "/");
 		const baseDir = sourceInfo?.baseDir;
 		if (baseDir && this.isPackageSource(sourceInfo)) {
+			const normalizedBaseDir = baseDir.replace(/\\/g, "/");
+			const npmRootMatch = normalizedBaseDir.match(/^(.*\/node_modules)\/(@?[^/]+(?:\/[^/]+)?)$/);
+			// If fullPath is under the same node_modules root as baseDir, preserve that relative topology.
+			if (npmRootMatch?.[1] && normalizedFullPath.startsWith(`${npmRootMatch[1]}/`)) {
+				return path.posix.relative(normalizedBaseDir, normalizedFullPath);
+			}
+
 			const relativePath = path.relative(path.resolve(baseDir), path.resolve(fullPath));
 			if (
 				relativePath &&
@@ -1165,12 +1183,12 @@ export class InteractiveMode {
 		}
 
 		const source = sourceInfo?.source ?? "";
-		const npmMatch = fullPath.match(/node_modules\/(@?[^/]+(?:\/[^/]+)?)\/(.*)/);
+		const npmMatch = normalizedFullPath.match(/node_modules\/(@?[^/]+(?:\/[^/]+)?)\/(.*)/);
 		if (npmMatch && source.startsWith("npm:")) {
 			return npmMatch[2];
 		}
 
-		const gitMatch = fullPath.match(/git\/[^/]+\/[^/]+\/(.*)/);
+		const gitMatch = normalizedFullPath.match(/git\/[^/]+\/[^/]+\/(.*)/);
 		if (gitMatch && source.startsWith("git:")) {
 			return gitMatch[1];
 		}
@@ -1522,10 +1540,13 @@ export class InteractiveMode {
 		const themesResult = this.session.resourceLoader.getThemes();
 		const extensions =
 			options?.extensions ??
-			this.session.resourceLoader.getExtensions().extensions.map((extension) => ({
-				path: extension.path,
-				sourceInfo: extension.sourceInfo,
-			}));
+			this.session.resourceLoader
+				.getExtensions()
+				.extensions.filter((extension) => !extension.hidden)
+				.map((extension) => ({
+					path: extension.path,
+					sourceInfo: extension.sourceInfo,
+				}));
 		const sourceInfos = new Map<string, SourceInfo>();
 		for (const extension of extensions) {
 			if (extension.sourceInfo) {
@@ -1801,17 +1822,27 @@ export class InteractiveMode {
 	}
 
 	private async rebindCurrentSession(options: { renderBeforeBind?: boolean } = {}): Promise<void> {
+		const session = this.session;
+
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
 		this.applyRuntimeSettings();
+
 		if (options.renderBeforeBind) {
 			this.renderCurrentSessionState();
 			this.subscribeToAgent();
-			await this.bindCurrentSessionExtensions();
-		} else {
-			await this.bindCurrentSessionExtensions();
+		}
+
+		await this.bindCurrentSessionExtensions();
+
+		if (this.session !== session) {
+			return;
+		}
+
+		if (!options.renderBeforeBind) {
 			this.subscribeToAgent();
 		}
+
 		await this.updateAvailableProviderCount();
 		this.updateEditorBorderColor();
 		this.updateTerminalTitle();
@@ -1875,6 +1906,7 @@ export class InteractiveMode {
 				sessionManager: this.sessionManager,
 				modelRegistry: session.modelRegistry,
 				model: session.model,
+				thinkingLevel: session.thinkingLevel,
 				isIdle: () => session.isIdle,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				signal: session.agent.signal,
@@ -2861,7 +2893,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.model.select", () => this.showModelSelector());
 		this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
 		this.defaultEditor.onAction("app.thinking.toggle", () => this.toggleThinkingBlockVisibility());
-		this.defaultEditor.onAction("app.editor.external", () => this.openExternalEditor());
+		this.defaultEditor.onAction("app.editor.external", () => void this.handleOpenExternalEditor());
 		this.defaultEditor.onAction("app.message.copy", () => void this.handleCopyCommand());
 		this.defaultEditor.onAction("app.message.followUp", () => this.handleFollowUp());
 		this.defaultEditor.onAction("app.message.dequeue", () => this.handleDequeue());
@@ -3319,6 +3351,10 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 
+			case "bash_execution_update":
+				// The bash execution callback handles TUI output rendering.
+				break;
+
 			case "tool_execution_start": {
 				let component = this.pendingTools.get(event.toolCallId);
 				if (!component) {
@@ -3471,6 +3507,32 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 			}
+
+			case "summarization_retry_scheduled": {
+				this.showError(event.errorMessage);
+				this.showStatusIndicator(
+					new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs),
+				);
+				this.ui.requestRender();
+				break;
+			}
+
+			case "summarization_retry_attempt_start": {
+				this.clearStatusIndicator("retry");
+				if (event.source === "branchSummary") {
+					this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui));
+				} else {
+					this.showStatusIndicator(new CompactionStatusIndicator(this.ui, event.reason));
+				}
+				this.ui.requestRender();
+				break;
+			}
+
+			case "summarization_retry_finished": {
+				this.clearStatusIndicator("retry");
+				this.ui.requestRender();
+				break;
+			}
 		}
 	}
 
@@ -3557,7 +3619,12 @@ export class InteractiveMode {
 					const extensionRenderer = this.session.extensionRunner.getMessageRenderer(message.customType);
 					const renderer =
 						extensionRenderer ?? (message.customType === "memory_saved" ? memorySavedMessageRenderer : undefined);
-					const component = new CustomMessageComponent(message, renderer, this.getMarkdownThemeWithSettings());
+					const component = new CustomMessageComponent(
+						message,
+						renderer,
+						this.getMarkdownThemeWithSettings(),
+						this.outputPad,
+					);
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
 				}
@@ -4156,57 +4223,20 @@ export class InteractiveMode {
 		this.showStatus(`Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);
 	}
 
-	private async openExternalEditor(): Promise<void> {
+	private async handleOpenExternalEditor(): Promise<void> {
 		const editorCmd = this.settingsManager.getExternalEditorCommand();
-		if (!editorCmd) {
-			this.showWarning("No editor configured. Set externalEditor in settings.json or $VISUAL/$EDITOR.");
-			return;
-		}
-
-		const currentText = this.editor.getExpandedText?.() ?? this.editor.getText();
-		const tmpFile = path.join(os.tmpdir(), `pi-editor-${Date.now()}.pi.md`);
-
+		const content = this.editor.getExpandedText?.() ?? this.editor.getText();
+		this.ui.stop();
 		try {
-			// Write current content to temp file
-			fs.writeFileSync(tmpFile, currentText, "utf-8");
-
-			// Stop TUI to release terminal
-			this.ui.stop();
-
-			// Split by space to support editor arguments (e.g., "code --wait")
-			const [editor, ...editorArgs] = editorCmd.split(" ");
-
-			process.stdout.write(`Launching external editor: ${editorCmd}\nPi will resume when the editor exits.\n`);
-
-			// Do not use spawnSync here. On Windows, synchronous child_process calls can keep
-			// Node/libuv's console input read active after ui.stop() pauses stdin, racing
-			// vim/nvim for the console input buffer until Ctrl+C cancels the pending read.
-			const status = await new Promise<number | null>((resolve) => {
-				const child = spawn(editor, [...editorArgs, tmpFile], {
-					stdio: "inherit",
-					shell: process.platform === "win32",
-				});
-				child.on("error", () => resolve(null));
-				child.on("close", (code) => resolve(code));
+			const result = await editInExternalEditor({
+				command: editorCmd,
+				content,
 			});
-
-			// On successful exit (status 0), replace editor content
-			if (status === 0) {
-				const newContent = fs.readFileSync(tmpFile, "utf-8").replace(/\n$/, "");
-				this.editor.setText(newContent);
+			if (result.status === "complete") {
+				this.editor.setText(result.content);
 			}
-			// On non-zero exit, keep original text (no action needed)
 		} finally {
-			// Clean up temp file
-			try {
-				fs.unlinkSync(tmpFile);
-			} catch {
-				// Ignore cleanup errors
-			}
-
-			// Restart TUI
 			this.ui.start();
-			// Force full re-render since external editor uses alternate screen
 			this.ui.requestRender(true);
 		}
 	}
@@ -4459,27 +4489,14 @@ export class InteractiveMode {
 				await this.session.prompt(message.text);
 			}
 
-			// Send first prompt (starts streaming). If the agent is already busy
-			// (compaction tail, agent_end listener phase, or a TOCTOU race), prompt()
-			// throws "Agent is already processing" — route the message into the
-			// steer/follow-up queue instead of failing the whole flush.
-			let promptPromise: Promise<void> = Promise.resolve();
-			if (this.session.isStreaming) {
-				if (firstPrompt.mode === "followUp") {
-					await this.session.followUp(firstPrompt.text);
-				} else {
-					await this.session.steer(firstPrompt.text);
-				}
-			} else {
-				promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
-					if (error instanceof Error && /already processing( a prompt)?/.test(error.message)) {
-						return firstPrompt.mode === "followUp"
-							? this.session.followUp(firstPrompt.text)
-							: this.session.steer(firstPrompt.text);
-					}
+			// Start a prompt when idle, or queue it into a run still finishing compaction.
+			// The session's busy-gate (#prompt-busy-gate-compaction) queues via
+			// steer/followUp when a run, compaction, or agent_end window is active.
+			const promptPromise = this.session
+				.prompt(firstPrompt.text, { streamingBehavior: firstPrompt.mode })
+				.catch((error) => {
 					restoreQueue(error);
 				});
-			}
 
 			// Queue remaining messages
 			for (const message of rest) {
@@ -4669,7 +4686,11 @@ export class InteractiveMode {
 						this.outputPad = padding;
 						if (this.streamingComponent || this.session.isStreaming) {
 							for (const child of this.chatContainer.children) {
-								if (child instanceof AssistantMessageComponent || child instanceof UserMessageComponent) {
+								if (
+									child instanceof AssistantMessageComponent ||
+									child instanceof CustomMessageComponent ||
+									child instanceof UserMessageComponent
+								) {
 									child.setOutputPad(padding);
 								}
 							}
@@ -4800,10 +4821,13 @@ export class InteractiveMode {
 		}
 	}
 
-	/** Update the footer's available provider count from current model candidates */
-	private async updateAvailableProviderCount(): Promise<void> {
-		const models = await this.getModelCandidates();
-		const uniqueProviders = new Set(models.map((m) => m.provider));
+	/** Update the footer's available provider count from the current snapshot without refreshing catalogs. */
+	private updateAvailableProviderCount(): void {
+		const models =
+			this.session.scopedModels.length > 0
+				? this.session.scopedModels.map((scoped) => scoped.model)
+				: this.session.modelRuntime.getAvailableSnapshot();
+		const uniqueProviders = new Set(models.map((model) => model.provider));
 		this.footerDataProvider.setAvailableProviderCount(uniqueProviders.size);
 	}
 
@@ -4933,14 +4957,20 @@ export class InteractiveMode {
 		// Get all available models
 		await this.session.modelRuntime.refresh();
 		const allModels = [...(await this.session.modelRuntime.getAvailable())];
+		const allModelIds = new Set(allModels.map((model) => `${model.provider}/${model.id}`));
+		const configuredPatterns = this.settingsManager.getEnabledModels();
+		const sessionScopedModels = this.session.scopedModels;
 
-		if (allModels.length === 0) {
+		if (allModels.length === 0 && !configuredPatterns?.length && sessionScopedModels.length === 0) {
 			this.showStatus("No models available");
 			return;
 		}
 
+		const configuredScope = configuredPatterns?.length
+			? await resolveModelScopeWithDiagnostics(configuredPatterns, this.session.modelRuntime)
+			: undefined;
+
 		// Check if session has scoped models (from previous session-only changes or CLI --models)
-		const sessionScopedModels = this.session.scopedModels;
 		const hasSessionScope = sessionScopedModels.length > 0;
 
 		// Build enabled model IDs from session state or settings
@@ -4949,19 +4979,25 @@ export class InteractiveMode {
 		if (hasSessionScope) {
 			// Use current session's scoped models
 			currentEnabledIds = sessionScopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
-		} else {
-			// Fall back to settings
-			const patterns = this.settingsManager.getEnabledModels();
-			if (patterns !== undefined && patterns.length > 0) {
-				const scopedModels = await resolveModelScope(patterns, this.session.modelRuntime);
-				currentEnabledIds = scopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
-			}
+		} else if (configuredScope) {
+			currentEnabledIds = configuredScope.scopedModels.map(
+				(scoped) => `${scoped.model.provider}/${scoped.model.id}`,
+			);
+		}
+
+		for (const diagnostic of configuredScope?.diagnostics ?? []) {
+			if (diagnostic.code !== "no-match") continue;
+			currentEnabledIds ??= [];
+			if (!currentEnabledIds.includes(diagnostic.pattern)) currentEnabledIds.push(diagnostic.pattern);
 		}
 
 		// Helper to update session's scoped models (session-only, no persist)
 		const updateSessionModels = async (enabledIds: string[] | null) => {
 			currentEnabledIds = enabledIds === null ? null : [...enabledIds];
-			if (enabledIds && enabledIds.length > 0 && enabledIds.length < allModels.length) {
+			const hasEnabledAvailableModel = enabledIds?.some((id) => allModelIds.has(id)) ?? false;
+			const allAvailableModelsEnabled =
+				enabledIds !== null && [...allModelIds].every((id) => enabledIds.includes(id));
+			if (enabledIds && hasEnabledAvailableModel && !allAvailableModelsEnabled) {
 				const newScopedModels = await resolveModelScope(enabledIds, this.session.modelRuntime);
 				this.session.setScopedModels(
 					newScopedModels.map((sm) => ({
@@ -4989,10 +5025,11 @@ export class InteractiveMode {
 					},
 					onPersist: (enabledIds) => {
 						// Persist to settings
-						const newPatterns =
-							enabledIds === null || enabledIds.length === allModels.length
-								? undefined // All enabled = clear filter
-								: enabledIds;
+						const allEnabled =
+							enabledIds !== null &&
+							enabledIds.length === allModels.length &&
+							enabledIds.every((id) => allModelIds.has(id));
+						const newPatterns = enabledIds === null || allEnabled ? undefined : enabledIds;
 						this.settingsManager.setEnabledModels(newPatterns ? [...newPatterns] : undefined);
 						this.showStatus("Model selection saved to settings");
 					},
@@ -5372,7 +5409,10 @@ export class InteractiveMode {
 	}
 
 	private showLoginAuthTypeSelector(providerOptions?: AuthSelectorProvider[]): void {
-		const subscriptionLabel = "Sign in with an account";
+		const oauthProvider = providerOptions?.find((provider) => provider.authType === "oauth");
+		const oauthLoginLabel =
+			oauthProvider?.method && "loginLabel" in oauthProvider.method ? oauthProvider.method.loginLabel : undefined;
+		const subscriptionLabel = oauthLoginLabel ?? "Sign in with an account";
 		const apiKeyLabel = "Sign in with an API key";
 		const availableAuthTypes = providerOptions
 			? new Set(providerOptions.map((provider) => provider.authType))
@@ -6084,22 +6124,9 @@ export class InteractiveMode {
 		const cacheWaste = computeCacheWaste(entries, this.session.modelRuntime);
 
 		// Cost/token totals per provider/model actually used (e.g. OpenRouter `auto`
-		// resolves to a concrete responseModel), sorted by cost descending.
-		const perModelMap = new Map<string, { key: string; cost: number; tokens: number }>();
-		for (const entry of entries) {
-			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-			const message = entry.message;
-			const usage = message.usage;
-			const key = `${message.provider}/${message.responseModel ?? message.model}`;
-			let bucket = perModelMap.get(key);
-			if (!bucket) {
-				bucket = { key, cost: 0, tokens: 0 };
-				perModelMap.set(key, bucket);
-			}
-			bucket.cost += usage.cost.total;
-			bucket.tokens += usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-		}
-		const perModel = Array.from(perModelMap.values()).sort((a, b) => b.cost - a.cost);
+		// resolves to a concrete responseModel). Usage without model attribution is
+		// grouped separately so the breakdown reconciles with the session total.
+		const usageBreakdown = getUsageCostBreakdown(entries);
 
 		let info = `${theme.bold("Session Info")}\n\n`;
 		if (sessionName) {
@@ -6133,8 +6160,8 @@ export class InteractiveMode {
 		if (stats.cost > 0 || cacheWaste.missedTokens > 0) {
 			info += `\n${theme.bold("Cost")}\n`;
 			info += `${theme.fg("dim", "Total:")} $${stats.cost.toFixed(3)}`;
-			if (perModel.length > 1) {
-				for (const entry of perModel) {
+			if (usageBreakdown.length > 1) {
+				for (const entry of usageBreakdown) {
 					info += `\n  ${theme.fg("dim", `${entry.key}:`)} $${entry.cost.toFixed(3)} ${theme.fg("dim", `(${formatTokens(entry.tokens)} tokens)`)}`;
 				}
 			}

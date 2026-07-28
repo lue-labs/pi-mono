@@ -1000,4 +1000,21 @@ describe("FooterComponent width handling", () => {
 		expect(rendered).toContain("Agents: 1 running");
 		expect(rendered).toContain("/agents runs");
 	});
+
+	it("marks Kimi Coding costs as subscription estimates", () => {
+		const session = createSession({
+			sessionName: "",
+			provider: "kimi-coding",
+			usage: {
+				input: 100,
+				output: 10,
+				cacheRead: 0,
+				cacheWrite: 0,
+				cost: { total: 1.234 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		expect(stripAnsi(footer.render(120)[1])).toContain("$1.234 (sub)");
+	});
 });
