@@ -922,7 +922,7 @@ export class Editor implements Component, Focusable {
 				startIndex: 0,
 			});
 			logicalIndices.push(0);
-			return this.applyHighlights(this.onLayoutLines(layoutLines, logicalIndices));
+			return this.runLayoutHooks(layoutLines, logicalIndices);
 		}
 
 		// Absolute offset of each logical line within getText() (lines joined by "\n").
@@ -1012,7 +1012,18 @@ export class Editor implements Component, Focusable {
 			}
 		}
 
-		return this.applyHighlights(this.onLayoutLines(layoutLines, logicalIndices));
+		return this.runLayoutHooks(layoutLines, logicalIndices);
+	}
+
+	/**
+	 * Highlight ranges address the plain document text, so they can only be spliced
+	 * into a line `onLayoutLines` left alone. A subclass that rewrote the line (e.g.
+	 * syntax highlighting) has already shifted every offset past its first escape,
+	 * so that line keeps the subclass's rendering instead.
+	 */
+	private runLayoutHooks(layoutLines: LayoutLine[], logicalIndices: number[]): LayoutLine[] {
+		const plainTexts = layoutLines.map((line) => line.text);
+		return this.applyHighlights(this.onLayoutLines(layoutLines, logicalIndices), plainTexts);
 	}
 
 	/**
@@ -1027,19 +1038,27 @@ export class Editor implements Component, Focusable {
 	private highlightRangesFor(text: string): EditorHighlightRange[] {
 		if (this.highlightCache?.text === text) return this.highlightCache.ranges;
 		const produced = this.highlighter?.(text) ?? [];
-		const ranges = produced
+		// First range wins outright: a later one is dropped if it overlaps the last
+		// range actually kept, not merely the previous candidate (which may itself
+		// have been dropped, and whose `end` would then let an overlap slip through).
+		const ranges: EditorHighlightRange[] = [];
+		for (const range of produced
 			.filter((range) => range.end > range.start && range.start >= 0)
-			.sort((a, b) => a.start - b.start)
-			.filter((range, index, all) => index === 0 || range.start >= (all[index - 1]?.end ?? 0));
+			.sort((a, b) => a.start - b.start)) {
+			const kept = ranges[ranges.length - 1];
+			if (kept === undefined || range.start >= kept.end) ranges.push(range);
+		}
 		this.highlightCache = { text, ranges };
 		return ranges;
 	}
 
-	private applyHighlights(lines: LayoutLine[]): LayoutLine[] {
+	private applyHighlights(lines: LayoutLine[], plainTexts: string[]): LayoutLine[] {
 		if (!this.highlighter) return lines;
 		const ranges = this.highlightRangesFor(this.getText());
 		if (ranges.length === 0) return lines;
-		return lines.map((line) => this.highlightLayoutLine(line, ranges));
+		return lines.map((line, index) =>
+			line.text === plainTexts[index] ? this.highlightLayoutLine(line, ranges) : line,
+		);
 	}
 
 	private highlightLayoutLine(line: LayoutLine, ranges: EditorHighlightRange[]): LayoutLine {

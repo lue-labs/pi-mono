@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { Editor, type EditorHighlightRange } from "../src/components/editor.ts";
+import { Editor, type EditorHighlightRange, type LayoutLine } from "../src/components/editor.ts";
 import { TUI } from "../src/tui.ts";
 import { defaultEditorTheme } from "./test-themes.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
@@ -114,6 +114,44 @@ describe("Editor highlighter", () => {
 		const rendered = renderText(editor);
 		assert.equal(stripVTControlCharacters(rendered).includes("/polish this"), true, "text survives intact");
 		assert.equal(rendered.split(MARK_OPEN).length - 1, 1, "only the one valid range applied");
+	});
+
+	it("drops a range overlapping the last kept one, not merely the previous candidate", () => {
+		const editor = createEditor();
+		editor.setText("/polish this");
+		// B is dropped for overlapping A; C overlaps A too and must not survive by
+		// being compared against the already-dropped B.
+		editor.setHighlighter(() => [
+			{ start: 0, end: 10, style: mark }, // A
+			{ start: 5, end: 8, style: mark }, // B
+			{ start: 9, end: 12, style: mark }, // C
+		]);
+
+		const rendered = renderText(editor);
+		assert.equal(stripVTControlCharacters(rendered).includes("/polish this"), true, "text survives intact");
+		assert.equal(rendered.split(MARK_OPEN).length - 1, 1, "only the first range survives");
+	});
+
+	it("never corrupts a line that onLayoutLines already rewrote with escapes", () => {
+		// A subclass (my-pi's syntax-input) injects its own ANSI in the layout hook,
+		// which shifts every offset past its first escape. Highlight ranges address
+		// the plain document text, so such a line must be left to the subclass.
+		class SyntaxEditor extends Editor {
+			protected override onLayoutLines(lines: LayoutLine[]): LayoutLine[] {
+				return lines.map((line) => ({ ...line, text: line.text.replace(/think/g, "\x1b[32mthink\x1b[39m") }));
+			}
+		}
+
+		const tui = new TUI(new VirtualTerminal(80, 24));
+		const editor = new SyntaxEditor(tui, defaultEditorTheme);
+		editor.setText("think hard and run /polish now\nplain /polish line");
+		editor.setHighlighter((text) => rangesFor(text, "/polish"));
+
+		const rendered = renderText(editor);
+		const plain = stripVTControlCharacters(rendered);
+		assert.ok(plain.includes("think hard and run /polish now"), "rewritten line survives verbatim");
+		assert.ok(!plain.includes("<"), "no span was spliced at a shifted offset");
+		assert.ok(rendered.includes(`${MARK_OPEN}/polish${MARK_CLOSE}`), "untouched lines are still highlighted");
 	});
 
 	it("styles a span that lands on a wrapped chunk", () => {
