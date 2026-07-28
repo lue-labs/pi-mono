@@ -273,6 +273,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// Autocomplete provider composition is not supported in RPC mode
 		},
 
+		addInputHighlighter(): void {
+			// There is no input editor to highlight in RPC mode
+		},
+
 		setEditorComponent(): void {
 			// Custom editor components not supported in RPC mode
 		},

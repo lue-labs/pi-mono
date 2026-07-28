@@ -223,7 +223,22 @@ export interface LayoutLine {
 	text: string;
 	hasCursor: boolean;
 	cursorPos?: number;
+	/** Absolute offset of this line's first character in the full document text. */
+	startIndex?: number;
 }
+
+/**
+ * A styled span over the editor's full document text (lines joined with "\n").
+ * Offsets are absolute string indices; `end` is exclusive.
+ */
+export interface EditorHighlightRange {
+	start: number;
+	end: number;
+	style: (text: string) => string;
+}
+
+/** Computes styled spans for the editor's current text. Must be cheap and pure. */
+export type EditorHighlighter = (text: string) => EditorHighlightRange[];
 
 export interface EditorTheme {
 	borderColor: (str: string) => string;
@@ -289,6 +304,10 @@ export class Editor implements Component, Focusable {
 
 	// Border color (can be changed dynamically)
 	public borderColor: (str: string) => string;
+
+	// Inline highlighting support
+	private highlighter?: EditorHighlighter;
+	private highlightCache?: { text: string; ranges: EditorHighlightRange[] };
 
 	// Autocomplete support
 	private autocompleteProvider?: AutocompleteProvider;
@@ -900,14 +919,24 @@ export class Editor implements Component, Focusable {
 				text: "",
 				hasCursor: true,
 				cursorPos: 0,
+				startIndex: 0,
 			});
 			logicalIndices.push(0);
-			return this.onLayoutLines(layoutLines, logicalIndices);
+			return this.applyHighlights(this.onLayoutLines(layoutLines, logicalIndices));
+		}
+
+		// Absolute offset of each logical line within getText() (lines joined by "\n").
+		const lineOffsets: number[] = [];
+		let runningOffset = 0;
+		for (const line of this.state.lines) {
+			lineOffsets.push(runningOffset);
+			runningOffset += line.length + 1;
 		}
 
 		// Process each logical line
 		for (let i = 0; i < this.state.lines.length; i++) {
 			const line = this.state.lines[i] || "";
+			const lineOffset = lineOffsets[i] ?? 0;
 			const isCurrentLine = i === this.state.cursorLine;
 			const lineVisibleWidth = visibleWidth(line);
 
@@ -918,11 +947,13 @@ export class Editor implements Component, Focusable {
 						text: line,
 						hasCursor: true,
 						cursorPos: this.state.cursorCol,
+						startIndex: lineOffset,
 					});
 				} else {
 					layoutLines.push({
 						text: line,
 						hasCursor: false,
+						startIndex: lineOffset,
 					});
 				}
 				logicalIndices.push(i);
@@ -967,11 +998,13 @@ export class Editor implements Component, Focusable {
 							text: chunk.text,
 							hasCursor: true,
 							cursorPos: adjustedCursorPos,
+							startIndex: lineOffset + chunk.startIndex,
 						});
 					} else {
 						layoutLines.push({
 							text: chunk.text,
 							hasCursor: false,
+							startIndex: lineOffset + chunk.startIndex,
 						});
 					}
 					logicalIndices.push(i);
@@ -979,7 +1012,93 @@ export class Editor implements Component, Focusable {
 			}
 		}
 
-		return this.onLayoutLines(layoutLines, logicalIndices);
+		return this.applyHighlights(this.onLayoutLines(layoutLines, logicalIndices));
+	}
+
+	/**
+	 * Install a highlighter that styles spans of the editor's text in place.
+	 * Pass `undefined` to remove it.
+	 */
+	setHighlighter(highlighter: EditorHighlighter | undefined): void {
+		this.highlighter = highlighter;
+		this.highlightCache = undefined;
+	}
+
+	private highlightRangesFor(text: string): EditorHighlightRange[] {
+		if (this.highlightCache?.text === text) return this.highlightCache.ranges;
+		const produced = this.highlighter?.(text) ?? [];
+		const ranges = produced
+			.filter((range) => range.end > range.start && range.start >= 0)
+			.sort((a, b) => a.start - b.start)
+			.filter((range, index, all) => index === 0 || range.start >= (all[index - 1]?.end ?? 0));
+		this.highlightCache = { text, ranges };
+		return ranges;
+	}
+
+	private applyHighlights(lines: LayoutLine[]): LayoutLine[] {
+		if (!this.highlighter) return lines;
+		const ranges = this.highlightRangesFor(this.getText());
+		if (ranges.length === 0) return lines;
+		return lines.map((line) => this.highlightLayoutLine(line, ranges));
+	}
+
+	private highlightLayoutLine(line: LayoutLine, ranges: EditorHighlightRange[]): LayoutLine {
+		const lineStart = line.startIndex;
+		if (lineStart === undefined || line.text.length === 0) return line;
+
+		// The grapheme under the cursor is rendered in reverse video by the renderer,
+		// so it must stay unstyled: carve it out of any span that covers it.
+		const cursorPos = line.hasCursor ? line.cursorPos : undefined;
+		let cursorGraphemeEnd = cursorPos;
+		if (cursorPos !== undefined && cursorPos < line.text.length) {
+			const rest = line.text.slice(cursorPos);
+			const first = [...this.segment(rest, "grapheme")][0]?.segment ?? "";
+			cursorGraphemeEnd = cursorPos + first.length;
+		}
+
+		let out = "";
+		let shift = 0;
+		let consumed = 0;
+		for (const range of ranges) {
+			const spanStart = Math.max(range.start - lineStart, consumed);
+			const spanEnd = Math.min(range.end - lineStart, line.text.length);
+			if (spanEnd <= spanStart) continue;
+
+			out += line.text.slice(consumed, spanStart);
+			for (const [from, to, styled] of this.splitSpanAroundCursor(
+				spanStart,
+				spanEnd,
+				cursorPos,
+				cursorGraphemeEnd,
+			)) {
+				const plain = line.text.slice(from, to);
+				const rendered = styled ? range.style(plain) : plain;
+				if (cursorPos !== undefined && cursorPos >= to) shift += rendered.length - plain.length;
+				out += rendered;
+			}
+			consumed = spanEnd;
+		}
+		if (consumed === 0) return line;
+		out += line.text.slice(consumed);
+
+		return cursorPos === undefined ? { ...line, text: out } : { ...line, text: out, cursorPos: cursorPos + shift };
+	}
+
+	/** Splits [start,end) into styled/unstyled parts so the cursor grapheme stays unstyled. */
+	private splitSpanAroundCursor(
+		start: number,
+		end: number,
+		cursorPos: number | undefined,
+		cursorEnd: number | undefined,
+	): Array<[number, number, boolean]> {
+		if (cursorPos === undefined || cursorEnd === undefined || cursorEnd <= start || cursorPos >= end) {
+			return [[start, end, true]];
+		}
+		const parts: Array<[number, number, boolean]> = [];
+		if (cursorPos > start) parts.push([start, cursorPos, true]);
+		parts.push([Math.max(cursorPos, start), Math.min(cursorEnd, end), false]);
+		if (cursorEnd < end) parts.push([cursorEnd, end, true]);
+		return parts;
 	}
 
 	/**

@@ -39,6 +39,7 @@ import type {
 	AutocompleteProvider,
 	Component,
 	EditorComponent,
+	EditorHighlighter,
 	EditorTheme,
 	KeyId,
 	OverlayHandle,
@@ -244,6 +245,14 @@ export interface ExtensionUIContext {
 
 	/** Stack additional autocomplete behavior on top of the built-in provider. */
 	addAutocompleteProvider(factory: AutocompleteProviderFactory): void;
+
+	/**
+	 * Style spans of the input editor's text in place, e.g. to show that a token
+	 * was recognized. The highlighter receives the editor's full text and returns
+	 * absolute `{ start, end, style }` ranges. Highlighters from all extensions are
+	 * merged; overlapping ranges resolve to the earliest-starting one.
+	 */
+	addInputHighlighter(highlighter: EditorHighlighter): void;
 
 	/**
 	 * Set a custom editor component via factory function.
