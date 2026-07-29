@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- `Editor.setHighlighter()`: style spans of the editor's own text in place. The highlighter maps the current text to `{ start, end, style }` ranges and the layout pass renders those runs through `style`, so a host can show that a token was recognized while it is being typed. Ranges apply after `onLayoutLines`, leaving subclass layout overrides intact, and the grapheme under the cursor is carved out of any span so the reverse-video cursor stays visible. `LayoutLine` gained `startIndex`, the absolute document offset of the line (including word-wrapped continuation chunks), so highlighters work in document coordinates. Ranges address the plain document text, so a line that `onLayoutLines` rewrote (a subclass injecting its own ANSI) keeps the subclass's rendering and is not spliced at a stale offset.
+
 - Differential rendering: stop clearing the terminal's scrollback when a line above the viewport changes. Off-screen-only changes now paint nothing, changes spanning the viewport boundary repaint only the visible remainder, and shrinking content still takes the full redraw (stale rows genuinely need clearing). Background agents mutating status rows above the fold used to nuke scrollback and snap the terminal to the bottom several times a minute.
 
 - StdinBuffer: treat an unbracketed multi-line stdin chunk (no escape sequences, content spanning multiple lines) as a single paste event. Prevents terminals/muxes that strip bracketed-paste markers (e.g. tmux `-CC` control-mode clients) from shredding a paste into one submitted message per line. Single-line chunks with a trailing newline still submit, so programmatic text-plus-Enter automation is unaffected.

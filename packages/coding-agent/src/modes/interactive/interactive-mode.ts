@@ -14,6 +14,8 @@ import type {
 	AutocompleteItem,
 	AutocompleteProvider,
 	EditorComponent,
+	EditorHighlighter,
+	EditorHighlightRange,
 	Keybinding,
 	KeyId,
 	MarkdownTheme,
@@ -346,6 +348,7 @@ export class InteractiveMode {
 	private editorComponentFactory: EditorFactory | undefined;
 	private autocompleteProvider: AutocompleteProvider | undefined;
 	private autocompleteProviderWrappers: AutocompleteProviderFactory[] = [];
+	private inputHighlighters: EditorHighlighter[] = [];
 	private fdPath: string | undefined;
 	private editorContainer: Container;
 	private footer: FooterComponent;
@@ -697,6 +700,29 @@ export class InteractiveMode {
 		this.defaultEditor.setAutocompleteProvider(provider);
 		if (this.editor !== this.defaultEditor) {
 			this.editor.setAutocompleteProvider?.(provider);
+		}
+	}
+
+	private setupInputHighlighter(): void {
+		const highlighters = this.inputHighlighters;
+		const combined: EditorHighlighter | undefined =
+			highlighters.length === 0
+				? undefined
+				: (text: string) => {
+						const ranges: EditorHighlightRange[] = [];
+						for (const highlight of highlighters) {
+							// A throwing highlighter must not take down the render loop, and
+							// there is no safe stderr to report to while the TUI owns the screen.
+							try {
+								ranges.push(...highlight(text));
+							} catch {}
+						}
+						return ranges;
+					};
+
+		this.defaultEditor.setHighlighter(combined);
+		if (this.editor !== this.defaultEditor) {
+			this.editor.setHighlighter?.(combined);
 		}
 	}
 
@@ -2108,8 +2134,10 @@ export class InteractiveMode {
 		this.footerDataProvider.clearExtensionStatuses();
 		this.footer.invalidate();
 		this.autocompleteProviderWrappers = [];
+		this.inputHighlighters = [];
 		this.setCustomEditorComponent(undefined);
 		this.setupAutocompleteProvider();
+		this.setupInputHighlighter();
 		this.defaultEditor.onExtensionShortcut = undefined;
 		this.updateTerminalTitle();
 		this.workingMessage = undefined;
@@ -2473,6 +2501,13 @@ export class InteractiveMode {
 				this.autocompleteProviderWrappers.push(factory);
 				this.setupAutocompleteProvider();
 			},
+			addInputHighlighter: (highlighter) => {
+				// Extensions re-register on session boundaries; a stable function reference
+				// must not stack up into duplicate spans.
+				if (this.inputHighlighters.includes(highlighter)) return;
+				this.inputHighlighters.push(highlighter);
+				this.setupInputHighlighter();
+			},
 			setEditorComponent: (factory) => this.setCustomEditorComponent(factory),
 			getEditorComponent: () => this.editorComponentFactory,
 			get theme() {
@@ -2745,6 +2780,7 @@ export class InteractiveMode {
 			this.editor = this.defaultEditor;
 		}
 
+		this.setupInputHighlighter();
 		this.editorContainer.addChild(this.editor as Component);
 		this.ui.setFocus(this.editor as Component);
 		this.ui.requestRender();

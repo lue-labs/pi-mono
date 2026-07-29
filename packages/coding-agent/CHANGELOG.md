@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Extensions can style the text input via `ui.addInputHighlighter()`, which forwards to the interactive editor's new highlighter seam. Several extensions may contribute ranges to the same input, each highlighter is isolated so one throwing does not break rendering, and registrations survive editor swaps. RPC and headless modes accept the call and ignore it.
+
 - Fix: `Agent` no longer renders task validation errors while tool-call arguments are still streaming (a half-parsed `tasks[]` entry surfaced "tasks entries require subagent_type and prompt" for calls that then ran fine), and `action: "inject"` now steers live child sessions first, falling back to interrupt+resume only for single background runs — injecting into a parallel fan-out previously interrupted every child and could not resume, destroying the run ([#393](https://github.com/valkyriweb/pi-mono/pull/393)).
 
 - Fix: cancelling a background agent run whose live controller is gone (interrupted-detached, or zombie-running before the reaper fires) now settles it directly to `cancelled` with a generation guard against late progress clobbers; cancelling an interrupted parent also settles its interrupted children, and cancel is idempotent against already-settled runs. A live controller lacking the optional cancel verb is still refused ([#303](https://github.com/valkyriweb/pi-mono/issues/303), [#392](https://github.com/valkyriweb/pi-mono/pull/392)).
