@@ -201,6 +201,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	}
 
 	private async refreshModels(): Promise<void> {
+		const previousModelIds = new Set(this.allModels.map((item) => `${item.provider}/${item.id}`));
 		const timeoutMs = 15_000;
 		let timedOut = false;
 		this.refreshTimeout = setTimeout(() => {
@@ -225,6 +226,12 @@ export class ModelSelectorComponent extends Container implements Focusable {
 				}
 			}
 			this.loadModelsFromSnapshot();
+			if (!this.searchInput.getValue()) {
+				const addedIndex = this.activeModels.findIndex(
+					(item) => !previousModelIds.has(`${item.provider}/${item.id}`),
+				);
+				if (addedIndex >= 0) this.selectedIndex = addedIndex;
+			}
 			this.filterModels(this.searchInput.getValue());
 			this.tui.requestRender();
 		} finally {
