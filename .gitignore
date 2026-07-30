@@ -52,3 +52,6 @@ collect.sh
 
 # rusty (pi) session store
 .rusty/
+
+# Rust recast experiment build output
+experiments/rusty-core-recast/target/
