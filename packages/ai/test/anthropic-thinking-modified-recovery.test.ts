@@ -222,12 +222,11 @@ describe("Anthropic thinking-modified 400 recovery (#thinking-roundtrip)", () =>
 		expect(
 			isLatestThinkingModifiedError(new Error("thinking blocks in the latest assistant message cannot be modified")),
 		).toBe(false);
-		expect(
-			isLatestThinkingModifiedError(
-				Object.assign(new Error("thinking blocks in the latest assistant message must come first"), {
-					status: 400,
-				}),
-			),
-		).toBe(false);
+		for (const message of [
+			"thinking blocks in the latest assistant message must come first",
+			"thinking configuration on the latest assistant message cannot be modified",
+		]) {
+			expect(isLatestThinkingModifiedError(Object.assign(new Error(message), { status: 400 }))).toBe(false);
+		}
 	});
 });
