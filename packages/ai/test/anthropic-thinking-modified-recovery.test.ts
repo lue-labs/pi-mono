@@ -218,9 +218,16 @@ describe("Anthropic thinking-modified 400 recovery (#thinking-roundtrip)", () =>
 		});
 	});
 
-	it("does not retry statusless errors that only resemble Anthropic's 400", () => {
+	it("does not retry errors that only resemble Anthropic's signature-mutation 400", () => {
 		expect(
 			isLatestThinkingModifiedError(new Error("thinking blocks in the latest assistant message cannot be modified")),
+		).toBe(false);
+		expect(
+			isLatestThinkingModifiedError(
+				Object.assign(new Error("thinking blocks in the latest assistant message must come first"), {
+					status: 400,
+				}),
+			),
 		).toBe(false);
 	});
 });

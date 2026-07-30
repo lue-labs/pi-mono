@@ -19,7 +19,7 @@ export function isLatestThinkingModifiedError(error: unknown): boolean {
 	if ((error as { status?: unknown })?.status !== 400) return false;
 	const text =
 		error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error ?? "");
-	return /thinking|redacted_thinking/i.test(text) && /latest assistant message/i.test(text);
+	return /(?:thinking|redacted_thinking).*latest assistant message.*cannot be modified/i.test(text);
 }
 
 export function stripThinkingFromLatestAssistantTurn(messages: MessageParam[]): {
