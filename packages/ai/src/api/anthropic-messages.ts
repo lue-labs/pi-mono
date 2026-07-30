@@ -40,10 +40,7 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { splitSystemPromptForCache } from "./anthropic-cache-split.ts";
 import { type ServerToolResultBlockLike, summarizeServerToolResult } from "./anthropic-server-tools.ts";
-import {
-	isLatestThinkingModifiedError,
-	stripThinkingFromLatestAssistantMessage,
-} from "./anthropic-thinking-recovery.ts";
+import { isLatestThinkingModifiedError, stripThinkingFromLatestAssistantTurn } from "./anthropic-thinking-recovery.ts";
 import {
 	convertedToolCache,
 	convertOneTool,
@@ -734,12 +731,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					},
 				);
 			} catch (error) {
-				// Anthropic identifies only the latest assistant message as invalid.
-				// Preserve every earlier signed/redacted block so the retry loses one
-				// turn of reasoning instead of the session's full reasoning history.
-				// (#thinking-roundtrip)
+				// Anthropic combines consecutive assistant params into one turn, so recover
+				// the final contiguous assistant run while preserving every earlier signed
+				// block. (#thinking-roundtrip)
 				if (!isLatestThinkingModifiedError(error)) throw error;
-				const recovery = stripThinkingFromLatestAssistantMessage(params.messages);
+				const recovery = stripThinkingFromLatestAssistantTurn(params.messages);
 				params = { ...params, messages: recovery.messages };
 				appendAssistantMessageDiagnostic(
 					output,

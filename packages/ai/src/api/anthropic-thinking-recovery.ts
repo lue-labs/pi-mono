@@ -2,11 +2,11 @@
  * Signed-thinking-block 400 recovery (fork-owned).
  *
  * Anthropic rejects a request when a thinking/redacted_thinking block in the
- * latest assistant message does not byte-match what it signed (drifted
- * signature from a crashed/paused turn, post-compaction replay, or content
- * mutation). `stream` in anthropic-messages.ts detects that specific 400 via
+ * latest assistant turn does not byte-match what it signed (drifted signature
+ * from a crashed/paused turn, post-compaction replay, or content mutation).
+ * `stream` in anthropic-messages.ts detects that specific 400 via
  * {@link isLatestThinkingModifiedError} and retries ONCE with
- * {@link stripThinkingFromLatestAssistantMessage} applied. (#thinking-roundtrip)
+ * {@link stripThinkingFromLatestAssistantTurn} applied. (#thinking-roundtrip)
  *
  * Fork provenance: extracted verbatim from anthropic-messages.ts (fork-delta
  * reforge slice 6); tier `platform` in pi-fork-patch-inventory.
@@ -22,7 +22,7 @@ export function isLatestThinkingModifiedError(error: unknown): boolean {
 	return /thinking|redacted_thinking/i.test(text) && /latest assistant message/i.test(text);
 }
 
-export function stripThinkingFromLatestAssistantMessage(messages: MessageParam[]): {
+export function stripThinkingFromLatestAssistantTurn(messages: MessageParam[]): {
 	messages: MessageParam[];
 	removedThinkingBlocks: number;
 	removedAssistantMessage: boolean;
@@ -34,26 +34,38 @@ export function stripThinkingFromLatestAssistantMessage(messages: MessageParam[]
 			break;
 		}
 	}
-
-	const latestAssistant = messages[latestAssistantIndex];
-	if (!latestAssistant || typeof latestAssistant.content === "string") {
+	if (latestAssistantIndex === -1) {
 		return { messages, removedThinkingBlocks: 0, removedAssistantMessage: false };
 	}
 
-	const content = latestAssistant.content.filter(
-		(block) => block.type !== "thinking" && block.type !== "redacted_thinking",
-	);
-	const removedThinkingBlocks = latestAssistant.content.length - content.length;
-	if (removedThinkingBlocks === 0) {
-		return { messages, removedThinkingBlocks, removedAssistantMessage: false };
+	let firstAssistantIndex = latestAssistantIndex;
+	while (firstAssistantIndex > 0 && messages[firstAssistantIndex - 1].role === "assistant") {
+		firstAssistantIndex--;
 	}
 
 	const recoveredMessages = [...messages];
-	if (content.length === 0) {
-		recoveredMessages.splice(latestAssistantIndex, 1);
-		return { messages: recoveredMessages, removedThinkingBlocks, removedAssistantMessage: true };
+	let removedThinkingBlocks = 0;
+	let removedAssistantMessage = false;
+	for (let index = latestAssistantIndex; index >= firstAssistantIndex; index--) {
+		const assistant = messages[index];
+		if (typeof assistant.content === "string") continue;
+
+		const content = assistant.content.filter(
+			(block) => block.type !== "thinking" && block.type !== "redacted_thinking",
+		);
+		removedThinkingBlocks += assistant.content.length - content.length;
+		if (content.length === assistant.content.length) continue;
+
+		if (content.length === 0) {
+			recoveredMessages.splice(index, 1);
+			removedAssistantMessage = true;
+		} else {
+			recoveredMessages[index] = { ...assistant, content };
+		}
 	}
 
-	recoveredMessages[latestAssistantIndex] = { ...latestAssistant, content };
-	return { messages: recoveredMessages, removedThinkingBlocks, removedAssistantMessage: false };
+	if (removedThinkingBlocks === 0) {
+		return { messages, removedThinkingBlocks, removedAssistantMessage: false };
+	}
+	return { messages: recoveredMessages, removedThinkingBlocks, removedAssistantMessage };
 }

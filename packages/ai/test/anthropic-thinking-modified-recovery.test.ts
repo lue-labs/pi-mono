@@ -161,6 +161,36 @@ describe("Anthropic thinking-modified 400 recovery (#thinking-roundtrip)", () =>
 		]);
 	});
 
+	it("strips thinking from every message in the final contiguous assistant turn", async () => {
+		const context = poisonedContext([
+			{ type: "thinking", thinking: "malformed split reasoning", thinkingSignature: "stale-signature" },
+			{ type: "text", text: "first latest segment" },
+		]);
+		context.messages.splice(
+			context.messages.length - 1,
+			0,
+			assistantMessage([{ type: "text", text: "last latest segment" }]),
+		);
+
+		const stream = streamSimple(makeModel(), context, { apiKey: "k" });
+		const message = await stream.result();
+
+		expect(message.stopReason).toBe("stop");
+		expect(requestBodies).toHaveLength(2);
+		const originalAssistants = requestBodies[0].messages?.filter((entry) => entry.role === "assistant") ?? [];
+		const retryAssistants = requestBodies[1].messages?.filter((entry) => entry.role === "assistant") ?? [];
+		expect(retryAssistants).toEqual([
+			originalAssistants[0],
+			{ role: "assistant", content: [{ type: "text", text: "first latest segment" }] },
+			originalAssistants[2],
+		]);
+		expect(message.diagnostics?.[0]?.details).toMatchObject({
+			lostAssistantTurns: 1,
+			removedThinkingBlocks: 1,
+			removedAssistantMessage: false,
+		});
+	});
+
 	it("drops a latest assistant message left empty by recovery", async () => {
 		const stream = streamSimple(
 			makeModel(),
