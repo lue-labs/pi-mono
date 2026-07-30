@@ -1,15 +1,19 @@
 import { createServer, type Server } from "node:http";
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isLatestThinkingModifiedError } from "../src/api/anthropic-thinking-recovery.ts";
 import { streamSimple } from "../src/compat.ts";
-import type { AssistantMessage, Context, Message, Model } from "../src/types.ts";
+import type { AssistantMessage, Context, Message, Model, Tool } from "../src/types.ts";
 
-// A session poisoned by a drifted thinking signature gets a 400 on every
-// request ("thinking ... in the latest assistant message cannot be modified").
-// streamAnthropic must recover by retrying once with thinking blocks stripped.
+interface RequestBody {
+	messages?: Array<{ role: string; content: unknown }>;
+	system?: unknown;
+	tools?: unknown;
+}
 
 let server: Server;
 let port: number;
-const requestBodies: Array<{ messages?: Array<{ role: string; content: unknown }> }> = [];
+const requestBodies: RequestBody[] = [];
 let failFirst = true;
 
 const SSE_OK = [
@@ -73,17 +77,14 @@ function makeModel(): Model<"anthropic-messages"> {
 	};
 }
 
-function poisonedContext(): Context {
-	const assistant: AssistantMessage = {
+function assistantMessage(content: AssistantMessage["content"]): AssistantMessage {
+	return {
 		role: "assistant",
-		content: [
-			{ type: "thinking", thinking: "drifted reasoning", thinkingSignature: "stale-signature" },
-			{ type: "text", text: "partial answer" },
-		],
+		content,
 		provider: "claude-bridge",
 		api: "anthropic-messages",
 		model: "claude-opus-4-8",
-		timestamp: Date.now(),
+		timestamp: 1,
 		usage: {
 			input: 0,
 			output: 0,
@@ -94,31 +95,138 @@ function poisonedContext(): Context {
 		},
 		stopReason: "stop",
 	};
-	const messages: Message[] = [
-		{ role: "user", content: "hello", timestamp: Date.now() },
-		assistant,
-		{ role: "user", content: "continue", timestamp: Date.now() },
+}
+
+function poisonedContext(
+	latestContent: AssistantMessage["content"] = [
+		{ type: "thinking", thinking: "malformed latest reasoning", thinkingSignature: "stale-signature" },
+		{
+			type: "thinking",
+			thinking: "[Reasoning redacted]",
+			thinkingSignature: "stale-redacted-payload",
+			redacted: true,
+		},
+		{ type: "text", text: "latest answer" },
+	],
+): Context {
+	const tools: Tool[] = [
+		{
+			name: "lookup",
+			description: "Look up a value",
+			parameters: Type.Object({ value: Type.String() }),
+		},
 	];
-	return { messages };
+	const messages: Message[] = [
+		{ role: "user", content: "first", timestamp: 1 },
+		assistantMessage([
+			{ type: "thinking", thinking: "older signed reasoning", thinkingSignature: "older-signature" },
+			{
+				type: "thinking",
+				thinking: "[Reasoning redacted]",
+				thinkingSignature: "older-redacted-payload",
+				redacted: true,
+			},
+			{ type: "text", text: "older answer" },
+		]),
+		{ role: "user", content: "second", timestamp: 2 },
+		assistantMessage(latestContent),
+		{ role: "user", content: "continue", timestamp: 3 },
+	];
+	return { systemPrompt: "Stable system prompt", messages, tools };
 }
 
 describe("Anthropic thinking-modified 400 recovery (#thinking-roundtrip)", () => {
-	it("retries once with thinking blocks stripped and succeeds", async () => {
+	it("strips only the latest assistant thinking blocks and preserves the cached prefix", async () => {
 		const stream = streamSimple(makeModel(), poisonedContext(), { apiKey: "k" });
 		const message = await stream.result();
 
-		// Recovered: a completed assistant turn, not a thrown error.
 		expect(message.stopReason).toBe("stop");
-
-		// Two requests: the original (with thinking) and the stripped retry.
 		expect(requestBodies).toHaveLength(2);
-		const firstAssistant = requestBodies[0].messages?.find((m) => m.role === "assistant");
-		const retryAssistant = requestBodies[1].messages?.find((m) => m.role === "assistant");
-		const types = (m: { content: unknown } | undefined) =>
-			Array.isArray(m?.content) ? (m!.content as Array<{ type: string }>).map((b) => b.type) : [];
 
-		expect(types(firstAssistant)).toContain("thinking");
-		expect(types(retryAssistant)).not.toContain("thinking");
-		expect(types(retryAssistant)).toContain("text");
+		const originalAssistants = requestBodies[0].messages?.filter((entry) => entry.role === "assistant") ?? [];
+		const retryAssistants = requestBodies[1].messages?.filter((entry) => entry.role === "assistant") ?? [];
+		expect(retryAssistants).toHaveLength(2);
+		expect(retryAssistants[0]).toEqual(originalAssistants[0]);
+		expect(retryAssistants[1].content).toEqual([{ type: "text", text: "latest answer" }]);
+		expect(JSON.stringify(requestBodies[1].system)).toBe(JSON.stringify(requestBodies[0].system));
+		expect(JSON.stringify(requestBodies[1].tools)).toBe(JSON.stringify(requestBodies[0].tools));
+		expect(message.diagnostics).toEqual([
+			expect.objectContaining({
+				type: "anthropic_latest_thinking_recovery",
+				details: expect.objectContaining({
+					lostAssistantTurns: 1,
+					removedThinkingBlocks: 2,
+				}),
+			}),
+		]);
+	});
+
+	it("strips thinking from every message in the final contiguous assistant turn", async () => {
+		const context = poisonedContext([
+			{ type: "thinking", thinking: "malformed split reasoning", thinkingSignature: "stale-signature" },
+			{ type: "text", text: "first latest segment" },
+		]);
+		context.messages.splice(
+			context.messages.length - 1,
+			0,
+			assistantMessage([{ type: "text", text: "last latest segment" }]),
+		);
+
+		const stream = streamSimple(makeModel(), context, { apiKey: "k" });
+		const message = await stream.result();
+
+		expect(message.stopReason).toBe("stop");
+		expect(requestBodies).toHaveLength(2);
+		const originalAssistants = requestBodies[0].messages?.filter((entry) => entry.role === "assistant") ?? [];
+		const retryAssistants = requestBodies[1].messages?.filter((entry) => entry.role === "assistant") ?? [];
+		expect(retryAssistants).toEqual([
+			originalAssistants[0],
+			{ role: "assistant", content: [{ type: "text", text: "first latest segment" }] },
+			originalAssistants[2],
+		]);
+		expect(message.diagnostics?.[0]?.details).toMatchObject({
+			lostAssistantTurns: 1,
+			removedThinkingBlocks: 1,
+			removedAssistantMessage: false,
+		});
+	});
+
+	it("drops a latest assistant message left empty by recovery", async () => {
+		const stream = streamSimple(
+			makeModel(),
+			poisonedContext([
+				{ type: "thinking", thinking: "malformed latest reasoning", thinkingSignature: "stale-signature" },
+				{
+					type: "thinking",
+					thinking: "[Reasoning redacted]",
+					thinkingSignature: "stale-redacted-payload",
+					redacted: true,
+				},
+			]),
+			{ apiKey: "k" },
+		);
+		const message = await stream.result();
+
+		expect(message.stopReason).toBe("stop");
+		const originalAssistants = requestBodies[0].messages?.filter((entry) => entry.role === "assistant") ?? [];
+		const retryAssistants = requestBodies[1].messages?.filter((entry) => entry.role === "assistant") ?? [];
+		expect(retryAssistants).toEqual([originalAssistants[0]]);
+		expect(message.diagnostics?.[0]?.details).toMatchObject({
+			lostAssistantTurns: 1,
+			removedThinkingBlocks: 2,
+			removedAssistantMessage: true,
+		});
+	});
+
+	it("does not retry errors that only resemble Anthropic's signature-mutation 400", () => {
+		expect(
+			isLatestThinkingModifiedError(new Error("thinking blocks in the latest assistant message cannot be modified")),
+		).toBe(false);
+		for (const message of [
+			"thinking blocks in the latest assistant message must come first",
+			"thinking configuration on the latest assistant message cannot be modified",
+		]) {
+			expect(isLatestThinkingModifiedError(Object.assign(new Error(message), { status: 400 }))).toBe(false);
+		}
 	});
 });
