@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import { Editor, type EditorHighlightRange, type LayoutLine } from "../src/components/editor.ts";
-import { TUI } from "../src/tui.ts";
+import { TuiMainScreen } from "../src/tui-main-screen.ts";
 import { defaultEditorTheme } from "./test-themes.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
@@ -11,7 +11,7 @@ const MARK_CLOSE = "\x1b[0m";
 const mark = (text: string) => `${MARK_OPEN}${text}${MARK_CLOSE}`;
 
 function createEditor(cols = 80): Editor {
-	const tui = new TUI(new VirtualTerminal(cols, 24));
+	const tui = new TuiMainScreen(new VirtualTerminal(cols, 24));
 	return new Editor(tui, defaultEditorTheme);
 }
 
@@ -142,7 +142,7 @@ describe("Editor highlighter", () => {
 			}
 		}
 
-		const tui = new TUI(new VirtualTerminal(80, 24));
+		const tui = new TuiMainScreen(new VirtualTerminal(80, 24));
 		const editor = new SyntaxEditor(tui, defaultEditorTheme);
 		editor.setText("think hard and run /polish now\nplain /polish line");
 		editor.setHighlighter((text) => rangesFor(text, "/polish"));

@@ -102,6 +102,8 @@ Pi loads:
 
 You can include other text files from a context file with Claude-Code-style `@` imports, for example `@docs/project-rules.md` or `@../shared/standards.md`. Imports are expanded before the system prompt is built and are ignored inside code blocks, inline code, and HTML comments.
 
+If a directory contains `AGENTS.override.md`, Pi loads it instead of `AGENTS.md` or `CLAUDE.md` from that directory.
+
 Restart pi, or run `/reload`, after changing context files.
 
 ## Common things to try

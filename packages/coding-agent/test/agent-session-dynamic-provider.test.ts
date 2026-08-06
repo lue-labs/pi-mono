@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Provider } from "@valkyriweb/pi-ai";
-import { getModel } from "@valkyriweb/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
@@ -13,8 +12,11 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { pickModel } from "./helpers/models.ts";
 
+// The native provider must expose the same model id the session is actually using
+// (pickModel("anthropic")), not a hardcoded id, so registerNativeProvider's
+// replacement provider still contains the active model for lookup to find.
 function nativeAnthropicProvider(baseUrl: string): Provider {
-	const model = { ...getModel("anthropic", "claude-sonnet-4-5")!, baseUrl };
+	const model = { ...pickModel("anthropic"), baseUrl };
 	return {
 		id: "anthropic",
 		name: "Native Anthropic",
