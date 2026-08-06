@@ -30,6 +30,7 @@ type InteractiveCompactionTestThis = {
 	addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void;
 	getUserMessageText(message: Extract<AgentMessage, { role: "user" }>): string;
 	getMarkdownThemeWithSettings(): undefined;
+	getMarkdownTransformers(): [];
 	getRegisteredToolDefinition(): undefined;
 	updateEditorBorderColor(): void;
 	showError(message: string): void;
@@ -120,6 +121,7 @@ describe("InteractiveMode compaction events", () => {
 			addMessageToChat: Reflect.get(InteractiveMode.prototype, "addMessageToChat"),
 			getUserMessageText: Reflect.get(InteractiveMode.prototype, "getUserMessageText"),
 			getMarkdownThemeWithSettings: () => undefined,
+			getMarkdownTransformers: () => [],
 			getRegisteredToolDefinition: () => undefined,
 			updateEditorBorderColor: vi.fn(),
 			showError: vi.fn(),

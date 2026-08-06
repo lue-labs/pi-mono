@@ -27,6 +27,7 @@ To learn more about Pi:
 
 | Package | Description |
 |---------|-------------|
+| **[@valkyriweb/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
 | **[@valkyriweb/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
 | **[@valkyriweb/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
 | **[@valkyriweb/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |

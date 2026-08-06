@@ -5,12 +5,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const packages = [
+	{ directory: "packages/telemetry", name: "@valkyriweb/pi-telemetry" },
 	{ directory: "packages/ai", name: "@valkyriweb/pi-ai" },
 	{ directory: "packages/agent", name: "@valkyriweb/pi-agent-core" },
-	{ directory: "packages/storage/sqlite-node", name: "@valkyriweb/pi-storage-sqlite-node" },
+	{ directory: "packages/protocol", name: "@valkyriweb/pi-protocol" },
+	{ directory: "packages/client", name: "@valkyriweb/pi-client" },
+	{ directory: "packages/session-backends/sqlite-node", name: "@valkyriweb/pi-session-backend-sqlite-node" },
+	{ directory: "packages/server", name: "@valkyriweb/pi-server" },
 	{ directory: "packages/tui", name: "@valkyriweb/pi-tui" },
 	{ directory: "packages/coding-agent", name: "@valkyriweb/pi-coding-agent" },
-	{ directory: "packages/server", name: "@valkyriweb/pi-server" },
 ];
 
 const dryRun = process.argv.includes("--dry-run");

@@ -285,16 +285,18 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				context.tools,
 				model.compat?.supportsOpenAIGrammarTools ?? false,
 			);
-			// Local WebSocket continuation state, SSE-fallback tracking, and debug
-			// stats stay keyed to the real Pi session id (see cache-affinity note
-			// below); provider-visible cache affinity uses cacheAffinitySessionId.
-			const cacheSessionId = options?.sessionId;
+			// Local socket keying, SSE-fallback tracking, and debug stats stay keyed to
+			// the real Pi session id (see cache-affinity note below); provider-visible
+			// cache affinity uses cacheAffinitySessionId. cacheRetention "none" gates
+			// only what the provider retains, never local bookkeeping.
+			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
+			const localSessionId = options?.sessionId;
+			const cacheSessionId = cacheRetention === "none" ? undefined : localSessionId;
 			let body = buildRequestBody(model, context, options, grammarToolInputProperties);
 			const nextBody = await options?.onPayload?.(body, model);
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
 			}
-			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 			// ChatGPT Codex Responses rejects `prompt_cache_retention` ("Unsupported
 			// parameter: prompt_cache_retention") — same backend constraint as
 			// `store: true` / `max_output_tokens`. Server-side prefix caching is keyed on
@@ -302,15 +304,15 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// send; the explicit retention window must never be forwarded or every
 			// request 400s. Was a fork-only addition; the backend now refuses it.
 			const cacheAffinitySessionId =
-				cacheRetention === "none"
-					? options?.sessionId
-					: codexPromptCacheKey(options?.cacheAffinityKey, options?.sessionId, body) || options?.sessionId;
-			body.prompt_cache_key = cacheRetention === "none" ? undefined : cacheAffinitySessionId;
+				cacheSessionId === undefined
+					? undefined
+					: codexPromptCacheKey(options?.cacheAffinityKey, cacheSessionId, body) || cacheSessionId;
+			body.prompt_cache_key = cacheAffinitySessionId;
 
 			// ChatGPT Codex keys server-side prefix caching on the session-id header.
 			// Keep thread-id / x-client-request-id tied to the real Pi session while
 			// routing same-shape requests through the shared affinity session-id.
-			const codexThreadId = clampOpenAIPromptCacheKey(options?.sessionId);
+			const codexThreadId = clampOpenAIPromptCacheKey(localSessionId);
 			const codexSessionHeader = cacheAffinitySessionId;
 			// Provider-visible Codex session-id may be shared across same-shape sessions
 			// for prefix-cache reuse. Local WebSocket continuation state is different:
@@ -318,7 +320,10 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// socket reuse, fallback tracking, and debug stats keyed to the real Pi
 			// session id carried in options.
 			const requestedTransport = options?.transport || "auto";
-			const transport = model.compat?.supportsWebSocketTransport === false ? "sse" : requestedTransport;
+			let transport = model.compat?.supportsWebSocketTransport === false ? "sse" : requestedTransport;
+			// previous_response_id continuation is provider-retained context, so
+			// cacheRetention "none" downgrades to a plain socket rather than reusing it.
+			if (cacheRetention === "none" && transport !== "sse") transport = "websocket";
 			const transportOptions: OpenAICodexResponsesOptions = { ...options, transport };
 			const sseHeaders = buildSSEHeaders(
 				model.headers,
@@ -341,9 +346,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			const httpTimeoutMs = normalizeTimeoutMs(options?.timeoutMs);
 			const websocketConnectTimeoutMs = normalizeTimeoutMs(options?.websocketConnectTimeoutMs);
 			let startEmitted = false;
-			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(cacheSessionId);
+			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(localSessionId);
 			if (websocketDisabledForSession) {
-				recordWebSocketSseFallback(cacheSessionId);
+				recordWebSocketSseFallback(localSessionId);
 			}
 
 			if (transport !== "sse" && !websocketDisabledForSession) {
@@ -369,7 +374,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							},
 							httpTimeoutMs,
 							websocketConnectTimeoutMs,
-							cacheSessionId,
+							localSessionId,
+							accountId,
 							grammarToolInputProperties,
 							transportOptions,
 						);
@@ -410,11 +416,11 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 								requestBytes: new TextEncoder().encode(bodyJson).byteLength,
 							}),
 						);
-						recordWebSocketFailure(cacheSessionId, error);
+						recordWebSocketFailure(localSessionId, error);
 						if (websocketStarted) {
 							throw error;
 						}
-						recordWebSocketSseFallback(cacheSessionId);
+						recordWebSocketSseFallback(localSessionId);
 						break;
 					}
 				}
@@ -447,7 +453,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						httpTimeoutMs !== undefined && httpTimeoutMs > 0 ? AbortSignal.timeout(httpTimeoutMs) : undefined;
 					const combinedSignal = combineAbortSignals([options?.signal, headerTimeoutSignal]);
 					try {
-						response = await fetch(resolveCodexUrl(model.baseUrl), {
+						response = await (options?.fetch ?? globalThis.fetch)(resolveCodexUrl(model.baseUrl), {
 							method: "POST",
 							headers: sseHeaders,
 							body: sseBody,
@@ -979,7 +985,7 @@ export interface OpenAICodexWebSocketDebugStats {
 	lastWebSocketError?: string;
 }
 
-const websocketSessionCache = new Map<string, CachedWebSocketConnection>();
+const websocketSessionCache = new Map<string, Map<string | undefined, CachedWebSocketConnection>>();
 const websocketDebugStats = new Map<string, OpenAICodexWebSocketDebugStats>();
 const websocketSseFallbackSessions = new Set<string>();
 
@@ -1027,13 +1033,12 @@ export function closeOpenAICodexWebSocketSessions(sessionId?: string): void {
 		closeWebSocketSilently(entry.socket, 1000, "debug_close");
 	};
 	if (sessionId) {
-		const entry = websocketSessionCache.get(sessionId);
-		if (entry) closeEntry(entry);
+		for (const entry of websocketSessionCache.get(sessionId)?.values() ?? []) closeEntry(entry);
 		websocketSessionCache.delete(sessionId);
 		return;
 	}
-	for (const entry of websocketSessionCache.values()) {
-		closeEntry(entry);
+	for (const accountEntries of websocketSessionCache.values()) {
+		for (const entry of accountEntries.values()) closeEntry(entry);
 	}
 	websocketSessionCache.clear();
 }
@@ -1135,14 +1140,20 @@ function closeWebSocketSilently(socket: WebSocketLike, code = 1000, reason = "do
 	} catch {}
 }
 
-function scheduleSessionWebSocketExpiry(sessionId: string, entry: CachedWebSocketConnection): void {
+function scheduleSessionWebSocketExpiry(
+	sessionId: string,
+	accountId: string | undefined,
+	entry: CachedWebSocketConnection,
+): void {
 	if (entry.idleTimer) {
 		clearTimeout(entry.idleTimer);
 	}
 	entry.idleTimer = setTimeout(() => {
 		if (entry.busy) return;
 		closeWebSocketSilently(entry.socket, 1000, "idle_timeout");
-		websocketSessionCache.delete(sessionId);
+		const accountEntries = websocketSessionCache.get(sessionId);
+		if (accountEntries?.get(accountId) === entry) accountEntries.delete(accountId);
+		if (accountEntries?.size === 0) websocketSessionCache.delete(sessionId);
 	}, SESSION_WEBSOCKET_CACHE_TTL_MS);
 }
 
@@ -1228,6 +1239,7 @@ async function acquireWebSocket(
 	url: string,
 	headers: Headers,
 	sessionId: string | undefined,
+	accountId: string | undefined,
 	signal?: AbortSignal,
 	connectTimeoutMs?: number,
 	env?: ProviderEnv,
@@ -1246,7 +1258,8 @@ async function acquireWebSocket(
 		};
 	}
 
-	const cached = websocketSessionCache.get(sessionId);
+	let accountEntries = websocketSessionCache.get(sessionId);
+	const cached = accountEntries?.get(accountId);
 	if (cached) {
 		if (cached.idleTimer) {
 			clearTimeout(cached.idleTimer);
@@ -1254,7 +1267,8 @@ async function acquireWebSocket(
 		}
 		if (!cached.busy && isWebSocketSessionExpired(cached)) {
 			closeWebSocketSilently(cached.socket, 1000, "connection_age_limit");
-			websocketSessionCache.delete(sessionId);
+			accountEntries?.delete(accountId);
+			if (accountEntries?.size === 0) websocketSessionCache.delete(sessionId);
 		} else if (!cached.busy && isWebSocketReusable(cached.socket)) {
 			cached.busy = true;
 			return {
@@ -1264,11 +1278,13 @@ async function acquireWebSocket(
 				release: ({ keep } = {}) => {
 					if (!keep || !isWebSocketReusable(cached.socket)) {
 						closeWebSocketSilently(cached.socket);
-						websocketSessionCache.delete(sessionId);
+						const currentEntries = websocketSessionCache.get(sessionId);
+						if (currentEntries?.get(accountId) === cached) currentEntries.delete(accountId);
+						if (currentEntries?.size === 0) websocketSessionCache.delete(sessionId);
 						return;
 					}
 					cached.busy = false;
-					scheduleSessionWebSocketExpiry(sessionId, cached);
+					scheduleSessionWebSocketExpiry(sessionId, accountId, cached);
 				},
 			};
 		}
@@ -1284,13 +1300,19 @@ async function acquireWebSocket(
 		}
 		if (!isWebSocketReusable(cached.socket)) {
 			closeWebSocketSilently(cached.socket);
-			websocketSessionCache.delete(sessionId);
+			accountEntries?.delete(accountId);
+			if (accountEntries?.size === 0) websocketSessionCache.delete(sessionId);
 		}
 	}
 
 	const socket = await connectWebSocket(url, headers, signal, connectTimeoutMs, env);
 	const entry: CachedWebSocketConnection = { socket, busy: true, createdAt: Date.now() };
-	websocketSessionCache.set(sessionId, entry);
+	accountEntries = websocketSessionCache.get(sessionId);
+	if (!accountEntries) {
+		accountEntries = new Map();
+		websocketSessionCache.set(sessionId, accountEntries);
+	}
+	accountEntries.set(accountId, entry);
 	return {
 		socket,
 		entry,
@@ -1299,13 +1321,13 @@ async function acquireWebSocket(
 			if (!keep || !isWebSocketReusable(entry.socket)) {
 				closeWebSocketSilently(entry.socket);
 				if (entry.idleTimer) clearTimeout(entry.idleTimer);
-				if (websocketSessionCache.get(sessionId) === entry) {
-					websocketSessionCache.delete(sessionId);
-				}
+				const currentEntries = websocketSessionCache.get(sessionId);
+				if (currentEntries?.get(accountId) === entry) currentEntries.delete(accountId);
+				if (currentEntries?.size === 0) websocketSessionCache.delete(sessionId);
 				return;
 			}
 			entry.busy = false;
-			scheduleSessionWebSocketExpiry(sessionId, entry);
+			scheduleSessionWebSocketExpiry(sessionId, accountId, entry);
 		},
 	};
 }
@@ -1563,14 +1585,16 @@ async function processWebSocketStream(
 	onStart: () => void,
 	idleTimeoutMs: number | undefined,
 	websocketConnectTimeoutMs: number | undefined,
-	cacheSessionId: string | undefined,
+	localSessionId: string | undefined,
+	accountId: string | undefined,
 	grammarToolInputProperties: ReadonlyMap<string, string>,
 	options?: OpenAICodexResponsesOptions,
 ): Promise<void> {
 	const { socket, entry, reused, release } = await acquireWebSocket(
 		url,
 		headers,
-		cacheSessionId,
+		localSessionId,
+		accountId,
 		options?.signal,
 		websocketConnectTimeoutMs,
 		options?.env,
@@ -1581,7 +1605,7 @@ async function processWebSocketStream(
 	// WebSocket continuation still works via connection-scoped previous_response_id state.
 	const fullBody = body;
 	const requestBody = useCachedContext && entry ? buildCachedWebSocketRequestBody(entry, fullBody) : fullBody;
-	const stats = cacheSessionId ? getOrCreateWebSocketDebugStats(cacheSessionId) : undefined;
+	const stats = localSessionId ? getOrCreateWebSocketDebugStats(localSessionId) : undefined;
 	if (stats) {
 		stats.requests++;
 		if (reused) stats.connectionsReused++;

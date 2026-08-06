@@ -699,6 +699,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					shouldUseToolSearchBeta(model, context),
 					usesExtendedCacheTtl(model, options?.cacheRetention, options?.env),
 					options?.headers,
+					options?.fetch,
 					copilotDynamicHeaders,
 					cacheSessionId,
 				);
@@ -776,7 +777,6 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			// trimmed. Resolve pause_turn in-stream so callers only ever see a
 			// completed turn. See `mapStopReason` and the signed-thinking-block
 			// round-trip path below (~line 1163). (#thinking-roundtrip)
-			let rawStopReason: string | undefined;
 			let pauseResumeCount = 0;
 			const MAX_PAUSE_TURN_RESUMES = 16;
 
@@ -820,7 +820,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						if (event.content_block.type === "text") {
 							const block: Block = {
 								type: "text",
-								text: "",
+								text: event.content_block.text ?? "",
 								index: event.index,
 							};
 							output.content.push(block);
@@ -828,8 +828,8 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						} else if (event.content_block.type === "thinking") {
 							const block: Block = {
 								type: "thinking",
-								thinking: "",
-								thinkingSignature: "",
+								thinking: event.content_block.thinking ?? "",
+								thinkingSignature: event.content_block.signature ?? "",
 								index: event.index,
 							};
 							output.content.push(block);
@@ -985,7 +985,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						}
 					} else if (event.type === "message_delta") {
 						if (event.delta.stop_reason) {
-							rawStopReason = event.delta.stop_reason;
+							output.rawStopReason = event.delta.stop_reason;
 							const { stopReason, errorMessage } = mapStopReason(
 								event.delta.stop_reason,
 								event.delta.stop_details,
@@ -1026,7 +1026,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					}
 				}
 
-				if (rawStopReason !== "pause_turn" || options?.signal?.aborted) break;
+				if (output.rawStopReason !== "pause_turn" || options?.signal?.aborted) break;
 
 				if (++pauseResumeCount > MAX_PAUSE_TURN_RESUMES) {
 					throw new Error(
@@ -1077,7 +1077,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				carryOverUsage.cacheWrite = output.usage.cacheWrite;
 				carryOverUsage.cacheWrite1h = output.usage.cacheWrite1h ?? 0;
 
-				rawStopReason = undefined;
+				output.rawStopReason = undefined;
 				response = await client.messages
 					.create({ ...continuationParams, stream: true }, requestOptions)
 					.asResponse();
@@ -1099,8 +1099,8 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				// transient stream drops (retryable).
 				throw new Error(
 					output.errorMessage ??
-						(rawStopReason
-							? `Provider ended turn with stop reason: ${rawStopReason}`
+						(output.rawStopReason
+							? `Provider ended turn with stop reason: ${output.rawStopReason}`
 							: "Stream ended before message_stop"),
 				);
 			}
@@ -1235,6 +1235,7 @@ function createClient(
 	useToolSearchBeta: boolean,
 	useExtendedCacheTtlBeta: boolean,
 	optionsHeaders?: ProviderHeaders,
+	fetch?: typeof globalThis.fetch,
 	dynamicHeaders?: Record<string, string>,
 	sessionId?: string,
 ): { client: Anthropic; isOAuthToken: boolean } {
@@ -1261,6 +1262,7 @@ function createClient(
 			authToken: apiKey ?? null,
 			baseURL: model.baseUrl,
 			dangerouslyAllowBrowser: true,
+			fetch,
 			defaultHeaders: mergeHeadersWithAnthropicBetas(
 				betaFeatures,
 				{
@@ -1283,6 +1285,7 @@ function createClient(
 			authToken: apiKey,
 			baseURL: model.baseUrl,
 			dangerouslyAllowBrowser: true,
+			fetch,
 			defaultHeaders: mergeHeadersWithAnthropicBetas(
 				["claude-code-20250219", "oauth-2025-04-20", ...betaFeatures],
 				{
@@ -1307,6 +1310,7 @@ function createClient(
 		authToken: null,
 		baseURL: model.baseUrl,
 		dangerouslyAllowBrowser: true,
+		fetch,
 		defaultHeaders: mergeHeadersWithAnthropicBetas(
 			betaFeatures,
 			{
@@ -1827,7 +1831,7 @@ function mapStopReason(
 		case "stop_sequence":
 			return { stopReason: "stop" }; // We don't supply stop sequences, so this should never happen
 		case "sensitive": // Content flagged by safety filters (not yet in SDK types)
-			return { stopReason: "error" };
+			return { stopReason: "error", errorMessage: "Provider stopped with: sensitive" };
 		default:
 			// Handle unknown stop reasons gracefully (API may add new values)
 			throw new Error(`Unhandled stop reason: ${reason}`);

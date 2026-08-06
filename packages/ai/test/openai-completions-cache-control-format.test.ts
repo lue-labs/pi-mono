@@ -198,7 +198,7 @@ describe("openai-completions cacheControlFormat", () => {
 		const toolMessage = params.messages[params.messages.length - 1];
 		expect(toolMessage.role).toBe("tool");
 		expect(Array.isArray(toolMessage.content)).toBe(true);
-		expect((toolMessage.content as TextPart[])[0]?.cache_control).toEqual({ type: "ephemeral" });
+		expect((toolMessage.content as TextPart[])[0]?.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 	});
 
 	it("omits Anthropic-style cache markers when cacheRetention is none", async () => {

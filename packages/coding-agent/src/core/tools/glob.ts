@@ -15,8 +15,17 @@ import { getTextOutput, invalidArgText, shortenPath, str } from "./render-utils.
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, FULL_TRUNCATION, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
-function toPosixPath(value: string): string {
-	return value.split(path.sep).join("/");
+/** Relativize a glob result against the search root and normalize it to posix separators. */
+export function relativizeGlobResultPath(
+	resultPath: string,
+	searchPath: string,
+	pathModule: path.PlatformPath = path,
+): string {
+	const hadTrailingSeparator =
+		resultPath.endsWith(pathModule.sep) || (pathModule.sep === "\\" && resultPath.endsWith("/"));
+	const relativePath = pathModule.isAbsolute(resultPath) ? pathModule.relative(searchPath, resultPath) : resultPath;
+	const posixPath = relativePath.split(pathModule.sep).join("/");
+	return hadTrailingSeparator && !posixPath.endsWith("/") ? `${posixPath}/` : posixPath;
 }
 
 const globSchema = Type.Object({
@@ -117,6 +126,8 @@ export function buildFdArgs(input: {
 		if (!input.pattern.startsWith("/") && !input.pattern.startsWith("**/") && input.pattern !== "**") {
 			effectivePattern = `**/${input.pattern}`;
 		}
+		// fd matches full paths using native separators on Windows.
+		if (process.platform === "win32") effectivePattern = effectivePattern.replaceAll("/", String.raw`[/\\]`);
 	}
 	args.push("--", effectivePattern, input.searchPath);
 	return args;
@@ -535,10 +546,7 @@ export function createGlobToolDefinition(
 							}
 
 							// Relativize paths against the search root for stable output.
-							const relativized = results.map((p) => {
-								if (p.startsWith(searchPath)) return toPosixPath(p.slice(searchPath.length + 1));
-								return toPosixPath(path.relative(searchPath, p));
-							});
+							const relativized = results.map((p) => relativizeGlobResultPath(p, searchPath));
 							const { content, details } = finalizeGlobResults({
 								relativized,
 								searchPath,
@@ -605,10 +613,7 @@ export function createGlobToolDefinition(
 							if (backendCommand.backend === "rg") {
 								if (lines.length >= effectiveLimit) return;
 								const trimmed = line.replace(/\r$/, "").trim();
-								let relativePath = trimmed;
-								if (trimmed.startsWith(searchPath)) relativePath = trimmed.slice(searchPath.length + 1);
-								else relativePath = path.relative(searchPath, trimmed);
-								if (!matchesGlobPattern(toPosixPath(relativePath), pattern)) return;
+								if (!matchesGlobPattern(relativizeGlobResultPath(trimmed, searchPath), pattern)) return;
 							}
 							lines.push(line);
 							if (backendCommand.backend === "rg" && lines.length >= effectiveLimit) stopChild?.();
@@ -632,12 +637,7 @@ export function createGlobToolDefinition(
 								for (const rawLine of lines) {
 									const line = rawLine.replace(/\r$/, "").trim();
 									if (!line) continue;
-									const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
-									let relativePath = line;
-									if (line.startsWith(searchPath)) relativePath = line.slice(searchPath.length + 1);
-									else relativePath = path.relative(searchPath, line);
-									if (hadTrailingSlash && !relativePath.endsWith("/")) relativePath += "/";
-									relativized.push(toPosixPath(relativePath));
+									relativized.push(relativizeGlobResultPath(line, searchPath));
 								}
 								const partialOutput = truncateHead(relativized.join("\n"), {
 									maxLines: Number.MAX_SAFE_INTEGER,
@@ -678,15 +678,7 @@ export function createGlobToolDefinition(
 							for (const rawLine of lines) {
 								const line = rawLine.replace(/\r$/, "").trim();
 								if (!line) continue;
-								const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
-								let relativePath = line;
-								if (line.startsWith(searchPath)) {
-									relativePath = line.slice(searchPath.length + 1);
-								} else {
-									relativePath = path.relative(searchPath, line);
-								}
-								if (hadTrailingSlash && !relativePath.endsWith("/")) relativePath += "/";
-								relativized.push(toPosixPath(relativePath));
+								relativized.push(relativizeGlobResultPath(line, searchPath));
 							}
 
 							const { content, details } = finalizeGlobResults({

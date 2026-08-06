@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
-import { getModel } from "../src/compat.ts";
 
 const bedrockMock = vi.hoisted(() => ({
 	constructorCalls: [] as Array<Record<string, unknown>>,
@@ -48,9 +47,10 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
 
 import { stream as streamBedrock } from "../src/api/bedrock-converse-stream.ts";
 import type { Context, Message } from "../src/types.ts";
-import { pickModel } from "./helpers/models.ts";
+import { hasCompatFlag, pickModel } from "./helpers/models.ts";
 
-const baseModel = pickModel("amazon-bedrock", (m) => m.id.startsWith("us."));
+const baseModel = pickModel("amazon-bedrock", hasCompatFlag("supportsStrictMode"));
+const noStrictModel = pickModel("amazon-bedrock", (m) => !hasCompatFlag("supportsStrictMode")(m));
 
 async function capturePayload(context: Context, model = baseModel): Promise<unknown> {
 	let capturedPayload: unknown;
@@ -86,7 +86,7 @@ describe("Bedrock constrained sampling", () => {
 		expect(toolConfig.tools[0].toolSpec.strict).toBe(true);
 
 		context.tools![0].constrainedSampling = { type: "json_schema", strict: "prefer" };
-		const novaPayload = await capturePayload(context, getModel("amazon-bedrock", "amazon.nova-lite-v1:0"));
+		const novaPayload = await capturePayload(context, noStrictModel);
 		const novaToolConfig = (
 			novaPayload as {
 				toolConfig: { tools: Array<{ toolSpec: { strict?: boolean } }> };

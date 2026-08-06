@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Container, type Terminal, Text, TUI, visibleWidth } from "@valkyriweb/pi-tui";
+import { Container, type Terminal, Text, type TUI, TuiMainScreen, visibleWidth } from "@valkyriweb/pi-tui";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { computeEditsDiff, type Edit } from "../src/core/tools/edit-diff.ts";
@@ -122,7 +122,7 @@ describe("edit tool TUI rendering", () => {
 		}
 
 		const terminal = new FakeTerminal();
-		const tui = new TUI(terminal);
+		const tui: TUI = new TuiMainScreen(terminal);
 		const root = new Container();
 		for (let i = 0; i < 200; i++) {
 			root.addChild(new Text(`history ${i}`, 0, 0));
@@ -197,7 +197,7 @@ describe("edit tool TUI rendering", () => {
 		await rm(filePath, { force: true });
 
 		const terminal = new FakeTerminal();
-		const tui = new TUI(terminal);
+		const tui: TUI = new TuiMainScreen(terminal);
 		const component = new ToolExecutionComponent(
 			"edit",
 			"tool-call-replay",
@@ -235,7 +235,7 @@ describe("edit tool TUI rendering", () => {
 		await writeFile(filePath, "const value = 'before';\nconsole.log(value);\n", "utf8");
 
 		const terminal = new FakeTerminal();
-		const tui = new TUI(terminal);
+		const tui = new TuiMainScreen(terminal);
 		const component = new ToolExecutionComponent(
 			"edit",
 			"tool-call-streaming-diff",
@@ -262,7 +262,7 @@ describe("edit tool TUI rendering", () => {
 
 	it("keeps a long literal \\t edit compact until explicitly expanded", () => {
 		const terminal = new FakeTerminal();
-		const tui = new TUI(terminal);
+		const tui = new TuiMainScreen(terminal);
 		const longValue = String.raw`const\t${"transport".repeat(16)} = "before";`;
 		const replacement = String.raw`const\t${"transport".repeat(16)} = "after";`;
 		const component = new ToolExecutionComponent(
@@ -300,7 +300,7 @@ describe("edit tool TUI rendering", () => {
 	});
 
 	it("counts proposed changes per replacement instead of diffing unrelated blocks together", () => {
-		const tui = new TUI(new FakeTerminal());
+		const tui = new TuiMainScreen(new FakeTerminal());
 		const component = new ToolExecutionComponent(
 			"edit",
 			"tool-call-independent-summary",
@@ -321,7 +321,7 @@ describe("edit tool TUI rendering", () => {
 	});
 
 	it("uses the error background when execution fails after a successful preview", () => {
-		const tui = new TUI(new FakeTerminal());
+		const tui = new TuiMainScreen(new FakeTerminal());
 		const component = new ToolExecutionComponent(
 			"edit",
 			"tool-call-error-after-preview",
@@ -368,7 +368,7 @@ describe("edit tool TUI rendering", () => {
 `;
 
 			const terminal = new FakeTerminal();
-			const tui = new TUI(terminal);
+			const tui = new TuiMainScreen(terminal);
 			const component = new ToolExecutionComponent(
 				"edit",
 				"tool-call-pierre-legacy",
@@ -412,7 +412,7 @@ describe("edit tool TUI rendering", () => {
 		await writeFile(filePath, "line 0\nline 1\n", "utf8");
 
 		const terminal = new FakeTerminal();
-		const tui = new TUI(terminal);
+		const tui: TUI = new TuiMainScreen(terminal);
 		const component = new ToolExecutionComponent(
 			"edit",
 			"tool-call-2",
@@ -443,7 +443,7 @@ describe("edit tool TUI rendering", () => {
 		await writeFile(filePath, "line 0\nline 1\n", "utf8");
 
 		const terminal = new FakeTerminal();
-		const tui = new TUI(terminal);
+		const tui = new TuiMainScreen(terminal);
 		const component = new ToolExecutionComponent(
 			"edit",
 			"tool-call-final-error",
@@ -479,7 +479,7 @@ describe("edit tool TUI rendering", () => {
 
 	it("wraps duplicate-match final edit errors from native-tool-overrides", async () => {
 		const terminal = new FakeTerminal();
-		const tui = new TUI(terminal);
+		const tui = new TuiMainScreen(terminal);
 		const longPath =
 			"/Users/luke/Projects/work/paperclip-lane-subscription-budgets/server/src/__tests__/costs-service.test.ts";
 		const errorText = `Found 3 occurrences of edits[3] in ${longPath}. Each oldText must be unique. Please provide more context to make it unique. If you intend to replace every occurrence in this file, retry with replaceAll: true.`;
