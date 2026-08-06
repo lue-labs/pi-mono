@@ -773,7 +773,6 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			// trimmed. Resolve pause_turn in-stream so callers only ever see a
 			// completed turn. See `mapStopReason` and the signed-thinking-block
 			// round-trip path below (~line 1163). (#thinking-roundtrip)
-			let rawStopReason: string | undefined;
 			let pauseResumeCount = 0;
 			const MAX_PAUSE_TURN_RESUMES = 16;
 
@@ -982,7 +981,6 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						}
 					} else if (event.type === "message_delta") {
 						if (event.delta.stop_reason) {
-							rawStopReason = event.delta.stop_reason;
 							output.rawStopReason = event.delta.stop_reason;
 							const { stopReason, errorMessage } = mapStopReason(
 								event.delta.stop_reason,
@@ -1024,7 +1022,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					}
 				}
 
-				if (rawStopReason !== "pause_turn" || options?.signal?.aborted) break;
+				if (output.rawStopReason !== "pause_turn" || options?.signal?.aborted) break;
 
 				if (++pauseResumeCount > MAX_PAUSE_TURN_RESUMES) {
 					throw new Error(
@@ -1075,7 +1073,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				carryOverUsage.cacheWrite = output.usage.cacheWrite;
 				carryOverUsage.cacheWrite1h = output.usage.cacheWrite1h ?? 0;
 
-				rawStopReason = undefined;
+				output.rawStopReason = undefined;
 				response = await client.messages
 					.create({ ...continuationParams, stream: true }, requestOptions)
 					.asResponse();
@@ -1097,8 +1095,8 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				// transient stream drops (retryable).
 				throw new Error(
 					output.errorMessage ??
-						(rawStopReason
-							? `Provider ended turn with stop reason: ${rawStopReason}`
+						(output.rawStopReason
+							? `Provider ended turn with stop reason: ${output.rawStopReason}`
 							: "Stream ended before message_stop"),
 				);
 			}

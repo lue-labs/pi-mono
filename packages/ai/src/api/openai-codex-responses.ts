@@ -285,11 +285,13 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				context.tools,
 				model.compat?.supportsOpenAIGrammarTools ?? false,
 			);
-			// Local WebSocket continuation state, SSE-fallback tracking, and debug
-			// stats stay keyed to the real Pi session id (see cache-affinity note
-			// below); provider-visible cache affinity uses cacheAffinitySessionId.
+			// Local socket keying, SSE-fallback tracking, and debug stats stay keyed to
+			// the real Pi session id (see cache-affinity note below); provider-visible
+			// cache affinity uses cacheAffinitySessionId. cacheRetention "none" gates
+			// only what the provider retains, never local bookkeeping.
 			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
-			const cacheSessionId = cacheRetention === "none" ? undefined : options?.sessionId;
+			const localSessionId = options?.sessionId;
+			const cacheSessionId = cacheRetention === "none" ? undefined : localSessionId;
 			let body = buildRequestBody(model, context, options, grammarToolInputProperties);
 			const nextBody = await options?.onPayload?.(body, model);
 			if (nextBody !== undefined) {
@@ -310,7 +312,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// ChatGPT Codex keys server-side prefix caching on the session-id header.
 			// Keep thread-id / x-client-request-id tied to the real Pi session while
 			// routing same-shape requests through the shared affinity session-id.
-			const codexThreadId = clampOpenAIPromptCacheKey(cacheSessionId);
+			const codexThreadId = clampOpenAIPromptCacheKey(localSessionId);
 			const codexSessionHeader = cacheAffinitySessionId;
 			// Provider-visible Codex session-id may be shared across same-shape sessions
 			// for prefix-cache reuse. Local WebSocket continuation state is different:
@@ -318,7 +320,10 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// socket reuse, fallback tracking, and debug stats keyed to the real Pi
 			// session id carried in options.
 			const requestedTransport = options?.transport || "auto";
-			const transport = model.compat?.supportsWebSocketTransport === false ? "sse" : requestedTransport;
+			let transport = model.compat?.supportsWebSocketTransport === false ? "sse" : requestedTransport;
+			// previous_response_id continuation is provider-retained context, so
+			// cacheRetention "none" downgrades to a plain socket rather than reusing it.
+			if (cacheRetention === "none" && transport !== "sse") transport = "websocket";
 			const transportOptions: OpenAICodexResponsesOptions = { ...options, transport };
 			const sseHeaders = buildSSEHeaders(
 				model.headers,
@@ -341,9 +346,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			const httpTimeoutMs = normalizeTimeoutMs(options?.timeoutMs);
 			const websocketConnectTimeoutMs = normalizeTimeoutMs(options?.websocketConnectTimeoutMs);
 			let startEmitted = false;
-			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(cacheSessionId);
+			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(localSessionId);
 			if (websocketDisabledForSession) {
-				recordWebSocketSseFallback(cacheSessionId);
+				recordWebSocketSseFallback(localSessionId);
 			}
 
 			if (transport !== "sse" && !websocketDisabledForSession) {
@@ -369,7 +374,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							},
 							httpTimeoutMs,
 							websocketConnectTimeoutMs,
-							cacheSessionId,
+							localSessionId,
 							accountId,
 							grammarToolInputProperties,
 							transportOptions,
@@ -411,11 +416,11 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 								requestBytes: new TextEncoder().encode(bodyJson).byteLength,
 							}),
 						);
-						recordWebSocketFailure(cacheSessionId, error);
+						recordWebSocketFailure(localSessionId, error);
 						if (websocketStarted) {
 							throw error;
 						}
-						recordWebSocketSseFallback(cacheSessionId);
+						recordWebSocketSseFallback(localSessionId);
 						break;
 					}
 				}
@@ -1580,7 +1585,7 @@ async function processWebSocketStream(
 	onStart: () => void,
 	idleTimeoutMs: number | undefined,
 	websocketConnectTimeoutMs: number | undefined,
-	cacheSessionId: string | undefined,
+	localSessionId: string | undefined,
 	accountId: string | undefined,
 	grammarToolInputProperties: ReadonlyMap<string, string>,
 	options?: OpenAICodexResponsesOptions,
@@ -1588,7 +1593,7 @@ async function processWebSocketStream(
 	const { socket, entry, reused, release } = await acquireWebSocket(
 		url,
 		headers,
-		cacheSessionId,
+		localSessionId,
 		accountId,
 		options?.signal,
 		websocketConnectTimeoutMs,
@@ -1600,7 +1605,7 @@ async function processWebSocketStream(
 	// WebSocket continuation still works via connection-scoped previous_response_id state.
 	const fullBody = body;
 	const requestBody = useCachedContext && entry ? buildCachedWebSocketRequestBody(entry, fullBody) : fullBody;
-	const stats = cacheSessionId ? getOrCreateWebSocketDebugStats(cacheSessionId) : undefined;
+	const stats = localSessionId ? getOrCreateWebSocketDebugStats(localSessionId) : undefined;
 	if (stats) {
 		stats.requests++;
 		if (reused) stats.connectionsReused++;

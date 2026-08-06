@@ -1,7 +1,6 @@
 import { setKeybindings, type TUI } from "@valkyriweb/pi-tui";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../../../src/core/keybindings.ts";
-import { AUTO_MODEL_ALIAS_PROVIDERS } from "../../../src/core/model-resolver.ts";
 import { ModelSelectorComponent } from "../../../src/modes/interactive/components/model-selector.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../../src/utils/ansi.ts";
@@ -67,11 +66,11 @@ describe("model selector filter resets selection to top", () => {
 		// Current model (alpha-1) is sorted first, so selection starts on row 0.
 		expect(selectedModelId(stripAnsi(selector.render(120).join("\n")))).toBe("alpha-1");
 
-		// Move selection down two real rows to alpha-3. The fork injects one
-		// "Auto" alias row per AUTO_MODEL_ALIAS_PROVIDERS directly after the
-		// current model, so skip past those rows too.
-		const downPresses = 2 + AUTO_MODEL_ALIAS_PROVIDERS.size;
-		for (let i = 0; i < downPresses; i++) {
+		// Walk selection down to alpha-3. The row count between alpha-1 and
+		// alpha-3 is not fixed: the fork injects one "Auto" alias row per
+		// AUTO_MODEL_ALIAS_PROVIDERS, and the All tab lists the whole catalog
+		// rather than just the harness models, so drive by id, not by count.
+		for (let i = 0; i < 200 && selectedModelId(stripAnsi(selector.render(120).join("\n"))) !== "alpha-3"; i++) {
 			selector.handleInput("\x1b[B");
 		}
 		expect(selectedModelId(stripAnsi(selector.render(120).join("\n")))).toBe("alpha-3");

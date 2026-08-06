@@ -289,10 +289,6 @@ function normalizeResourceEntries(entries: unknown): string[] {
 	return [];
 }
 
-function manifestEntryLoad(entry: ExtensionManifestEntry | string): ExtensionLoadMode | undefined {
-	return typeof entry === "string" ? undefined : entry.load;
-}
-
 function manifestOverridePatterns(entries: Array<ExtensionManifestEntry | string>): string[] {
 	return entries.map(manifestEntryPath).filter(isOverridePattern);
 }
@@ -2381,7 +2377,7 @@ export class DefaultPackageManager implements PackageManager {
 			const collected = this.collectFilesFromPaths(resolved, resourceType);
 			files.push(...collected);
 
-			const load = resourceType === "extensions" ? manifestEntryLoad(entry) : undefined;
+			const load = resourceType === "extensions" && typeof entry !== "string" ? entry.load : undefined;
 			if (load) {
 				for (const file of collected) {
 					loadByPath.set(file, load);

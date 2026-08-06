@@ -15,10 +15,6 @@ import { getTextOutput, invalidArgText, shortenPath, str } from "./render-utils.
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, FULL_TRUNCATION, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
-function toPosixPath(value: string): string {
-	return value.split(path.sep).join("/");
-}
-
 /** Relativize a glob result against the search root and normalize it to posix separators. */
 export function relativizeGlobResultPath(
 	resultPath: string,
@@ -617,10 +613,7 @@ export function createGlobToolDefinition(
 							if (backendCommand.backend === "rg") {
 								if (lines.length >= effectiveLimit) return;
 								const trimmed = line.replace(/\r$/, "").trim();
-								let relativePath = trimmed;
-								if (trimmed.startsWith(searchPath)) relativePath = trimmed.slice(searchPath.length + 1);
-								else relativePath = path.relative(searchPath, trimmed);
-								if (!matchesGlobPattern(toPosixPath(relativePath), pattern)) return;
+								if (!matchesGlobPattern(relativizeGlobResultPath(trimmed, searchPath), pattern)) return;
 							}
 							lines.push(line);
 							if (backendCommand.backend === "rg" && lines.length >= effectiveLimit) stopChild?.();
@@ -644,12 +637,7 @@ export function createGlobToolDefinition(
 								for (const rawLine of lines) {
 									const line = rawLine.replace(/\r$/, "").trim();
 									if (!line) continue;
-									const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
-									let relativePath = line;
-									if (line.startsWith(searchPath)) relativePath = line.slice(searchPath.length + 1);
-									else relativePath = path.relative(searchPath, line);
-									if (hadTrailingSlash && !relativePath.endsWith("/")) relativePath += "/";
-									relativized.push(toPosixPath(relativePath));
+									relativized.push(relativizeGlobResultPath(line, searchPath));
 								}
 								const partialOutput = truncateHead(relativized.join("\n"), {
 									maxLines: Number.MAX_SAFE_INTEGER,

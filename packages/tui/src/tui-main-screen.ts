@@ -540,11 +540,6 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		this.previousHeight = height;
 	}
 
-	/**
-	 * Position the hardware cursor for IME candidate window.
-	 * @param cursorPos The cursor position extracted from rendered output, or null
-	 * @param totalLines Total number of rendered lines
-	 */
 	private writeOverwideLineLog(newLines: string[], lineIndex: number, width: number, line: string): void {
 		const crashLogPath = path.join(this.logDirectory, "pi-crash.log");
 		const lineWidth = visibleWidth(line);
@@ -569,6 +564,11 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		return truncateToWidth(line, width, "…");
 	}
 
+	/**
+	 * Position the hardware cursor for IME candidate window.
+	 * @param cursorPos The cursor position extracted from rendered output, or null
+	 * @param totalLines Total number of rendered lines
+	 */
 	private positionHardwareCursor(cursorPos: { row: number; col: number } | null, totalLines: number): void {
 		if (!cursorPos || totalLines <= 0) {
 			this.terminal.hideCursor();

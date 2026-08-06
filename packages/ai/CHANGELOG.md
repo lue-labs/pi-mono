@@ -9,6 +9,10 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: the Anthropic pause_turn resume loop tracked the raw stop reason in both a local and `output.rawStopReason`, but only reset the local. A resumed call that ended without a `message_delta.stop_reason` left `"pause_turn"` visible to callers — the value the loop exists to hide. The local is gone; the field is the single source of truth, matching every other adapter.
+
+- Fix: `cacheRetention: "none"` (Codex Responses) no longer clears the local Pi session id. The retention gate now applies only to provider-retained state — `prompt_cache_key`, the provider-visible `session-id` header, and `previous_response_id` continuation, which is dropped by downgrading the transport from `websocket-cached` to `websocket`. Thread id, SSE-fallback tracking, WebSocket connection keying, and debug stats stay keyed to the real session id.
+
 - Feat: opt-in `compat.inlineDeferredTools` (anthropic-messages) — message-anchored schema delivery for gateways without the native deferral wire (`supportsToolReferences: false` lanes such as the clawrouter CC adapter / claude-bridge OAuth). Tools activated mid-session via toolResult `addedToolNames` are permanently excluded from wire `tools[]`; their full definition is delivered once as a `<tool-loaded>` text block after the activating tool_result, keeping the prompt-cache prefix byte-stable (previously each activation re-billed the full prefix, observed 109k tokens) ([#372](https://github.com/valkyriweb/pi-mono/pull/372)).
 
 - Fix: preserve valid OAuth/deferred `tool_reference` blocks by normalizing canonical names to their serialized Claude Code wire names before request membership checks (`read` → `Read`) ([#359](https://github.com/valkyriweb/pi-mono/pull/359)).

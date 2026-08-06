@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: `Glob` root-path relativization (issue #6104) now also applies on the timeout path and to the `rg` pattern filter. Both sites kept an inline `slice(searchPath.length + 1)` copy, which ate the first character of every result when the search root ended in a separator (`/`, `I:\`); they now go through `relativizeGlobResultPath`.
+
 - Extensions can style the text input via `ui.addInputHighlighter()`, which forwards to the interactive editor's new highlighter seam. Several extensions may contribute ranges to the same input, each highlighter is isolated so one throwing does not break rendering, and registrations survive editor swaps. RPC and headless modes accept the call and ignore it.
 
 - Fix: `Agent` no longer renders task validation errors while tool-call arguments are still streaming (a half-parsed `tasks[]` entry surfaced "tasks entries require subagent_type and prompt" for calls that then ran fine), and `action: "inject"` now steers live child sessions first, falling back to interrupt+resume only for single background runs — injecting into a parallel fan-out previously interrupted every child and could not resume, destroying the run ([#393](https://github.com/valkyriweb/pi-mono/pull/393)).
