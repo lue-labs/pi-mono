@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: recover from Anthropic's latest-assistant thinking-signature 400 by stripping only that assistant turn's `thinking`/`redacted_thinking` blocks, preserving all earlier signed reasoning and the byte-stable system/tool cache prefix while reporting the one-turn reasoning loss.
+
 - Fix: the Anthropic pause_turn resume loop tracked the raw stop reason in both a local and `output.rawStopReason`, but only reset the local. A resumed call that ended without a `message_delta.stop_reason` left `"pause_turn"` visible to callers — the value the loop exists to hide. The local is gone; the field is the single source of truth, matching every other adapter.
 
 - Fix: `cacheRetention: "none"` (Codex Responses) no longer clears the local Pi session id. The retention gate now applies only to provider-retained state — `prompt_cache_key`, the provider-visible `session-id` header, and `previous_response_id` continuation, which is dropped by downgrading the transport from `websocket-cached` to `websocket`. Thread id, SSE-fallback tracking, WebSocket connection keying, and debug stats stay keyed to the real session id.
