@@ -2178,11 +2178,11 @@ export default function (pi: ExtensionAPI) {
 
 ### Custom Rendering
 
-Tools can provide `renderCall` and `renderResult` for custom TUI display. See [tui.md](tui.md) for the full component API and [tool-execution.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/modes/interactive/components/tool-execution.ts) for how tool rows are composed.
+Tools can provide `renderCall` and `renderResult` for custom TUI display. See [tui.md](tui.md) for the full component API. Default-shell rows are composed by [`tool-execution.ts`](../src/modes/interactive/components/tool-execution.ts) and [`tool-panel.ts`](../src/modes/interactive/components/tool-panel.ts).
 
-By default, tool output is wrapped in a `Box` that handles padding and background. A defined `renderCall` or `renderResult` must return a `Component`. If a slot renderer is not defined, `tool-execution.ts` uses fallback rendering for that slot.
+By default, tool output is wrapped in a compact panel with two cells of horizontal padding, no vertical padding, lifecycle background color, and strict terminal-width clamping. At terminal widths below five cells, the panel reduces its side padding so content still fits. A defined `renderCall` or `renderResult` must return a `Component` and should respect the width passed to its `render()` method. If a slot renderer is not defined, `tool-execution.ts` uses fallback rendering for that slot.
 
-Set `renderShell: "self"` when the tool should render its own shell instead of using the default `Box`. This is useful for tools that need complete control over framing or background behavior, for example large previews that must stay visually stable after the tool settles.
+Set `renderShell: "self"` when the tool should render its own shell instead of using the default panel. This is useful for tools that need complete control over framing or background behavior, for example large previews that must stay visually stable after the tool settles.
 
 ```typescript
 pi.registerTool({
@@ -2285,7 +2285,7 @@ Custom editors and `ctx.ui.custom()` components receive `keybindings: Keybinding
 
 #### Best Practices
 
-- Use `Text` with padding `(0, 0)`. The default Box handles padding.
+- Use `Text` with padding `(0, 0)`. The default panel handles horizontal padding and lifecycle backgrounds.
 - Use `\n` for multi-line content.
 - Handle `isPartial` for streaming progress.
 - Support `expanded` for detail on demand.
@@ -2293,7 +2293,7 @@ Custom editors and `ctx.ui.custom()` components receive `keybindings: Keybinding
 - Read `context.args` in `renderResult` instead of copying args into `context.state`.
 - Use `context.state` only for data that must be shared across call and result slots.
 - Reuse `context.lastComponent` when the same component instance can be updated in place.
-- Use `renderShell: "self"` only when the default boxed shell gets in the way. In self-shell mode the tool is responsible for its own framing, padding, and background.
+- Use `renderShell: "self"` only when the default panel gets in the way. In self-shell mode the tool is responsible for its own framing, padding, width clamping, and background.
 
 #### Fallback
 
