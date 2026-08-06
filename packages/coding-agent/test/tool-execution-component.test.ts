@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { Text, type TUI } from "@valkyriweb/pi-tui";
+import { Text, type TUI, visibleWidth } from "@valkyriweb/pi-tui";
 import { Type } from "typebox";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { getReadmePath } from "../src/config.ts";
@@ -16,6 +16,7 @@ import { createReadTool, createReadToolDefinition } from "../src/core/tools/read
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { ToolExecutionGroupComponent } from "../src/modes/interactive/components/tool-execution-group.ts";
+import { ToolPanel } from "../src/modes/interactive/components/tool-panel.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -41,6 +42,131 @@ function createFakeTui(): TUI {
 describe("ToolExecutionComponent parity", () => {
 	beforeAll(() => {
 		initTheme("dark");
+	});
+
+	test("renders default-shell tools in a compact padded panel", () => {
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-panel",
+			{},
+			{},
+			{
+				...createBaseToolDefinition(),
+				renderCall: () => new Text("call", 0, 0),
+				renderResult: () => new Text("result", 0, 0),
+			},
+			createFakeTui(),
+			process.cwd(),
+		);
+		let lines = component.render(40);
+		expect(lines.slice(1)).toEqual(lines.slice(1).map((line) => theme.bg("toolPendingBg", stripAnsi(line))));
+
+		component.updateResult({ content: [], details: {}, isError: false }, false);
+		lines = component.render(40);
+		expect(stripAnsi(lines.join("\n"))).toBe(`\n  call${" ".repeat(34)}\n  result${" ".repeat(32)}`);
+		expect(lines.slice(1)).toEqual(lines.slice(1).map((line) => theme.bg("toolSuccessBg", stripAnsi(line))));
+	});
+
+	test("renders failed default-shell tools with the error background", () => {
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-panel-error",
+			{},
+			{},
+			{
+				...createBaseToolDefinition(),
+				renderCall: () => new Text("call", 0, 0),
+				renderResult: () => new Text("failed", 0, 0),
+			},
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult({ content: [], details: {}, isError: true }, false);
+
+		const lines = component.render(40).slice(1);
+		expect(lines).toEqual(lines.map((line) => theme.bg("toolErrorBg", stripAnsi(line))));
+	});
+
+	test("renders unknown tools through the default panel fallback", () => {
+		const component = new ToolExecutionComponent(
+			"removed_tool",
+			"tool-panel-fallback",
+			{ path: "notes.txt" },
+			{},
+			undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult({ content: [{ type: "text", text: "unavailable" }], details: {}, isError: true }, false);
+
+		const lines = component.render(40).slice(1);
+		const errorBackgroundPrefix = theme.bg("toolErrorBg", "x").split("x")[0];
+		expect(stripAnsi(lines.join("\n"))).toContain("removed_tool");
+		expect(stripAnsi(lines.join("\n"))).toContain("unavailable");
+		expect(lines.every((line) => line.startsWith(errorBackgroundPrefix))).toBe(true);
+	});
+
+	test("reuses composed panel lines until content or state changes", () => {
+		let background = "pending";
+		const child = new Text("call", 0, 0);
+		const panel = new ToolPanel((text) => `${background}:${text}`);
+		panel.addChild(child);
+
+		const pending = panel.render(40);
+		expect(panel.render(40)).toBe(pending);
+		child.setText("updated");
+		const updated = panel.render(40);
+		expect(updated).not.toBe(pending);
+		expect(updated.join("\n")).toContain("updated");
+		background = "success";
+		const completed = panel.render(40);
+		expect(completed).not.toBe(updated);
+		expect(panel.render(40)).toBe(completed);
+	});
+
+	test("preserves the panel background after truncation adds a full reset", () => {
+		const backgroundPrefix = "\x1b[48;2;1;2;3m";
+		const panel = new ToolPanel((text) => `${backgroundPrefix}${text}\x1b[49m`);
+		panel.addChild({
+			render: () => [theme.fg("accent", "abcdef")],
+			invalidate: () => {},
+		});
+
+		const line = panel.render(5)[0];
+		expect(visibleWidth(line)).toBe(5);
+		expect(line.split(backgroundPrefix)).toHaveLength(3);
+	});
+
+	test("preserves the panel background after a child background reset", () => {
+		const backgroundPrefix = "\x1b[48;2;1;2;3m";
+		const panel = new ToolPanel((text) => `${backgroundPrefix}${text}\x1b[49m`);
+		panel.addChild({
+			render: () => [theme.bg("selectedBg", "abc")],
+			invalidate: () => {},
+		});
+
+		const line = panel.render(20)[0];
+		expect(visibleWidth(line)).toBe(20);
+		expect(line.split(backgroundPrefix)).toHaveLength(3);
+	});
+	test("truncates ANSI and wide-character lines to the panel width", () => {
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-panel-width",
+			{},
+			{},
+			{
+				...createBaseToolDefinition(),
+				renderCall: () => new Text(theme.fg("accent", "界界界界界界"), 0, 0),
+			},
+			createFakeTui(),
+			process.cwd(),
+		);
+
+		for (const line of component.render(12).slice(1)) expect(visibleWidth(line)).toBe(12);
+		for (const width of [1, 2, 3, 4]) {
+			for (const line of component.render(width).slice(1)) expect(visibleWidth(line)).toBe(width);
+		}
 	});
 
 	test("stacks custom call and result renderers like the old implementation", () => {
@@ -663,8 +789,8 @@ describe("ToolExecutionComponent parity", () => {
 
 		const rendered = stripAnsi(component.render(200).join("\n"));
 		expect(rendered.match(/Full output:/g)?.length ?? 0).toBe(1);
-		expect(rendered).toMatch(/line-4000[^\n]*\n[^\S\n]*\n \[Full output:/);
-		expect(rendered).not.toMatch(/line-4000[^\n]*\n[^\S\n]*\n[^\S\n]*\n \[Full output:/);
+		expect(rendered).toMatch(/line-4000[^\n]*\n[^\S\n]*\n[^\S\n]*\[Full output:/);
+		expect(rendered).not.toMatch(/line-4000[^\n]*\n[^\S\n]*\n[^\S\n]*\n[^\S\n]*\[Full output:/);
 		expect(rendered).toContain("Truncated: showing 2000 of 4000 lines");
 		expect(rendered).not.toContain("[Showing lines 2001-4000 of 4000. Full output:");
 	});
@@ -980,7 +1106,7 @@ describe("ToolExecutionComponent parity", () => {
 				false,
 			);
 
-			const collapsed = stripAnsi(component.render(120).join("\n"));
+			const collapsed = stripAnsi(component.render(200).join("\n"));
 			expect(collapsed).toContain(scenario.compact);
 			expect(collapsed).not.toContain(scenario.hidden);
 			if (scenario.absent) {
@@ -988,7 +1114,7 @@ describe("ToolExecutionComponent parity", () => {
 			}
 
 			component.setExpanded(true);
-			const expanded = stripAnsi(component.render(120).join("\n"));
+			const expanded = stripAnsi(component.render(200).join("\n"));
 			expect(expanded).toContain(scenario.hidden);
 		});
 	}

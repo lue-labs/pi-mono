@@ -30,6 +30,7 @@ import type {
 	ToolResultMessage,
 } from "../types.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
+import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
@@ -39,7 +40,7 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { splitSystemPromptForCache } from "./anthropic-cache-split.ts";
 import { type ServerToolResultBlockLike, summarizeServerToolResult } from "./anthropic-server-tools.ts";
-import { isLatestThinkingModifiedError, stripThinkingFromMessageParams } from "./anthropic-thinking-recovery.ts";
+import { isLatestThinkingModifiedError, stripThinkingFromLatestAssistantTurn } from "./anthropic-thinking-recovery.ts";
 import {
 	convertedToolCache,
 	convertOneTool,
@@ -731,19 +732,22 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					},
 				);
 			} catch (error) {
-				// Graceful self-heal for the signed-thinking-block round-trip 400.
-				// Anthropic rejects a request when a thinking/redacted_thinking block
-				// in the latest assistant message does not byte-match what it signed
-				// (drifted signature from a crashed/paused turn, post-compaction
-				// replay, or content mutation). With no recovery this poisons every
-				// subsequent request and wedges the session. Retry ONCE with all
-				// thinking blocks stripped from history: Anthropic only validates
-				// REPLAYED thinking blocks, so a request carrying none always passes,
-				// and fresh thinking is still generated for the new turn. This is the
-				// same drop the cross-model path in transformMessages already applies.
-				// (#thinking-roundtrip)
+				// Anthropic combines consecutive assistant params into one turn, so recover
+				// the final contiguous assistant run while preserving every earlier signed
+				// block. (#thinking-roundtrip)
 				if (!isLatestThinkingModifiedError(error)) throw error;
-				params = { ...params, messages: stripThinkingFromMessageParams(params.messages) };
+				const recovery = stripThinkingFromLatestAssistantTurn(params.messages);
+				params = { ...params, messages: recovery.messages };
+				appendAssistantMessageDiagnostic(
+					output,
+					createAssistantMessageDiagnostic("anthropic_latest_thinking_recovery", error, {
+						summary:
+							"Dropped reasoning from the latest assistant turn for one retry; earlier signed reasoning was preserved.",
+						lostAssistantTurns: 1,
+						removedThinkingBlocks: recovery.removedThinkingBlocks,
+						removedAssistantMessage: recovery.removedAssistantMessage,
+					}),
+				);
 				response = await retryProviderRequest(
 					() => client.messages.create({ ...params, stream: true }, requestOptions).asResponse(),
 					{
