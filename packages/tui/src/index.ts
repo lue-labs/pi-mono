@@ -155,6 +155,7 @@ export { TuiAltScreen, type TuiAltScreenOptions } from "./tui-alt-screen.ts";
 export { TuiMainScreen, type TuiMainScreenRenderState } from "./tui-main-screen.ts";
 // Utilities
 export {
+	applyBackgroundToLine,
 	getOsc8LinkAtColumn,
 	sliceByColumn,
 	stripTerminalSequences,
