@@ -140,6 +140,8 @@ function makeForkPlaceholderResult(toolCallId: string, toolName: string): ToolRe
  *
  * Drops orphan tool_results (results referencing nonexistent tool_uses) —
  * those would confuse the provider API.
+ * Matching real results are moved into one complete batch immediately after
+ * their assistant message. Late copies are consumed at their old positions.
  *
  * Mirrors Claude Code's `buildForkedMessages` strategy (see CC
  * `src/tools/AgentTool/forkSubagent.ts`). The key correctness property is
@@ -148,22 +150,28 @@ function makeForkPlaceholderResult(toolCallId: string, toolName: string): ToolRe
  * the child-specific user directive appended after.
  */
 export function substitutePlaceholdersForUnresolvedToolCalls(messages: AgentMessage[]): AgentMessage[] {
-	const resultIds = collectToolResultIds(messages);
+	const resultsByCallId = new Map<string, Array<{ message: ToolResultMessage; index: number }>>();
+	for (const [index, message] of messages.entries()) {
+		if (message.role !== "toolResult") continue;
+		const results = resultsByCallId.get(message.toolCallId) ?? [];
+		results.push({ message, index });
+		resultsByCallId.set(message.toolCallId, results);
+	}
+
 	const out: AgentMessage[] = [];
-	for (const message of messages) {
+	for (const [index, message] of messages.entries()) {
+		if (message.role === "toolResult") continue;
 		out.push(message);
 		if (message.role !== "assistant") continue;
 		for (const block of message.content) {
 			if (block.type !== "toolCall") continue;
-			if (resultIds.has(block.id)) continue;
-			out.push(makeForkPlaceholderResult(block.id, block.name));
-			resultIds.add(block.id);
+			const results = resultsByCallId.get(block.id);
+			const resultIndex = results?.findIndex((result) => result.index > index) ?? -1;
+			const result = resultIndex >= 0 ? results?.splice(resultIndex, 1)[0].message : undefined;
+			out.push(result ?? makeForkPlaceholderResult(block.id, block.name));
 		}
 	}
-	const callIds = collectToolCallIds(out);
-	return out.filter(
-		(message): message is AgentMessage => message.role !== "toolResult" || callIds.has(message.toolCallId),
-	);
+	return out;
 }
 
 export function getFilteredForkMessages(sessionManager: ReadonlySessionManager): AgentMessage[] {
