@@ -1030,7 +1030,8 @@ function breakLongWord(word: string, width: number, tracker: AnsiCodeTracker): s
  *
  * @param line - Line of text (may contain ANSI codes)
  * @param width - Total width to pad to
- * @param bgFn - Background color function
+ * @param bgFn - Background color function; must be pure and set only a background, since it is
+ *   re-applied wherever the line's own escapes drop back to the terminal default
  * @returns Line with background applied and padded to width
  */
 export function applyBackgroundToLine(line: string, width: number, bgFn: (text: string) => string): string {

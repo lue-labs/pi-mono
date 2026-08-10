@@ -5,6 +5,7 @@ import { Box } from "../src/components/box.ts";
 import { Text } from "../src/components/text.ts";
 import type { TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
+import { applyBackgroundToLine } from "../src/utils.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
 const PANEL_BG = { r: 40, g: 50, b: 40 };
@@ -87,5 +88,17 @@ describe("background continuity", () => {
 			backgrounds.filter((bg) => bg === "default"),
 			[],
 		);
+	});
+
+	it("adds nothing when the caller's bgFn does not open a background", () => {
+		const identity = (text: string) => text;
+		const line = `\x1b[0mdiff context line\x1b[0m`;
+		assert.strictEqual(applyBackgroundToLine(line, 24, identity), `${line}       `);
+	});
+
+	it("adds nothing when the caller's bgFn only appends a suffix", () => {
+		const suffixOnly = (text: string) => `${text}\x1b[49m`;
+		const line = `\x1b[0mdiff context line\x1b[0m`;
+		assert.strictEqual(applyBackgroundToLine(line, 24, suffixOnly), `${line}       \x1b[49m`);
 	});
 });
