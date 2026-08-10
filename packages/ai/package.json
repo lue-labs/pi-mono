@@ -56,6 +56,7 @@
 		"refresh-models": "npm run generate-models && npm run generate-image-models",
 		"check:model-data": "node scripts/check-model-data.ts",
 		"build": "npm run generate-models && npm run build:offline",
+		"prebuild:offline": "npm --prefix ../telemetry run build",
 		"build:offline": "npm run check:model-data && tsc -p tsconfig.build.json && shx rm -rf dist/providers/data && shx cp -r src/providers/data dist/providers/data",
 		"test": "vitest --run",
 		"prepublishOnly": "npm run build"
