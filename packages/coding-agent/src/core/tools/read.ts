@@ -368,7 +368,12 @@ export function createReadToolDefinition(
 							resolve({ content, details });
 						} catch (error: any) {
 							signal?.removeEventListener("abort", onAbort);
-							if (!aborted) reject(error);
+							if (aborted) return;
+							if (error?.code === "EISDIR") {
+								reject(new Error(`${path} is a directory, not a file. Use bash (ls) to list its contents.`));
+							} else {
+								reject(error);
+							}
 						}
 					})();
 				},

@@ -134,6 +134,15 @@ describe("Coding Agent Tools", () => {
 			await expect(readTool.execute("test-call-2", { path: testFile })).rejects.toThrow(/ENOENT|not found/i);
 		});
 
+		it("should reject directories with an instructive error instead of raw EISDIR", async () => {
+			const subDir = join(testDir, "some-dir");
+			mkdirSync(subDir);
+
+			await expect(readTool.execute("test-call-dir", { path: subDir })).rejects.toThrow(
+				/is a directory, not a file.*bash \(ls\)/,
+			);
+		});
+
 		it("should truncate files exceeding line limit", async () => {
 			const testFile = join(testDir, "large.txt");
 			const lines = Array.from({ length: 2500 }, (_, i) => `Line ${i + 1}`);
