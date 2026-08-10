@@ -4,8 +4,8 @@
 # Why this is a shell smoke and not a vitest test: zooming requires a live
 # background `agent` run, which needs a real model and OAuth/API keys.
 # AGENTS.md explicitly forbids real provider credentials in the vitest suite,
-# so vitest covers the zoom logic via `interactive-mode-zoom.test.ts` (which
-# calls the methods directly with stubbed UI) and this script covers the
+# so vitest covers the zoom logic in the pi-agent-ui package (my-pi repo), which
+# calls the methods directly with stubbed UI, and this script covers the
 # end-to-end TTY rendering path on a workstation that *does* have creds.
 #
 # Usage (from repo root):
