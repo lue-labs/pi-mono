@@ -149,6 +149,20 @@ describe("ToolExecutionComponent parity", () => {
 		expect(visibleWidth(line)).toBe(20);
 		expect(line.split(backgroundPrefix)).toHaveLength(3);
 	});
+
+	test("keeps the panel background under content that resets its own styling mid-line", () => {
+		const backgroundPrefix = "\x1b[48;2;1;2;3m";
+		const panel = new ToolPanel((text) => `${backgroundPrefix}${text}\x1b[49m`);
+		panel.addChild({
+			render: () => ["before\x1b[0mafter"],
+			invalidate: () => {},
+		});
+
+		const line = panel.render(20)[0];
+		expect(visibleWidth(line)).toBe(20);
+		expect(line).toContain(`\x1b[0m${backgroundPrefix}`);
+	});
+
 	test("truncates ANSI and wide-character lines to the panel width", () => {
 		const component = new ToolExecutionComponent(
 			"custom_tool",
