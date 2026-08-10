@@ -708,6 +708,11 @@ class AnsiCodeTracker {
 		);
 	}
 
+	/** True while a non-default background color is active. */
+	hasBackground(): boolean {
+		return this.bgColor !== null;
+	}
+
 	/**
 	 * Get reset codes for attributes that need to be turned off at line end.
 	 * Underline must be closed to prevent bleeding into padding.
@@ -1025,7 +1030,8 @@ function breakLongWord(word: string, width: number, tracker: AnsiCodeTracker): s
  *
  * @param line - Line of text (may contain ANSI codes)
  * @param width - Total width to pad to
- * @param bgFn - Background color function
+ * @param bgFn - Background color function; must be pure and set only a background, since it is
+ *   re-applied wherever the line's own escapes drop back to the terminal default
  * @returns Line with background applied and padded to width
  */
 export function applyBackgroundToLine(line: string, width: number, bgFn: (text: string) => string): string {
@@ -1036,7 +1042,47 @@ export function applyBackgroundToLine(line: string, width: number, bgFn: (text: 
 
 	// Apply background to content + padding
 	const withPadding = line + padding;
-	return bgFn(withPadding);
+	return bgFn(reopenBackgroundAfterResets(withPadding, bgFn));
+}
+
+const BACKGROUND_PROBE = "\u0000";
+
+/** The escape sequence `bgFn` puts in front of its text, or "" when it does not wrap the text. */
+function backgroundOpener(bgFn: (text: string) => string): string {
+	const probed = bgFn(BACKGROUND_PROBE);
+	const textStart = probed.indexOf(BACKGROUND_PROBE);
+	return textStart > 0 ? probed.slice(0, textStart) : "";
+}
+
+/**
+ * Re-open the background wherever the line's own escapes drop back to the terminal default,
+ * so styled content (diffs, syntax highlighting, raw command output) cannot punch holes in it.
+ */
+function reopenBackgroundAfterResets(line: string, bgFn: (text: string) => string): string {
+	if (!line.includes("\x1b")) return line;
+	const opener = backgroundOpener(bgFn);
+	if (!opener) return line;
+
+	const tracker = new AnsiCodeTracker();
+	tracker.process(opener);
+	let result = "";
+	let i = 0;
+	while (i < line.length) {
+		const ansi = extractAnsiCode(line, i);
+		if (ansi) {
+			tracker.process(ansi.code);
+			result += ansi.code;
+			i += ansi.length;
+			continue;
+		}
+		if (!tracker.hasBackground()) {
+			result += opener;
+			tracker.process(opener);
+		}
+		result += line[i];
+		i++;
+	}
+	return result;
 }
 
 /**

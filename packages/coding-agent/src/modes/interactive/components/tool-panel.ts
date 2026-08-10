@@ -1,4 +1,4 @@
-import { type Component, truncateToWidth, visibleWidth } from "@valkyriweb/pi-tui";
+import { applyBackgroundToLine, type Component, truncateToWidth } from "@valkyriweb/pi-tui";
 
 const TOOL_PANEL_PADDING_X = 2;
 
@@ -58,11 +58,7 @@ export class ToolPanel implements Component {
 		const sidePadding = " ".repeat(paddingX);
 		const lines = childLines.map((line) => {
 			const content = truncateToWidth(line, contentWidth, "");
-			const trailingPadding = " ".repeat(Math.max(0, contentWidth - visibleWidth(content)));
-			if (content.endsWith("\x1b[0m") || content.endsWith("\x1b[49m")) {
-				return this.background(`${sidePadding}${content}`) + this.background(`${trailingPadding}${sidePadding}`);
-			}
-			return this.background(`${sidePadding}${content}${trailingPadding}${sidePadding}`);
+			return applyBackgroundToLine(`${sidePadding}${content}`, width, this.background);
 		});
 		this.cache = { width, backgroundSample, childLines, lines };
 		return lines;
