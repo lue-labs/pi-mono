@@ -55,12 +55,10 @@ function makeContext(
 		},
 		stopReason: "stop",
 	};
+	// Assistant last: signed blocks older than the last real user turn are
+	// stripped before the request, which would hide the conversion under test.
 	return {
-		messages: [
-			{ role: "user", content: "first", timestamp: Date.now() },
-			assistant,
-			{ role: "user", content: "second", timestamp: Date.now() },
-		],
+		messages: [{ role: "user", content: "first", timestamp: Date.now() }, assistant],
 	};
 }
 

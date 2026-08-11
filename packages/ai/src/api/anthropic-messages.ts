@@ -40,7 +40,11 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { splitSystemPromptForCache } from "./anthropic-cache-split.ts";
 import { type ServerToolResultBlockLike, summarizeServerToolResult } from "./anthropic-server-tools.ts";
-import { isLatestThinkingModifiedError, stripThinkingFromLatestAssistantTurn } from "./anthropic-thinking-recovery.ts";
+import {
+	isLatestThinkingModifiedError,
+	stripStaleThinkingFromMessageParams,
+	stripThinkingFromLatestAssistantTurn,
+} from "./anthropic-thinking-recovery.ts";
 import {
 	convertedToolCache,
 	convertOneTool,
@@ -1500,7 +1504,7 @@ function convertMessages(
 	requestToolNames: ReadonlySet<string> = new Set(),
 	inlineToolSchemas?: ReadonlyMap<string, Tool>,
 ): MessageParam[] {
-	const params: MessageParam[] = [];
+	let params: MessageParam[] = [];
 	const loadedToolNames = new Set<string>();
 
 	// Transform messages for cross-provider compatibility
@@ -1704,6 +1708,14 @@ function convertMessages(
 				content: [...toolResults, ...siblingContent],
 			});
 		}
+	}
+
+	// Thinking blocks older than the last real user turn are discarded by
+	// Anthropic, so replaying them only makes our bytes diverge from the history
+	// it keeps and forces a full-transcript rewrite at every user turn. Set
+	// PI_STALE_THINKING_REPLAY=1 to restore the old replay-everything behaviour.
+	if (process.env.PI_STALE_THINKING_REPLAY !== "1") {
+		params = stripStaleThinkingFromMessageParams(params);
 	}
 
 	// Add cache_control to the last user message to cache conversation history

@@ -1062,8 +1062,16 @@ export class AgentSession {
 		// Non-tool-result user input between assistant turns triggers Anthropic's
 		// thinking-block strip; cache-health uses it to classify the expected
 		// one-time prefix rewrite as thinking_strip_likely.
+		// Injected notifications (task completions, memory saves, monitor wakes)
+		// and bash execution records all convert to `role:"user"` on the wire, so
+		// they are boundaries too. Counting only typed user input mislabelled them
+		// as cache_write_unhealthy and hid the cause.
 		const followsUserTurn = entriesSincePreviousAssistant.some(
-			(entry) => entry.type === "message" && entry.message.role === "user",
+			(entry) =>
+				entry.type === "message" &&
+				(entry.message.role === "user" ||
+					entry.message.role === "custom" ||
+					entry.message.role === "bashExecution"),
 		);
 		const currentEntry = branch[currentAssistantIndex];
 		const model = (message as { model?: string }).model ?? this.model?.id ?? "unknown";
