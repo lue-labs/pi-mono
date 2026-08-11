@@ -181,64 +181,19 @@ Attribution:
 
 > Full human runbook: [`docs/RELEASING.md`](docs/RELEASING.md). The steps below are the agent-facing copy; keep both in sync.
 
-**Lockstep versioning**: all packages share one version; every release updates all together. `patch` = fixes + additions, `minor` = breaking changes. No major releases.
+Releases are driven by **Changesets** and published by `.github/workflows/release.yml`. There is no local publish step — never run `npm publish`, `npm whoami`, OIDC, or WebAuthn. The five packages (`pi-ai`, `pi-agent-core`, `pi-tui`, `pi-coding-agent`, `pi-orchestrator`) are a `fixed` group: one shared version, bumped together. `patch` = fixes + additions, `minor` = breaking changes. No major releases. Publish target is **GitHub Packages** (`npm.pkg.github.com`, restricted), authenticated with the workflow `GITHUB_TOKEN`.
 
-1. **Update CHANGELOGs**: ask the user whether they ran the `/cl` prompt on the latest commit on `main`. If not, they must run `/cl` first to audit and update each package's `[Unreleased]` section before releasing.
+1. **Land a changeset with the change**: every PR touching a publishable package commits a changeset (`npm run changeset` → pick bump + summary, writes `.changeset/*.md`). `changelog: false`, so keep notes in each package's `CHANGELOG.md` `[Unreleased]` and fork-wide notes in `FORK-CHANGELOG.md`; run `/cl` if stale. Inspect pending bumps with `npm run changeset:status`.
 
-2. **Local smoke test**: build an unpublished release and smoke test from outside the repo (so it can't resolve workspace files):
-   ```bash
-   npm run release:local -- --out /tmp/pi-local-release --force
-   cd /tmp
+2. **Push to `main` → Version Packages PR**: `release.yml` runs the release gate (`test:system-prompt`, `test:cache-stability`, `test:e2e`, `npm run check`), then `changesets/action` opens/updates the `chore(release): version fork packages` PR, which runs `npm run version-packages` (`changeset version` + lockfile/shrinkwrap refresh). It is authored with the `valkyriweb-clawsweeper` App token so required checks run. Review it like any PR.
 
-   # Node package install smoke tests
-   /tmp/pi-local-release/node/pi --help
-   /tmp/pi-local-release/node/pi --version
-   /tmp/pi-local-release/node/pi --list-models
-   /tmp/pi-local-release/node/pi -p "Say exactly: ok"
-   /tmp/pi-local-release/node/pi
+3. **Merge the Version PR → publish**: merging re-runs `release.yml` with no pending changesets, so `changesets/action` runs `npm run publish:changesets` (`changeset publish`) to GitHub Packages, then cuts bounded GitHub Releases (`create-github-releases.mjs`). If `pi-coding-agent` was bumped, the reusable `build-binaries.yml` builds the 6-platform binaries + a `v<version>` Release in the same run. Support-package-only releases skip binaries.
 
-   # Bun binary smoke tests
-   /tmp/pi-local-release/bun/pi --help
-   /tmp/pi-local-release/bun/pi --version
-   /tmp/pi-local-release/bun/pi --list-models
-   /tmp/pi-local-release/bun/pi -p "Say exactly: ok"
-   /tmp/pi-local-release/bun/pi
-   ```
-   Verify both Node and Bun startup, model/account listing, interactive startup, and at least one real prompt with the intended default provider. The bare commands `/tmp/pi-local-release/node/pi` and `/tmp/pi-local-release/bun/pi` start interactive mode; run each in tmux, submit a prompt, and wait for the model reply before considering the interactive smoke test passed. Failures are release blockers unless the user explicitly accepts the risk.
+4. **If the publish run fails**: inspect the failed `release`/`binaries` job. `changeset publish` is idempotent (skips versions already on the registry) — re-run the workflow after fixing CI. Do not hand-publish.
 
-3. **Verify npm authentication**: run `npm whoami` before starting the release script. If it fails, stop and tell the user to run `npm login` manually first, then retry after they confirm `npm whoami` succeeds.
+**Optional local smoke test** (pre-merge, never publishes): `npm run release:local -- --out /tmp/pi-local-release --force`, then run the Node and Bun `pi` binaries from `/tmp` (`--help`, `--version`, `--list-models`, `-p "Say exactly: ok"`, and interactive in tmux).
 
-4. **Brief the user on the WebAuthn flow before running anything**. Print exactly the following message and then stop and wait for the user to confirm in their next message:
-
-   ```
-   Before the release publish step, read this carefully:
-
-   - `npm publish` uses WebAuthn 2FA.
-   - The safest flow is for you to run the publish command yourself, because you can see and open the npm authentication URL immediately.
-   - I will tell you the exact command to run.
-   - When npm prints an auth URL, cmd/ctrl-click it, log in in the browser, and select the "don't ask again for N minutes" option if available.
-   - This may happen more than once during publish.
-   - Do not rerun `npm run release:patch` or `npm run release:minor` after a failed publish; only rerun the publish command I give you.
-
-   Reply "ready" once you have read this and are ready to run the command locally.
-   ```
-
-   Do not proceed to step 5 until the user explicitly confirms.
-
-The release script handles: version bump, CHANGELOG finalization, commit, tag, publish, and adding new `[Unreleased]` sections.
-
-5. **Run the release script**:
-   ```bash
-   PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:patch    # fixes + additions
-   PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:minor    # breaking changes
-   ```
-   Use `npm_config_min_release_age=0` only for the release command. The repo's normal npm age gate can otherwise block the release lockfile refresh when the current workspace package version was published recently. Review any lockfile or shrinkwrap diffs the release creates before push.
-
-   The release script bumps all package versions, updates changelogs, regenerates release artifacts, runs `npm run check`, commits `Release vX.Y.Z`, tags `vX.Y.Z`, adds fresh `## [Unreleased]` changelog sections, commits `Add [Unreleased] section for next cycle`, then pushes `main` and the tag. Do not rerun the release script after a tag was pushed.
-
-4. **CI publishes npm packages**: pushing the `vX.Y.Z` tag triggers `.github/workflows/build-binaries.yml`. The `publish-npm` job uses npm trusted publishing through GitHub Actions OIDC with environment `npm-publish`; no local `npm publish`, `npm whoami`, OTP, or WebAuthn flow is required.
-
-5. **If CI publish fails**: inspect the failed `publish-npm` job. The publish helper is idempotent and skips package versions already present on npm, so rerun the tag workflow after fixing CI or transient npm issues. Do not rerun `npm run release:patch` or `npm run release:minor` for the same version.
+**Deprecated**: `npm run release:patch|minor` (the `scripts/release.mjs` tag-and-push flow) is superseded and not an authorized release path — its `push: tags: v*` trigger is gone, so its tags neither build binaries nor publish. Do not run it for a release.
 
 ## User Override
 
