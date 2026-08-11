@@ -6,7 +6,7 @@
  */
 
 import type { AgentMessage, CustomMessage } from "@valkyriweb/pi-agent-core";
-import type { ImageContent, Message, TextContent } from "@valkyriweb/pi-ai";
+import type { ImageContent, Message, TextContent, ToolCall, ToolResultMessage } from "@valkyriweb/pi-ai";
 
 export type { CustomMessage };
 
@@ -124,6 +124,65 @@ export function createCustomMessage(
 		details,
 		timestamp: new Date(timestamp).getTime(),
 	};
+}
+
+export const UNSETTLED_TOOL_CALL_TEXT =
+	"outcome unknown: the session recovered before this tool call settled; the tool may or may not have run";
+
+function unsettledToolResult(toolCall: ToolCall, timestamp: number): ToolResultMessage {
+	return {
+		role: "toolResult",
+		toolCallId: toolCall.id,
+		toolName: toolCall.name,
+		content: [{ type: "text", text: UNSETTLED_TOOL_CALL_TEXT }],
+		isError: true,
+		timestamp,
+	};
+}
+
+/**
+ * Settle every tool call the recorded history left without an outcome.
+ *
+ * A turn that dies between the assistant message and its tool results leaves a
+ * `tool_use` with no `tool_result`. Providers reject that history outright
+ * (Anthropic 400s), so the resumed session stays wedged on every later request.
+ * Repair belongs at session open, before the first turn can run, so the record
+ * the agent works from is sound rather than patched per request.
+ *
+ * The synthetic result states the outcome is unknown. It does not claim the
+ * tool failed or succeeded — the session cannot know which.
+ *
+ * Returns the input array unchanged when every tool call is already settled.
+ */
+export function reconcileUnsettledToolCalls(messages: AgentMessage[]): AgentMessage[] {
+	const reconciled: AgentMessage[] = [];
+	let repaired = false;
+
+	for (let index = 0; index < messages.length; index++) {
+		const message = messages[index]!;
+		reconciled.push(message);
+		if (message.role !== "assistant") continue;
+
+		const toolCalls = message.content.filter((block): block is ToolCall => block.type === "toolCall");
+		if (toolCalls.length === 0) continue;
+
+		// Only the results immediately after the call settle it — that is the
+		// adjacency providers enforce.
+		const settled = new Set<string>();
+		while (index + 1 < messages.length && messages[index + 1]!.role === "toolResult") {
+			const result = messages[++index] as ToolResultMessage;
+			settled.add(result.toolCallId);
+			reconciled.push(result);
+		}
+
+		for (const toolCall of toolCalls) {
+			if (settled.has(toolCall.id)) continue;
+			reconciled.push(unsettledToolResult(toolCall, message.timestamp));
+			repaired = true;
+		}
+	}
+
+	return repaired ? reconciled : messages;
 }
 
 /**
