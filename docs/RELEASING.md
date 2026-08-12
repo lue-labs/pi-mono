@@ -1,5 +1,16 @@
 # Releasing
 
+> **Current automation:** releases run through `.github/workflows/release.yml`
+> and Changesets on `main`, publishing the restricted `@valkyriweb/*` scope to
+> GitHub Packages. The older local tag, public-npm OIDC, and WebAuthn paths below
+> are not canonical. Do not run them unless a maintainer explicitly selects the
+> legacy fallback after reviewing it.
+>
+> **Blocked:** the workflow and `.changeset/config.json` still reference the
+> removed `packages/orchestrator`, and the documented/fixed package set does not
+> match all publishable workspaces. Reconcile those surfaces before the next
+> release; do not infer a lockstep package set.
+
 Canonical release runbook for `valkyriweb/pi-mono`. The root `AGENTS.md`
 "Releasing" section is the agent-facing copy; this document is the human-facing
 source of truth. Keep the two in sync — if a step changes, change it here first.

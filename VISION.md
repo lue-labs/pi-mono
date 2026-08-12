@@ -90,19 +90,20 @@ private setup. Everything operator-specific lives in the sibling
 
 ## Release and operations posture
 
-- **Versioning:** lockstep across the four publishable `@valkyriweb/pi-*`
-  packages — one shared version, bumped together. `patch` = fixes + additions,
-  `minor` = breaking; no major releases.
-- **Release gate:** local `npm run check` + `test:build-gate`, then a tag-driven
-  CI release (`build-binaries.yml`) that publishes to npm via GitHub Actions
-  OIDC trusted publishing. Full runbook: [`docs/RELEASING.md`](docs/RELEASING.md).
+- **Versioning:** Changesets owns package versioning. The fixed package group is
+  currently inconsistent with the workspaces and must be reconciled before the
+  next release; do not infer a lockstep package set.
+- **Release gate:** local `npm run check` + `test:build-gate`, then the
+  Changesets workflow on `main` publishes restricted `@valkyriweb/*` packages to
+  GitHub Packages and invokes binary builds when coding-agent ships. Full
+  runbook: [`docs/RELEASING.md`](docs/RELEASING.md).
 - **Smoke evidence:** Node and Bun startup, `--version`/`--list-models`,
   interactive boot, and a real prompt against the default provider
   (`npm run release:local`). Add a fresh-environment install smoke as part of
   onboarding hardening.
-- **Rollback posture:** the publish helper is idempotent and skips versions
-  already on npm; re-run the tag workflow rather than re-running the release
-  script for the same version.
+- **Rollback posture:** fix the release workflow or package metadata and rerun
+  the failed Changesets workflow; never create a second version to mask a
+  partial release without maintainer approval.
 
 ## Agent guidance
 
