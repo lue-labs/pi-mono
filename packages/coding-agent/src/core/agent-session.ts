@@ -3208,6 +3208,11 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
+			// Manual compaction is user-invoked, so nothing encloses it that would
+			// flush later — unlike auto-compaction, which runs inside _runAgentPrompt.
+			// A bash execution recorded during the summarization is deferred, and
+			// without this it stays unpersisted until some future prompt.
+			this._flushPendingBashMessages();
 			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
 
 			// Get the saved compaction entry for the extension event
@@ -4856,6 +4861,12 @@ export class AgentSession {
 				// Non-user message: leaf = selected node
 				newLeafId = targetId;
 			}
+
+			// Branch summarization sets _branchSummaryAbortController, so isCompacting
+			// defers any bash executed while it runs. Persist those against the leaf
+			// they were run on — after the switch below they would land on the branch
+			// being navigated to, in front of unrelated model context.
+			this._flushPendingBashMessages();
 
 			// Switch leaf (with or without summary)
 			// Summary is attached at the navigation target position (newLeafId), not the old branch

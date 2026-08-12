@@ -25,6 +25,38 @@ describe("findToolUseAdjacencyViolations", () => {
 		);
 	});
 
+	it("does not count a result that trails other content in the next message", () => {
+		const messages: MessageParam[] = [
+			userTurn,
+			assistantWithToolUse("a"),
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "one moment" },
+					{ type: "tool_result", tool_use_id: "a", content: "contents" },
+				],
+			},
+		];
+
+		const violations = findToolUseAdjacencyViolations(messages);
+
+		expect(violations).toHaveLength(1);
+		expect(violations[0]).toMatchObject({ toolUseId: "a", followedByBlocks: ["text", "tool_result"] });
+	});
+
+	it("does not count a result carried by a non-user message", () => {
+		const messages: MessageParam[] = [
+			userTurn,
+			assistantWithToolUse("a"),
+			{ role: "assistant", content: [{ type: "tool_result", tool_use_id: "a", content: "contents" } as never] },
+		];
+
+		const violations = findToolUseAdjacencyViolations(messages);
+
+		expect(violations).toHaveLength(1);
+		expect(violations[0]).toMatchObject({ toolUseId: "a", followedBy: "assistant" });
+	});
+
 	it("reports a tool_use the transcript never settles", () => {
 		const messages = [userTurn, assistantWithToolUse("a"), userTurn];
 

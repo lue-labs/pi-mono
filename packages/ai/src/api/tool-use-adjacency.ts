@@ -33,6 +33,25 @@ function blockTypes(content: MessageParam["content"]): string[] {
 	return content.map((block) => block.type);
 }
 
+/**
+ * The ids the next message actually settles.
+ *
+ * Anthropic only accepts results that lead the immediately following *user*
+ * turn, so a result carried by an assistant message, or sitting behind a text
+ * or image block, does not settle its call however present it looks. Scanning
+ * the whole message would mark those requests clean and lose the very shape
+ * this file exists to catch.
+ */
+function settledToolUseIds(next: MessageParam | undefined): Set<string> {
+	const ids = new Set<string>();
+	if (!next || next.role !== "user" || typeof next.content === "string") return ids;
+	for (const block of next.content) {
+		if (block.type !== "tool_result") break;
+		ids.add(block.tool_use_id);
+	}
+	return ids;
+}
+
 function toolResultIds(content: MessageParam["content"]): Set<string> {
 	const ids = new Set<string>();
 	if (typeof content === "string") return ids;
@@ -63,7 +82,7 @@ export function findToolUseAdjacencyViolations(messages: MessageParam[]): ToolUs
 		if (toolUses.length === 0) continue;
 
 		const next = messages[index + 1];
-		const settled = next ? toolResultIds(next.content) : new Set<string>();
+		const settled = settledToolUseIds(next);
 
 		for (const toolUse of toolUses) {
 			if (settled.has(toolUse.id)) continue;
