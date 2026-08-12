@@ -42,6 +42,22 @@ describe("stripStaleThinkingFromMessageParams", () => {
 		expect(stripStaleThinkingFromMessageParams(messages)).toEqual(messages);
 	});
 
+	it("keeps a completed tool call intact when its thinking goes stale", () => {
+		// A stale assistant turn usually still carries the tool_use that its
+		// tool_result answers. Dropping that block would orphan the result.
+		const result = stripStaleThinkingFromMessageParams([
+			user("first"),
+			assistant([thinking("plan"), { type: "tool_use", id: "t1", name: "read", input: { path: "a" } }]),
+			toolResult("t1"),
+			assistant([{ type: "text", text: "a" }]),
+			user("second"),
+			assistant([thinking("current"), { type: "text", text: "b" }]),
+		]);
+
+		expect(result[1].content).toEqual([{ type: "tool_use", id: "t1", name: "read", input: { path: "a" } }]);
+		expect(result[2]).toEqual(toolResult("t1"));
+	});
+
 	it("keeps redacted thinking under the same rule", () => {
 		const redacted = { type: "redacted_thinking", data: "opaque" } as ContentBlockParam;
 		const result = stripStaleThinkingFromMessageParams([
