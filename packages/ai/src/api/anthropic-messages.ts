@@ -721,6 +721,10 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			if (nextParams !== undefined) {
 				params = nextParams as MessageCreateParamsStreaming;
 			}
+			// After onPayload, never before: an extension may replace messages
+			// wholesale, so the pre-hook array is not what the provider sees. Record
+			// the shape, do not repair it — a silent fix erases the evidence.
+			reportToolUseAdjacencyViolations(params.messages, model.id);
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
@@ -1073,6 +1077,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				if (nextContinuation !== undefined) {
 					continuationParams = nextContinuation as MessageCreateParamsStreaming;
 				}
+				reportToolUseAdjacencyViolations(continuationParams.messages, model.id);
 
 				// Snapshot the completed call's cumulative totals; the next call's
 				// message_start/delta will add this call's contribution on top.
@@ -1742,12 +1747,6 @@ function convertMessages(
 			}
 		}
 	}
-
-	// Anthropic rejects a request whose tool_use is not immediately followed by
-	// its tool_result, and the session log has never reproduced the fault — the
-	// wire array is the only place the real shape exists. Record it, do not
-	// repair it: a silent fix here would erase the evidence of the cause.
-	reportToolUseAdjacencyViolations(params, model.id);
 
 	return params;
 }

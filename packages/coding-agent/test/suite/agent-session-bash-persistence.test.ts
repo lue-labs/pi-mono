@@ -140,6 +140,82 @@ describe("AgentSession bash and persistence characterization", () => {
 		expect(harness.session.messages.some((message) => message.role === "bashExecution")).toBe(true);
 	});
 
+	it("flushes bash results deferred during manual compaction", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "summary from extension",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
+		await harness.session.prompt("one");
+		await harness.session.prompt("two");
+
+		harness.session.subscribe((event) => {
+			if (event.type !== "compaction_start") return;
+			harness.session.recordBashResult("echo hi", {
+				output: "hi",
+				exitCode: 0,
+				cancelled: false,
+				truncated: false,
+			});
+		});
+		await harness.session.compact();
+
+		expect(harness.session.hasPendingBashMessages).toBe(false);
+		const persisted = harness.sessionManager
+			.getEntries()
+			.some((entry) => entry.type === "message" && entry.message.role === "bashExecution");
+		expect(persisted).toBe(true);
+	});
+
+	it("persists bash results deferred during tree navigation on the originating branch", async () => {
+		let recordBash: (() => void) | undefined;
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_tree", async () => {
+						recordBash?.();
+						return undefined;
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		recordBash = () =>
+			harness.session.recordBashResult("echo hi", {
+				output: "hi",
+				exitCode: 0,
+				cancelled: false,
+				truncated: false,
+			});
+		harness.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
+		await harness.session.prompt("one");
+		await harness.session.prompt("two");
+		const firstUserEntry = harness.sessionManager
+			.getEntries()
+			.find((entry) => entry.type === "message" && entry.message.role === "user");
+		if (!firstUserEntry) throw new Error("expected a user entry to navigate to");
+
+		await harness.session.navigateTree(firstUserEntry.id);
+
+		expect(harness.session.hasPendingBashMessages).toBe(false);
+		const persisted = harness.sessionManager
+			.getEntries()
+			.some((entry) => entry.type === "message" && entry.message.role === "bashExecution");
+		expect(persisted).toBe(true);
+		expect(harness.session.messages.some((message) => message.role === "bashExecution")).toBe(false);
+	});
+
 	it("executes bash commands and records the result", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
