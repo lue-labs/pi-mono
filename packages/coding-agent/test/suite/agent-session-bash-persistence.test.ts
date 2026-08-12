@@ -113,6 +113,33 @@ describe("AgentSession bash and persistence characterization", () => {
 		expect(getEntryTypes(harness).filter((type) => type === "message").length).toBeGreaterThan(0);
 	});
 
+	it("defers bash results recorded during compaction", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
+		await harness.session.prompt("start");
+
+		harness.session.subscribe((event) => {
+			if (event.type !== "compaction_start") return;
+			expect(harness.session.isStreaming).toBe(false);
+			harness.session.recordBashResult("echo hi", {
+				output: "hi",
+				exitCode: 0,
+				cancelled: false,
+				truncated: false,
+			});
+		});
+		await harness.session.compact().catch(() => undefined);
+
+		expect(harness.session.hasPendingBashMessages).toBe(true);
+		expect(harness.session.messages.some((message) => message.role === "bashExecution")).toBe(false);
+
+		await harness.session.prompt("next turn");
+
+		expect(harness.session.hasPendingBashMessages).toBe(false);
+		expect(harness.session.messages.some((message) => message.role === "bashExecution")).toBe(true);
+	});
+
 	it("executes bash commands and records the result", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
