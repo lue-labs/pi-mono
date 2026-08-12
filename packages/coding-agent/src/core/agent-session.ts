@@ -1062,8 +1062,14 @@ export class AgentSession {
 		// Non-tool-result user input between assistant turns triggers Anthropic's
 		// thinking-block strip; cache-health uses it to classify the expected
 		// one-time prefix rewrite as thinking_strip_likely.
+		// Whether an entry is a boundary is decided by what it becomes on the wire,
+		// so ask the converter rather than re-listing roles here. Injected
+		// notifications, bash records, and branch/compaction summaries all become
+		// `role:"user"`; a `!!`-prefixed bash record is dropped from context and is
+		// correctly not a boundary. Enumerating roles by hand drifted from this and
+		// mislabelled the resulting breaks as cache_write_unhealthy.
 		const followsUserTurn = entriesSincePreviousAssistant.some(
-			(entry) => entry.type === "message" && entry.message.role === "user",
+			(entry) => entry.type === "message" && convertToLlm([entry.message])[0]?.role === "user",
 		);
 		const currentEntry = branch[currentAssistantIndex];
 		const model = (message as { model?: string }).model ?? this.model?.id ?? "unknown";

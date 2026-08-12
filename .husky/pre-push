@@ -3,4 +3,6 @@
 # lint/typecheck/changelog checks locally so mechanical failures never reach a runner; graceful
 # no-op if agent-race is absent. Escape hatch: SKIP_PREVENTABLE_GATE=1 git push.
 _preventable_gate="$HOME/Projects/personal/agent-race/scripts/hooks/pre-push-preventable-gate.sh"
-[ -x "$_preventable_gate" ] && { "$_preventable_gate" || exit 1; }
+if [ -x "$_preventable_gate" ]; then
+	"$_preventable_gate" || exit 1
+fi
