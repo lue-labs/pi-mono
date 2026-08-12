@@ -127,10 +127,23 @@ function poisonedContext(
 				redacted: true,
 			},
 			{ type: "text", text: "older answer" },
+			{ type: "toolCall", id: "call_1", name: "lookup", arguments: { value: "x" } },
 		]),
-		{ role: "user", content: "second", timestamp: 2 },
+		// A tool result, not a user turn, separates the two assistant turns.
+		// Thinking older than the last real user turn never reaches the API now,
+		// so a plain user message here would strip the poisoned block before the
+		// request and the 400 under test could not happen. Anthropic keeps
+		// thinking across a tool result, so this shape still exercises recovery
+		// preserving earlier signed reasoning.
+		{
+			role: "toolResult",
+			toolCallId: "call_1",
+			toolName: "lookup",
+			content: [{ type: "text", text: "looked up" }],
+			isError: false,
+			timestamp: 2,
+		},
 		assistantMessage(latestContent),
-		{ role: "user", content: "continue", timestamp: 3 },
 	];
 	return { systemPrompt: "Stable system prompt", messages, tools };
 }
@@ -166,11 +179,9 @@ describe("Anthropic thinking-modified 400 recovery (#thinking-roundtrip)", () =>
 			{ type: "thinking", thinking: "malformed split reasoning", thinkingSignature: "stale-signature" },
 			{ type: "text", text: "first latest segment" },
 		]);
-		context.messages.splice(
-			context.messages.length - 1,
-			0,
-			assistantMessage([{ type: "text", text: "last latest segment" }]),
-		);
+		// The poisoned assistant is now the last message, so the second segment of
+		// the final contiguous assistant turn is appended after it.
+		context.messages.push(assistantMessage([{ type: "text", text: "last latest segment" }]));
 
 		const stream = streamSimple(makeModel(), context, { apiKey: "k" });
 		const message = await stream.result();

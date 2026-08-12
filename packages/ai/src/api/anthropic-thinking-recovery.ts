@@ -71,3 +71,59 @@ export function stripThinkingFromLatestAssistantTurn(messages: MessageParam[]): 
 	}
 	return { messages: recoveredMessages, removedThinkingBlocks, removedAssistantMessage };
 }
+
+// A real user turn, as opposed to the `role:"user"` envelopes that carry tool
+// results back into an agentic loop. Anthropic keeps replayed thinking blocks
+// across tool results but discards them across a real user turn, so only the
+// latter is a stripping boundary.
+function isRealUserTurn(message: MessageParam): boolean {
+	if (message.role !== "user") return false;
+	if (typeof message.content === "string") return true;
+	return !message.content.some((block) => block.type === "tool_result");
+}
+
+/**
+ * Drop thinking blocks that Anthropic will discard anyway: those in assistant
+ * messages older than the last real user turn.
+ *
+ * Replaying them makes the bytes we send diverge from the history Anthropic
+ * retains, starting at the earliest thinking block in the session. Every later
+ * user turn re-derives that divergence and rewrites the whole transcript after
+ * the tools+system anchor. Stripping them keeps every message before the last
+ * boundary byte-identical across turns, so a rewrite can only ever cover the
+ * most recent loop.
+ *
+ * Blocks at or after the boundary are preserved: Anthropic validates the latest
+ * assistant message's signed blocks and rejects any modification, and the
+ * active tool loop needs them to continue. (#thinking-roundtrip)
+ *
+ * Only signed and redacted blocks are dropped. An empty signature means a
+ * compat provider that never signed anything and never discards history
+ * (`allowEmptySignature`), so its reasoning trace is left to replay as-is.
+ */
+export function stripStaleThinkingFromMessageParams(messages: MessageParam[]): MessageParam[] {
+	let boundary = -1;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (isRealUserTurn(messages[i])) {
+			boundary = i;
+			break;
+		}
+	}
+	if (boundary <= 0) return messages;
+
+	const stale: MessageParam[] = [];
+	for (const message of messages.slice(0, boundary)) {
+		if (message.role !== "assistant" || typeof message.content === "string") {
+			stale.push(message);
+			continue;
+		}
+		const content = message.content.filter((block) => {
+			if (block.type === "redacted_thinking") return false;
+			if (block.type !== "thinking") return true;
+			return (block.signature ?? "").trim().length === 0;
+		});
+		if (content.length === 0) continue;
+		stale.push({ ...message, content });
+	}
+	return [...stale, ...messages.slice(boundary)];
+}
