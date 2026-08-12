@@ -4632,8 +4632,14 @@ export class AgentSession {
 			excludeFromContext: options?.excludeFromContext,
 		};
 
-		// If agent is streaming, defer adding to avoid breaking tool_use/tool_result ordering
-		if (this.isStreaming) {
+		// Defer while the agent is busy, to avoid breaking tool_use/tool_result ordering.
+		// isStreaming alone is too narrow: compaction runs its own LLM calls outside
+		// agent.runWithLifecycle(), and agent.isProcessing also covers the prompt() setup
+		// window and the agent_end listener phase. A bash execution landing in one of those
+		// windows pushes a visible user message between an assistant tool_use and its
+		// tool_results, which the provider rejects for the rest of the session. Deferred
+		// messages are flushed by the enclosing run's finally block or before the next prompt.
+		if (this.isStreaming || this.isCompacting || this.agent.isProcessing) {
 			// Queue for later - will be flushed on agent_end
 			this._pendingBashMessages.push(bashMessage);
 		} else {
