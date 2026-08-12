@@ -58,6 +58,7 @@ import {
 	clampMaxTokensToContext,
 	MIN_THINKING_BUDGET,
 } from "./simple-options.ts";
+import { reportToolUseAdjacencyViolations } from "./tool-use-adjacency.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 /**
@@ -1741,6 +1742,12 @@ function convertMessages(
 			}
 		}
 	}
+
+	// Anthropic rejects a request whose tool_use is not immediately followed by
+	// its tool_result, and the session log has never reproduced the fault — the
+	// wire array is the only place the real shape exists. Record it, do not
+	// repair it: a silent fix here would erase the evidence of the cause.
+	reportToolUseAdjacencyViolations(params, model.id);
 
 	return params;
 }
