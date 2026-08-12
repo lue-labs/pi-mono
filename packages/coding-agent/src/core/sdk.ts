@@ -17,7 +17,7 @@ import type {
 	SessionStartEvent,
 	ToolDefinition,
 } from "./extensions/index.ts";
-import { convertToLlm } from "./messages.ts";
+import { convertToLlm, reconcileUnsettledToolCalls } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import { findInitialModel, normalizeAutoAliasString } from "./model-resolver.ts";
 import { ModelRuntime } from "./model-runtime.ts";
@@ -568,7 +568,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// anyway, and a resumed long session can otherwise rehydrate hundreds of
 		// MB of unreachable-to-the-model image data (my-pi#1147).
 		retireOutOfBudgetContextImages(existingSession.messages);
-		agent.state.messages = existingSession.messages;
+		// A session that died mid-turn can carry a tool call with no recorded
+		// outcome. Providers reject that history outright (Anthropic 400s on the
+		// unpaired tool_use), which wedges every later request in the resumed
+		// session, so settle the open calls before the first turn can run.
+		agent.state.messages = reconcileUnsettledToolCalls(existingSession.messages);
 		if (model && !sessionModelMatches(existingSession.model, model)) {
 			sessionManager.appendModelChange(model.provider, model.id);
 		}
