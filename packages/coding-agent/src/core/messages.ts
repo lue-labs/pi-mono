@@ -149,12 +149,24 @@ function unsettledToolResult(toolCall: ToolCall, timestamp: number): ToolResultM
  * Repair belongs at session open, before the first turn can run, so the record
  * the agent works from is sound rather than patched per request.
  *
+ * A call counts as settled when a result for it exists anywhere later in the
+ * history, not only in the adjacent run. A result the record displaced — a
+ * custom message persisted mid-batch pushes one down — is still an outcome, and
+ * synthesizing a second one for the same `tool_use_id` is itself an Anthropic
+ * 400. Restoring adjacency is `transformMessages`' job; this seam only fills
+ * outcomes that were never recorded at all.
+ *
  * The synthetic result states the outcome is unknown. It does not claim the
  * tool failed or succeeded — the session cannot know which.
  *
  * Returns the input array unchanged when every tool call is already settled.
  */
 export function reconcileUnsettledToolCalls(messages: AgentMessage[]): AgentMessage[] {
+	const settled = new Set<string>();
+	for (const message of messages) {
+		if (message.role === "toolResult") settled.add(message.toolCallId);
+	}
+
 	const reconciled: AgentMessage[] = [];
 	let repaired = false;
 
@@ -163,20 +175,18 @@ export function reconcileUnsettledToolCalls(messages: AgentMessage[]): AgentMess
 		reconciled.push(message);
 		if (message.role !== "assistant") continue;
 
-		const toolCalls = message.content.filter((block): block is ToolCall => block.type === "toolCall");
-		if (toolCalls.length === 0) continue;
+		const unsettled = message.content.filter(
+			(block): block is ToolCall => block.type === "toolCall" && !settled.has(block.id),
+		);
+		if (unsettled.length === 0) continue;
 
-		// Only the results immediately after the call settle it — that is the
-		// adjacency providers enforce.
-		const settled = new Set<string>();
+		// Keep the recorded results of this batch ahead of the synthetic ones, so
+		// the settled calls stay adjacent to their assistant turn.
 		while (index + 1 < messages.length && messages[index + 1]!.role === "toolResult") {
-			const result = messages[++index] as ToolResultMessage;
-			settled.add(result.toolCallId);
-			reconciled.push(result);
+			reconciled.push(messages[++index]!);
 		}
 
-		for (const toolCall of toolCalls) {
-			if (settled.has(toolCall.id)) continue;
+		for (const toolCall of unsettled) {
 			reconciled.push(unsettledToolResult(toolCall, message.timestamp));
 			repaired = true;
 		}

@@ -78,6 +78,20 @@ describe("reconcileUnsettledToolCalls", () => {
 		expect(reconciled[2]).toMatchObject({ toolCallId: "a", isError: true });
 	});
 
+	it("does not settle a call whose result the record displaced", () => {
+		// A custom message persisted mid-batch pushes the real result past the
+		// adjacent run. Synthesizing here would put two tool_result blocks on one
+		// tool_use_id, which is the 400 this function exists to prevent.
+		const displaced: AgentMessage[] = [
+			userMessage,
+			assistantWithToolCalls("a"),
+			{ role: "custom", customType: "cache_health", content: "", display: false, timestamp: 8 },
+			toolResult("a"),
+		];
+
+		expect(reconcileUnsettledToolCalls(displaced)).toBe(displaced);
+	});
+
 	it("leaves a history without tool calls untouched", () => {
 		const messages: AgentMessage[] = [userMessage];
 
