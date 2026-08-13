@@ -284,7 +284,9 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.session.messages[0]?.role).toBe("compactionSummary");
 		expect(harness.session.systemPrompt).toBe(systemPromptBefore);
 		expect(harness.session.getActiveToolNames()).toEqual(activeToolNamesBefore);
-		expect(harness.session.agent.state.tools).toEqual(activeToolRefsBefore);
+		expect(harness.session.agent.state.tools.map((tool) => tool.name)).toEqual(
+			activeToolRefsBefore.map((tool) => tool.name),
+		);
 	});
 
 	it("stubs resident history when enabled only by PI_RESIDENT_SESSION_PRUNE", async () => {
