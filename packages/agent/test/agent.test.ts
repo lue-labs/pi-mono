@@ -664,6 +664,49 @@ describe("Agent", () => {
 		expect(responseCount).toBe(2);
 	});
 
+	it("continueQueuedMessage restores the delivery unit when the run fails before it is accepted", async () => {
+		const agent = new Agent({ streamFn: unusedStreamFunction });
+		agent.steer({
+			role: "user",
+			content: [{ type: "text", text: "Queued steering" }],
+			timestamp: Date.now(),
+		});
+
+		await expect(agent.continueQueuedMessage()).rejects.toThrow("No messages to continue from");
+		expect(agent.hasQueuedMessages()).toBe(true);
+
+		agent.state.messages = [
+			{
+				role: "user",
+				content: [{ type: "text", text: "Initial" }],
+				timestamp: Date.now() - 10,
+			},
+			createAssistantMessage("Initial response"),
+		];
+
+		const delivered: string[] = [];
+		(agent as unknown as { streamFunction: StreamFn }).streamFunction = (_model, context) => {
+			const stream = new MockAssistantStream();
+			const lastUser = [...context.messages].reverse().find((message) => message.role === "user");
+			if (lastUser?.role === "user" && Array.isArray(lastUser.content)) {
+				delivered.push(
+					lastUser.content
+						.filter((part) => part.type === "text")
+						.map((part) => part.text)
+						.join(""),
+				);
+			}
+			queueMicrotask(() => {
+				stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Processed") });
+			});
+			return stream;
+		};
+
+		await expect(agent.continueQueuedMessage()).resolves.toBeUndefined();
+		expect(delivered).toEqual(["Queued steering"]);
+		expect(agent.hasQueuedMessages()).toBe(false);
+	});
+
 	it("continue() is a no-op when the transcript ends on assistant with empty queues", async () => {
 		// Regression: AgentSession._runAgentPrompt and the post-compaction resume
 		// path both call agent.continue() inside a post-run loop guarded by
