@@ -685,7 +685,7 @@ export interface OpenAIResponsesCompat {
 	sendChatgptAccountId?: boolean;
 	/** Whether the endpoint accepts the Codex WebSocket transport (Codex Responses only). Default: true. */
 	supportsWebSocketTransport?: boolean;
-	/** Whether SSE request bodies may use Content-Encoding: zstd (Codex Responses only). Default: true. */
+	/** Whether SSE request bodies may use Content-Encoding: zstd (Codex Responses only). Default: true on the official ChatGPT Codex backend, false for any other base URL. */
 	supportsZstdRequestCompression?: boolean;
 }
 

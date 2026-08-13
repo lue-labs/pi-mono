@@ -226,6 +226,22 @@ function loadNodeZlib(): typeof NodeZlib | null {
 	return (process as ProcessWithBuiltinModule).getBuiltinModule?.("node:zlib") ?? null;
 }
 
+// Only the official ChatGPT Codex backend is known to decode zstd request
+// bodies; gateways speaking the Codex wire contract (ClawRouter and friends)
+// reject them, so a custom base URL defaults to an uncompressed body. An
+// explicit `compat.supportsZstdRequestCompression` always wins.
+function usesZstdRequestCompression(model: Model<"openai-codex-responses">): boolean {
+	const configured = model.compat?.supportsZstdRequestCompression;
+	if (configured !== undefined) return configured;
+	const baseUrl = model.baseUrl?.trim();
+	if (!baseUrl) return true;
+	try {
+		return new URL(baseUrl).host === new URL(DEFAULT_CODEX_BASE_URL).host;
+	} catch {
+		return false;
+	}
+}
+
 // Returns the zstd-compressed body bytes, or null when compression is
 // unavailable (browser/Vite builds). Callers fall back to sending the
 // uncompressed JSON when this returns null.
@@ -429,8 +445,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// Compress the request body once for the SSE path. The Codex backend
 			// decodes Content-Encoding: zstd; the WebSocket transport above sends the
 			// uncompressed JSON frame, matching the official Codex client.
-			const compressedBody =
-				model.compat?.supportsZstdRequestCompression === false ? null : compressRequestBodyZstd(bodyJson);
+			const compressedBody = usesZstdRequestCompression(model) ? compressRequestBodyZstd(bodyJson) : null;
 			if (compressedBody) {
 				sseHeaders.set("content-encoding", "zstd");
 			} else {
