@@ -2058,15 +2058,17 @@ export class AgentSession {
 	}
 
 	private async _prompt(text: string, options?: PromptOptions): Promise<void> {
-		// Keep startup responsive, but make the first user action the hard boundary:
-		// all deferred commands, handlers, and tool schemas must exist before input
-		// handling and before_agent_start compute the first provider request.
-		await this._extensionRunner.loadDeferredExtensions();
 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
 		const preflightResult = options?.preflightResult;
 		let messages: AgentMessage[] | undefined;
 
 		try {
+			// Keep startup responsive, but make the first user action the hard boundary:
+			// all deferred commands, handlers, and tool schemas must exist before input
+			// handling and before_agent_start compute the first provider request. Entering
+			// try first keeps this preflight inside prompt()'s error-reporting contract.
+			await this._extensionRunner.loadDeferredExtensions();
+
 			// Handle extension commands first (execute immediately, even during streaming)
 			// Extension commands manage their own LLM interaction via pi.sendMessage()
 			if (expandPromptTemplates && text.startsWith("/")) {
