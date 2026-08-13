@@ -428,6 +428,7 @@ export class InteractiveMode {
 
 	private lastSigintTime = 0;
 	private lastEscapeTime = 0;
+	private escapeContinuationInFlight = false;
 	private changelogMarkdown: string | undefined = undefined;
 	private startupNoticesShown = false;
 	private anthropicSubscriptionWarningShown = false;
@@ -2525,7 +2526,7 @@ export class InteractiveMode {
 			return;
 		}
 		if (this.session.isStreaming) {
-			this.restoreQueuedMessagesToEditor({ abort: true });
+			this.handleStreamingEscape();
 		} else if (this.session.isBashRunning) {
 			this.session.abortBash();
 		} else if (this.isBashMode) {
@@ -2549,6 +2550,35 @@ export class InteractiveMode {
 				}
 			}
 		}
+	}
+
+	private handleStreamingEscape(): void {
+		if (this.escapeContinuationInFlight) return;
+		this.escapeContinuationInFlight = true;
+
+		const composerText = (this.editor.getExpandedText?.() ?? this.editor.getText()).trim();
+		if (composerText) {
+			this.editor.addToHistory?.(composerText);
+			this.editor.setText("");
+		}
+
+		void (async () => {
+			try {
+				await this.session.abortAndResumeQueuedMessages();
+				if (composerText) {
+					await this.session.prompt(composerText);
+				}
+			} catch (error) {
+				if (composerText && !this.editor.getText().trim()) {
+					this.editor.setText(composerText);
+				}
+				this.showError(error instanceof Error ? error.message : String(error));
+			} finally {
+				this.escapeContinuationInFlight = false;
+				this.updatePendingMessagesDisplay();
+				this.ui.requestRender();
+			}
+		})();
 	}
 
 	/**

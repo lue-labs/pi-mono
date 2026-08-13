@@ -161,6 +161,10 @@ class PendingMessageQueue {
 		return [first];
 	}
 
+	prepend(messages: AgentMessage[]): void {
+		this.messages = [...messages, ...this.messages];
+	}
+
 	clear(): void {
 		this.messages = [];
 	}
@@ -335,6 +339,37 @@ export class Agent {
 		return this.steeringQueue.hasItems() || this.followUpQueue.hasItems();
 	}
 
+	/** Deliver one configured queue unit, preferring steering over follow-up. */
+	async continueQueuedMessage(): Promise<void> {
+		if (this.activeRun) {
+			throw new Error("Agent is already processing. Wait for completion before continuing.");
+		}
+		if (this._state.messages.length === 0) {
+			throw new Error("No messages to continue from");
+		}
+
+		const queuedSteering = this.steeringQueue.drain();
+		if (queuedSteering.length > 0) {
+			try {
+				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
+			} catch (error) {
+				this.steeringQueue.prepend(queuedSteering);
+				throw error;
+			}
+			return;
+		}
+
+		const queuedFollowUps = this.followUpQueue.drain();
+		if (queuedFollowUps.length > 0) {
+			try {
+				await this.runPromptMessages(queuedFollowUps);
+			} catch (error) {
+				this.followUpQueue.prepend(queuedFollowUps);
+				throw error;
+			}
+		}
+	}
+
 	/** Active abort signal for the current run, if any. */
 	get signal(): AbortSignal | undefined {
 		return this.activeRun?.abortController.signal;
@@ -401,15 +436,8 @@ export class Agent {
 		}
 
 		if (lastMessage.role === "assistant") {
-			const queuedSteering = this.steeringQueue.drain();
-			if (queuedSteering.length > 0) {
-				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
-				return;
-			}
-
-			const queuedFollowUps = this.followUpQueue.drain();
-			if (queuedFollowUps.length > 0) {
-				await this.runPromptMessages(queuedFollowUps);
+			if (this.hasQueuedMessages()) {
+				await this.continueQueuedMessage();
 				return;
 			}
 
