@@ -1542,6 +1542,9 @@ export class AgentSession {
 	 * cached system prefix (prompt-cache golden rule).
 	 */
 	async resumePendingInteractiveToolCall(): Promise<boolean> {
+		// A resumable pending call may belong to a deferred extension. Load it before
+		// resolving the persisted tool name, and before this path can invoke the model.
+		await this._extensionRunner.loadDeferredExtensions();
 		const messages = this.agent.state.messages;
 		const last = messages[messages.length - 1];
 		if (!last || last.role !== "assistant") return false;
@@ -1943,6 +1946,11 @@ export class AgentSession {
 	}
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		// Deferred extensions may register provider-visible tools. Never let the
+		// first request race their startup load, or tools[] changes after turn one
+		// and invalidates the prompt-cache prefix. The load is memoized, so callers
+		// that already prepared the turn pay no additional cost here.
+		await this._extensionRunner.loadDeferredExtensions();
 		this._isAgentRunActive = true;
 		try {
 			// A turn is starting — cancel any pending idle wake. The notification
@@ -2023,6 +2031,7 @@ export class AgentSession {
 		if (this.isStreaming || this.isCompacting || this.agent.isProcessing) return;
 		void (async () => {
 			try {
+				await this._extensionRunner.loadDeferredExtensions();
 				await this.agent.continue();
 				while (await this._handlePostAgentRun()) {
 					await this.agent.continue();
@@ -2054,6 +2063,12 @@ export class AgentSession {
 		let messages: AgentMessage[] | undefined;
 
 		try {
+			// Keep startup responsive, but make the first user action the hard boundary:
+			// all deferred commands, handlers, and tool schemas must exist before input
+			// handling and before_agent_start compute the first provider request. Entering
+			// try first keeps this preflight inside prompt()'s error-reporting contract.
+			await this._extensionRunner.loadDeferredExtensions();
+
 			// Handle extension commands first (execute immediately, even during streaming)
 			// Extension commands manage their own LLM interaction via pi.sendMessage()
 			if (expandPromptTemplates && text.startsWith("/")) {
@@ -2482,6 +2497,9 @@ export class AgentSession {
 			await emitCustomMessage();
 		} else if (options?.triggerTurn) {
 			await this._withActiveTurnCall(async () => {
+				// Match prompt(): deferred handlers and tool schemas must be present before
+				// before_agent_start constructs the first machine-driven provider request.
+				await this._extensionRunner.loadDeferredExtensions();
 				// Mirror prompt()'s pre-turn compaction check. Without it, harness-driven
 				// turns (e.g. pi-goal continuations via sendCustomMessage({triggerTurn}))
 				// never hit threshold compaction — context grows unbounded across goal

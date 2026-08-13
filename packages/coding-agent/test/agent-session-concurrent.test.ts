@@ -599,10 +599,12 @@ describe("AgentSession concurrent prompt guard", () => {
 					systemPrompt: string,
 					systemPromptOptions: BuildSystemPromptOptions,
 				) => Promise<string>;
+				loadDeferredExtensions: () => Promise<void>;
 			};
 		};
 		sessionWithRunner._extensionRunner = {
 			hasHandlers: (eventType) => eventType === "tool_call",
+			loadDeferredExtensions: async () => {},
 			applySystemPromptBuildFilters: async (systemPrompt: string) => systemPrompt,
 			fireSessionDispose: () => {},
 			emit: async () => {},
@@ -752,10 +754,12 @@ describe("AgentSession concurrent prompt guard", () => {
 					systemPrompt: string,
 					systemPromptOptions: BuildSystemPromptOptions,
 				) => Promise<string>;
+				loadDeferredExtensions: () => Promise<void>;
 			};
 		};
 		sessionWithRunner._extensionRunner = {
 			hasHandlers: () => false,
+			loadDeferredExtensions: async () => {},
 			applySystemPromptBuildFilters: async (systemPrompt: string) => systemPrompt,
 			fireSessionDispose: () => {},
 			emit: async () => {},
