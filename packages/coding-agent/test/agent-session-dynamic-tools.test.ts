@@ -5,7 +5,7 @@ import { Agent } from "@valkyriweb/pi-agent-core";
 import { type AssistantMessage, type AssistantMessageEvent, EventStream } from "@valkyriweb/pi-ai";
 import { getModel } from "@valkyriweb/pi-ai/compat";
 import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
@@ -248,13 +248,15 @@ describe("AgentSession dynamic tool registration", () => {
 	});
 
 	it("loads deferred tool schemas and handlers before the first provider request", async () => {
-		writeFileSync(
-			join(tempDir, "package.json"),
-			JSON.stringify({ pi: { extensions: [{ path: "./deferred-first-turn.mjs", load: "deferred" }] } }),
-		);
-		writeFileSync(
-			join(tempDir, "deferred-first-turn.mjs"),
-			`
+		vi.useFakeTimers();
+		try {
+			writeFileSync(
+				join(tempDir, "package.json"),
+				JSON.stringify({ pi: { extensions: [{ path: "./deferred-first-turn.mjs", load: "deferred" }] } }),
+			);
+			writeFileSync(
+				join(tempDir, "deferred-first-turn.mjs"),
+				`
 				export default function(pi) {
 					pi.registerTool({
 						name: "first_turn_tool",
@@ -269,54 +271,57 @@ describe("AgentSession dynamic tool registration", () => {
 					});
 				}
 			`,
-		);
+			);
 
-		const settingsManager = SettingsManager.create(tempDir, agentDir);
-		settingsManager.setProjectPackages([tempDir]);
-		const sessionManager = SessionManager.inMemory();
-		const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
-		await resourceLoader.reload();
+			const settingsManager = SettingsManager.create(tempDir, agentDir);
+			settingsManager.setProjectPackages([tempDir]);
+			const sessionManager = SessionManager.inMemory();
+			const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+			await resourceLoader.reload();
 
-		const model = pickModel("anthropic");
-		let providerToolNames: string[] = [];
-		let systemPromptAtProvider = "";
-		const agent = new Agent({
-			getApiKey: () => "test-key",
-			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn: (_model, context) => {
-				providerToolNames = context.tools?.map((tool) => tool.name) ?? [];
-				systemPromptAtProvider = context.systemPrompt ?? "";
-				const stream = new MockAssistantStream();
-				queueMicrotask(() => {
-					const message = stoppedAssistantMessage();
-					stream.push({ type: "start", partial: { ...message, content: [] } });
-					stream.push({ type: "done", reason: "stop", message });
-				});
-				return stream;
-			},
-		});
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
-		const modelRegistry = await createModelRegistry(authStorage, tempDir);
-		const session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
-			modelRuntime: getModelRuntime(modelRegistry),
-			resourceLoader,
-		});
-		await session.bindExtensions({});
+			const model = pickModel("anthropic");
+			let providerToolNames: string[] = [];
+			let systemPromptAtProvider = "";
+			const agent = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: "Test", tools: [] },
+				streamFn: (_model, context) => {
+					providerToolNames = context.tools?.map((tool) => tool.name) ?? [];
+					systemPromptAtProvider = context.systemPrompt ?? "";
+					const stream = new MockAssistantStream();
+					queueMicrotask(() => {
+						const message = stoppedAssistantMessage();
+						stream.push({ type: "start", partial: { ...message, content: [] } });
+						stream.push({ type: "done", reason: "stop", message });
+					});
+					return stream;
+				},
+			});
+			const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+			await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
+			const modelRegistry = await createModelRegistry(authStorage, tempDir);
+			const session = new AgentSession({
+				agent,
+				sessionManager,
+				settingsManager,
+				cwd: tempDir,
+				modelRegistry,
+				modelRuntime: getModelRuntime(modelRegistry),
+				resourceLoader,
+			});
+			await session.bindExtensions({});
 
-		expect(session.getAllTools().map((tool) => tool.name)).not.toContain("first_turn_tool");
+			expect(session.getAllTools().map((tool) => tool.name)).not.toContain("first_turn_tool");
 
-		await session.prompt("first turn");
+			await session.prompt("first turn");
 
-		expect(providerToolNames).toContain("first_turn_tool");
-		expect(systemPromptAtProvider).toContain("DEFERRED-FIRST-TURN");
+			expect(providerToolNames).toContain("first_turn_tool");
+			expect(systemPromptAtProvider).toContain("DEFERRED-FIRST-TURN");
 
-		session.dispose();
+			session.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("registers a deferred extension tool without activating it, and adds no core tool_search", async () => {
