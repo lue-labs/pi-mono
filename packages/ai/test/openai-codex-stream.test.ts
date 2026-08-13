@@ -2547,7 +2547,10 @@ describe("openai-codex streaming", () => {
 
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url !== "http://127.0.0.1:8798/v1/codex/responses") {
+			if (
+				url !== "http://127.0.0.1:8798/v1/codex/responses" &&
+				url !== "https://chatgpt.com/backend-api/codex/responses"
+			) {
 				throw new Error(`Unexpected URL: ${url}`);
 			}
 			const headers = init?.headers instanceof Headers ? init.headers : undefined;
@@ -2598,6 +2601,22 @@ describe("openai-codex streaming", () => {
 
 		expect(capturedEncoding).toBe("zstd");
 		expect(capturedBody).toBeInstanceOf(Uint8Array);
+		expect(decodeCodexRequestBody(capturedBody)).not.toBeNull();
+
+		capturedEncoding = null;
+		capturedBody = undefined;
+		await streamOpenAICodexResponses(
+			{
+				...gatewayModel,
+				baseUrl: "https://chatgpt.com/backend-api",
+				compat: { ...gatewayModel.compat, supportsZstdRequestCompression: false },
+			},
+			context,
+			{ apiKey: token, transport: "sse" },
+		).result();
+
+		expect(capturedEncoding).toBeNull();
+		expect(typeof capturedBody).toBe("string");
 	});
 
 	it("uses exponential backoff across repeated SSE retries without retry headers", async () => {
