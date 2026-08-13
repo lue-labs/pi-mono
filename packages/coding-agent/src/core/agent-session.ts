@@ -472,6 +472,7 @@ export class AgentSession {
 	private _unsubscribeAgent?: () => void;
 	private _eventListeners: AgentSessionEventListener[] = [];
 	private _isAgentRunActive = false;
+	private _abortAndResumeQueuedPromise: Promise<void> | undefined;
 	private _idleWaitPromise: Promise<void> | undefined;
 	private _resolveIdleWait: (() => void) | undefined;
 
@@ -1970,6 +1971,10 @@ export class AgentSession {
 			return false;
 		}
 
+		if (msg.stopReason === "aborted") {
+			return false;
+		}
+
 		if (this._isRetryableError(msg) && (await this._prepareRetry(msg))) {
 			return true;
 		}
@@ -2743,6 +2748,48 @@ export class AgentSession {
 		this.abortRetry();
 		this.agent.abort();
 		await this.waitForIdle();
+	}
+
+	/** Abort the active turn, then deliver any queued messages using the configured queue modes. */
+	abortAndResumeQueuedMessages(): Promise<void> {
+		if (this._abortAndResumeQueuedPromise) return this._abortAndResumeQueuedPromise;
+		const operation = this._abortAndResumeQueuedMessages();
+		this._abortAndResumeQueuedPromise = operation;
+		const clearOperation = () => {
+			if (this._abortAndResumeQueuedPromise === operation) {
+				this._abortAndResumeQueuedPromise = undefined;
+			}
+		};
+		void operation.then(clearOperation, clearOperation);
+		return operation;
+	}
+
+	private async _abortAndResumeQueuedMessages(): Promise<void> {
+		this.abortRetry();
+		if (!this._isAgentRunActive) return;
+
+		this.agent.abort();
+		await this.waitForIdle();
+		if (!this.agent.hasQueuedMessages()) return;
+
+		await this._withActiveTurnCall(async () => {
+			this._isAgentRunActive = true;
+			try {
+				while (this.agent.hasQueuedMessages()) {
+					await this._refilterSystemPromptIfNeeded();
+					this._cacheHeartbeat.setSessionTarget(this._findLastAssistantMessage()?.timestamp);
+					this._cacheHeartbeat.noteActivity();
+					await this.agent.continueQueuedMessage();
+					while (await this._handlePostAgentRun()) {
+						await this.agent.continue();
+					}
+				}
+			} finally {
+				this._systemPromptOverride = undefined;
+				this._flushPendingBashMessages();
+				await this._emitAgentSettled();
+			}
+		});
 	}
 
 	async waitForIdle(): Promise<void> {
