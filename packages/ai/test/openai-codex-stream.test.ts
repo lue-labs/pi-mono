@@ -2537,6 +2537,69 @@ describe("openai-codex streaming", () => {
 		expect(capturedBody).toBeInstanceOf(Uint8Array);
 	});
 
+	it("sends uncompressed SSE request bodies to gateway base URLs", async () => {
+		const token = mockToken();
+		const encoder = new TextEncoder();
+		const sse = buildSSEPayload({ status: "completed" });
+
+		let capturedEncoding: string | null = null;
+		let capturedBody: Uint8Array | string | undefined;
+
+		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+			const url = typeof input === "string" ? input : input.toString();
+			if (url !== "http://127.0.0.1:8798/v1/codex/responses") {
+				throw new Error(`Unexpected URL: ${url}`);
+			}
+			const headers = init?.headers instanceof Headers ? init.headers : undefined;
+			capturedEncoding = headers?.get("content-encoding") ?? null;
+			capturedBody = init?.body as Uint8Array | string | undefined;
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					start(controller) {
+						controller.enqueue(encoder.encode(sse));
+						controller.close();
+					},
+				}),
+				{ status: 200, headers: { "content-type": "text/event-stream" } },
+			);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const gatewayModel: Model<"openai-codex-responses"> = {
+			id: "gpt-5.6-terra",
+			name: "Gateway Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex-responses",
+			baseUrl: "http://127.0.0.1:8798/v1",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+			compat: { sendChatgptAccountId: false, supportsWebSocketTransport: false },
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "compress me ".repeat(400), timestamp: 1 }],
+		};
+
+		await streamOpenAICodexResponses(gatewayModel, context, { apiKey: token, transport: "sse" }).result();
+
+		expect(capturedEncoding).toBeNull();
+		expect(typeof capturedBody).toBe("string");
+
+		capturedEncoding = null;
+		capturedBody = undefined;
+		await streamOpenAICodexResponses(
+			{ ...gatewayModel, compat: { ...gatewayModel.compat, supportsZstdRequestCompression: true } },
+			context,
+			{ apiKey: token, transport: "sse" },
+		).result();
+
+		expect(capturedEncoding).toBe("zstd");
+		expect(capturedBody).toBeInstanceOf(Uint8Array);
+	});
+
 	it("uses exponential backoff across repeated SSE retries without retry headers", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-05-13T00:00:00Z"));
