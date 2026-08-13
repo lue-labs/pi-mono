@@ -636,6 +636,7 @@ export class AgentSession {
 			settingsManager: this.settingsManager,
 			agent: this.agent,
 			findLastAssistantMessage: () => this._findLastAssistantMessage(),
+			loadDeferredExtensions: () => this._extensionRunner.loadDeferredExtensions(),
 			emit: (event) => this._emit(event),
 		});
 
@@ -3170,6 +3171,9 @@ export class AgentSession {
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
 		await this.abort();
+		// Manual compaction is independently provider-capable and can run before
+		// the first prompt, so it needs the same settled tool registry.
+		await this._extensionRunner.loadDeferredExtensions();
 		this._compactionAbortController = new AbortController();
 		this._emit({ type: "compaction_start", reason: "manual" });
 
@@ -3463,6 +3467,10 @@ export class AgentSession {
 	 * Internal: Run auto-compaction with events.
 	 */
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
+		// Auto-compaction may issue its own provider request. Most callers already
+		// crossed prompt preflight, but keep this entry point safe on its own.
+		await this._extensionRunner.loadDeferredExtensions();
+
 		// Failure circuit breaker: checked before anything else, including the rapid-refill
 		// check below (CC 2.1.201 parity). Once tripped, auto-compaction is disabled for
 		// the rest of the session and this short-circuit must not emit repeatedly.
@@ -4793,6 +4801,11 @@ export class AgentSession {
 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
 		if (this.isStreaming) {
 			throw new Error("Wait for the current response to finish before navigating the session tree.");
+		}
+		if (options.summarize) {
+			// Branch summarization bypasses the normal prompt lifecycle and may be
+			// the session's first provider request.
+			await this._extensionRunner.loadDeferredExtensions();
 		}
 
 		const oldLeafId = this.sessionManager.getLeafId();
