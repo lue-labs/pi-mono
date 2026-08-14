@@ -3,8 +3,15 @@
 Status: research + design, not implemented.
 Date: 2026-08-14.
 Author: agent research pass (Rusty child session).
-Scope: a ChatGPT-style spoken conversation with a Pi agent, where the microphone
+Scope: a ChatGPT-style spoken conversation with an agent, where the microphone
 and speakers live on `old-mbp-13` and the agent runtime lives on `m2-max`.
+
+Provider neutrality: ChatGPT/OpenAI appear throughout §2 as *evidence* — it is
+the realtime implementation available to inspect and the one already proven
+against Luke's credentials. The design in §3 onward treats the realtime provider
+as one replaceable component behind a narrow interface (§4.6), and the agent
+runtime as a second one. Nothing below `pi-voiced` or on the wire is
+provider-specific.
 
 Everything in "Evidence" was measured on the two machines on 2026-08-14, or read
 out of locally installed binaries. Nothing here required bypassing auth or DRM,
@@ -284,8 +291,8 @@ Three processes.
 
 **`pi-voiced` (old-mbp-13, GUI launchd agent).** Owns CoreAudio. Captures mic to
 24 kHz mono PCM16, plays received PCM through the buffered-worklet algorithm from
-§2.3. Holds no credentials, makes no outbound calls to OpenAI, contains no agent
-logic. Small enough to be obviously correct. Must be a GUI-domain agent (§2.1)
+§2.3. Holds no credentials, makes no outbound calls to any model provider, and
+contains no agent logic. Small enough to be obviously correct. Must be a GUI-domain agent (§2.1)
 and must live at a stable path (§2.2).
 
 **`pi-voice-bridge` (m2-max).** The only process holding credentials. Opens the
@@ -299,13 +306,14 @@ results through the existing `PiSessionRuntime` / `RemoteSession` surface.
 old-mbp-13 (GUI session)                m2-max
 ┌──────────────────────┐                ┌───────────────────────────────┐
 │ pi-voiced            │                │ pi-voice-bridge               │
-│  CoreAudio in ───────┼── audio ──────▶│  ─▶ OpenAI realtime (wss)     │
+│  CoreAudio in ───────┼── audio ──────▶│  ─▶ realtime provider (wss)   │
 │  CoreAudio out ◀─────┼── audio ───────┤  ◀─ PCM + transcript deltas   │
-│  jitter buffer       │  (Tailscale)   │                               │
-│  no credentials      │                │  auth: ~/.codex/auth.json     │
+│  jitter buffer       │  (Tailscale)   │     (RealtimeProvider, §4.6)  │
+│  no credentials      │                │  credentials: local only      │
 └──────────────────────┘                │      ▲ transcript / control   │
                                         │      ▼                        │
-                                        │  Pi agent session (PiServer)  │
+                                        │  agent session (AgentSink)    │
+                                        │  + routine triggers (§4.7)    │
                                         └───────────────────────────────┘
 ```
 
@@ -356,7 +364,7 @@ interface only, never `0.0.0.0`.
 24 kHz, mono, PCM16, little-endian, 20 ms frames = 480 samples = 960 bytes.
 384 kbit/s each way; 2% of measured capacity (§2.1).
 
-24 kHz because it is what the OpenAI realtime API uses (§2.4) *and* what the
+24 kHz because it is what current realtime APIs use (§2.4) *and* what the
 AirPods input already produces (§2.2) — zero resampling in the common path.
 `pi-voiced` resamples when the selected device differs (e.g. the 16 kHz C920) so
 the wire format is invariant.
@@ -429,6 +437,79 @@ failure mode to avoid: acknowledging instead of acting, and dumping a screenful
 of options at someone with no screen. The bridge must speak *decisions and
 outcomes*, and keep detail in the transcript.
 
+### 4.6 Provider and agent seams
+
+Two things in this system are replaceable, and both should be named interfaces
+in the bridge rather than assumptions spread through the code.
+
+**`RealtimeProvider`** — everything provider-specific lives behind this:
+
+```
+connect(opts) -> RealtimeCall
+RealtimeCall:
+  sendAudio(pcm24kMono16)          # mic frames up
+  sendText(text)                   # injected context / summaries
+  interrupt()                      # barge-in, §4.4
+  close()
+  events: audio(pcm) | transcript(role, delta, final)
+        | state(listening|thinking|speaking) | error | closed
+```
+
+The wire format (§4.2), the jitter buffer (§4.3), the control commands (§4.4)
+and `pi-voiced` in its entirety are defined in terms of PCM and these events —
+none of them names a provider. Swapping the realtime provider, or splitting into
+separate STT/LLM/TTS components, replaces one implementation of this interface
+and touches nothing on old-mbp-13.
+
+The evidence in §2.3 supports this shape rather than undermining it: ChatGPT's
+own app-server takes PCM in via `appendSpeech` and emits it via
+`outputAudio/delta`, with `transport` (`webrtc`|`websocket`) as config. The
+interface above is deliberately close to that vocabulary because it is a proven
+sufficient set, not because the implementation must be theirs.
+
+**`AgentSink`** — the target for delegated work (§4.5):
+
+```
+submit(text, context) -> AsyncIterable<AgentUpdate>
+```
+
+Pi satisfies this with `PiSessionRuntime.prompt()` + `subscribe()` (§2.5), but
+the bridge should not import Pi types directly. Any harness that can accept a
+prompt and stream updates can be the sink. This matters for the routines split
+below: a routine may want to speak through a voice session while its work runs
+somewhere other than Pi.
+
+### 4.7 Routine triggers
+
+Personal routines are being decoupled into a provider-neutral `my-routines`, so
+this design must not assume the current `pi-routine` naming or that routines and
+voice share a process. Two integration directions, both narrow.
+
+**Routine → voice (a routine wants to speak).** The routine system already has
+a `RunSpec` with `kind` variants and trigger types `cron | event | session`,
+plus a `notify` flag. Voice is a natural third delivery surface for a routine
+that currently prints or notifies. The seam is the existing control plane in
+§4.4 — a routine speaks by issuing `voice_start` and an `appendText`-equivalent
+against a voice session, exactly as the bridge does for agent summaries. No new
+mechanism, and no dependency in either direction beyond the socket and the
+command names.
+
+Two constraints inherited from §6 and §7. A routine must not silently open the
+microphone: speaking-only delivery is a distinct mode from a conversational
+session, and a routine that only wants to talk should never enable capture.
+And a routine firing while Luke is mid-conversation must not interrupt — it
+queues until `voice_state` leaves `listening`/`speaking`, or degrades to the
+routine's normal notify path. Barge-in belongs to the human.
+
+**Voice → routine (spoken routine management).** "Remind me to check the
+deploy at five" is an `AgentSink` submission like any other; the routine
+system's own create/edit surface handles it. The voice lane needs no routine
+vocabulary of its own — it hands over text and speaks the confirmation.
+
+Naming: this document deliberately says "the routine system" rather than
+`pi-routine`. The only coupling proposed is the §4.4 control commands, which are
+provider- and harness-neutral by construction.
+
 ---
 
 ## 5. Latency budget
@@ -461,9 +542,10 @@ filler and `voice_state: thinking` exist for — never leave silence unexplained
 
 ## 6. Security
 
-**Credentials never leave m2-max.** `~/.codex/auth.json` (present on m2-max,
-ChatGPT subscription OAuth per §2.4) is read only by `pi-voice-bridge`.
-`pi-voiced` on old-mbp-13 holds no credential and cannot reach OpenAI. If
+**Credentials never leave m2-max.** Whatever the configured provider credential
+is (today: the ChatGPT subscription OAuth in `~/.codex/auth.json` proven in
+§2.4), it is read only by `pi-voice-bridge`. `pi-voiced` on old-mbp-13 holds no
+credential and cannot reach any provider. If
 old-mbp-13 is compromised, the attacker gets a microphone they already had
 physical access to — not Luke's account.
 
@@ -504,6 +586,8 @@ mystery failure.
 | Audio device changes mid-call | CoreAudio device-change notification | Re-open at new rate, resample to 24 kHz, keep the session |
 | Pi agent turn is slow | no result within 5 s | `voice_state: thinking` + filler; never silence |
 | Both machines try to speak | two `voice_start` for one session | Second gets `busy` (already in `ProtocolErrorCodeSchema`) — ChatGPT has this exact toast (§2.3) |
+| Routine fires mid-conversation | `voice_state` is `listening`/`speaking` | Queue the announcement or fall back to the routine's notify path (§4.7); never talk over Luke |
+| Provider outage or model retirement | `connect()` fails, or upstream close | Swap the `RealtimeProvider` implementation (§4.6); `pi-voiced` and the wire format are unaffected |
 
 Recurring principle: **fail audibly**. A voice system with no screen must never
 degrade into silence that looks like thinking.
@@ -568,8 +652,8 @@ intelligible WAV with zero sequence gaps, and the receiver reports arrival
 jitter — which is the number that decides whether the §4.3 target depth of
 120 ms is right, and whether Phase 3's WebRTC upgrade is needed at all.
 
-**Explicitly not in this slice:** no credentials, no OpenAI, no Pi protocol
-changes, no playback path. It is the smallest thing that proves the two facts
+**Explicitly not in this slice:** no credentials, no model provider, no Pi
+protocol changes, no playback path. It is the smallest thing that proves the two facts
 everything else rests on — that GUI-domain capture works when installed
 properly, and that the Tailscale path carries real-time audio.
 
@@ -585,6 +669,10 @@ properly, and that the Tailscale path carries real-time audio.
    (§2.1) makes this load-bearing. True today; needs to be a commitment.
 4. **Should voice sessions be recorded?** Default is no (§6). A household
    always-on mic is a decision for Luke, not for the design.
+5. **Should routines be allowed to speak unprompted?** §4.7 assumes yes but
+   queued and speaking-only (never opening the mic). If routines should instead
+   be strictly pull — Luke asks, the agent answers — that removes §4.7's first
+   direction entirely and simplifies the control plane.
 
 ---
 
