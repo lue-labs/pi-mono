@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: `StringEnum` infers the literal union its documentation promises. The type parameter is now `const`, so a bare array literal no longer widens to `string[]` and collapses `Static<typeof Schema>` to `string`; `as const` call sites and non-literal `string[]` values are unaffected, and the emitted schema does not change.
+
 - Fix: recover from Anthropic's latest-assistant thinking-signature 400 by stripping only that assistant turn's `thinking`/`redacted_thinking` blocks, preserving all earlier signed reasoning and the byte-stable system/tool cache prefix while reporting the one-turn reasoning loss.
 
 - Fix: the Anthropic pause_turn resume loop tracked the raw stop reason in both a local and `output.rawStopReason`, but only reset the local. A resumed call that ended without a `message_delta.stop_reason` left `"pause_turn"` visible to callers — the value the loop exists to hide. The local is gone; the field is the single source of truth, matching every other adapter.
