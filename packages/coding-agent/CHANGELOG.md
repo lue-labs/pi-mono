@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: `packages/coding-agent/node_modules` is no longer tracked. It had been committed as a symlink to its own absolute path, so every checkout replaced the real workspace directory with an unresolvable path and any npm/npx spawn from this package failed with `spawn ELOOP` (exit 194) — including the first `coding-agent` step of `npm run test:build-gate`. No runtime or published-package change.
+
 - TUI: default-shell tool calls and results use a compact, width-safe panel adapted from prime-agent 0.7.0, removing the one-line vertical padding above and below each row while adding two-cell side padding, cached composition, and preserving existing lifecycle backgrounds. No system-prompt or tool-schema bytes change.
 
 - Fix: `Glob` root-path relativization (issue #6104) now also applies on the timeout path and to the `rg` pattern filter. Both sites kept an inline `slice(searchPath.length + 1)` copy, which ate the first character of every result when the search root ended in a separator (`/`, `I:\`); they now go through `relativizeGlobResultPath`.
