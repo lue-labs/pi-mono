@@ -9,7 +9,8 @@ async function runEcho(ctx: unknown): Promise<string> {
 	const bash = createBashToolDefinition(process.cwd());
 	const result = await bash.execute(
 		"t",
-		{ command: "echo \"id=${PI_SESSION_ID:-unset} file=${PI_SESSION_FILE:-unset}\"" },
+		// Bracketed so an unset variable is still observable as an empty value.
+		{ command: 'echo "id=[$PI_SESSION_ID] file=[$PI_SESSION_FILE]"' },
 		undefined,
 		undefined,
 		ctx as never,
@@ -26,8 +27,8 @@ describe("bash session environment", () => {
 			},
 		});
 
-		expect(output).toContain("id=session-abc");
-		expect(output).toContain("file=/tmp/session-abc.jsonl");
+		expect(output).toContain("id=[session-abc]");
+		expect(output).toContain("file=[/tmp/session-abc.jsonl]");
 	});
 
 	// The typed contract requires a session manager, but SDK embedders and untyped
@@ -36,14 +37,14 @@ describe("bash session environment", () => {
 	it("still runs when the context carries no session manager", async () => {
 		const output = await runEcho({});
 
-		expect(output).toContain("id=unset");
-		expect(output).toContain("file=unset");
+		expect(output).toContain("id=[]");
+		expect(output).toContain("file=[]");
 	});
 
 	it("still runs when the session manager is missing methods", async () => {
 		const output = await runEcho({ sessionManager: {} });
 
-		expect(output).toContain("id=unset");
-		expect(output).toContain("file=unset");
+		expect(output).toContain("id=[]");
+		expect(output).toContain("file=[]");
 	});
 });
