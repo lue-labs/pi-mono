@@ -1425,6 +1425,96 @@ describe("openai-codex streaming", () => {
 		});
 	});
 
+	it("keeps SSE-fallback bookkeeping on the real session id when cacheRetention is none", async () => {
+		// cacheRetention "none" gates only what the provider can see or retain. Local
+		// fallback state must still be keyed to the real Pi session, or a session whose
+		// WebSocket transport is broken retries it on every single turn.
+		const sessionId = "retention-none-fallback";
+		resetOpenAICodexWebSocketDebugStats(sessionId);
+		const token = mockToken();
+		const encoder = new TextEncoder();
+		let connections = 0;
+
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.enqueue(encoder.encode(buildSSEPayload({ status: "completed" })));
+							controller.close();
+						},
+					}),
+					{ status: 200, headers: { "content-type": "text/event-stream" } },
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		class FailingWebSocket {
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+
+			constructor() {
+				connections++;
+				queueMicrotask(() => {
+					for (const listener of this.listeners.get("error") ?? []) listener(new Error("connect refused"));
+					for (const listener of this.listeners.get("close") ?? []) listener({});
+				});
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(): void {}
+			close(): void {}
+		}
+		vi.stubGlobal("WebSocket", FailingWebSocket);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
+		};
+		const options = {
+			apiKey: token,
+			cacheRetention: "none" as const,
+			sessionId,
+			transport: "auto" as const,
+		};
+
+		await streamOpenAICodexResponses(model, context, options).result();
+		await streamOpenAICodexResponses(model, context, options).result();
+
+		// The failure is remembered against the real session id, so the second turn
+		// goes straight to SSE instead of dialing a socket that is known to be broken.
+		expect(connections).toBe(1);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(getOpenAICodexWebSocketDebugStats(sessionId)).toMatchObject({
+			websocketFailures: 1,
+			websocketFallbackActive: true,
+		});
+		resetOpenAICodexWebSocketDebugStats(sessionId);
+	});
+
 	it("closes one-shot websockets when cacheRetention is none", async () => {
 		const token = mockToken();
 		const sentBodies: Array<{ prompt_cache_key?: string }> = [];

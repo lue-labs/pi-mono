@@ -1410,14 +1410,17 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("sends max_tokens for OpenCode completions models", async () => {
-		const cases = [
-			pickModel("opencode-go", (m) => m.id === "kimi-k2.6")!,
-			pickModel("opencode", (m) => m.id === "grok-build-0.1")!,
-		] as const;
+		// Select by capability, never by id: OpenCode reclassifies individual model ids
+		// between the completions and responses APIs, which is what rotted this fixture
+		// when it pinned one. pickModel throws descriptively if a provider stops
+		// exposing any such model, so real drift still surfaces.
+		const sendsMaxTokens: ModelPredicate = (model) =>
+			model.api === "openai-completions" &&
+			(model.compat as Record<string, unknown> | undefined)?.maxTokensField === "max_tokens";
+		const cases = [pickModel("opencode-go", sendsMaxTokens), pickModel("opencode", sendsMaxTokens)] as const;
 
 		for (const model of cases) {
 			let payload: unknown;
-			expect((model.compat as Record<string, unknown> | undefined)?.maxTokensField).toBe("max_tokens");
 
 			await streamSimple(
 				model,
