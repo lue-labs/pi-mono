@@ -239,8 +239,13 @@ function resolveSpawnContext(
 	delete env.PI_REASONING_LEVEL;
 	if (exposeSessionEnvironment && ctx) {
 		const model = ctx.model;
-		env.PI_SESSION_ID = ctx.sessionManager.getSessionId();
-		const sessionFile = ctx.sessionManager.getSessionFile();
+		// Session metadata is best-effort decoration for the child process. The typed
+		// contract requires a session manager, but SDK embedders and untyped extension
+		// hosts can hand over a partial context, and a bash command must still run
+		// rather than fail the turn with a TypeError.
+		const sessionId = ctx.sessionManager?.getSessionId?.();
+		if (sessionId) env.PI_SESSION_ID = sessionId;
+		const sessionFile = ctx.sessionManager?.getSessionFile?.();
 		if (sessionFile) env.PI_SESSION_FILE = sessionFile;
 		if (model) {
 			env.PI_PROVIDER = model.provider;
@@ -471,7 +476,7 @@ export function createBashToolDefinition(
 			onUpdate?,
 			ctx?,
 		) {
-			const ownerSessionId = ctx?.sessionManager?.getSessionId();
+			const ownerSessionId = ctx?.sessionManager?.getSessionId?.();
 			// Per-call working directory (Codex exec_command parity). Absolute `workdir`
 			// wins; a relative one resolves against the session cwd. A non-existent dir
 			// surfaces downstream as a clear spawn error rather than running in the wrong

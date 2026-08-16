@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- CI: pull requests now run the unit test suite (`unit-tests` job in `ci.yml`, via `test.sh`). Previously no PR job ran tests and `release.yml` only ran three suites post-merge, so regressions landed on main unseen. Fixed the four it had been hiding: the bash tool crashing on a context without a session manager, the fork mis-detecting itself as the official distribution (scope-sweep regression in `OFFICIAL_PACKAGE_NAME`, re-enabling first-time setup), the `ultra` tier alias pointing at the non-existent `gpt-5.6` on `openai`/`azure-openai-responses`, and a Cloudflare test pinned to a retired model id.
+
 - Fix: `packages/coding-agent/node_modules` is no longer tracked. It had been committed as a symlink to its own absolute path, so every checkout replaced the real workspace directory with an unresolvable path and any npm/npx spawn from this package failed with `spawn ELOOP` (exit 194) — including the first `coding-agent` step of `npm run test:build-gate`. No runtime or published-package change.
 
 - TUI: default-shell tool calls and results use a compact, width-safe panel adapted from prime-agent 0.7.0, removing the one-line vertical padding above and below each row while adding two-cell side padding, cached composition, and preserving existing lifecycle backgrounds. No system-prompt or tool-schema bytes change.
