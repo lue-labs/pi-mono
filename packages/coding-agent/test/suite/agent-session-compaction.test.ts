@@ -1,4 +1,7 @@
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AgentMessage, AgentTool } from "@valkyriweb/pi-agent-core";
 import {
 	type AssistantMessage,
 	type Context,
@@ -6,12 +9,19 @@ import {
 	fauxAssistantMessage,
 	fauxToolCall,
 	type Model,
+	type ToolResultMessage,
 } from "@valkyriweb/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { estimateTokens } from "../../src/core/compaction/index.ts";
-import { MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS } from "../../src/core/tool-artifacts.ts";
+import { estimateTokens, prepareCompaction } from "../../src/core/compaction/index.ts";
+import { SessionManager } from "../../src/core/session-manager.ts";
+import {
+	capMidRunCompactionToolResultText,
+	MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS,
+} from "../../src/core/tool-artifacts.ts";
 import { createHarness, getMessageText, getUserTexts, type Harness } from "./harness.ts";
+
+type CompactableMessage = Extract<AgentMessage, { role: "user" | "assistant" | "toolResult" }>;
 
 type SessionWithCompactionInternals = {
 	_checkCompaction: (
@@ -106,6 +116,36 @@ function seedCompactableSession(harness: Harness): void {
 	assistant.content = [{ type: "text", text: "assistant response to compact" }];
 	harness.sessionManager.appendMessage(assistant);
 	harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+}
+
+function capToolResultForMeasurement(
+	content: Parameters<typeof capMidRunCompactionToolResultText>[0],
+	toolCallId: string,
+	toolName: string,
+): ReturnType<typeof capMidRunCompactionToolResultText> {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-compaction-measurement-"));
+	try {
+		return capMidRunCompactionToolResultText(content, cwd, toolCallId, toolName);
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
+}
+
+function postCompactionContextTokens(messages: CompactableMessage[], afterCompaction?: () => void): number {
+	const sessionManager = SessionManager.inMemory();
+	for (const message of messages) {
+		sessionManager.appendMessage(message);
+	}
+	const preparation = prepareCompaction(sessionManager.getEntries(), {
+		enabled: true,
+		reserveTokens: 16_384,
+		keepRecentTokens: 20_000,
+	});
+	if (!preparation) throw new Error("Expected measurement fixture to be compactable");
+
+	sessionManager.appendCompaction("checkpoint", preparation.firstKeptEntryId, preparation.tokensBefore);
+	afterCompaction?.();
+	return sessionManager.buildSessionContext().messages.reduce((total, message) => total + estimateTokens(message), 0);
 }
 
 function seedLargeCompactableSession(harness: Harness): string {
@@ -989,19 +1029,59 @@ describe("AgentSession compaction characterization", () => {
 		expect(runAutoCompactionSpy).toHaveBeenCalledWith("threshold", false);
 	});
 
+	it("reports slim post-compaction context for a continuing tool turn", () => {
+		const toolCallBlock = fauxToolCall("large_result", { text: "small input" });
+		const toolCall = fauxAssistantMessage(toolCallBlock, { stopReason: "toolUse" });
+		const toolResult: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: toolCallBlock.id,
+			toolName: "large_result",
+			content: [{ type: "text", text: "x".repeat(80_000) }],
+			isError: false,
+			timestamp: Date.now(),
+		};
+		const userPrompt: CompactableMessage = {
+			role: "user",
+			content: [{ type: "text", text: "inspect the large result" }],
+			timestamp: Date.now(),
+		};
+		const completedTurn = fauxAssistantMessage("completed tool turn");
+		// Upstream 0.84.2 reaches compaction after this terminal assistant
+		// response; the continue patch stops one boundary earlier.
+		const vanilla0842PromptBoundary = postCompactionContextTokens([userPrompt, toolCall, toolResult, completedTurn]);
+		const continuePatchMidRunBoundary = postCompactionContextTokens([userPrompt, toolCall, toolResult]);
+		const cappedToolResult = capToolResultForMeasurement(
+			toolResult.content,
+			toolResult.toolCallId,
+			toolResult.toolName,
+		);
+		if (!cappedToolResult) throw new Error("Expected large tool result to be capped");
+		const fixToolResult = { ...toolResult };
+		const fixMidRunBoundary = postCompactionContextTokens([userPrompt, { ...toolCall }, fixToolResult], () => {
+			fixToolResult.content = cappedToolResult;
+		});
+
+		console.info(
+			`post-compaction tokens (80k-char tool result): vanilla 0.84.2=${vanilla0842PromptBoundary}, continue patch=${continuePatchMidRunBoundary}, fix=${fixMidRunBoundary}`,
+		);
+		expect(continuePatchMidRunBoundary).toBeGreaterThan(vanilla0842PromptBoundary * 50);
+		expect(fixMidRunBoundary).toBeLessThan(vanilla0842PromptBoundary + 600);
+		expect(fixMidRunBoundary).toBeLessThan(continuePatchMidRunBoundary / 30);
+	});
+
 	it("compacts mid-run when a continuing turn crosses the threshold, then resumes", async () => {
-		const echoTool: AgentTool = {
-			name: "echo",
-			label: "Echo",
-			description: "Echo text back",
+		const largeResultTool: AgentTool = {
+			name: "large_result",
+			label: "Large result",
+			description: "Returns a large text result",
 			parameters: Type.Object({ text: Type.String() }),
-			execute: async (_toolCallId, params) => {
-				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text: `echo:${text}` }], details: { text } };
-			},
+			execute: async () => ({
+				content: [{ type: "text", text: "x".repeat(80_000) }],
+				details: {},
+			}),
 		};
 		const harness = await createHarness({
-			tools: [echoTool],
+			tools: [largeResultTool],
 			models: [{ id: "faux-1", contextWindow: 200_000 }],
 			// The faux provider simulates small usage numbers; pull the threshold
 			// down to ~1000 tokens (comfortably above the fixed system-prompt+tools
@@ -1023,15 +1103,31 @@ describe("AgentSession compaction characterization", () => {
 		});
 		harnesses.push(harness);
 
+		const toolResponse = fauxAssistantMessage(fauxToolCall("large_result", { text: "hi ".repeat(2_000) }), {
+			stopReason: "toolUse",
+		});
+		let resumedContextTokens = 0;
 		harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("echo", { text: "hi ".repeat(2000) }), { stopReason: "toolUse" }),
-			fauxAssistantMessage("done after compaction"),
+			toolResponse,
+			(context) => {
+				resumedContextTokens = context.messages.reduce(
+					(total, message) => total + estimateTokens(message as AgentMessage),
+					0,
+				);
+				return fauxAssistantMessage("done after compaction");
+			},
 		]);
 
 		await harness.session.prompt("start");
 
 		const compactionEntries = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
 		expect(compactionEntries).toHaveLength(1);
+		// The continuation must retain an assistant/tool-result pair, but that
+		// live result is capped to an artifact-backed preview instead of bypassing
+		// keepRecentTokens with its original 20,000-token payload.
+		expect(resumedContextTokens).toBeLessThan(2_250);
+		const retainedToolResult = harness.session.messages.find((message) => message.role === "toolResult");
+		expect(getMessageText(retainedToolResult)).toContain("Full text saved to .pi/tool-results/");
 		expect(harness.getPendingResponseCount()).toBe(0);
 		const lastMessage = harness.session.messages.at(-1);
 		expect(lastMessage?.role).toBe("assistant");

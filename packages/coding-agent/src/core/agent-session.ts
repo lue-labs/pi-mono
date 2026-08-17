@@ -137,6 +137,7 @@ import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import {
+	capMidRunCompactionToolResultText,
 	capModelFacingToolResultText,
 	replaceOversizedToolResultImages,
 	replaceUnsupportedToolResultImages,
@@ -499,6 +500,8 @@ export class AgentSession {
 	private _autoCompactDisabledThisSession = false;
 	/** Set when the agent loop was stopped at a turn boundary by the mid-run compaction cap. */
 	private _midRunCompactionStop = false;
+	/** Tool results retained only to resume a turn after mid-run compaction. */
+	private _midRunCompactionToolResults: ToolResultMessage[] = [];
 	/** Set by extensions that need the current run to park after the active turn completes. */
 	private _extensionStopAfterTurnReason: string | undefined = undefined;
 	private _lastIdleCacheHintAssistantTimestamp: number | undefined = undefined;
@@ -832,6 +835,7 @@ export class AgentSession {
 			// Avoid stopping for compaction when the fixed prefix already exceeds its threshold.
 			if (contextWindow - settings.reserveTokens < this._estimateFixedPrefixTokens()) return false;
 			this._midRunCompactionStop = true;
+			this._midRunCompactionToolResults = toolResults;
 			return true;
 		};
 	}
@@ -1150,6 +1154,19 @@ export class AgentSession {
 			message:
 				"This session has been idle long enough that prompt-cache warmth may be gone. For broad follow-up work, prefer cache-efficient forks (`explore`/`decompose`) or compact first if you need a handoff summary.",
 		});
+	}
+
+	private _capMidRunCompactionToolResults(): void {
+		for (const result of this._midRunCompactionToolResults) {
+			const content = capMidRunCompactionToolResultText(
+				result.content,
+				this._cwd,
+				result.toolCallId,
+				result.toolName,
+			);
+			if (content) result.content = content;
+		}
+		this._midRunCompactionToolResults = [];
 	}
 
 	private _replaceMessageInPlace(target: AgentMessage, replacement: AgentMessage): void {
@@ -1995,10 +2012,14 @@ export class AgentSession {
 			// The loop was stopped at a turn boundary by the mid-run cap. Compact
 			// now ("run", not "defer") and always resume — the interrupted run
 			// still has tool results or queued messages waiting for the model.
-			// If compaction can't run (prep failed, aborted), resuming uncompacted
-			// is still correct; the overflow path remains the backstop.
+			// A trailing tool result has no later assistant boundary, so it would
+			// otherwise survive verbatim regardless of keepRecentTokens. Let its
+			// size select that safe compaction boundary, then replace only the live
+			// retained result with an artifact-backed preview; durable history stays
+			// complete and the continuation starts slim.
 			this._midRunCompactionStop = false;
 			await this._checkCompaction(msg, true, "run");
+			this._capMidRunCompactionToolResults();
 			return true;
 		}
 		if (await this._checkCompaction(msg, true, "defer")) {

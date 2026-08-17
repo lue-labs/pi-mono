@@ -1,10 +1,13 @@
 /**
  * Model-facing tool-result hygiene (fork-owned).
  *
- * Two pure boundary filters applied in AgentSession's `afterToolCall` hook:
+ * Two pure boundary filters applied in AgentSession's tool-result lifecycle:
  * - {@link capModelFacingToolResultText}: caps aggregate tool-result text at
  *   100k chars for the model, persisting the full text to
  *   `.pi/tool-results/<toolCallId>-<tool>.txt` and appending a truncation hint.
+ * - {@link capMidRunCompactionToolResultText}: uses a 2k-char preview only
+ *   when a continuing turn is stopped for compaction, so its live tool result
+ *   does not bypass the configured recent-context budget.
  * - {@link replaceUnsupportedToolResultImages}: replaces image blocks whose
  *   MIME type Anthropic cannot inline with a text pointer to a saved artifact
  *   under `.pi/tool-artifacts/`.
@@ -29,6 +32,7 @@ const SUPPORTED_INLINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "i
 const TOOL_ARTIFACTS_DIR = ".pi/tool-artifacts";
 const TOOL_RESULT_TEXT_ARTIFACTS_DIR = ".pi/tool-results";
 const MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS = 100_000;
+const MAX_MID_RUN_COMPACTION_TOOL_RESULT_TEXT_CHARS = 2_000;
 export const MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS = 3 * 1024 * 1024;
 const TOOL_RESULT_IMAGE_OMITTED =
 	"[Image omitted because it exceeds the model-facing image limit. Refer to the saved artifact.]";
@@ -44,8 +48,32 @@ export function capModelFacingToolResultText(
 	toolCallId: string,
 	toolName: string,
 ): ToolResultContentBlock[] | undefined {
+	return capToolResultText(content, cwd, toolCallId, toolName, MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS);
+}
+
+/**
+ * Bound a tool result retained only because a mid-run compaction must resume
+ * from it. The full result remains durable in the session transcript and is
+ * saved as an artifact for the immediate continuation to inspect.
+ */
+export function capMidRunCompactionToolResultText(
+	content: ToolResultContentBlock[],
+	cwd: string,
+	toolCallId: string,
+	toolName: string,
+): ToolResultContentBlock[] | undefined {
+	return capToolResultText(content, cwd, toolCallId, toolName, MAX_MID_RUN_COMPACTION_TOOL_RESULT_TEXT_CHARS);
+}
+
+function capToolResultText(
+	content: ToolResultContentBlock[],
+	cwd: string,
+	toolCallId: string,
+	toolName: string,
+	maxTextChars: number,
+): ToolResultContentBlock[] | undefined {
 	const totalTextChars = content.reduce((sum, block) => sum + (block.type === "text" ? block.text.length : 0), 0);
-	if (totalTextChars <= MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS) {
+	if (totalTextChars <= maxTextChars) {
 		return undefined;
 	}
 
@@ -73,10 +101,10 @@ export function capModelFacingToolResultText(
 			: `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full text saved to ${relativePath}.]`;
 
 	let omittedChars = 0;
-	let previewBudget = MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS;
+	let previewBudget = maxTextChars;
 	for (let i = 0; i < 3; i++) {
 		const hint = makeHint(omittedChars);
-		previewBudget = Math.max(0, MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS - hint.length);
+		previewBudget = Math.max(0, maxTextChars - hint.length);
 		const nextOmittedChars = Math.max(0, totalTextChars - previewBudget);
 		if (nextOmittedChars === omittedChars) break;
 		omittedChars = nextOmittedChars;
