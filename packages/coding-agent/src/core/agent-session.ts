@@ -139,6 +139,7 @@ import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-promp
 import {
 	capMidRunCompactionToolResultText,
 	capModelFacingToolResultText,
+	MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS,
 	replaceOversizedToolResultImages,
 	replaceUnsupportedToolResultImages,
 	retireOutOfBudgetContextImages,
@@ -1158,15 +1159,37 @@ export class AgentSession {
 	}
 
 	private _capMidRunCompactionToolResults(): void {
+		let remainingTextChars = MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS;
+		let messages = this.agent.state.messages;
+		let changed = false;
 		for (const result of this._midRunCompactionToolResults) {
 			const content = capMidRunCompactionToolResultText(
 				result.content,
 				this._cwd,
 				result.toolCallId,
 				result.toolName,
+				remainingTextChars,
 			);
-			if (content) result.content = content;
+			const retainedContent = content ?? result.content;
+			remainingTextChars = Math.max(
+				0,
+				remainingTextChars -
+					retainedContent.reduce((total, block) => total + (block.type === "text" ? block.text.length : 0), 0),
+			);
+			if (!content) continue;
+
+			// SessionManager stores message references. Replace the state slot rather
+			// than mutating result.content so the append-only session entry retains
+			// its full tool output for exporters and later session reloads.
+			const resultIndex = messages.indexOf(result);
+			if (resultIndex === -1) continue;
+			if (!changed) {
+				messages = messages.slice();
+				changed = true;
+			}
+			messages[resultIndex] = { ...result, content };
 		}
+		if (changed) this.agent.state.messages = messages;
 		this._midRunCompactionToolResults = [];
 	}
 
@@ -2028,6 +2051,9 @@ export class AgentSession {
 			// complete and the continuation starts slim.
 			this._midRunCompactionStop = false;
 			await this._checkCompaction(msg, true, "run");
+			// If compaction was skipped or failed, still bound the pending
+			// continuation. A successful compaction applies the cap before its
+			// estimatedTokensAfter/compaction_end event.
 			this._capMidRunCompactionToolResults();
 			return true;
 		}
@@ -3661,7 +3687,8 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			this._capMidRunCompactionToolResults();
+			const estimatedTokensAfter = estimateMessagesTokens(this.agent.state.messages);
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
