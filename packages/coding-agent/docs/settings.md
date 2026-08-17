@@ -196,6 +196,7 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 |---------|------|---------|-------------|
 | `shellPath` | string | - | Custom shell path (e.g., for Cygwin on Windows); supports a leading `~` for the home directory |
 | `shellCommandPrefix` | string | - | Prefix for every bash command (e.g., `"shopt -s expand_aliases"`) |
+| `bashTimeoutSeconds` | number | `120` | Default foreground timeout, in seconds, for bash tool calls that omit `timeout`. On timeout the command's process tree is killed and output captured so far is included in the error, unless a harness timeout policy adopts it as a background job. `0` disables the default (unbounded foreground commands). An explicit per-call `timeout` (or `timeout: false`), and `run_in_background: true`, always win. Environment override: `PI_BASH_TIMEOUT_SECONDS` (`0` disables) |
 | `npmCommand` | string[] | - | Command argv used for npm package lookup/install operations (e.g., `["mise", "exec", "node@20", "--", "npm"]`) |
 
 ```json

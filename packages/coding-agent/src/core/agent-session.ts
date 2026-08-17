@@ -4487,7 +4487,11 @@ export class AgentSession {
 				)
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
-					bash: { commandPrefix: shellCommandPrefix, shellPath },
+					bash: {
+						commandPrefix: shellCommandPrefix,
+						shellPath,
+						defaultTimeoutSeconds: this.settingsManager.getBashTimeoutSeconds(),
+					},
 				});
 
 		if (!this._baseToolsOverride) {
