@@ -1433,12 +1433,33 @@ export class SessionManager {
 	// =========================================================================
 
 	/**
+	 * Restore the durable payloads only when navigating into an entry which was
+	 * pruned in this process. Rewind must retain the original branch context;
+	 * the compacted JSONL is the source of truth and is never rewritten by prune.
+	 */
+	private _restoreDurableTranscriptBeforeBranch(branchFromId: string | null): void {
+		if (!branchFromId || !this.sessionFile || this.hasPendingDurableEntries()) return;
+		const residentEntry = this.byId.get(branchFromId);
+		if (!residentEntry) return;
+
+		const durableEntries = loadEntriesFromFile(this.sessionFile);
+		const durableEntry = durableEntries.find(
+			(entry): entry is SessionEntry => entry.type !== "session" && entry.id === branchFromId,
+		);
+		if (!durableEntry || JSON.stringify(residentEntry) === JSON.stringify(durableEntry)) return;
+
+		this.fileEntries = durableEntries;
+		this._buildIndex();
+	}
+
+	/**
 	 * Start a new branch from an earlier entry.
 	 * Moves the leaf pointer to the specified entry. The next appendXXX() call
 	 * will create a child of that entry, forming a new branch. Existing entries
 	 * are not modified or deleted.
 	 */
 	branch(branchFromId: string): void {
+		this._restoreDurableTranscriptBeforeBranch(branchFromId);
 		if (!this.byId.has(branchFromId)) {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}
@@ -1466,6 +1487,7 @@ export class SessionManager {
 		fromHook?: boolean,
 		usage?: Usage,
 	): string {
+		this._restoreDurableTranscriptBeforeBranch(branchFromId);
 		if (branchFromId !== null && !this.byId.has(branchFromId)) {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}
