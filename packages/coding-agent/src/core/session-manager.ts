@@ -1433,20 +1433,24 @@ export class SessionManager {
 	// =========================================================================
 
 	/**
-	 * Restore the durable payloads only when navigating into an entry which was
-	 * pruned in this process. Rewind must retain the original branch context;
-	 * the compacted JSONL is the source of truth and is never rewritten by prune.
+	 * Restore durable payloads when a rewind path contains resident-pruned data.
+	 * Rewind must retain the original branch context; the compacted JSONL is the
+	 * source of truth and is never rewritten by prune.
 	 */
 	private _restoreDurableTranscriptBeforeBranch(branchFromId: string | null): void {
 		if (!branchFromId || !this.sessionFile || this.hasPendingDurableEntries()) return;
-		const residentEntry = this.byId.get(branchFromId);
-		if (!residentEntry) return;
+		const residentPath = this.getBranch(branchFromId);
+		if (residentPath.length === 0) return;
 
 		const durableEntries = loadEntriesFromFile(this.sessionFile);
-		const durableEntry = durableEntries.find(
-			(entry): entry is SessionEntry => entry.type !== "session" && entry.id === branchFromId,
-		);
-		if (!durableEntry || JSON.stringify(residentEntry) === JSON.stringify(durableEntry)) return;
+		const durablePath = buildBranchFromEntries(durableEntries, branchFromId);
+		if (
+			!durablePath ||
+			(durablePath.length === residentPath.length &&
+				durablePath.every((entry, index) => JSON.stringify(entry) === JSON.stringify(residentPath[index])))
+		) {
+			return;
+		}
 
 		this.fileEntries = durableEntries;
 		this._buildIndex();
