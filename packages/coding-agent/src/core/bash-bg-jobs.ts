@@ -131,17 +131,22 @@ function backgroundShellNotificationSummary(
 export function createBackgroundShellNotification(job: BashBgJob): BackgroundShellNotification {
 	const type = backgroundShellNotificationType(job);
 	const status = backgroundShellNotificationStatus(job);
-	return {
+	const notification: BackgroundShellNotification = {
 		type,
 		taskId: job.id,
-		...(job.ownerSessionId === undefined ? {} : { ownerSessionId: job.ownerSessionId }),
 		status,
 		exitCode: job.exitCode,
 		signal: job.signal,
 		outputPath: job.logPath,
 		summary: backgroundShellNotificationSummary(type, status),
-		...(job.lifecycle?.terminalReason === undefined ? {} : { terminalReason: job.lifecycle.terminalReason }),
 	};
+	if (job.ownerSessionId !== undefined) {
+		notification.ownerSessionId = job.ownerSessionId;
+	}
+	if (job.lifecycle?.terminalReason !== undefined) {
+		notification.terminalReason = job.lifecycle.terminalReason;
+	}
+	return notification;
 }
 
 /** Registry-owned jobs always carry lifecycle state, unlike the public shape. */
