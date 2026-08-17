@@ -80,6 +80,7 @@ These variables are read by Pi itself:
 | `PI_SKIP_VERSION_CHECK` | Disable the `pi.dev` latest-version request |
 | `PI_TELEMETRY` | Override install/update telemetry and provider attribution headers: `1`/`true`/`yes` or `0`/`false`/`no` |
 | `PI_CACHE_RETENTION` | Set to `long` for extended provider prompt caching where supported |
+| `PI_BASH_TIMEOUT_SECONDS` | Default foreground bash timeout in seconds when a call omits `timeout`; overrides `bashTimeoutSeconds` (`0` disables the default) |
 | `PI_SHARE_VIEWER_URL` | Override the base URL used by `/share` |
 | `PI_HARDWARE_CURSOR` | Set to `1` to show the hardware cursor; see [Terminal setup](terminal-setup.md) |
 | `VISUAL`, `EDITOR` | External editor fallback when `externalEditor` is unset |

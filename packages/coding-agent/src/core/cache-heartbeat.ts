@@ -63,6 +63,7 @@ export interface CacheHeartbeatHost {
 	readonly settingsManager: SettingsManager;
 	readonly agent: Agent;
 	findLastAssistantMessage(): AssistantMessage | undefined;
+	loadDeferredExtensions(): Promise<void>;
 	emit(event: AgentSessionEvent): void;
 }
 
@@ -243,6 +244,7 @@ export class CacheHeartbeatManager {
 		scope: "base" | "session",
 	): Promise<void> {
 		if (this.host.disposed || !this.host.model) return;
+		await this.host.loadDeferredExtensions();
 		this._cacheHeartbeatAbortController?.abort();
 		const abortController = new AbortController();
 		this._cacheHeartbeatAbortController = abortController;
