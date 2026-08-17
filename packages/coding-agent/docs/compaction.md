@@ -112,6 +112,10 @@ For split turns, pi generates two summaries and merges them:
 1. **History summary**: Previous context (if any)
 2. **Turn prefix summary**: The early part of the split turn
 
+### Continuing Tool Turns
+
+When threshold compaction interrupts a continuing tool turn, Pi must retain that turn's assistant tool call and result so it can resume. To keep this live suffix from bypassing `keepRecentTokens`, text results larger than 2,000 characters are replaced in the resumed model context with an artifact-backed preview. The full result remains in the durable session transcript and is saved under `.pi/tool-results/` for the continuation to inspect. This applies only to the live mid-run continuation; ordinary tool-result handling is unchanged.
+
 ### Cut Point Rules
 
 Valid cut points are:

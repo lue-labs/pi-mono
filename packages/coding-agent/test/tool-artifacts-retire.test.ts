@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import { SessionManager } from "../src/core/session-manager.ts";
 import {
 	boundModelFacingContextImages,
+	capMidRunCompactionToolResultText,
+	capModelFacingToolResultText,
 	MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS,
 	retireOutOfBudgetContextImages,
 } from "../src/core/tool-artifacts.ts";
@@ -26,6 +28,28 @@ function imageMessage(chars: number, marker: string): TestMessage {
 function clone<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
+
+describe("capModelFacingToolResultText", () => {
+	it("preserves the original artifact when mid-run compaction further caps its preview", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-tool-result-cap-"));
+		const fullText = "x".repeat(120_000);
+		try {
+			const firstPreview = capModelFacingToolResultText(
+				[{ type: "text", text: fullText }],
+				dir,
+				"call",
+				"large_result",
+			);
+			expect(firstPreview).toBeDefined();
+
+			const midRunPreview = capMidRunCompactionToolResultText(firstPreview!, dir, "call", "large_result");
+			expect(midRunPreview).toBeDefined();
+			expect(readFileSync(join(dir, ".pi/tool-results/call-large_result.txt"), "utf8")).toBe(fullText);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("retireOutOfBudgetContextImages", () => {
 	it("retires nothing when images fit the budget", () => {
