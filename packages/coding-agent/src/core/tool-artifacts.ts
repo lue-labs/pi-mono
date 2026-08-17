@@ -88,11 +88,16 @@ function capToolResultText(
 				.filter((block): block is TextContent => block.type === "text")
 				.map((block) => block.text)
 				.join("\n\n"),
-			"utf8",
+			{ encoding: "utf8", flag: "wx" },
 		);
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		saveError = message.slice(0, 500);
+		// A mid-run cap can refine the preview created by the ordinary 100k
+		// cap. Both point to the same tool-call artifact; preserve the original
+		// full result instead of overwriting it with that preview.
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+			const message = error instanceof Error ? error.message : String(error);
+			saveError = message.slice(0, 500);
+		}
 	}
 
 	const makeHint = (omittedChars: number) =>
