@@ -27,6 +27,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Fixed
 
+- **Resident transcript pruning preserves HTML export and rewind behavior.** Compacted entries can be represented by small in-memory placeholders while their complete JSONL payload remains durable; HTML export now reads that durable transcript, and rewinding restores a durable branch path whenever it contains a pruned ancestor. The synthetic three-compaction inspector records post-GC heap/RSS samples and debugger-compatible snapshots without reading user sessions or providers.
+
 - **Mid-run compaction resumes with a slim live tool-result suffix.** The raw result still selects the safe compaction boundary, then the resumed model sees an artifact-backed 2,000-character preview while the full result remains in JSONL and `.pi/tool-results/`. This preserves tool-turn adjacency and continuation without retaining an oversized result verbatim past the checkpoint.
 
 - **Mid-run compaction artifacts are collision-safe and its retained result batch is bounded.** Each continuation gets a fresh artifact rather than reusing a stale workspace path, parallel tool-result text shares one 2,000-character budget, and the live preview replaces only agent state so JSONL/export history retains the full result. The reported post-compaction token estimate now reflects that capped continuation context.

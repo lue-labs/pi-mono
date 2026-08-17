@@ -119,6 +119,7 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
 | `compaction.reserveTokens` | number | `16384` | Tokens reserved for LLM response |
 | `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
+| `compaction.residentPrune` | boolean | `true` | Stub summarized resident payloads after compaction; complete content remains in JSONL for export and rewind |
 
 ```json
 {
