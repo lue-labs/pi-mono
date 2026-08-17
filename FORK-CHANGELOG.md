@@ -27,6 +27,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Fixed
 
+- **Resident transcript pruning preserves HTML export and rewind behavior.** Compacted entries can be represented by small in-memory placeholders while their complete JSONL payload remains durable; HTML export now reads that durable transcript, and rewinding restores a durable branch path whenever it contains a pruned ancestor. The synthetic three-compaction inspector records post-GC heap/RSS samples and debugger-compatible snapshots without reading user sessions or providers.
+
 - **Mid-run compaction resumes with a slim live tool-result suffix.** The raw result still selects the safe compaction boundary, then the resumed model sees an artifact-backed 2,000-character preview while the full result remains in JSONL and `.pi/tool-results/`. This preserves tool-turn adjacency and continuation without retaining an oversized result verbatim past the checkpoint.
 
 - **Codex Responses zstd request compression now follows the base URL instead of a per-model flag.** Only the official ChatGPT Codex backend is known to decode a `Content-Encoding: zstd` request body; ClawRouter answers `415 unsupported_content_encoding`, so any Codex-wire gateway configured without `supportsZstdRequestCompression: false` broke as soon as it was added. The SSE path now compresses when the model's base URL host is `chatgpt.com` (or no base URL is set) and sends plain JSON otherwise; an explicit `compat.supportsZstdRequestCompression` still wins in both directions. Direct Codex behavior is unchanged. No system-prompt or tool-schema bytes change.
