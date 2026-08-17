@@ -3,8 +3,8 @@
 Every open anti-slop finding in fork-owned source, at line granularity.
 Regenerate with `node scripts/anti-slop-inventory.mjs`.
 
-Counts at the time of writing: 333 findings in fork-owned source across 44
-files, plus 689 in fork-owned tests. The test findings are listed separately by
+Counts at the time of writing: 334 findings in fork-owned source, plus 689 in
+fork-owned tests. The test findings are listed separately by
 the generator and are not reproduced here, because they are dominated by
 deliberate fixture casts.
 

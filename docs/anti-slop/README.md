@@ -69,9 +69,11 @@ deliberately.
 
 ## Findings
 
-Oxlint reports 5,635 violations repository-wide and 1,216 inside fork scope
-(379 in `src`, 833 in tests). The 4,419 upstream-scope findings are recorded
-and deliberately left alone.
+At install time oxlint reported 5,635 violations repository-wide and 1,216
+inside fork scope. After the fixes on this branch it reports 5,598
+repository-wide, and the fork-scope register holds 1,023 unique findings: 334
+in `src` and 689 in tests. The upstream-scope remainder is recorded and
+deliberately left alone.
 
 `slop-scan delta` against a clean upstream base worktree moved 291 to 338, so
 47 net new occurrences, of which 72 occurrences fall in fork scope.
@@ -83,7 +85,7 @@ deliberate tombstone), and 29 pass-through-wrapper findings are advisory.
 
 ## Why this landed as a ratchet rather than a mass rewrite
 
-Rewriting 1,216 instances would touch most of the fork's delta in a single
+Rewriting every instance would touch most of the fork's delta in a single
 sweep, and the majority of those instances are `require-safety-comment-for-type-assertion`
 in tests. Adding 800-odd `SAFETY:` comments in bulk would be laundering: the
 comment is supposed to state a checked invariant, and a generated one states
