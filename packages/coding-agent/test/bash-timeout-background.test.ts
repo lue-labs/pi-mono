@@ -11,7 +11,7 @@ import {
 // End-to-end coverage for the foreground-timeout disposition seam (onBashTimeout):
 // real spawn, real 1s timeout, real background registry. The core default kills
 // and reports a timeout; the detach-on-timeout policy is opt-in via onBashTimeout
-// (Luke's native-tool-aliases extension installs it for the Bash tool).
+// (Luke's native-tool-overrides extension installs it for the Bash tool).
 
 const ownerSessionId = "timeout-session";
 type BashContext = NonNullable<Parameters<ReturnType<typeof createBashToolDefinition>["execute"]>[4]>;

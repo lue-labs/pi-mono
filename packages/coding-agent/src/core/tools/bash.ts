@@ -44,6 +44,21 @@ import { DEFAULT_MAX_LINES, formatSize, type TruncationResult } from "./truncate
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
+
+/**
+ * Foreground timeout applied when a bash tool call omits `timeout`.
+ *
+ * A foreground bash call blocks the whole turn and cannot be interrupted, so the
+ * default is a *turn-blocking* budget rather than a work budget: two minutes is
+ * long enough for the ordinary interactive command (repo queries, git, targeted
+ * tests) and short enough that a runaway command cannot hold a session hostage.
+ * Legitimately long work is not meant to rely on this budget — it has four
+ * escape hatches that all outrank the default: an explicit `timeout`,
+ * `timeout: false`, `run_in_background: true` (unbounded), and raising the
+ * default itself via the `bashTimeoutSeconds` setting or PI_BASH_TIMEOUT_SECONDS.
+ * The timeout error names all of them, so a command killed at the default can be
+ * retried deliberately instead of failing opaquely.
+ */
 export const DEFAULT_BASH_TIMEOUT_SECONDS = 120;
 
 function resolveTimeoutMs(timeout: number | undefined): number | undefined {
@@ -70,7 +85,7 @@ const bashSchema = Type.Object({
 	timeout: Type.Optional(
 		Type.Union([
 			Type.Number({
-				description: `Timeout in seconds. Defaults to ${DEFAULT_BASH_TIMEOUT_SECONDS} seconds — configurable with the bashTimeoutSeconds setting or the PI_BASH_TIMEOUT_SECONDS environment variable (0 disables the default). An explicit value here always wins, up to ${Math.floor(MAX_TIMEOUT_SECONDS)} seconds. When the timeout fires the command is killed by default (a harness timeout policy may adopt it as a background job instead) and any output captured up to that point is still returned. For work likely to exceed the default, prefer run_in_background:true.`,
+				description: `Timeout in seconds. Defaults to the harness default — configurable with the bashTimeoutSeconds setting or the PI_BASH_TIMEOUT_SECONDS environment variable (0 disables the default). An explicit value here always wins, up to ${Math.floor(MAX_TIMEOUT_SECONDS)} seconds. When the timeout fires the command is killed by default (a harness timeout policy may adopt it as a background job instead) and any output captured up to that point is still returned. For work likely to exceed the default, prefer run_in_background:true.`,
 			}),
 			Type.Literal(false, { description: "Disable timeout for this command." }),
 		]),
@@ -177,7 +192,7 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				}
 				// Race real exit against the timeout. On timeout the disposition seam
 				// decides what happens (core default: kill and fail). Consumers opt into
-				// detach-on-timeout via onBashTimeout() — e.g. Luke's native-tool-aliases
+				// detach-on-timeout via onBashTimeout() — e.g. Luke's native-tool-overrides
 				// extension adopts the live process into a background job (Claude Code
 				// parity) so long work keeps running and stays readable/killable by bgId.
 				const exitPromise = waitForChildProcess(child).then((code) => ({ kind: "exit" as const, code }));
@@ -282,20 +297,6 @@ export interface BashToolOptions {
 const BASH_PREVIEW_LINES = 5;
 const BASH_UPDATE_THROTTLE_MS = 100;
 
-/**
- * Foreground timeout applied when a bash tool call omits `timeout`.
- *
- * A foreground bash call blocks the whole turn and cannot be interrupted, so the
- * default is a *turn-blocking* budget rather than a work budget: two minutes is
- * long enough for the ordinary interactive command (repo queries, git, targeted
- * tests) and short enough that a runaway command cannot hold a session hostage.
- * Legitimately long work is not meant to rely on this budget — it has four
- * escape hatches that all outrank the default: an explicit `timeout`,
- * `timeout: false`, `run_in_background: true` (unbounded), and raising the
- * default itself via the `bashTimeoutSeconds` setting or PI_BASH_TIMEOUT_SECONDS.
- * The timeout error names all of them, so a command killed at the default can be
- * retried deliberately instead of failing opaquely.
- */
 /** Environment override for the default foreground timeout (seconds; 0 disables). */
 export const BASH_TIMEOUT_ENV_VAR = "PI_BASH_TIMEOUT_SECONDS";
 

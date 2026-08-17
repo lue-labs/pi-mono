@@ -617,6 +617,7 @@ describe("SettingsManager", () => {
 
 			manager.setBashTimeoutSeconds(undefined);
 			expect(manager.getBashTimeoutSeconds()).toBeUndefined();
+			expect(() => manager.setBashTimeoutSeconds(-1)).toThrow(/Invalid bashTimeoutSeconds setting/);
 		});
 	});
 

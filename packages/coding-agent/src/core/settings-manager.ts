@@ -1080,6 +1080,9 @@ export class SettingsManager {
 	}
 
 	setBashTimeoutSeconds(seconds: number | undefined): void {
+		if (seconds !== undefined && (!Number.isFinite(seconds) || seconds < 0)) {
+			throw new Error(`Invalid bashTimeoutSeconds setting: ${String(seconds)}`);
+		}
 		this.globalSettings.bashTimeoutSeconds = seconds;
 		this.markModified("bashTimeoutSeconds");
 		this.save();
