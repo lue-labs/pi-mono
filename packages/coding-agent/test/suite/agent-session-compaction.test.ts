@@ -17,6 +17,7 @@ import { estimateTokens, prepareCompaction } from "../../src/core/compaction/ind
 import { SessionManager } from "../../src/core/session-manager.ts";
 import {
 	capMidRunCompactionToolResultText,
+	MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS,
 	MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS,
 } from "../../src/core/tool-artifacts.ts";
 import { createHarness, getMessageText, getUserTexts, type Harness } from "./harness.ts";
@@ -1109,6 +1110,15 @@ describe("AgentSession compaction characterization", () => {
 			stopReason: "toolUse",
 		});
 		let resumedContextTokens = 0;
+		let stateTokensAtCompactionEnd = 0;
+		harness.session.subscribe((event) => {
+			if (event.type === "compaction_end" && event.result) {
+				stateTokensAtCompactionEnd = harness.session.agent.state.messages.reduce(
+					(total, message) => total + estimateTokens(message),
+					0,
+				);
+			}
+		});
 		harness.setResponses([
 			toolResponse,
 			(context) => {
@@ -1130,10 +1140,71 @@ describe("AgentSession compaction characterization", () => {
 		expect(resumedContextTokens).toBeLessThan(2_250);
 		const retainedToolResult = harness.session.messages.find((message) => message.role === "toolResult");
 		expect(getMessageText(retainedToolResult)).toContain("Full text saved to .pi/tool-results/");
+		const storedToolResult = harness.sessionManager
+			.getEntries()
+			.find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+		expect(storedToolResult?.type === "message" ? getMessageText(storedToolResult.message) : "").toHaveLength(80_000);
+		const compactionEnd = harness.eventsOfType("compaction_end").at(-1);
+		expect(compactionEnd?.result?.estimatedTokensAfter).toBe(stateTokensAtCompactionEnd);
 		expect(harness.getPendingResponseCount()).toBe(0);
 		const lastMessage = harness.session.messages.at(-1);
 		expect(lastMessage?.role).toBe("assistant");
 		expect(getMessageText(lastMessage)).toContain("done after compaction");
+	});
+
+	it("bounds the aggregate retained text for many parallel tool results", async () => {
+		const parallelResultTool: AgentTool = {
+			name: "parallel_result",
+			label: "Parallel result",
+			description: "Returns a result just below the former per-result cap",
+			parameters: Type.Object({ text: Type.Optional(Type.String()) }),
+			execute: async () => ({
+				content: [{ type: "text", text: "x".repeat(1_900) }],
+				details: {},
+			}),
+		};
+		const harness = await createHarness({
+			tools: [parallelResultTool],
+			models: [{ id: "faux-1", contextWindow: 200_000 }],
+			settings: { compaction: { reserveTokens: 199_000, keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "parallel mid-run summary",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+
+		const toolCalls = Array.from({ length: 50 }, (_, index) =>
+			fauxToolCall(
+				"parallel_result",
+				{ text: index === 0 ? "trigger ".repeat(2_000) : undefined },
+				{ id: `parallel-${index}` },
+			),
+		);
+		let resumedToolResultTextChars = 0;
+		harness.setResponses([
+			fauxAssistantMessage(toolCalls, { stopReason: "toolUse" }),
+			(context) => {
+				resumedToolResultTextChars = context.messages
+					.filter((message): message is ToolResultMessage => message.role === "toolResult")
+					.flatMap((message) => message.content)
+					.reduce((total, block) => total + (block.type === "text" ? block.text.length : 0), 0);
+				return fauxAssistantMessage("done after parallel compaction");
+			},
+		]);
+
+		await harness.session.prompt("start");
+
+		expect(resumedToolResultTextChars).toBeLessThanOrEqual(MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS);
+		expect(harness.session.messages.filter((message) => message.role === "toolResult")).toHaveLength(50);
 	});
 
 	it("keeps defer semantics when an over-threshold run ends naturally", async () => {

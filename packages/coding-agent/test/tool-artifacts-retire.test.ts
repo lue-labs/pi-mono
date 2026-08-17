@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -30,6 +30,30 @@ function clone<T>(value: T): T {
 }
 
 describe("capModelFacingToolResultText", () => {
+	it("creates a fresh artifact instead of claiming a stale tool-call collision", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-tool-result-collision-"));
+		const staleText = "previous session result";
+		const fullText = "current session result ".repeat(10_000);
+		try {
+			const artifactDir = join(dir, ".pi", "tool-results");
+			mkdirSync(artifactDir, { recursive: true });
+			writeFileSync(join(artifactDir, "reused-call.txt"), staleText);
+
+			const preview = capModelFacingToolResultText([{ type: "text", text: fullText }], dir, "reused", "call");
+			const previewText = preview
+				?.filter((block) => block.type === "text")
+				.map((block) => block.text)
+				.join("\n");
+			const match = previewText?.match(/Full text saved to ([^\]]+)\./);
+			expect(match?.[1]).toBeDefined();
+			expect(match?.[1]).not.toBe(".pi/tool-results/reused-call.txt");
+			expect(readFileSync(join(dir, match![1]!), "utf8")).toBe(fullText);
+			expect(readFileSync(join(artifactDir, "reused-call.txt"), "utf8")).toBe(staleText);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("preserves the original artifact when mid-run compaction further caps its preview", () => {
 		const dir = mkdtempSync(join(tmpdir(), "pi-tool-result-cap-"));
 		const fullText = "x".repeat(120_000);
