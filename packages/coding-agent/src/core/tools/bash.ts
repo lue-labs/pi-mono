@@ -44,6 +44,7 @@ import { DEFAULT_MAX_LINES, formatSize, type TruncationResult } from "./truncate
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
+export const DEFAULT_BASH_TIMEOUT_SECONDS = 120;
 
 function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 	if (timeout === undefined) return undefined;
@@ -69,8 +70,7 @@ const bashSchema = Type.Object({
 	timeout: Type.Optional(
 		Type.Union([
 			Type.Number({
-				description:
-					"Timeout in seconds. Defaults to 120 seconds — configurable with the bashTimeoutSeconds setting or the PI_BASH_TIMEOUT_SECONDS environment variable (0 disables the default). An explicit value here always wins, up to 2147483 seconds. When the timeout fires the command is killed by default (a harness timeout policy may adopt it as a background job instead) and any output captured up to that point is still returned. For work likely to exceed the default, prefer run_in_background:true.",
+				description: `Timeout in seconds. Defaults to ${DEFAULT_BASH_TIMEOUT_SECONDS} seconds — configurable with the bashTimeoutSeconds setting or the PI_BASH_TIMEOUT_SECONDS environment variable (0 disables the default). An explicit value here always wins, up to ${Math.floor(MAX_TIMEOUT_SECONDS)} seconds. When the timeout fires the command is killed by default (a harness timeout policy may adopt it as a background job instead) and any output captured up to that point is still returned. For work likely to exceed the default, prefer run_in_background:true.`,
 			}),
 			Type.Literal(false, { description: "Disable timeout for this command." }),
 		]),
@@ -296,8 +296,6 @@ const BASH_UPDATE_THROTTLE_MS = 100;
  * The timeout error names all of them, so a command killed at the default can be
  * retried deliberately instead of failing opaquely.
  */
-export const DEFAULT_BASH_TIMEOUT_SECONDS = 120;
-
 /** Environment override for the default foreground timeout (seconds; 0 disables). */
 export const BASH_TIMEOUT_ENV_VAR = "PI_BASH_TIMEOUT_SECONDS";
 
@@ -361,11 +359,10 @@ function resolveBashTimeout(
 	return defaultTimeoutSeconds;
 }
 
-function bashTimeoutStatus(elapsedSeconds: number, limitSeconds: number | undefined, hasOutput: boolean): string {
-	const limit = limitSeconds ?? elapsedSeconds;
+function bashTimeoutStatus(elapsedSeconds: number, limitSeconds: number, output: string): string {
 	return (
-		`Command timed out after ${elapsedSeconds}s and its process tree was killed (foreground limit ${limit}s).` +
-		(hasOutput ? " Output captured before the timeout is preserved above." : "") +
+		`Command timed out after ${elapsedSeconds}s and its process tree was killed (foreground limit ${limitSeconds}s).` +
+		(output.length > 0 ? " Output captured before the timeout is preserved above." : "") +
 		`\nTo allow more time, re-run with an explicit timeout:<seconds> (max ${Math.floor(MAX_TIMEOUT_SECONDS)}), timeout:false for no limit,` +
 		` or run_in_background:true to keep it running unbounded and read it with bash_output(bgId).` +
 		`\nTo change the default for every call, set bashTimeoutSeconds in settings or ${BASH_TIMEOUT_ENV_VAR} (0 disables it).`
@@ -501,6 +498,7 @@ export function createBashToolDefinition(
 	const spawnHook = options?.spawnHook;
 	const toolName = options?.toolName ?? "bash";
 	const label = options?.label ?? "Bash";
+	const defaultTimeoutSeconds = resolveBashDefaultTimeoutSeconds(options?.defaultTimeoutSeconds);
 	return {
 		name: toolName,
 		label,
@@ -604,10 +602,7 @@ export function createBashToolDefinition(
 					} as BashBgDetails as any,
 				};
 			}
-			const timeoutSeconds = resolveBashTimeout(
-				timeout,
-				resolveBashDefaultTimeoutSeconds(options?.defaultTimeoutSeconds),
-			);
+			const timeoutSeconds = resolveBashTimeout(timeout, defaultTimeoutSeconds);
 			const startedAt = Date.now();
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
 			const spawnContext = resolveSpawnContext(
@@ -726,14 +721,12 @@ export function createBashToolDefinition(
 					}
 					// A timed-out command whose disposition failed (the core default kills)
 					// throws the `timeout:N` sentinel; detach dispositions return a bgId instead.
-					if (err instanceof Error && err.message.startsWith("timeout:")) {
+					if (err instanceof Error && err.message.startsWith("timeout:") && timeoutSeconds !== undefined) {
 						// Report the measured elapsed time (the kill lands slightly after the
 						// limit) and every way to raise the limit, so a legitimate long command
 						// can be retried deliberately instead of just failing.
 						const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-						throw new Error(
-							appendStatus(text, bashTimeoutStatus(elapsedSeconds, timeoutSeconds, text.length > 0)),
-						);
+						throw new Error(appendStatus(text, bashTimeoutStatus(elapsedSeconds, timeoutSeconds, text)));
 					}
 					throw err;
 				}
@@ -785,7 +778,7 @@ export function createBashToolDefinition(
 				state.endedAt = undefined;
 			}
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatBashCall(args, label, resolveBashDefaultTimeoutSeconds(options?.defaultTimeoutSeconds)));
+			text.setText(formatBashCall(args, label, defaultTimeoutSeconds));
 			return text;
 		},
 		renderResult(result, options, _theme, context) {

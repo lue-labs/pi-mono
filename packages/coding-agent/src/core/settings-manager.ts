@@ -1076,10 +1076,7 @@ export class SettingsManager {
 	getBashTimeoutSeconds(): number | undefined {
 		const value = this.settings.bashTimeoutSeconds;
 		if (value === undefined) return undefined;
-		if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-			throw new Error(`Invalid bashTimeoutSeconds setting: ${String(value)}`);
-		}
-		return value;
+		return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 	}
 
 	setBashTimeoutSeconds(seconds: number | undefined): void {

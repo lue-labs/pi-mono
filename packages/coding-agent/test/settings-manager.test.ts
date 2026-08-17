@@ -601,10 +601,10 @@ describe("SettingsManager", () => {
 			expect(manager.getBashTimeoutSeconds()).toBe(0);
 		});
 
-		it.each([[-5], ["600"], [Number.NaN]])("should reject the unusable value %p", (value) => {
+		it.each([[-5], ["600"], [Number.NaN]])("should ignore the unusable value %p", (value) => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ bashTimeoutSeconds: value }));
 			const manager = SettingsManager.create(projectDir, agentDir);
-			expect(() => manager.getBashTimeoutSeconds()).toThrow(/Invalid bashTimeoutSeconds setting/);
+			expect(manager.getBashTimeoutSeconds()).toBeUndefined();
 		});
 
 		it("should round-trip through the setter", async () => {

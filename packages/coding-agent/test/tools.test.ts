@@ -4,7 +4,12 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeBashWithOperations } from "../src/core/bash-executor.ts";
-import { type BashOperations, createBashTool, createLocalBashOperations } from "../src/core/tools/bash.ts";
+import {
+	BASH_TIMEOUT_ENV_VAR,
+	type BashOperations,
+	createBashTool,
+	createLocalBashOperations,
+} from "../src/core/tools/bash.ts";
 import { computeEditsDiff } from "../src/core/tools/edit-diff.ts";
 import { buildBfsArgs, buildFdArgs, buildRgFilesArgs } from "../src/core/tools/glob.ts";
 import { buildRgArgs, buildUgrepArgs } from "../src/core/tools/grep.ts";
@@ -110,6 +115,7 @@ describe("Coding Agent Tools", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		// Clean up test directory
 		rmSync(testDir, { recursive: true, force: true });
 	});
@@ -638,6 +644,7 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should include full output path for truncated timeout and abort errors", async () => {
+			vi.stubEnv(BASH_TIMEOUT_ENV_VAR, undefined);
 			for (const testCase of [
 				{
 					error: "timeout:5",
