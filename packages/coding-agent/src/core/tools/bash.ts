@@ -360,10 +360,10 @@ function resolveBashTimeout(
 	return defaultTimeoutSeconds;
 }
 
-function bashTimeoutStatus(elapsedSeconds: number, limitSeconds: number, output: string): string {
+function bashTimeoutStatus(elapsedSeconds: number, limitSeconds: number, hasOutput: boolean): string {
 	return (
 		`Command timed out after ${elapsedSeconds}s and its process tree was killed (foreground limit ${limitSeconds}s).` +
-		(output.length > 0 ? " Output captured before the timeout is preserved above." : "") +
+		(hasOutput ? " Output captured before the timeout is preserved above." : "") +
 		`\nTo allow more time, re-run with an explicit timeout:<seconds> (max ${Math.floor(MAX_TIMEOUT_SECONDS)}), timeout:false for no limit,` +
 		` or run_in_background:true to keep it running unbounded and read it with bash_output(bgId).` +
 		`\nTo change the default for every call, set bashTimeoutSeconds in settings or ${BASH_TIMEOUT_ENV_VAR} (0 disables it).`
@@ -722,12 +722,24 @@ export function createBashToolDefinition(
 					}
 					// A timed-out command whose disposition failed (the core default kills)
 					// throws the `timeout:N` sentinel; detach dispositions return a bgId instead.
-					if (err instanceof Error && err.message.startsWith("timeout:") && timeoutSeconds !== undefined) {
+					if (err instanceof Error && err.message.startsWith("timeout:")) {
+						const sentinelTimeoutSeconds = Number(err.message.slice("timeout:".length));
+						if (
+							timeoutSeconds === undefined &&
+							(!Number.isFinite(sentinelTimeoutSeconds) || sentinelTimeoutSeconds <= 0)
+						) {
+							throw err;
+						}
 						// Report the measured elapsed time (the kill lands slightly after the
 						// limit) and every way to raise the limit, so a legitimate long command
 						// can be retried deliberately instead of just failing.
 						const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-						throw new Error(appendStatus(text, bashTimeoutStatus(elapsedSeconds, timeoutSeconds, text)));
+						throw new Error(
+							appendStatus(
+								text,
+								bashTimeoutStatus(elapsedSeconds, timeoutSeconds ?? sentinelTimeoutSeconds, text.length > 0),
+							),
+						);
 					}
 					throw err;
 				}
