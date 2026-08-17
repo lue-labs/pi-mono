@@ -25,14 +25,21 @@
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ImageContent, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
 
 const SUPPORTED_INLINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const TOOL_ARTIFACTS_DIR = ".pi/tool-artifacts";
 const TOOL_RESULT_TEXT_ARTIFACTS_DIR = ".pi/tool-results";
 const MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS = 100_000;
-const MAX_MID_RUN_COMPACTION_TOOL_RESULT_TEXT_CHARS = 2_000;
+/** Aggregate text budget for the whole retained parallel tool-result batch. */
+export const MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS = 2_000;
+
+// The ordinary 100k cap and the later mid-run cap see the same content-array
+// identity during an active turn. Retain the artifact selected by the first cap
+// so the latter can safely reuse it; an unknown pre-existing pathname is never
+// assumed to belong to this result.
+const cappedToolResultArtifactPaths = new WeakMap<ToolResultContentBlock[], string>();
 export const MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS = 3 * 1024 * 1024;
 const TOOL_RESULT_IMAGE_OMITTED =
 	"[Image omitted because it exceeds the model-facing image limit. Refer to the saved artifact.]";
@@ -61,8 +68,9 @@ export function capMidRunCompactionToolResultText(
 	cwd: string,
 	toolCallId: string,
 	toolName: string,
+	maxTextChars = MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS,
 ): ToolResultContentBlock[] | undefined {
-	return capToolResultText(content, cwd, toolCallId, toolName, MAX_MID_RUN_COMPACTION_TOOL_RESULT_TEXT_CHARS);
+	return capToolResultText(content, cwd, toolCallId, toolName, maxTextChars);
 }
 
 function capToolResultText(
@@ -77,39 +85,34 @@ function capToolResultText(
 		return undefined;
 	}
 
-	const relativePath = `${TOOL_RESULT_TEXT_ARTIFACTS_DIR}/${sanitizeArtifactName(toolCallId)}-${sanitizeArtifactName(toolName)}.txt`;
-	let saveError: string | undefined;
-	try {
-		const absolutePath = resolve(cwd, relativePath);
-		mkdirSync(dirname(absolutePath), { recursive: true });
-		writeFileSync(
-			absolutePath,
-			content
-				.filter((block): block is TextContent => block.type === "text")
-				.map((block) => block.text)
-				.join("\n\n"),
-			{ encoding: "utf8", flag: "wx" },
-		);
-	} catch (error) {
-		// A mid-run cap can refine the preview created by the ordinary 100k
-		// cap. Both point to the same tool-call artifact; preserve the original
-		// full result instead of overwriting it with that preview.
-		if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-			const message = error instanceof Error ? error.message : String(error);
-			saveError = message.slice(0, 500);
-		}
-	}
+	const previousArtifactPath = cappedToolResultArtifactPaths.get(content);
+	const artifact = previousArtifactPath
+		? { relativePath: previousArtifactPath }
+		: saveToolResultTextArtifact(
+				content
+					.filter((block): block is TextContent => block.type === "text")
+					.map((block) => block.text)
+					.join("\n\n"),
+				cwd,
+				toolCallId,
+				toolName,
+			);
 
 	const makeHint = (omittedChars: number) =>
-		saveError
-			? `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full-text artifact save failed: ${saveError}.]`
-			: `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full text saved to ${relativePath}.]`;
+		artifact.error
+			? `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full-text artifact save failed: ${artifact.error}.]`
+			: `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full text saved to ${artifact.relativePath}.]`;
 
 	let omittedChars = 0;
 	let previewBudget = maxTextChars;
 	for (let i = 0; i < 3; i++) {
 		const hint = makeHint(omittedChars);
-		previewBudget = Math.max(0, maxTextChars - hint.length);
+		if (hint.length > maxTextChars) {
+			// The aggregate budget may be exhausted by earlier parallel results.
+			// Do not leak past it or emit a cut-off artifact claim.
+			return content.filter((block) => block.type !== "text");
+		}
+		previewBudget = maxTextChars - hint.length;
 		const nextOmittedChars = Math.max(0, totalTextChars - previewBudget);
 		if (nextOmittedChars === omittedChars) break;
 		omittedChars = nextOmittedChars;
@@ -138,7 +141,40 @@ function capToolResultText(
 	}
 
 	nextContent.push({ type: "text", text: makeHint(omittedChars) });
+	if (artifact.relativePath) {
+		cappedToolResultArtifactPaths.set(nextContent, artifact.relativePath);
+	}
 	return nextContent;
+}
+
+function saveToolResultTextArtifact(
+	text: string,
+	cwd: string,
+	toolCallId: string,
+	toolName: string,
+): { relativePath?: string; error?: string } {
+	const baseName = `${sanitizeArtifactName(toolCallId)}-${sanitizeArtifactName(toolName)}`;
+	try {
+		const artifactDirectory = resolve(cwd, TOOL_RESULT_TEXT_ARTIFACTS_DIR);
+		mkdirSync(artifactDirectory, { recursive: true });
+		let collisionSuffix: string | undefined;
+		while (true) {
+			const fileName = collisionSuffix ? `${baseName}-${collisionSuffix}.txt` : `${baseName}.txt`;
+			const relativePath = `${TOOL_RESULT_TEXT_ARTIFACTS_DIR}/${fileName}`;
+			try {
+				writeFileSync(resolve(artifactDirectory, fileName), text, { encoding: "utf8", flag: "wx" });
+				return { relativePath };
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+					collisionSuffix = randomUUID();
+					continue;
+				}
+				return { error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) };
+			}
+		}
+	} catch (error) {
+		return { error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) };
+	}
 }
 
 export function replaceOversizedToolResultImages(
