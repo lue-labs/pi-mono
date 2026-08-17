@@ -1,12 +1,20 @@
 # anti-slop install and sweep report
 
-Branch `chore/anti-slop-oxlint`, three commits on top of `main`.
+Branch `chore/anti-slop-oxlint`, on top of `main`.
 
 | Commit | What |
 |---|---|
 | `b2d2b3d05` | Vendored the anti-slop Oxlint plugin, scoped to fork-added source |
 | `97cff2fe0` | Fixed the duplicated silent `catch` in `bash-output.ts` |
 | `e15361ef2` | Cleared prose violations in ten fork-owned docs |
+| `bb8709c70` | Built cache-split blocks explicitly, typed the schema walker |
+| `8784ef514` | Assigned optional fields instead of spreading empty objects |
+| `84c72217d` | Renamed a flag for the condition it records |
+| `5d21ad86b` | Read server-tool results through one typed boundary |
+| `a57ba9234` | Named the thinking-strip result type |
+
+Per-finding register: [`findings.md`](findings.md). Scope and triage records:
+[`scope.md`](scope.md), [`triage.md`](triage.md).
 
 ## What was installed
 
@@ -41,6 +49,24 @@ already uses.
 
 Actionable surface: 225 code files and 12 living prose docs.
 
+### Why fork-modified files were excluded
+
+The 699 fork-modified files are files the fork edits but upstream also owns.
+Rewriting upstream-authored lines inside them creates merge conflicts on every
+future upstream sync, and the fork's whole maintenance model is built on
+keeping that sync cheap. The repo already encodes this split in
+`scripts/check-fork-delta-static.mjs`.
+
+The cost of the exclusion is real and worth stating plainly: findings on
+upstream-authored lines inside fork-modified files are not addressed here, and
+the ratchet does not gate them.
+
+`CONTRIBUTING.md` is the clearest case. It carries 2 prose violations, and it
+is byte-identical to `upstream/main` (`git diff upstream/main -- CONTRIBUTING.md`
+is empty). Editing it would hand the fork a permanent conflict on a file it has
+never modified, to fix two em-dashes in someone else's prose. Left alone
+deliberately.
+
 ## Findings
 
 Oxlint reports 5,635 violations repository-wide and 1,216 inside fork scope
@@ -64,7 +90,21 @@ comment is supposed to state a checked invariant, and a generated one states
 nothing. `anti-slop/code.md` treats that as the failure mode, not the fix.
 
 So the rules are registered at `error` with a fork-delta gate available, and
-one real defect was fixed properly.
+the findings that could be fixed without laundering were fixed properly.
+
+Every remaining fork-source finding is listed at line granularity in
+[`findings.md`](findings.md), with the rule-level disposition that came out of
+reading the sites. Two results from that pass are worth surfacing here:
+
+- `no-unknown-parameters` cannot be satisfied at a parser entry point. A
+  function that validates untyped input has to accept `unknown`. The rule fires
+  on `fields(value: unknown)`, which this sweep wrote in order to *fix* 17 other
+  findings.
+- The boundary-parsing rules are pointing at one real architectural gap. The
+  fork hand-rolls `typeof` validation for agent definitions and provider
+  payloads while already depending on TypeBox. Converting those sites changes
+  which malformed input is accepted, so it is a behavior-carrying project and
+  not part of a lint sweep.
 
 ## Fixed
 
