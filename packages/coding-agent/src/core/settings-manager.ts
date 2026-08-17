@@ -170,6 +170,7 @@ export interface Settings {
 	quietStartup?: boolean;
 	defaultProjectTrust?: DefaultProjectTrust; // default: "ask"; global setting only
 	shellCommandPrefix?: string; // Prefix prepended to every bash command (e.g., "shopt -s expand_aliases" for alias support)
+	bashTimeoutSeconds?: number; // Default foreground timeout (seconds) for bash tool calls that omit `timeout`; 0 disables it. Overridden by PI_BASH_TIMEOUT_SECONDS and by an explicit per-call timeout
 	npmCommand?: string[]; // Command used for npm package lookup/install operations, argv-style (e.g., ["mise", "exec", "node@20", "--", "npm"])
 	sourceUpdateCommand?: string[]; // Command used to self-update source checkout installs, argv-style
 	collapseChangelog?: boolean; // Show condensed changelog after update (use /changelog for full)
@@ -1065,6 +1066,25 @@ export class SettingsManager {
 	setShellCommandPrefix(prefix: string | undefined): void {
 		this.globalSettings.shellCommandPrefix = prefix;
 		this.markModified("shellCommandPrefix");
+		this.save();
+	}
+
+	/**
+	 * Default foreground timeout (seconds) for bash tool calls that omit `timeout`.
+	 * `0` disables the default; `undefined` leaves the built-in default in place.
+	 */
+	getBashTimeoutSeconds(): number | undefined {
+		const value = this.settings.bashTimeoutSeconds;
+		if (value === undefined) return undefined;
+		if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+			throw new Error(`Invalid bashTimeoutSeconds setting: ${String(value)}`);
+		}
+		return value;
+	}
+
+	setBashTimeoutSeconds(seconds: number | undefined): void {
+		this.globalSettings.bashTimeoutSeconds = seconds;
+		this.markModified("bashTimeoutSeconds");
 		this.save();
 	}
 

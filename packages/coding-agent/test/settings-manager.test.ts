@@ -582,6 +582,44 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("getBashTimeoutSeconds", () => {
+		it("should return undefined when not set, leaving the built-in default in place", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getBashTimeoutSeconds()).toBeUndefined();
+		});
+
+		it("should return a configured timeout", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ bashTimeoutSeconds: 900 }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getBashTimeoutSeconds()).toBe(900);
+		});
+
+		it("should return 0 so callers can disable the default timeout", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ bashTimeoutSeconds: 0 }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getBashTimeoutSeconds()).toBe(0);
+		});
+
+		it.each([[-5], ["600"], [Number.NaN]])("should reject the unusable value %p", (value) => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ bashTimeoutSeconds: value }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(() => manager.getBashTimeoutSeconds()).toThrow(/Invalid bashTimeoutSeconds setting/);
+		});
+
+		it("should round-trip through the setter", async () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setBashTimeoutSeconds(240);
+			await manager.flush();
+			expect(manager.getBashTimeoutSeconds()).toBe(240);
+			expect(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8")).bashTimeoutSeconds).toBe(240);
+
+			manager.setBashTimeoutSeconds(undefined);
+			expect(manager.getBashTimeoutSeconds()).toBeUndefined();
+		});
+	});
+
 	describe("getShellPath", () => {
 		it("should return undefined when not set", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
