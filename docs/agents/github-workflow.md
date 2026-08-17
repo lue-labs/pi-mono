@@ -5,7 +5,7 @@ Read when changing branches, reviewing a PR, editing GitHub Actions, or writing 
 ## Git safety
 
 - Check `git status` before and after edits. Assume unexpected changes belong to another agent; never revert them.
-- Do not run destructive Git commands—`git reset --hard`, `git clean`, forced checkout/restore—or bypass hooks with `--no-verify`.
+- Never run destructive Git commands (`git reset --hard`, `git clean`, forced checkout or restore) and never bypass hooks with `--no-verify`.
 - Do not amend commits unless asked.
 - Stage and commit only your own changed paths. Do not use `git add -A` or `git add .` in a shared worktree.
 - If another agent touches the same file, inspect both diffs and preserve both intents. Prefer worktrees for parallel work.

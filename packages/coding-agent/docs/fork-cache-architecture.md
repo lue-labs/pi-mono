@@ -1,7 +1,7 @@
 # Fork-Mode Sub-Agent Cache Architecture
 
-How Pi gets sub-agents to share Anthropic prompt cache with their parent — and
-with each other — when spawned in fork mode.
+How Pi gets sub-agents to share Anthropic prompt cache with their parent, and
+with each other, when spawned in fork mode.
 
 Date: 2026-05-28. Mirrors Claude Code 2.1.x patterns; see comparison at the
 bottom.
@@ -40,7 +40,7 @@ their parent unless the caller explicitly supplies a task-level `tools` /
 
 Without an explicit tool restriction, the only divergence is the per-task user
 directive (built by `buildChildTaskPrompt`), placed at the very tail of the
-request — so the entire leading prefix is a cache hit.
+request, so the entire leading prefix is a cache hit.
 
 ## Why placeholder, not strip
 
@@ -74,7 +74,7 @@ When the parent fan-outs to N parallel forks via `tasks[]`:
 - All N children synthesize the same placeholder text for those calls.
 - Result: children with the same effective tool restriction have byte-identical
   API request prefixes through every leading block. **Siblings cache-hit off
-  each other**, not just off parent.
+  each other**, rather than only off parent.
 
 This is the single biggest token-efficiency win for parallel sub-agent work.
 Without sibling parity, N parallel forks pay N × (parent prefix) in cache
@@ -89,8 +89,8 @@ message arrays".
 
 | Agent | `defaultContext` | System prompt source | Tools | Cache strategy |
 |---|---|---|---|---|
-| `worker` | `fork` | Parent's rendered bytes; worker role in trailing task message | Parent's 1:1 by default; explicit restriction opts out | **Shares prefix with parent + siblings by default** |
-| `general` | `default` | Parent's rendered bytes when unrestricted and unoverridden; otherwise own dedicated | Parent's exact active-tool prefix when unrestricted and unoverridden; otherwise profile-resolved | Shares parent lane/prefix for the default path (including automatic worktrees); explicit model/tools/system prompt/cwd opts out |
+| `worker` | `fork` | Parent's rendered bytes, plus a worker role in the trailing task message | Parent's 1:1 by default, and an explicit restriction opts out | **Shares prefix with parent + siblings by default** |
+| `general` | `default` | Parent's rendered bytes when unrestricted and unoverridden, otherwise its own dedicated | Parent's exact active-tool prefix when unrestricted and unoverridden, otherwise profile-resolved | Shares parent lane/prefix for the default path (including automatic worktrees), and an explicit model, tools, system prompt, or cwd opts out |
 | `explore` | `none` | Own + `cacheProfile: "stable"` | Child-scoped read-only allow-list; installed optional search tools activate | **Stable bytes for a fixed extension set → hits across explore invocations cluster-wide** |
 | `decompose` | `none` | Own + `cacheProfile: "stable"` | Read-only subset | Same as explore |
 | `plan` | `none` | Own isolated prompt (no project instructions, append-system context, or skills) | Read-only subset | Own cache |
@@ -111,19 +111,19 @@ Two distinct strategies coexist:
 For a fork call without an explicit tool restriction, audit each item in order
 when debugging a cache miss. Any drift = cache bust.
 
-- **System prompt bytes** — threaded from parent's frozen turn-start prompt,
+- **System prompt bytes**: threaded from parent's frozen turn-start prompt,
   not re-rendered. See `getParentSystemPrompt()` in `core/tools/agent.ts:138`.
-- **Tools[] order and definitions** — copied 1:1 unless `tools` /
+- **Tools[] order and definitions**: copied 1:1 unless `tools` /
   `allowedTools` explicitly narrows the task. Tool-schema serialization is
   sensitive to permission-mode (CC explicitly documents this in
   `AgentTool.tsx:612`).
-- **Thinking config** — inherited via `resolveAgentThinking`. Mismatched
+- **Thinking config**: inherited via `resolveAgentThinking`. Mismatched
   thinking levels produce different API request shapes.
-- **Model** — `"inherit"` keeps the same model id; switching model busts
+- **Model**: `"inherit"` keeps the same model id; switching model busts
   everything.
-- **Placeholder tool_result text** — `FORK_PLACEHOLDER_RESULT_TEXT` is a
+- **Placeholder tool_result text**: `FORK_PLACEHOLDER_RESULT_TEXT` is a
   module-level const. Do not parameterize per-child or per-spawn.
-- **Placeholder tool_result structure** — single text content block,
+- **Placeholder tool_result structure**: single text content block,
   `isError: false`. Adding fields (e.g. metadata) would diverge.
 
 ## Intentional cache opt-out
@@ -138,10 +138,10 @@ fork cache identity should omit the override and use the inherited tool set.
 - **Per-task user directive** at the very tail (built by
   `buildChildTaskPrompt`, or `buildAgentCourseCorrectionPrompt` on resume).
   For an unrestricted fork, this is the only intentional divergence point.
-- **Placeholder `timestamp`** — set to a fixed `0` in the placeholder for
+- **Placeholder `timestamp`**: set to a fixed `0` in the placeholder for
   belt-and-braces, but `timestamp` is not serialized to the Anthropic wire for
   `tool_result` blocks anyway.
-- **`toolName` on the placeholder** — pulled from the original `tool_use`'s
+- **`toolName` on the placeholder**: pulled from the original `tool_use`'s
   name, so it varies by call but is identical across siblings (they see the
   same parent tool_uses).
 
@@ -201,15 +201,15 @@ What Pi does that CC doesn't:
 
 ## Files
 
-- `packages/coding-agent/src/core/agents/context.ts` —
+- `packages/coding-agent/src/core/agents/context.ts`:
   `getFilteredForkMessages`, `substitutePlaceholdersForUnresolvedToolCalls`,
   `FORK_PLACEHOLDER_RESULT_TEXT`, `AGENT_UNAVAILABLE_REMINDER`,
   `buildChildTaskPrompt`, `resolveContextPolicy`.
-- `packages/coding-agent/src/core/agents/executor.ts` — `isForkMode` branch,
+- `packages/coding-agent/src/core/agents/executor.ts`: `isForkMode` branch,
   `parentSystemPrompt` threading, message assignment.
-- `packages/coding-agent/src/core/tools/agent.ts` — `getParentSystemPrompt`,
+- `packages/coding-agent/src/core/tools/agent.ts`: `getParentSystemPrompt`,
   `getParentActiveTools` capture at parent turn-start.
-- `packages/coding-agent/test/agent-context-inheritance.test.ts` — fork
+- `packages/coding-agent/test/agent-context-inheritance.test.ts`: fork
   filtering, placeholder substitution, sibling byte-identity regression.
 
 ## Regression triage
@@ -217,8 +217,8 @@ What Pi does that CC doesn't:
 If you see cache misses on fork-mode children where you expect hits:
 
 1. Verify `cache_creation_input_tokens` on parent's last assistant response
-   matches the prefix size the child's first request hits — cache eligibility
-   gate.
+   matches the prefix size the child's first request hits. That is the cache
+   eligibility gate.
 2. Diff parent's wire-level request bytes against child's first request (use
    `pi-claude-bridge` cache diagnostics). The first differing byte is the
    suspect.
@@ -227,10 +227,10 @@ If you see cache misses on fork-mode children where you expect hits:
      turn-start render but before child spawn).
    - System prompt drift (some extension's `before_agent_start` mutated the
      prompt for the parent's next render in a way that affected the captured
-     bytes — see `tool-search` per-session state keying for the prior bug
+     bytes; see `tool-search` per-session state keying for the prior bug
      class).
    - Placeholder text mismatch (someone edited `FORK_PLACEHOLDER_RESULT_TEXT`
-     without bumping the cache-busting cohort — don't edit it lightly).
+     without bumping the cache-busting cohort, so don't edit it lightly).
    - Model id mismatch (`model: "inherit"` resolving to a different concrete
-     model — e.g. provider routing change).
+     model, such as a provider routing change).
    - Thinking config drift (child not inheriting parent's level).
