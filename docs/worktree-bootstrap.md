@@ -118,3 +118,26 @@ and it is commented in the script at the copy.
 Every failure path in the script names the specific missing artifact rather than
 reporting a generic bootstrap failure — the whole lesson of the incident is that
 one generic message hid four separate problems.
+
+### Verified end to end
+
+Against a genuinely fresh `git worktree add` (no `node_modules`, no
+`packages/ai/src/providers/data/`), not a partially-warm tree:
+
+| Path | Result |
+|---|---|
+| Fresh worktree, sibling available | copies model data incl. `.manifest.json`, validates, builds; `pi --version` runs. Exit 0 |
+| Re-run on the same worktree | `model data already valid, skipping`. Exit 0 |
+| No sibling (`--from /nonexistent`) | falls back to network hydrate, builds. Exit 0 |
+| `--skip-install` without `node_modules` | names the exact absent path, exits 1 |
+| Unknown option / `--from` with no argument | names the offending flag, exits 1 |
+
+The rebuilt CLI from that worktree was then checked against the original
+incident: a broken auto-discovered extension yields `Warning: Skipped
+extension …` and startup continues, while `PI_STRICT_EXTENSIONS=1` turns the same
+failure back into `Error: Failed to load extension …`.
+
+The script takes `--skip-install` (reuse a known-good `node_modules`) and
+`--with-scripts` (install with lifecycle scripts; the default is
+`--ignore-scripts`, per `docs/agents/testing-and-dependencies.md`). See
+`./scripts/bootstrap-worktree.sh --help`.
