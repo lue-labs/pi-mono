@@ -100,6 +100,16 @@ produces a manifest whose `structureHash` does not match this worktree's provide
 sources, and the script falls back to hydrating rather than leaving you with data
 that fails at build time.
 
+**A fifth layer, found by running the script.** `npm run build:offline` was not
+offline. Its last leg was `cd ../coding-agent && npm run build`, and
+coding-agent's `build` re-enters `npm --prefix ../ai run build`, whose first step
+is `generate-models` — a network fetch of models.dev, NVIDIA NIM and OpenRouter.
+The offline target therefore rebuilt the model data online, undoing the `ai`
+offline build it had already done correctly earlier in the same chain. It now uses
+coding-agent's `build:ts`, matching what the non-offline root `build` already did.
+This surfaced on the first real run of the bootstrap script against a clean
+worktree, not from reading the scripts.
+
 **The dotfile trap.** The copy uses `cp -R "$src/." "$dst/"`, not a `*.json` glob.
 `.manifest.json` is a dotfile; a glob misses it, and you then get "model data is
 missing or stale" from a directory that looks complete. That is failure 4 above,
