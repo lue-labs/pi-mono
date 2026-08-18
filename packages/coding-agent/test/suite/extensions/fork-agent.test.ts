@@ -183,6 +183,10 @@ describe("ctx.forkAgent", () => {
 		const harness = await createHarness({ extensionFactories: [factory] });
 		harnesses.push(harness);
 		makeAgentServices(harness);
+		// Simulate a parent-only handler activated after startup's deferred batch.
+		// prompt() now awaits that batch, so establish the same lifecycle ordering
+		// before injecting the synthetic handler directly into agent state.
+		await harness.session.loadDeferredExtensions();
 		harness.session.agent.state.tools.push({
 			name: "ctx_execute",
 			label: "ctx_execute",

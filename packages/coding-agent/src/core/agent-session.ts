@@ -137,7 +137,9 @@ import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import {
+	capMidRunCompactionToolResultText,
 	capModelFacingToolResultText,
+	MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS,
 	replaceOversizedToolResultImages,
 	replaceUnsupportedToolResultImages,
 	retireOutOfBudgetContextImages,
@@ -499,6 +501,8 @@ export class AgentSession {
 	private _autoCompactDisabledThisSession = false;
 	/** Set when the agent loop was stopped at a turn boundary by the mid-run compaction cap. */
 	private _midRunCompactionStop = false;
+	/** Tool results retained only to resume a turn after mid-run compaction. */
+	private _midRunCompactionToolResults: ToolResultMessage[] = [];
 	/** Set by extensions that need the current run to park after the active turn completes. */
 	private _extensionStopAfterTurnReason: string | undefined = undefined;
 	private _lastIdleCacheHintAssistantTimestamp: number | undefined = undefined;
@@ -636,6 +640,7 @@ export class AgentSession {
 			settingsManager: this.settingsManager,
 			agent: this.agent,
 			findLastAssistantMessage: () => this._findLastAssistantMessage(),
+			loadDeferredExtensions: () => this._extensionRunner.loadDeferredExtensions(),
 			emit: (event) => this._emit(event),
 		});
 
@@ -832,6 +837,7 @@ export class AgentSession {
 			// Avoid stopping for compaction when the fixed prefix already exceeds its threshold.
 			if (contextWindow - settings.reserveTokens < this._estimateFixedPrefixTokens()) return false;
 			this._midRunCompactionStop = true;
+			this._midRunCompactionToolResults = toolResults;
 			return true;
 		};
 	}
@@ -1150,6 +1156,41 @@ export class AgentSession {
 			message:
 				"This session has been idle long enough that prompt-cache warmth may be gone. For broad follow-up work, prefer cache-efficient forks (`explore`/`decompose`) or compact first if you need a handoff summary.",
 		});
+	}
+
+	private _capMidRunCompactionToolResults(): void {
+		let remainingTextChars = MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS;
+		let messages = this.agent.state.messages;
+		let changed = false;
+		for (const result of this._midRunCompactionToolResults) {
+			const content = capMidRunCompactionToolResultText(
+				result.content,
+				this._cwd,
+				result.toolCallId,
+				result.toolName,
+				remainingTextChars,
+			);
+			const retainedContent = content ?? result.content;
+			remainingTextChars = Math.max(
+				0,
+				remainingTextChars -
+					retainedContent.reduce((total, block) => total + (block.type === "text" ? block.text.length : 0), 0),
+			);
+			if (!content) continue;
+
+			// SessionManager stores message references. Replace the state slot rather
+			// than mutating result.content so the append-only session entry retains
+			// its full tool output for exporters and later session reloads.
+			const resultIndex = messages.indexOf(result);
+			if (resultIndex === -1) continue;
+			if (!changed) {
+				messages = messages.slice();
+				changed = true;
+			}
+			messages[resultIndex] = { ...result, content };
+		}
+		if (changed) this.agent.state.messages = messages;
+		this._midRunCompactionToolResults = [];
 	}
 
 	private _replaceMessageInPlace(target: AgentMessage, replacement: AgentMessage): void {
@@ -1542,6 +1583,9 @@ export class AgentSession {
 	 * cached system prefix (prompt-cache golden rule).
 	 */
 	async resumePendingInteractiveToolCall(): Promise<boolean> {
+		// A resumable pending call may belong to a deferred extension. Load it before
+		// resolving the persisted tool name, and before this path can invoke the model.
+		await this._extensionRunner.loadDeferredExtensions();
 		const messages = this.agent.state.messages;
 		const last = messages[messages.length - 1];
 		if (!last || last.role !== "assistant") return false;
@@ -1943,6 +1987,11 @@ export class AgentSession {
 	}
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		// Deferred extensions may register provider-visible tools. Never let the
+		// first request race their startup load, or tools[] changes after turn one
+		// and invalidates the prompt-cache prefix. The load is memoized, so callers
+		// that already prepared the turn pay no additional cost here.
+		await this._extensionRunner.loadDeferredExtensions();
 		this._isAgentRunActive = true;
 		try {
 			// A turn is starting — cancel any pending idle wake. The notification
@@ -1995,10 +2044,17 @@ export class AgentSession {
 			// The loop was stopped at a turn boundary by the mid-run cap. Compact
 			// now ("run", not "defer") and always resume — the interrupted run
 			// still has tool results or queued messages waiting for the model.
-			// If compaction can't run (prep failed, aborted), resuming uncompacted
-			// is still correct; the overflow path remains the backstop.
+			// A trailing tool result has no later assistant boundary, so it would
+			// otherwise survive verbatim regardless of keepRecentTokens. Let its
+			// size select that safe compaction boundary, then replace only the live
+			// retained result with an artifact-backed preview; durable history stays
+			// complete and the continuation starts slim.
 			this._midRunCompactionStop = false;
 			await this._checkCompaction(msg, true, "run");
+			// If compaction was skipped or failed, still bound the pending
+			// continuation. A successful compaction applies the cap before its
+			// estimatedTokensAfter/compaction_end event.
+			this._capMidRunCompactionToolResults();
 			return true;
 		}
 		if (await this._checkCompaction(msg, true, "defer")) {
@@ -2023,6 +2079,7 @@ export class AgentSession {
 		if (this.isStreaming || this.isCompacting || this.agent.isProcessing) return;
 		void (async () => {
 			try {
+				await this._extensionRunner.loadDeferredExtensions();
 				await this.agent.continue();
 				while (await this._handlePostAgentRun()) {
 					await this.agent.continue();
@@ -2054,6 +2111,12 @@ export class AgentSession {
 		let messages: AgentMessage[] | undefined;
 
 		try {
+			// Keep startup responsive, but make the first user action the hard boundary:
+			// all deferred commands, handlers, and tool schemas must exist before input
+			// handling and before_agent_start compute the first provider request. Entering
+			// try first keeps this preflight inside prompt()'s error-reporting contract.
+			await this._extensionRunner.loadDeferredExtensions();
+
 			// Handle extension commands first (execute immediately, even during streaming)
 			// Extension commands manage their own LLM interaction via pi.sendMessage()
 			if (expandPromptTemplates && text.startsWith("/")) {
@@ -2482,6 +2545,9 @@ export class AgentSession {
 			await emitCustomMessage();
 		} else if (options?.triggerTurn) {
 			await this._withActiveTurnCall(async () => {
+				// Match prompt(): deferred handlers and tool schemas must be present before
+				// before_agent_start constructs the first machine-driven provider request.
+				await this._extensionRunner.loadDeferredExtensions();
 				// Mirror prompt()'s pre-turn compaction check. Without it, harness-driven
 				// turns (e.g. pi-goal continuations via sendCustomMessage({triggerTurn}))
 				// never hit threshold compaction — context grows unbounded across goal
@@ -3152,6 +3218,9 @@ export class AgentSession {
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
 		await this.abort();
+		// Manual compaction is independently provider-capable and can run before
+		// the first prompt, so it needs the same settled tool registry.
+		await this._extensionRunner.loadDeferredExtensions();
 		this._compactionAbortController = new AbortController();
 		this._emit({ type: "compaction_start", reason: "manual" });
 
@@ -3445,6 +3514,10 @@ export class AgentSession {
 	 * Internal: Run auto-compaction with events.
 	 */
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
+		// Auto-compaction may issue its own provider request. Most callers already
+		// crossed prompt preflight, but keep this entry point safe on its own.
+		await this._extensionRunner.loadDeferredExtensions();
+
 		// Failure circuit breaker: checked before anything else, including the rapid-refill
 		// check below (CC 2.1.201 parity). Once tripped, auto-compaction is disabled for
 		// the rest of the session and this short-circuit must not emit repeatedly.
@@ -3614,7 +3687,8 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			this._capMidRunCompactionToolResults();
+			const estimatedTokensAfter = estimateMessagesTokens(this.agent.state.messages);
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
@@ -4413,7 +4487,11 @@ export class AgentSession {
 				)
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
-					bash: { commandPrefix: shellCommandPrefix, shellPath },
+					bash: {
+						commandPrefix: shellCommandPrefix,
+						shellPath,
+						defaultTimeoutSeconds: this.settingsManager.getBashTimeoutSeconds(),
+					},
 				});
 
 		if (!this._baseToolsOverride) {
@@ -4775,6 +4853,11 @@ export class AgentSession {
 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
 		if (this.isStreaming) {
 			throw new Error("Wait for the current response to finish before navigating the session tree.");
+		}
+		if (options.summarize) {
+			// Branch summarization bypasses the normal prompt lifecycle and may be
+			// the session's first provider request.
+			await this._extensionRunner.loadDeferredExtensions();
 		}
 
 		const oldLeafId = this.sessionManager.getLeafId();
