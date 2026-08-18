@@ -137,7 +137,7 @@ describe("extension load failure severity", () => {
 	});
 
 	describe("severity mapping", () => {
-		const env = {} as NodeJS.ProcessEnv;
+		const env: NodeJS.ProcessEnv = {};
 
 		it("downgrades a discovered failure to a visible warning", () => {
 			const diagnostic = extensionLoadDiagnostic(
@@ -164,7 +164,7 @@ describe("extension load failure severity", () => {
 		});
 
 		it("makes discovered failures fatal again under the strict opt-in", () => {
-			const strictEnv = { [STRICT_EXTENSIONS_ENV]: "1" } as NodeJS.ProcessEnv;
+			const strictEnv: NodeJS.ProcessEnv = { [STRICT_EXTENSIONS_ENV]: "1" };
 
 			expect(strictExtensionsEnabled(strictEnv)).toBe(true);
 			expect(
@@ -174,9 +174,13 @@ describe("extension load failure severity", () => {
 		});
 
 		it("treats an unset or falsy strict flag as non-strict", () => {
-			expect(strictExtensionsEnabled({} as NodeJS.ProcessEnv)).toBe(false);
-			expect(strictExtensionsEnabled({ [STRICT_EXTENSIONS_ENV]: "0" } as NodeJS.ProcessEnv)).toBe(false);
-			expect(strictExtensionsEnabled({ [STRICT_EXTENSIONS_ENV]: "" } as NodeJS.ProcessEnv)).toBe(false);
+			const unset: NodeJS.ProcessEnv = {};
+			const zero: NodeJS.ProcessEnv = { [STRICT_EXTENSIONS_ENV]: "0" };
+			const empty: NodeJS.ProcessEnv = { [STRICT_EXTENSIONS_ENV]: "" };
+
+			expect(strictExtensionsEnabled(unset)).toBe(false);
+			expect(strictExtensionsEnabled(zero)).toBe(false);
+			expect(strictExtensionsEnabled(empty)).toBe(false);
 		});
 	});
 });
