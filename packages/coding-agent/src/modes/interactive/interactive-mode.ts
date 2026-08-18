@@ -1869,7 +1869,13 @@ export class InteractiveMode {
 			const extensionErrors = this.session.resourceLoader.getExtensions().errors;
 			if (extensionErrors.length > 0) {
 				for (const error of extensionErrors) {
-					extensionDiagnostics.push({ type: "error", message: error.error, path: error.path });
+					// Auto-discovered extensions are skipped rather than fatal, so report them
+					// as warnings. They stay listed: a skipped extension must remain visible.
+					extensionDiagnostics.push({
+						type: error.discovered ? "warning" : "error",
+						message: error.discovered ? `Skipped: ${error.error}` : error.error,
+						path: error.path,
+					});
 				}
 			}
 

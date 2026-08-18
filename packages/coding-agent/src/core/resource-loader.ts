@@ -139,6 +139,22 @@ function realpathOrSelf(filePath: string): string {
 }
 
 /**
+ * Turn a resolved resource into an extension load request, marking the ones that
+ * were auto-discovered by scanning an extensions directory.
+ *
+ * Only `source: "auto"` with `origin: "top-level"` is a directory scan (see
+ * `addAutoDiscoveredResources` in package-manager.ts). A settings entry
+ * (`source: "local"`) or a package-provided extension (`origin: "package"`) was
+ * named by someone, so its load failure must stay fatal.
+ */
+function toExtensionLoadRequest(resource: ResolvedResource): ExtensionLoadRequest {
+	const discovered = resource.metadata.source === "auto" && resource.metadata.origin === "top-level";
+	return discovered
+		? { path: resource.path, load: resource.load, discovered: true }
+		: { path: resource.path, load: resource.load };
+}
+
+/**
  * The main repo's context file that a nested linked worktree's own copy shadows: both
  * occupy the same logical repository scope, so loading both applies that context twice. Returns
  * undefined when nothing is shadowed, leaving normal ancestor inheritance alone.
@@ -517,10 +533,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		const getEnabledPaths = (resources: ResolvedResource[]): string[] =>
 			getEnabledResources(resources).map((r) => r.path);
-		const enabledExtensionRequests = getEnabledResources(resolvedPaths.extensions).map((r) => ({
-			path: r.path,
-			load: r.load,
-		}));
+		const enabledExtensionRequests = getEnabledResources(resolvedPaths.extensions).map((r) =>
+			toExtensionLoadRequest(r),
+		);
 		const enabledSkillResources = getEnabledResources(resolvedPaths.skills);
 		const enabledPrompts = getEnabledPaths(resolvedPaths.prompts);
 		const enabledThemes = getEnabledPaths(resolvedPaths.themes);
@@ -540,6 +555,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 
 		const cliEnabledExtensions = getEnabledPaths(cliExtensionPaths.extensions);
+		// `-e <path>` is an explicit request: no `discovered` flag, so failures stay fatal.
 		const cliEnabledExtensionRequests = cliEnabledExtensions.map((path) => ({ path, load: "eager" as const }));
 		const cliEnabledSkills = getEnabledPaths(cliExtensionPaths.skills);
 		const cliEnabledPrompts = getEnabledPaths(cliExtensionPaths.prompts);
@@ -671,9 +687,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
 		});
-		const enabledExtensionRequests = resolvedPaths.extensions
-			.filter((r) => r.enabled)
-			.map((r) => ({ path: r.path, load: r.load }));
+		const enabledExtensionRequests = resolvedPaths.extensions.filter((r) => r.enabled).map(toExtensionLoadRequest);
 		const cliEnabledExtensionRequests = cliExtensionPaths.extensions
 			.filter((r) => r.enabled)
 			.map((r) => ({ path: r.path, load: "eager" as const }));
@@ -1006,7 +1020,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 			const canonicalPath = canonicalizePath(resolved);
 			if (seen.has(canonicalPath)) continue;
 			seen.add(canonicalPath);
-			merged.push({ path: resolved, load: request.load ?? "eager" });
+			// Preserve `discovered` across the merge. CLI requests are listed first, so
+			// an extension that is both `-e`-requested and auto-discovered stays explicit.
+			merged.push(
+				request.discovered
+					? { path: resolved, load: request.load ?? "eager", discovered: true }
+					: { path: resolved, load: request.load ?? "eager" },
+			);
 		}
 
 		return merged;
