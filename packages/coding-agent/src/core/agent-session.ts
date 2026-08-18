@@ -118,7 +118,7 @@ import {
 import { getExtensionProcessService } from "./extensions/loader.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { ForkAgentOptions, ForkAgentResult, TranscriptEntry } from "./extensions/types.ts";
-import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
+import { type BashExecutionMessage, type CustomMessage, convertToLlm, hasUnsettledToolCalls } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
@@ -2521,7 +2521,21 @@ export class AgentSession {
 		if (options?.deliverAs === "nextTurn") {
 			this._pendingNextTurnMessages.push(appMessage);
 			await emitCustomMessage();
-		} else if (this.isStreaming || this.isCompacting || this.agent.isProcessing) {
+		} else if (
+			this.isStreaming ||
+			this.isCompacting ||
+			this.agent.isProcessing ||
+			// A tool call still awaiting its result is a busy state the flags above can
+			// miss (an aborted run, or a window between run bookkeeping). Appending here
+			// would persist the message between the toolCall entry and its toolResult,
+			// which Anthropic rejects on every later request — permanently (pi-mono#479).
+			// Queue it instead; the agent loop drains steering only at turn boundaries,
+			// after the batch's results are recorded.
+			// triggerTurn callers still take the prompt path: queueing them with no run
+			// in flight would strand the message. Their ordering is repaired at request
+			// assembly instead (restoreToolResultAdjacency).
+			(!options?.triggerTurn && hasUnsettledToolCalls(this.agent.state.messages))
+		) {
 			// Treat compaction and any in-flight run as streaming-equivalent for delivery
 			// routing. Compaction runs its own LLM calls outside agent.runWithLifecycle(),
 			// so state.isStreaming is false even though the agent is busy and a regular

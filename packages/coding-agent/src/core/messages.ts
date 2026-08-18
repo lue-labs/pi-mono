@@ -161,6 +161,28 @@ function unsettledToolResult(toolCall: ToolCall, timestamp: number): ToolResultM
  *
  * Returns the input array unchanged when every tool call is already settled.
  */
+/**
+ * Whether the recorded history still has a tool call awaiting its result.
+ *
+ * Callers use this to keep injected content out of an open tool batch: a
+ * message appended between a `toolCall` and its `toolResult` is persisted in
+ * that position forever, and Anthropic rejects the rebuilt history outright
+ * (pi-mono#479).
+ */
+export function hasUnsettledToolCalls(messages: AgentMessage[]): boolean {
+	const settled = new Set<string>();
+	for (const message of messages) {
+		if (message.role === "toolResult") settled.add(message.toolCallId);
+	}
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		for (const block of message.content) {
+			if (block.type === "toolCall" && !settled.has(block.id)) return true;
+		}
+	}
+	return false;
+}
+
 export function reconcileUnsettledToolCalls(messages: AgentMessage[]): AgentMessage[] {
 	const settled = new Set<string>();
 	for (const message of messages) {
