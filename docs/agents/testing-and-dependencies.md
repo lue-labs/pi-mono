@@ -5,6 +5,7 @@ Read this before you install dependencies, run the checks, or drive interactive 
 ## Commands
 
 - Use npm. The root requires Node `>=24.14.0`.
+- In a fresh worktree run `./scripts/bootstrap-worktree.sh` first. `git worktree add` gives you source only: `node_modules` and the generated `packages/ai/src/providers/data/` are both absent, and nothing builds or runs until they exist. See [Fresh worktrees and non-fatal extension loading](../worktree-bootstrap.md).
 - Run targeted tests for the touched surface. Do not run `npm test` unless the task explicitly requires the full suite, which bills paid API and e2e tests.
 - Before push, run `npm run check`. It mutates formatting through Biome, so inspect the diff afterward.
 - Use `npm run lint:fork-delta` for static fork-delta analysis. Its findings stay advisory until someone promotes them to a gate.
