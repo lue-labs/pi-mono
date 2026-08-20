@@ -951,7 +951,7 @@ describe("AgentSession compaction characterization", () => {
 		});
 	});
 
-	it("drains queued prompts when auto-compaction preflight fails", async () => {
+	it("drains queued prompts after auto-compaction preflight fails inside an active run", async () => {
 		let rejectDeferredExtensions: ((error: Error) => void) | undefined;
 		let signalDeferredExtensionsStarted: (() => void) | undefined;
 		const deferredExtensionsStarted = new Promise<void>((resolve) => {
@@ -959,30 +959,45 @@ describe("AgentSession compaction characterization", () => {
 		});
 		const harness = await createHarness();
 		harnesses.push(harness);
-		seedCompactableSession(harness);
-		harness.setResponses([fauxAssistantMessage("queued prompt delivered")]);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "prompt is too long" }),
+			fauxAssistantMessage("queued prompt delivered"),
+		]);
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals &
 			SessionWithDeferredExtensions;
 		let loadCount = 0;
 		vi.spyOn(sessionInternals._extensionRunner, "loadDeferredExtensions").mockImplementation(async () => {
 			loadCount++;
-			if (loadCount !== 1) return;
+			if (loadCount !== 3) return;
 			signalDeferredExtensionsStarted?.();
 			await new Promise<void>((_resolve, reject) => {
 				rejectDeferredExtensions = () => reject(new Error("deferred extension failed"));
 			});
 		});
 
-		const compaction = sessionInternals._runAutoCompaction("threshold", false);
+		const prompt = harness.session.prompt("trigger auto preflight");
 		await deferredExtensionsStarted;
-		await harness.session.prompt("queued while auto preflight fails");
+		await harness.session.sendCustomMessage(
+			{
+				customType: "test",
+				content: [{ type: "text", text: "queued while auto preflight fails" }],
+				display: false,
+				details: undefined,
+			},
+			{ triggerTurn: true },
+		);
 		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
 
 		rejectDeferredExtensions?.(new Error("deferred extension failed"));
-		await expect(compaction).rejects.toThrow("deferred extension failed");
+		await expect(prompt).rejects.toThrow("deferred extension failed");
 		await vi.waitFor(() => {
 			expect(harness.session.agent.hasQueuedMessages()).toBe(false);
-			expect(getUserTexts(harness)).toContain("queued while auto preflight fails");
+			expect(harness.session.messages).toContainEqual(
+				expect.objectContaining({
+					customType: "test",
+					content: [{ type: "text", text: "queued while auto preflight fails" }],
+				}),
+			);
 		});
 	});
 

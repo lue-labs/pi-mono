@@ -474,6 +474,7 @@ export class AgentSession {
 	private _unsubscribeAgent?: () => void;
 	private _eventListeners: AgentSessionEventListener[] = [];
 	private _isAgentRunActive = false;
+	private _queuedMessageDrainAfterAgentSettles = false;
 	private _abortAndResumeQueuedPromise: Promise<void> | undefined;
 	private _idleWaitPromise: Promise<void> | undefined;
 	private _resolveIdleWait: (() => void) | undefined;
@@ -915,6 +916,10 @@ export class AgentSession {
 			this._emit({ type: "agent_settled" });
 		} finally {
 			this._resolveIdleWaitIfIdle();
+			if (this._queuedMessageDrainAfterAgentSettles) {
+				this._queuedMessageDrainAfterAgentSettles = false;
+				this._drainQueuedMessagesPostCompaction();
+			}
 		}
 	}
 
@@ -2091,6 +2096,14 @@ export class AgentSession {
 				// message stays visibly queued for the next turn.
 			}
 		})();
+	}
+
+	private _drainQueuedMessagesAfterCompactionLifecycle(): void {
+		if (this._isAgentRunActive) {
+			this._queuedMessageDrainAfterAgentSettles = true;
+			return;
+		}
+		this._drainQueuedMessagesPostCompaction();
 	}
 
 	/**
@@ -3872,7 +3885,7 @@ export class AgentSession {
 				this._autoCompactionAbortController = undefined;
 			}
 			if (drainQueuedMessages) {
-				this._drainQueuedMessagesPostCompaction();
+				this._drainQueuedMessagesAfterCompactionLifecycle();
 			}
 		}
 	}
