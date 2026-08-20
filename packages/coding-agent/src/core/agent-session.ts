@@ -3225,9 +3225,6 @@ export class AgentSession {
 		this._manualCompactionPending = true;
 		try {
 			await this.abort();
-			// Manual compaction is independently provider-capable and can run before
-			// the first prompt, so it needs the same settled tool registry.
-			await this._extensionRunner.loadDeferredExtensions();
 		} catch (error) {
 			this._manualCompactionPending = false;
 			throw error;
@@ -3235,6 +3232,18 @@ export class AgentSession {
 
 		const abortController = new AbortController();
 		this._compactionAbortController = abortController;
+		try {
+			// Manual compaction is independently provider-capable and can run before
+			// the first prompt, so it needs the same settled tool registry.
+			await this._extensionRunner.loadDeferredExtensions();
+		} catch (error) {
+			if (this._compactionAbortController === abortController) {
+				this._compactionAbortController = undefined;
+			}
+			this._manualCompactionPending = false;
+			throw error;
+		}
+
 		this._emit({ type: "compaction_start", reason: "manual" });
 
 		try {

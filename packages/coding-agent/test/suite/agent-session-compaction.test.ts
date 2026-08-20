@@ -33,6 +33,12 @@ type SessionWithCompactionInternals = {
 	_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
 };
 
+type SessionWithDeferredExtensions = {
+	_extensionRunner: {
+		loadDeferredExtensions: () => Promise<void>;
+	};
+};
+
 /** Fork-owned CacheHeartbeatManager internals (src/core/cache-heartbeat.ts). */
 type CacheHeartbeatInternals = {
 	noteActivity: () => void;
@@ -835,6 +841,34 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.eventsOfType("compaction_start")).toHaveLength(1);
 		expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("remains compacting while manual compaction loads deferred extensions", async () => {
+		let releaseDeferredExtensions: (() => void) | undefined;
+		let signalDeferredExtensionsStarted: (() => void) | undefined;
+		const deferredExtensionsStarted = new Promise<void>((resolve) => {
+			signalDeferredExtensionsStarted = resolve;
+		});
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		useSummaryStreamFn(harness, "manual compaction");
+		const sessionWithDeferredExtensions = harness.session as unknown as SessionWithDeferredExtensions;
+		vi.spyOn(sessionWithDeferredExtensions._extensionRunner, "loadDeferredExtensions").mockImplementation(
+			async () => {
+				signalDeferredExtensionsStarted?.();
+				await new Promise<void>((resolve) => {
+					releaseDeferredExtensions = resolve;
+				});
+			},
+		);
+
+		const compaction = harness.session.compact();
+		await deferredExtensionsStarted;
+
+		expect(harness.session.isCompacting).toBe(true);
+		releaseDeferredExtensions?.();
+		await expect(compaction).resolves.toMatchObject({ summary: expect.stringContaining("manual compaction") });
 	});
 
 	it("resumes after threshold compaction when only agent-level queued messages exist", async () => {
