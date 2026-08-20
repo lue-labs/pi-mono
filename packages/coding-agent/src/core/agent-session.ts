@@ -486,7 +486,6 @@ export class AgentSession {
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 
 	// Compaction state
-	private _manualCompactionPending = false;
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
@@ -2868,6 +2867,26 @@ export class AgentSession {
 		}
 	}
 
+	private async _abortForManualCompaction(abortController: AbortController): Promise<void> {
+		this.abortRetry();
+		this.agent.abort();
+		while (true) {
+			const foreignTurnCalls = this._activeTurnCalls - (this._turnCallScope.getStore() ?? 0);
+			if (
+				!this._isAgentRunActive &&
+				!this.agent.state.isStreaming &&
+				!this.agent.isProcessing &&
+				foreignTurnCalls <= 0
+			) {
+				break;
+			}
+			await this._getIdleWaitPromise();
+		}
+		if (this._compactionAbortController !== abortController) {
+			throw new Error("Compaction was cancelled");
+		}
+	}
+
 	// =========================================================================
 	// Model Management
 	// =========================================================================
@@ -3218,21 +3237,14 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
-		if (this._manualCompactionPending || this._autoCompactionAbortController !== undefined) {
+		if (this._compactionAbortController !== undefined || this._autoCompactionAbortController !== undefined) {
 			throw new Error("Compaction is already in progress");
-		}
-
-		this._manualCompactionPending = true;
-		try {
-			await this.abort();
-		} catch (error) {
-			this._manualCompactionPending = false;
-			throw error;
 		}
 
 		const abortController = new AbortController();
 		this._compactionAbortController = abortController;
 		try {
+			await this._abortForManualCompaction(abortController);
 			// Manual compaction is independently provider-capable and can run before
 			// the first prompt, so it needs the same settled tool registry.
 			await this._extensionRunner.loadDeferredExtensions();
@@ -3240,7 +3252,7 @@ export class AgentSession {
 			if (this._compactionAbortController === abortController) {
 				this._compactionAbortController = undefined;
 			}
-			this._manualCompactionPending = false;
+			this._drainQueuedMessagesPostCompaction();
 			throw error;
 		}
 
@@ -3409,7 +3421,6 @@ export class AgentSession {
 			}
 			this._reconnectToAgent();
 			this._drainQueuedMessagesPostCompaction();
-			this._manualCompactionPending = false;
 		}
 	}
 
@@ -3549,7 +3560,7 @@ export class AgentSession {
 		if (this._autoCompactDisabledThisSession) {
 			return false;
 		}
-		if (this._manualCompactionPending || this._autoCompactionAbortController !== undefined) {
+		if (this._compactionAbortController !== undefined || this._autoCompactionAbortController !== undefined) {
 			return false;
 		}
 
@@ -3558,6 +3569,7 @@ export class AgentSession {
 		this._autoCompactionAbortController = abortController;
 		let started = false;
 		let preflightComplete = false;
+		let drainQueuedMessages = false;
 
 		try {
 			// Auto-compaction may issue its own provider request. Most callers already
@@ -3769,6 +3781,7 @@ export class AgentSession {
 			return this.agent.hasQueuedMessages();
 		} catch (error) {
 			if (!preflightComplete) {
+				drainQueuedMessages = true;
 				throw error;
 			}
 			const errorMessage = error instanceof Error ? error.message : "compaction failed";
@@ -3824,6 +3837,9 @@ export class AgentSession {
 		} finally {
 			if (this._autoCompactionAbortController === abortController) {
 				this._autoCompactionAbortController = undefined;
+			}
+			if (drainQueuedMessages) {
+				this._drainQueuedMessagesPostCompaction();
 			}
 		}
 	}
