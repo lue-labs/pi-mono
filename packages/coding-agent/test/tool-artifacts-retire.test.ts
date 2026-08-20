@@ -1,10 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "../src/core/session-manager.ts";
 import {
 	boundModelFacingContextImages,
+	capMidRunCompactionToolResultText,
+	capModelFacingToolResultText,
 	MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS,
 	retireOutOfBudgetContextImages,
 } from "../src/core/tool-artifacts.ts";
@@ -26,6 +28,52 @@ function imageMessage(chars: number, marker: string): TestMessage {
 function clone<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
+
+describe("capModelFacingToolResultText", () => {
+	it("creates a fresh artifact instead of claiming a stale tool-call collision", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-tool-result-collision-"));
+		const staleText = "previous session result";
+		const fullText = "current session result ".repeat(10_000);
+		try {
+			const artifactDir = join(dir, ".pi", "tool-results");
+			mkdirSync(artifactDir, { recursive: true });
+			writeFileSync(join(artifactDir, "reused-call.txt"), staleText);
+
+			const preview = capModelFacingToolResultText([{ type: "text", text: fullText }], dir, "reused", "call");
+			const previewText = preview
+				?.filter((block) => block.type === "text")
+				.map((block) => block.text)
+				.join("\n");
+			const match = previewText?.match(/Full text saved to ([^\]]+)\./);
+			expect(match?.[1]).toBeDefined();
+			expect(match?.[1]).not.toBe(".pi/tool-results/reused-call.txt");
+			expect(readFileSync(join(dir, match![1]!), "utf8")).toBe(fullText);
+			expect(readFileSync(join(artifactDir, "reused-call.txt"), "utf8")).toBe(staleText);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("preserves the original artifact when mid-run compaction further caps its preview", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-tool-result-cap-"));
+		const fullText = "x".repeat(120_000);
+		try {
+			const firstPreview = capModelFacingToolResultText(
+				[{ type: "text", text: fullText }],
+				dir,
+				"call",
+				"large_result",
+			);
+			expect(firstPreview).toBeDefined();
+
+			const midRunPreview = capMidRunCompactionToolResultText(firstPreview!, dir, "call", "large_result");
+			expect(midRunPreview).toBeDefined();
+			expect(readFileSync(join(dir, ".pi/tool-results/call-large_result.txt"), "utf8")).toBe(fullText);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("retireOutOfBudgetContextImages", () => {
 	it("retires nothing when images fit the budget", () => {

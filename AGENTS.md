@@ -11,6 +11,7 @@ This npm-workspace fork of Pi carries Luke's minimal, upstream-compatible extens
 | Task | Read |
 |---|---|
 | Pi behavior, extensions, hooks, filters, TypeScript, models, or setup registry | [Code conventions](docs/agents/code-conventions.md) and the relevant [coding-agent docs](packages/coding-agent/docs/index.md) |
+| Setting up a fresh worktree, or diagnosing a repo-local extension that fails to load | [Fresh worktrees and non-fatal extension loading](docs/worktree-bootstrap.md) |
 | Installing dependencies, testing, typechecking, building, or interactive TUI checks | [Testing and dependency safety](docs/agents/testing-and-dependencies.md) |
 | Branches, commits, PR review, issues/comments, or GitHub Actions | [GitHub and collaboration workflow](docs/agents/github-workflow.md) and [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Changesets, changelogs, package publication, binaries, or releases | [Releases and change records](docs/agents/releases-and-changes.md) |

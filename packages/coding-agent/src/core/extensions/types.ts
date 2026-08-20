@@ -2377,6 +2377,27 @@ export type ExtensionLoadMode = "eager" | "deferred";
 export interface ExtensionLoadRequest {
 	path: string;
 	load?: ExtensionLoadMode;
+	/**
+	 * True when the extension was found by scanning an extensions directory
+	 * (`.pi/extensions/`, the agent dir, or a configured directory) rather than
+	 * being named by the user via `-e`, settings, or a package manifest.
+	 *
+	 * Discovered extensions are conveniences, so a load failure degrades to a
+	 * warning instead of aborting startup. Explicitly requested extensions keep
+	 * failing hard. See docs/worktree-bootstrap.md.
+	 */
+	discovered?: boolean;
+}
+
+/** A single extension that failed to load. */
+export interface ExtensionLoadError {
+	path: string;
+	error: string;
+	/**
+	 * True when the failing extension was auto-discovered. Callers treat these as
+	 * non-fatal warnings unless strict extension loading is enabled.
+	 */
+	discovered?: boolean;
 }
 
 export interface DeferredExtension {
@@ -2388,7 +2409,7 @@ export interface DeferredExtension {
 export interface LoadExtensionsResult {
 	extensions: Extension[];
 	deferredExtensions: DeferredExtension[];
-	errors: Array<{ path: string; error: string }>;
+	errors: ExtensionLoadError[];
 	/** Shared event bus used by eager and deferred extensions. */
 	eventBus: EventBus;
 	/** Shared runtime - actions are throwing stubs until runner.initialize() */

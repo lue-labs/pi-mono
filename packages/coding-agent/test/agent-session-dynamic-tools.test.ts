@@ -1,15 +1,54 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Agent } from "@valkyriweb/pi-agent-core";
+import { type AssistantMessage, type AssistantMessageEvent, EventStream } from "@valkyriweb/pi-ai";
 import { getModel } from "@valkyriweb/pi-ai/compat";
 import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentSession } from "../src/core/agent-session.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { prepareCompaction } from "../src/core/compaction/index.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createBashTool } from "../src/core/tools/bash.ts";
 import { pickModel } from "./helpers/models.ts";
+import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
+
+class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
+	constructor() {
+		super(
+			(event) => event.type === "done" || event.type === "error",
+			(event) => {
+				if (event.type === "done") return event.message;
+				if (event.type === "error") return event.error;
+				throw new Error("Unexpected event type");
+			},
+		);
+	}
+}
+
+function stoppedAssistantMessage(): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text: "done" }],
+		api: "anthropic-messages",
+		provider: "anthropic",
+		model: "mock",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: Date.now(),
+	};
+}
 
 describe("AgentSession dynamic tool registration", () => {
 	let tempDir: string;
@@ -207,6 +246,189 @@ describe("AgentSession dynamic tool registration", () => {
 		expect(session.systemPrompt).not.toContain("inactive_dynamic_tool");
 
 		session.dispose();
+	});
+
+	it("loads deferred tool schemas and handlers before the first provider request", async () => {
+		vi.useFakeTimers();
+		try {
+			writeFileSync(
+				join(tempDir, "package.json"),
+				JSON.stringify({ pi: { extensions: [{ path: "./deferred-first-turn.mjs", load: "deferred" }] } }),
+			);
+			writeFileSync(
+				join(tempDir, "deferred-first-turn.mjs"),
+				`
+				export default function(pi) {
+					pi.registerTool({
+						name: "first_turn_tool",
+						label: "First Turn Tool",
+						description: "Must be present before the first provider request",
+						parameters: { type: "object", properties: {}, additionalProperties: false },
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+					});
+					pi.on("before_agent_start", (event) => {
+						pi.setActiveTools([...pi.getActiveTools(), "first_turn_tool"]);
+						return { systemPrompt: event.systemPrompt + "\\n\\nDEFERRED-FIRST-TURN" };
+					});
+				}
+			`,
+			);
+
+			const settingsManager = SettingsManager.create(tempDir, agentDir);
+			settingsManager.setProjectPackages([tempDir]);
+			const sessionManager = SessionManager.inMemory();
+			const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+			await resourceLoader.reload();
+
+			const model = pickModel("anthropic");
+			let providerToolNames: string[] = [];
+			let systemPromptAtProvider = "";
+			const agent = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: "Test", tools: [] },
+				streamFn: (_model, context) => {
+					providerToolNames = context.tools?.map((tool) => tool.name) ?? [];
+					systemPromptAtProvider = context.systemPrompt ?? "";
+					const stream = new MockAssistantStream();
+					queueMicrotask(() => {
+						const message = stoppedAssistantMessage();
+						stream.push({ type: "start", partial: { ...message, content: [] } });
+						stream.push({ type: "done", reason: "stop", message });
+					});
+					return stream;
+				},
+			});
+			const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+			await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
+			const modelRegistry = await createModelRegistry(authStorage, tempDir);
+			const session = new AgentSession({
+				agent,
+				sessionManager,
+				settingsManager,
+				cwd: tempDir,
+				modelRegistry,
+				modelRuntime: getModelRuntime(modelRegistry),
+				resourceLoader,
+			});
+			await session.bindExtensions({});
+
+			expect(session.getAllTools().map((tool) => tool.name)).not.toContain("first_turn_tool");
+
+			await session.prompt("first turn");
+
+			expect(providerToolNames).toContain("first_turn_tool");
+			expect(systemPromptAtProvider).toContain("DEFERRED-FIRST-TURN");
+
+			session.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("loads deferred tools before manual compaction sends the first provider request", async () => {
+		vi.useFakeTimers();
+		try {
+			writeFileSync(
+				join(tempDir, "package.json"),
+				JSON.stringify({ pi: { extensions: [{ path: "./deferred-compaction.mjs", load: "deferred" }] } }),
+			);
+			writeFileSync(
+				join(tempDir, "deferred-compaction.mjs"),
+				`
+				export default function(pi) {
+					pi.registerTool({
+						name: "deferred_compaction_tool",
+						label: "Deferred Compaction Tool",
+						description: "Must be present before compaction reaches the provider",
+						parameters: { type: "object", properties: {}, additionalProperties: false },
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+					});
+					pi.on("before_agent_start", () => {
+						pi.setActiveTools([...pi.getActiveTools(), "deferred_compaction_tool"]);
+					});
+				}
+			`,
+			);
+
+			const settingsManager = SettingsManager.create(tempDir, agentDir);
+			settingsManager.setProjectPackages([tempDir]);
+			const sessionManager = SessionManager.inMemory();
+			const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+			await resourceLoader.reload();
+
+			const model = pickModel("anthropic");
+			let providerToolNames: string[] = [];
+			const agent = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: "Test", tools: [] },
+				streamFn: (_model, context) => {
+					providerToolNames = context.tools?.map((tool) => tool.name) ?? [];
+					const stream = new MockAssistantStream();
+					queueMicrotask(() => {
+						const message = stoppedAssistantMessage();
+						message.content = [{ type: "text", text: "summary" }];
+						stream.push({ type: "start", partial: { ...message, content: [] } });
+						stream.push({ type: "done", reason: "stop", message });
+					});
+					return stream;
+				},
+			});
+			const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+			await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
+			const modelRegistry = await createModelRegistry(authStorage, tempDir);
+			const session = new AgentSession({
+				agent,
+				sessionManager,
+				settingsManager,
+				cwd: tempDir,
+				modelRegistry,
+				modelRuntime: getModelRuntime(modelRegistry),
+				resourceLoader,
+			});
+			await session.bindExtensions({});
+
+			const now = Date.now();
+			sessionManager.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: `message to compact ${"x".repeat(32_000)}` }],
+				timestamp: now - 1_000,
+			});
+			const compactableAssistant = stoppedAssistantMessage();
+			compactableAssistant.content = [{ type: "text", text: "x".repeat(32_000) }];
+			sessionManager.appendMessage({ ...compactableAssistant, timestamp: now - 750 });
+			sessionManager.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "recent message to keep" }],
+				timestamp: now - 500,
+			});
+			const recentAssistant = stoppedAssistantMessage();
+			recentAssistant.content = [{ type: "text", text: "y".repeat(10_000) }];
+			sessionManager.appendMessage({ ...recentAssistant, timestamp: now - 250 });
+			sessionManager.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "newest turn" }],
+				timestamp: now - 100,
+			});
+			session.agent.state.messages = sessionManager.buildSessionContext().messages;
+
+			expect(session.getAllTools().map((tool) => tool.name)).not.toContain("deferred_compaction_tool");
+			expect(
+				prepareCompaction(sessionManager.getBranch(), { enabled: true, keepRecentTokens: 100, reserveTokens: 1 }),
+			).toBeDefined();
+			vi.spyOn(settingsManager, "getCompactionSettings").mockReturnValue({
+				enabled: true,
+				keepRecentTokens: 100,
+				reserveTokens: 1,
+				residentPrune: true,
+			});
+
+			await session.compact();
+
+			expect(providerToolNames).toContain("deferred_compaction_tool");
+			session.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("registers a deferred extension tool without activating it, and adds no core tool_search", async () => {
