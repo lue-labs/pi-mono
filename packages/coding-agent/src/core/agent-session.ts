@@ -3599,6 +3599,16 @@ export class AgentSession {
 			// crossed prompt preflight, but keep this entry point safe on its own.
 			await this._extensionRunner.loadDeferredExtensions();
 			preflightComplete = true;
+			if (abortController.signal.aborted) {
+				this._emit({
+					type: "compaction_end",
+					reason,
+					result: undefined,
+					aborted: true,
+					willRetry: false,
+				});
+				return false;
+			}
 
 			if (!this.model) {
 				return false;

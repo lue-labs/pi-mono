@@ -986,6 +986,36 @@ describe("AgentSession compaction characterization", () => {
 		});
 	});
 
+	it("cancels auto-compaction during deferred-extension preflight", async () => {
+		let releaseDeferredExtensions: (() => void) | undefined;
+		let signalDeferredExtensionsStarted: (() => void) | undefined;
+		const deferredExtensionsStarted = new Promise<void>((resolve) => {
+			signalDeferredExtensionsStarted = resolve;
+		});
+		const harness = await createHarness();
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals &
+			SessionWithDeferredExtensions;
+		vi.spyOn(sessionInternals._extensionRunner, "loadDeferredExtensions").mockImplementation(async () => {
+			signalDeferredExtensionsStarted?.();
+			await new Promise<void>((resolve) => {
+				releaseDeferredExtensions = resolve;
+			});
+		});
+
+		const compaction = sessionInternals._runAutoCompaction("threshold", false);
+		await deferredExtensionsStarted;
+		harness.session.abortCompaction();
+		releaseDeferredExtensions?.();
+
+		await expect(compaction).resolves.toBe(false);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
+		expect(harness.eventsOfType("compaction_end")).toContainEqual(
+			expect.objectContaining({ reason: "threshold", aborted: true }),
+		);
+	});
+
 	it("resumes after threshold compaction when only agent-level queued messages exist", async () => {
 		vi.useFakeTimers();
 		const harness = await createHarness({
