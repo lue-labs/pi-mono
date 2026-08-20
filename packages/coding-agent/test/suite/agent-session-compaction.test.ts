@@ -613,6 +613,101 @@ describe("AgentSession compaction characterization", () => {
 		await expect(compactPromise).rejects.toThrow("Compaction cancelled");
 	});
 
+	it("rejects duplicate manual compaction without clearing the active run controller", async () => {
+		let beforeCompactCalls = 0;
+		let releaseFirstCompaction: (() => void) | undefined;
+		let signalFirstCompactionStarted: (() => void) | undefined;
+		const firstCompactionStarted = new Promise<void>((resolve) => {
+			signalFirstCompactionStarted = resolve;
+		});
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						beforeCompactCalls++;
+						if (beforeCompactCalls === 1) {
+							signalFirstCompactionStarted?.();
+							await new Promise<void>((resolve) => {
+								releaseFirstCompaction = resolve;
+							});
+						}
+						return {
+							compaction: {
+								summary: "manual compaction",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+
+		const firstCompaction = harness.session.compact();
+		await firstCompactionStarted;
+
+		await expect(harness.session.compact()).rejects.toThrow("Compaction is already in progress");
+		releaseFirstCompaction?.();
+		await expect(firstCompaction).resolves.toMatchObject({ summary: "manual compaction" });
+
+		expect(beforeCompactCalls).toBe(1);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(1);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("skips duplicate auto-compaction without clearing the active run controller", async () => {
+		let beforeCompactCalls = 0;
+		let releaseFirstCompaction: (() => void) | undefined;
+		let signalFirstCompactionStarted: (() => void) | undefined;
+		const firstCompactionStarted = new Promise<void>((resolve) => {
+			signalFirstCompactionStarted = resolve;
+		});
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						beforeCompactCalls++;
+						if (beforeCompactCalls === 1) {
+							signalFirstCompactionStarted?.();
+							await new Promise<void>((resolve) => {
+								releaseFirstCompaction = resolve;
+							});
+						}
+						return {
+							compaction: {
+								summary: "auto compaction",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		const firstCompaction = sessionInternals._runAutoCompaction("threshold", false);
+		await firstCompactionStarted;
+
+		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+		releaseFirstCompaction?.();
+		await expect(firstCompaction).resolves.toBe(false);
+
+		expect(beforeCompactCalls).toBe(1);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(1);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
 	it("resumes after threshold compaction when only agent-level queued messages exist", async () => {
 		vi.useFakeTimers();
 		const harness = await createHarness({
