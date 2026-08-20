@@ -727,7 +727,12 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			// Anthropic rejects the whole request on a split pair, and a frozen
 			// history replays the same 400 forever (killed lue-kube 01a0202f).
 			reportToolUseAdjacencyViolations(params.messages, model.id);
-			params.messages = repairToolUseAdjacency(params.messages);
+			const repairedMessages = repairToolUseAdjacency(params.messages);
+			if (repairedMessages !== params.messages) {
+				// Never mutate the hook's object — extensions may return a frozen
+				// payload, and in-place assignment would fail every request.
+				params = { ...params, messages: repairedMessages };
+			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
@@ -1081,7 +1086,10 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					continuationParams = nextContinuation as MessageCreateParamsStreaming;
 				}
 				reportToolUseAdjacencyViolations(continuationParams.messages, model.id);
-				continuationParams.messages = repairToolUseAdjacency(continuationParams.messages);
+				const repairedContinuation = repairToolUseAdjacency(continuationParams.messages);
+				if (repairedContinuation !== continuationParams.messages) {
+					continuationParams = { ...continuationParams, messages: repairedContinuation };
+				}
 
 				// Snapshot the completed call's cumulative totals; the next call's
 				// message_start/delta will add this call's contribution on top.

@@ -124,8 +124,16 @@ export function formatToolUseAdjacencyReport(violations: ToolUseAdjacencyViolati
 
 type ToolResultBlock = Extract<Exclude<MessageParam["content"], string>[number], { type: "tool_result" }>;
 
+const SYNTHETIC_PLACEHOLDER_TEXT = "No result provided";
+
 function isSyntheticPlaceholder(block: ToolResultBlock): boolean {
-	return block.content === "No result provided";
+	if (block.is_error !== true) return false;
+	if (block.content === SYNTHETIC_PLACEHOLDER_TEXT) return true;
+	if (Array.isArray(block.content)) {
+		const [only] = block.content;
+		return block.content.length === 1 && only?.type === "text" && only.text === SYNTHETIC_PLACEHOLDER_TEXT;
+	}
+	return false;
 }
 
 /**
@@ -149,18 +157,20 @@ function isSyntheticPlaceholder(block: ToolResultBlock): boolean {
  *   `"No result provided"` placeholder for the same id;
  * - a result whose `tool_use` is absent from the request is dropped (orphan);
  * - a `tool_use` with no result anywhere is left alone — inventing an outcome
- *   here would mask the upstream bug and belongs to `transformMessages`.
+ *   here would mask the upstream bug, so the absent case remains a provider
+ *   error by design (every captured incident was a displaced result, never an
+ *   absent one);
+ * - a duplicate `tool_use` id across two assistant messages settles only the
+ *   first occurrence — the request is malformed either way.
  *
  * A well-formed request returns the identical array, so valid payloads
- * serialize byte-identically and the prompt-cache prefix is untouched.
+ * serialize byte-identically and the prompt-cache prefix is untouched. When a
+ * fault exists, everything before the first faulting message is returned by
+ * reference, so the prompt-cache prefix up to the fault survives; if the
+ * repair displaces the trailing `cache_control` breakpoint entirely, it is
+ * re-attached to the last eligible block so the request still writes cache.
  */
 export function repairToolUseAdjacency(messages: MessageParam[]): MessageParam[] {
-	if (findToolUseAdjacencyViolations(messages).length === 0 && !hasDuplicateOrOrphanResults(messages)) {
-		return messages;
-	}
-
-	// One winning result block per id: first result wins, except a real result
-	// over a synthetic placeholder.
 	const toolUseIds = new Set<string>();
 	for (const message of messages) {
 		if (message.role !== "assistant" || typeof message.content === "string") continue;
@@ -168,12 +178,53 @@ export function repairToolUseAdjacency(messages: MessageParam[]): MessageParam[]
 			if (block.type === "tool_use") toolUseIds.add(block.id);
 		}
 	}
+
+	const violations = findToolUseAdjacencyViolations(messages);
+	const faultIndex = firstDuplicateOrOrphanIndex(messages, toolUseIds);
+	if (violations.length === 0 && faultIndex === undefined) {
+		return messages;
+	}
+
+	// Anchor at the first faulting message: everything before it is already
+	// valid and is returned by reference, so the prompt-cache prefix up to the
+	// fault stays byte-identical.
+	let anchor = Math.min(
+		violations[0]?.messageIndex ?? Number.POSITIVE_INFINITY,
+		faultIndex ?? Number.POSITIVE_INFINITY,
+	);
+	// A faulting user message may be the one settling the assistant just before
+	// it (e.g. it carries an orphan next to the real results). Back up so that
+	// batch is re-emitted rather than stripped out from under its tool_use.
+	const anchored = messages[anchor];
+	const before = messages[anchor - 1];
+	if (
+		anchored?.role === "user" &&
+		before?.role === "assistant" &&
+		typeof before.content !== "string" &&
+		before.content.some((block) => block.type === "tool_use")
+	) {
+		anchor -= 1;
+	}
+
+	const emitted = new Set<string>();
+	for (let index = 0; index < anchor; index++) {
+		const message = messages[index]!;
+		if (message.role !== "user" || typeof message.content === "string") continue;
+		for (const block of message.content) {
+			if (block.type === "tool_result") emitted.add(block.tool_use_id);
+		}
+	}
+
+	// One winning result block per id: first result wins, except a real result
+	// over a synthetic placeholder.
 	const resultById = new Map<string, ToolResultBlock>();
-	for (const message of messages) {
+	for (let index = anchor; index < messages.length; index++) {
+		const message = messages[index]!;
 		if (message.role !== "user" || typeof message.content === "string") continue;
 		for (const block of message.content) {
 			if (block.type !== "tool_result") continue;
 			if (!toolUseIds.has(block.tool_use_id)) continue;
+			if (emitted.has(block.tool_use_id)) continue;
 			const existing = resultById.get(block.tool_use_id);
 			// First result wins (stable prefix bytes), except a real result
 			// replaces a synthetic "No result provided" placeholder.
@@ -182,8 +233,7 @@ export function repairToolUseAdjacency(messages: MessageParam[]): MessageParam[]
 		}
 	}
 
-	const emitted = new Set<string>();
-	const out: MessageParam[] = [];
+	const out: MessageParam[] = messages.slice(0, anchor);
 
 	// Every tool_result at its original position is either the winning copy
 	// (re-emitted adjacent to its assistant turn), a duplicate, or an orphan —
@@ -196,13 +246,24 @@ export function repairToolUseAdjacency(messages: MessageParam[]): MessageParam[]
 		return { ...message, content: kept };
 	};
 
-	const isExactBatch = (message: MessageParam, batch: ToolResultBlock[]): boolean => {
+	// The message already settles the batch when the batch's blocks lead it (in
+	// any order — Anthropic does not require result order to match call order)
+	// and no other tool_result hides behind them. Keeping the original message
+	// object preserves its bytes, ordering, and any cache_control breakpoint.
+	const leadsWithBatch = (message: MessageParam, batch: ToolResultBlock[]): boolean => {
 		if (message.role !== "user" || typeof message.content === "string") return false;
-		if (message.content.length !== batch.length) return false;
-		return message.content.every((block, index) => block === batch[index]);
+		if (message.content.length < batch.length) return false;
+		const refs = new Set<unknown>(batch);
+		for (let index = 0; index < batch.length; index++) {
+			if (!refs.has(message.content[index])) return false;
+		}
+		for (let index = batch.length; index < message.content.length; index++) {
+			if (message.content[index]!.type === "tool_result") return false;
+		}
+		return true;
 	};
 
-	for (let index = 0; index < messages.length; index++) {
+	for (let index = anchor; index < messages.length; index++) {
 		const message = messages[index]!;
 		if (message.role !== "assistant" || typeof message.content === "string") {
 			const stripped = stripResults(message);
@@ -223,9 +284,7 @@ export function repairToolUseAdjacency(messages: MessageParam[]): MessageParam[]
 		if (batch.length === 0) continue;
 
 		const next = messages[index + 1];
-		if (next && isExactBatch(next, batch)) {
-			// Already adjacent and clean — keep the original message object so
-			// untouched spans stay reference- and byte-identical.
+		if (next && leadsWithBatch(next, batch)) {
 			out.push(next);
 			index++;
 			continue;
@@ -233,28 +292,75 @@ export function repairToolUseAdjacency(messages: MessageParam[]): MessageParam[]
 		out.push({ role: "user", content: batch });
 	}
 
+	// An all-orphan input would otherwise repair to an empty message array,
+	// which Anthropic rejects outright — worse than the fault being repaired.
+	if (out.length === 0) return messages;
+
+	restoreTrailingCacheBreakpoint(messages, out);
 	return out;
 }
 
-function hasDuplicateOrOrphanResults(messages: MessageParam[]): boolean {
-	const toolUseIds = new Set<string>();
-	for (const message of messages) {
-		if (message.role !== "assistant" || typeof message.content === "string") continue;
-		for (const block of message.content) {
-			if (block.type === "tool_use") toolUseIds.add(block.id);
-		}
-	}
+/**
+ * Index of the first user message carrying a duplicate or orphan
+ * `tool_result`, scanning the same shapes the repairer collects from — a
+ * `tool_result` carried by an assistant message is invalid for Anthropic
+ * either way and is deliberately neither detected nor touched here.
+ */
+function firstDuplicateOrOrphanIndex(messages: MessageParam[], toolUseIds: Set<string>): number | undefined {
 	const seen = new Set<string>();
-	for (const message of messages) {
-		if (typeof message.content === "string") continue;
+	for (let index = 0; index < messages.length; index++) {
+		const message = messages[index]!;
+		if (message.role !== "user" || typeof message.content === "string") continue;
 		for (const block of message.content) {
 			if (block.type !== "tool_result") continue;
-			if (!toolUseIds.has(block.tool_use_id)) return true;
-			if (seen.has(block.tool_use_id)) return true;
+			if (!toolUseIds.has(block.tool_use_id)) return index;
+			if (seen.has(block.tool_use_id)) return index;
 			seen.add(block.tool_use_id);
 		}
 	}
+	return undefined;
+}
+
+type BlockWithCacheControl = { type: string; cache_control?: unknown };
+
+function hasCacheBreakpoint(messages: MessageParam[]): boolean {
+	for (const message of messages) {
+		if (typeof message.content === "string") continue;
+		for (const block of message.content) {
+			if ((block as BlockWithCacheControl).cache_control !== undefined) return true;
+		}
+	}
 	return false;
+}
+
+/**
+ * The serializer sets its history `cache_control` breakpoint on the final
+ * block of the final user message; dropping or rewriting that message during
+ * repair would strip the breakpoint and turn the request into a full-price
+ * cache miss. If the repaired array lost every breakpoint the original had,
+ * re-attach one to the last eligible block (cloning, never mutating input).
+ */
+function restoreTrailingCacheBreakpoint(original: MessageParam[], out: MessageParam[]): void {
+	if (!hasCacheBreakpoint(original) || hasCacheBreakpoint(out)) return;
+	let breakpoint: unknown;
+	for (let index = original.length - 1; index >= 0 && breakpoint === undefined; index--) {
+		const content = original[index]!.content;
+		if (typeof content === "string") continue;
+		for (const block of content) {
+			const cacheControl = (block as BlockWithCacheControl).cache_control;
+			if (cacheControl !== undefined) breakpoint = cacheControl;
+		}
+	}
+	for (let index = out.length - 1; index >= 0; index--) {
+		const message = out[index]!;
+		if (typeof message.content === "string" || message.content.length === 0) continue;
+		const last = message.content[message.content.length - 1]!;
+		if (last.type !== "text" && last.type !== "image" && last.type !== "tool_result") continue;
+		const blocks = [...message.content];
+		blocks[blocks.length - 1] = { ...last, cache_control: breakpoint } as typeof last;
+		out[index] = { ...message, content: blocks };
+		return;
+	}
 }
 
 /**

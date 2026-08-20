@@ -107,7 +107,23 @@ describe("repairToolUseAdjacency", () => {
 		expect(resultBlocks).toHaveLength(1);
 	});
 
-	it("prefers a real result over an earlier synthetic placeholder for the same id", () => {
+	it("prefers a real result over a synthetic placeholder within the repaired region", () => {
+		const synthetic: MessageParam = {
+			role: "user",
+			content: [{ type: "tool_result", tool_use_id: "a", content: "No result provided", is_error: true }],
+		};
+		const messages = [userTurn, assistantWithToolUse("a"), sentinel, synthetic, userTurn, toolResults("a")];
+
+		const repaired = repairToolUseAdjacency(messages);
+
+		expect(findToolUseAdjacencyViolations(repaired)).toEqual([]);
+		const resultBlocks = repaired.flatMap((m) =>
+			typeof m.content === "string" ? [] : m.content.filter((b) => b.type === "tool_result"),
+		);
+		expect(resultBlocks).toEqual([{ type: "tool_result", tool_use_id: "a", content: "contents" }]);
+	});
+
+	it("keeps a placeholder that validly settled its call before the fault, preserving the prefix", () => {
 		const synthetic: MessageParam = {
 			role: "user",
 			content: [{ type: "tool_result", tool_use_id: "a", content: "No result provided", is_error: true }],
@@ -117,10 +133,14 @@ describe("repairToolUseAdjacency", () => {
 		const repaired = repairToolUseAdjacency(messages);
 
 		expect(findToolUseAdjacencyViolations(repaired)).toEqual([]);
+		// prefix untouched: the valid placeholder settlement keeps its bytes
+		expect(repaired[1]).toBe(messages[1]);
+		expect(repaired[2]).toBe(synthetic);
+		// the trailing duplicate is dropped
 		const resultBlocks = repaired.flatMap((m) =>
 			typeof m.content === "string" ? [] : m.content.filter((b) => b.type === "tool_result"),
 		);
-		expect(resultBlocks).toEqual([{ type: "tool_result", tool_use_id: "a", content: "contents" }]);
+		expect(resultBlocks).toHaveLength(1);
 	});
 
 	it("drops a result whose tool_use is absent from the request", () => {
@@ -151,6 +171,82 @@ describe("repairToolUseAdjacency", () => {
 		expect(findToolUseAdjacencyViolations(repaired)).toEqual([]);
 		expect(repaired[1]).toBe(cleanAssistant);
 		expect(repaired[2]).toBe(cleanResults);
+	});
+
+	it("returns every message before the first fault by reference (cache prefix survives)", () => {
+		// A clean batch whose settling message trails extra text — valid on the
+		// wire; a repair must not restructure it just because a later fault exists.
+		const mixedSettle: MessageParam = {
+			role: "user",
+			content: [
+				{ type: "tool_result", tool_use_id: "early", content: "contents" },
+				{ type: "text", text: "and the sibling content" },
+			],
+		};
+		const earlyAssistant = assistantWithToolUse("early");
+		const messages = [userTurn, earlyAssistant, mixedSettle, assistantWithToolUse("a"), sentinel, toolResults("a")];
+
+		const repaired = repairToolUseAdjacency(messages);
+
+		expect(findToolUseAdjacencyViolations(repaired)).toEqual([]);
+		expect(repaired[0]).toBe(userTurn);
+		expect(repaired[1]).toBe(earlyAssistant);
+		expect(repaired[2]).toBe(mixedSettle);
+	});
+
+	it("keeps a clean batch settled in a different order than the calls", () => {
+		const outOfOrder: MessageParam = {
+			role: "user",
+			content: [
+				{ type: "tool_result", tool_use_id: "b", content: "contents" },
+				{ type: "tool_result", tool_use_id: "a", content: "contents" },
+			],
+		};
+		const pairAssistant = assistantWithToolUse("a", "b");
+		const messages = [
+			userTurn,
+			pairAssistant,
+			outOfOrder,
+			assistantWithToolUse("late"),
+			sentinel,
+			toolResults("late"),
+		];
+
+		const repaired = repairToolUseAdjacency(messages);
+
+		expect(findToolUseAdjacencyViolations(repaired)).toEqual([]);
+		expect(repaired[1]).toBe(pairAssistant);
+		expect(repaired[2]).toBe(outOfOrder);
+	});
+
+	it("re-attaches the trailing cache_control breakpoint when repair drops its carrier", () => {
+		const trailingWithBreakpoint: MessageParam = {
+			role: "user",
+			content: [
+				{
+					type: "tool_result",
+					tool_use_id: "a",
+					content: "contents",
+					cache_control: { type: "ephemeral" },
+				} as never,
+			],
+		};
+		const messages = [userTurn, assistantWithToolUse("a"), sentinel, trailingWithBreakpoint];
+
+		const repaired = repairToolUseAdjacency(messages);
+
+		expect(findToolUseAdjacencyViolations(repaired)).toEqual([]);
+		const breakpoints = repaired.flatMap((m) =>
+			typeof m.content === "string" ? [] : m.content.filter((b) => (b as { cache_control?: unknown }).cache_control),
+		);
+		expect(breakpoints).toHaveLength(1);
+	});
+
+	it("returns the input when repair would produce an empty message array", () => {
+		const messages: MessageParam[] = [
+			{ role: "user", content: [{ type: "tool_result", tool_use_id: "ghost", content: "x" }] },
+		];
+		expect(repairToolUseAdjacency(messages)).toBe(messages);
 	});
 });
 
@@ -350,5 +446,42 @@ describe("anthropic wire repair after onPayload", () => {
 		expect(first.type).toBe("tool_result");
 		// the large result payload survives the repair intact
 		expect(JSON.stringify(settling.content)).toContain(largeResult);
+	});
+
+	it("does not throw when the payload hook returns a frozen, well-formed payload", async () => {
+		const baseModel = pickModel("anthropic");
+		const model = { ...baseModel, provider: "claude-bridge" as const };
+		const tools: Tool[] = [
+			{ name: "ctx_batch_execute", description: "batch", parameters: Type.Object({ ok: Type.Boolean() }) },
+		];
+
+		let sentParams: { messages: MessageParam[] } | undefined;
+		const client = {
+			messages: {
+				create: (params: { messages: MessageParam[] }) => {
+					sentParams = params;
+					return { asResponse: async () => createAnthropicResponse() };
+				},
+			},
+		};
+
+		const result = await streamAnthropic(
+			model,
+			{
+				messages: [{ role: "user", content: [{ type: "text", text: "go" }], timestamp: 1 }],
+				tools,
+			},
+			{
+				apiKey: "test",
+				client,
+				onPayload: (params: unknown) =>
+					// A defensive extension may freeze what it returns; the repair
+					// seam must not mutate it in place.
+					Object.freeze({ ...(params as object) }),
+			} as unknown as Parameters<typeof streamAnthropic>[2],
+		).result();
+
+		expect(result.stopReason).not.toBe("error");
+		expect(sentParams).toBeDefined();
 	});
 });
