@@ -11,6 +11,10 @@ This package's release notes are split:
 
 - Fix: Codex Responses WebSocket continuation now retains the two most recent successful request branches, so a transient shorter monitor request cannot overwrite the compatible full-history baseline and force a second full-context cache miss when normal history resumes.
 
+- Fix: `cacheRetention: "none"` no longer leaks Codex session affinity. `thread-id` / `x-client-request-id`, WebSocket pooling, and pooled-connection debug stats are provider-visible and now derive from the retention-gated session id; SSE-fallback and failure bookkeeping stay on the real Pi session id so a broken transport is not redialed every turn. Also selects the OpenCode `max_tokens` fixtures by capability instead of pinned model ids, which is the documented policy in `test/helpers/models.ts`.
+
+- Fix: `StringEnum` infers the literal union its documentation promises. The type parameter is now `const`, so a bare array literal no longer widens to `string[]` and collapses `Static<typeof Schema>` to `string`; `as const` call sites and non-literal `string[]` values are unaffected, and the emitted schema does not change.
+
 - Fix: recover from Anthropic's latest-assistant thinking-signature 400 by stripping only that assistant turn's `thinking`/`redacted_thinking` blocks, preserving all earlier signed reasoning and the byte-stable system/tool cache prefix while reporting the one-turn reasoning loss.
 
 - Fix: the Anthropic pause_turn resume loop tracked the raw stop reason in both a local and `output.rawStopReason`, but only reset the local. A resumed call that ended without a `message_delta.stop_reason` left `"pause_turn"` visible to callers — the value the loop exists to hide. The local is gone; the field is the single source of truth, matching every other adapter.
