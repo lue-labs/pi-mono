@@ -32,6 +32,7 @@ See [examples/extensions/](../examples/extensions/) for working implementations.
 
 - [Quick Start](#quick-start)
 - [Extension Locations](#extension-locations)
+  - [When an extension fails to load](#when-an-extension-fails-to-load)
 - [Available Imports](#available-imports)
 - [Writing an Extension](#writing-an-extension)
   - [Extension Styles](#extension-styles)
@@ -135,6 +136,26 @@ Additional paths via `settings.json`:
 ```
 
 To share extensions via npm or git as pi packages, see [packages.md](packages.md).
+
+### When an extension fails to load
+
+An **auto-discovered** extension (found by scanning one of the locations above) that
+fails to load is skipped with a warning, and pi keeps starting:
+
+```
+Warning: Skipped extension "/repo/.pi/extensions/redraws.ts": Cannot find module '@valkyriweb/pi-tui'
+```
+
+It still appears in the loaded-resources panel, so the failure stays visible. This
+keeps one broken convenience extension from making a whole repository unusable.
+
+An extension you asked for **by name** still fails hard and exits: `-e <path>`, an
+`extensions` entry in `settings.json`, or an extension supplied by a package.
+Silently dropping something you requested would be worse than stopping.
+
+Set `PI_STRICT_EXTENSIONS=1` to make every load failure fatal, including
+auto-discovered ones. Use it in CI, where a skipped extension could hide a
+regression.
 
 ## Available Imports
 
