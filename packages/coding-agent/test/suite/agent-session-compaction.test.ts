@@ -883,14 +883,16 @@ describe("AgentSession compaction characterization", () => {
 		harness.setResponses([fauxAssistantMessage("queued prompt delivered")]);
 		const sessionWithDeferredExtensions = harness.session as unknown as SessionWithDeferredExtensions;
 		let loadCount = 0;
-		vi.spyOn(sessionWithDeferredExtensions._extensionRunner, "loadDeferredExtensions").mockImplementation(async () => {
-			loadCount++;
-			if (loadCount !== 1) return;
-			signalDeferredExtensionsStarted?.();
-			await new Promise<void>((_resolve, reject) => {
-				rejectDeferredExtensions = () => reject(new Error("deferred extension failed"));
-			});
-		});
+		vi.spyOn(sessionWithDeferredExtensions._extensionRunner, "loadDeferredExtensions").mockImplementation(
+			async () => {
+				loadCount++;
+				if (loadCount !== 1) return;
+				signalDeferredExtensionsStarted?.();
+				await new Promise<void>((_resolve, reject) => {
+					rejectDeferredExtensions = () => reject(new Error("deferred extension failed"));
+				});
+			},
+		);
 
 		const compaction = harness.session.compact();
 		await deferredExtensionsStarted;
@@ -898,17 +900,22 @@ describe("AgentSession compaction characterization", () => {
 			{
 				customType: "test",
 				content: [{ type: "text", text: "queued while manual preflight fails" }],
+				display: false,
+				details: undefined,
 			},
 			{ triggerTurn: true },
 		);
 		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
 
-		rejectDeferredExtensions?.();
+		rejectDeferredExtensions?.(new Error("deferred extension failed"));
 		await expect(compaction).rejects.toThrow("deferred extension failed");
 		await vi.waitFor(() => {
 			expect(harness.session.agent.hasQueuedMessages()).toBe(false);
 			expect(harness.session.messages).toContainEqual(
-				expect.objectContaining({ customType: "test", content: [{ type: "text", text: "queued while manual preflight fails" }] }),
+				expect.objectContaining({
+					customType: "test",
+					content: [{ type: "text", text: "queued while manual preflight fails" }],
+				}),
 			);
 		});
 	});
@@ -923,7 +930,8 @@ describe("AgentSession compaction characterization", () => {
 		harnesses.push(harness);
 		seedCompactableSession(harness);
 		harness.setResponses([fauxAssistantMessage("queued prompt delivered")]);
-		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals & SessionWithDeferredExtensions;
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals &
+			SessionWithDeferredExtensions;
 		let loadCount = 0;
 		vi.spyOn(sessionInternals._extensionRunner, "loadDeferredExtensions").mockImplementation(async () => {
 			loadCount++;
@@ -939,7 +947,7 @@ describe("AgentSession compaction characterization", () => {
 		await harness.session.prompt("queued while auto preflight fails");
 		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
 
-		rejectDeferredExtensions?.();
+		rejectDeferredExtensions?.(new Error("deferred extension failed"));
 		await expect(compaction).rejects.toThrow("deferred extension failed");
 		await vi.waitFor(() => {
 			expect(harness.session.agent.hasQueuedMessages()).toBe(false);

@@ -3237,7 +3237,11 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
-		if (this._compactionAbortController !== undefined || this._autoCompactionAbortController !== undefined) {
+		if (
+			this._compactionAbortController !== undefined ||
+			this._autoCompactionAbortController !== undefined ||
+			this._branchSummaryAbortController !== undefined
+		) {
 			throw new Error("Compaction is already in progress");
 		}
 
@@ -3245,9 +3249,15 @@ export class AgentSession {
 		this._compactionAbortController = abortController;
 		try {
 			await this._abortForManualCompaction(abortController);
+			if (abortController.signal.aborted) {
+				throw new Error("Compaction cancelled");
+			}
 			// Manual compaction is independently provider-capable and can run before
 			// the first prompt, so it needs the same settled tool registry.
 			await this._extensionRunner.loadDeferredExtensions();
+			if (abortController.signal.aborted) {
+				throw new Error("Compaction cancelled");
+			}
 		} catch (error) {
 			if (this._compactionAbortController === abortController) {
 				this._compactionAbortController = undefined;
@@ -3560,7 +3570,11 @@ export class AgentSession {
 		if (this._autoCompactDisabledThisSession) {
 			return false;
 		}
-		if (this._compactionAbortController !== undefined || this._autoCompactionAbortController !== undefined) {
+		if (
+			this._compactionAbortController !== undefined ||
+			this._autoCompactionAbortController !== undefined ||
+			this._branchSummaryAbortController !== undefined
+		) {
 			return false;
 		}
 
