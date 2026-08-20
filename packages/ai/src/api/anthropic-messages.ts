@@ -58,7 +58,7 @@ import {
 	clampMaxTokensToContext,
 	MIN_THINKING_BUDGET,
 } from "./simple-options.ts";
-import { reportToolUseAdjacencyViolations } from "./tool-use-adjacency.ts";
+import { repairToolUseAdjacency, reportToolUseAdjacencyViolations } from "./tool-use-adjacency.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 /**
@@ -723,8 +723,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			}
 			// After onPayload, never before: an extension may replace messages
 			// wholesale, so the pre-hook array is not what the provider sees. Record
-			// the shape, do not repair it — a silent fix erases the evidence.
+			// the shape first — the log is the evidence trail — then repair it:
+			// Anthropic rejects the whole request on a split pair, and a frozen
+			// history replays the same 400 forever (killed lue-kube 01a0202f).
 			reportToolUseAdjacencyViolations(params.messages, model.id);
+			params.messages = repairToolUseAdjacency(params.messages);
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
@@ -1078,6 +1081,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					continuationParams = nextContinuation as MessageCreateParamsStreaming;
 				}
 				reportToolUseAdjacencyViolations(continuationParams.messages, model.id);
+				continuationParams.messages = repairToolUseAdjacency(continuationParams.messages);
 
 				// Snapshot the completed call's cumulative totals; the next call's
 				// message_start/delta will add this call's contribution on top.

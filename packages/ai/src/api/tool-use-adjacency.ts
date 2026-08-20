@@ -122,12 +122,146 @@ export function formatToolUseAdjacencyReport(violations: ToolUseAdjacencyViolati
 	return `${lines.join("\n")}\n`;
 }
 
+type ToolResultBlock = Extract<Exclude<MessageParam["content"], string>[number], { type: "tool_result" }>;
+
+function isSyntheticPlaceholder(block: ToolResultBlock): boolean {
+	return block.content === "No result provided";
+}
+
+/**
+ * Restore `tool_use` → `tool_result` adjacency on the final wire array.
+ *
+ * The durable session log has always been valid in every captured incident
+ * (see `reportToolUseAdjacencyViolations`); the pair is split later, by a
+ * payload hook that re-inserts messages at frozen positions after the array it
+ * measured has shifted (my-pi#tool-search mid-conversation sentinels killed
+ * lue-kube session 01a0202f this way: assistant@11, sentinel@12, result@13).
+ * Because the split happens after `onPayload`, no pre-serialization seam can
+ * see it — this is the only place the provider-facing array exists.
+ *
+ * Repair rules:
+ * - each result recorded later in the request is pulled back to lead the
+ *   message immediately after its assistant turn; displaced non-result content
+ *   is re-emitted right after the batch, preserving relative order — nothing
+ *   is dropped, so injected steers/sentinels survive;
+ * - a duplicate result for an already-settled id is dropped (Anthropic 400s
+ *   duplicate `tool_use_id`), preferring a real result over a synthetic
+ *   `"No result provided"` placeholder for the same id;
+ * - a result whose `tool_use` is absent from the request is dropped (orphan);
+ * - a `tool_use` with no result anywhere is left alone — inventing an outcome
+ *   here would mask the upstream bug and belongs to `transformMessages`.
+ *
+ * A well-formed request returns the identical array, so valid payloads
+ * serialize byte-identically and the prompt-cache prefix is untouched.
+ */
+export function repairToolUseAdjacency(messages: MessageParam[]): MessageParam[] {
+	if (findToolUseAdjacencyViolations(messages).length === 0 && !hasDuplicateOrOrphanResults(messages)) {
+		return messages;
+	}
+
+	// One winning result block per id: first result wins, except a real result
+	// over a synthetic placeholder.
+	const toolUseIds = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "assistant" || typeof message.content === "string") continue;
+		for (const block of message.content) {
+			if (block.type === "tool_use") toolUseIds.add(block.id);
+		}
+	}
+	const resultById = new Map<string, ToolResultBlock>();
+	for (const message of messages) {
+		if (message.role !== "user" || typeof message.content === "string") continue;
+		for (const block of message.content) {
+			if (block.type !== "tool_result") continue;
+			if (!toolUseIds.has(block.tool_use_id)) continue;
+			const existing = resultById.get(block.tool_use_id);
+			// First result wins (stable prefix bytes), except a real result
+			// replaces a synthetic "No result provided" placeholder.
+			if (existing && !(isSyntheticPlaceholder(existing) && !isSyntheticPlaceholder(block))) continue;
+			resultById.set(block.tool_use_id, block);
+		}
+	}
+
+	const emitted = new Set<string>();
+	const out: MessageParam[] = [];
+
+	// Every tool_result at its original position is either the winning copy
+	// (re-emitted adjacent to its assistant turn), a duplicate, or an orphan —
+	// all leave their original message.
+	const stripResults = (message: MessageParam): MessageParam | undefined => {
+		if (message.role !== "user" || typeof message.content === "string") return message;
+		const kept = message.content.filter((block) => block.type !== "tool_result");
+		if (kept.length === message.content.length) return message;
+		if (kept.length === 0) return undefined;
+		return { ...message, content: kept };
+	};
+
+	const isExactBatch = (message: MessageParam, batch: ToolResultBlock[]): boolean => {
+		if (message.role !== "user" || typeof message.content === "string") return false;
+		if (message.content.length !== batch.length) return false;
+		return message.content.every((block, index) => block === batch[index]);
+	};
+
+	for (let index = 0; index < messages.length; index++) {
+		const message = messages[index]!;
+		if (message.role !== "assistant" || typeof message.content === "string") {
+			const stripped = stripResults(message);
+			if (stripped) out.push(stripped);
+			continue;
+		}
+
+		out.push(message);
+		const batch: ToolResultBlock[] = [];
+		for (const block of message.content) {
+			if (block.type !== "tool_use") continue;
+			const result = resultById.get(block.id);
+			if (result && !emitted.has(block.id)) {
+				batch.push(result);
+				emitted.add(block.id);
+			}
+		}
+		if (batch.length === 0) continue;
+
+		const next = messages[index + 1];
+		if (next && isExactBatch(next, batch)) {
+			// Already adjacent and clean — keep the original message object so
+			// untouched spans stay reference- and byte-identical.
+			out.push(next);
+			index++;
+			continue;
+		}
+		out.push({ role: "user", content: batch });
+	}
+
+	return out;
+}
+
+function hasDuplicateOrOrphanResults(messages: MessageParam[]): boolean {
+	const toolUseIds = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "assistant" || typeof message.content === "string") continue;
+		for (const block of message.content) {
+			if (block.type === "tool_use") toolUseIds.add(block.id);
+		}
+	}
+	const seen = new Set<string>();
+	for (const message of messages) {
+		if (typeof message.content === "string") continue;
+		for (const block of message.content) {
+			if (block.type !== "tool_result") continue;
+			if (!toolUseIds.has(block.tool_use_id)) return true;
+			if (seen.has(block.tool_use_id)) return true;
+			seen.add(block.tool_use_id);
+		}
+	}
+	return false;
+}
+
 /**
  * Record any violation in the outgoing request, then get out of the way.
  *
- * Deliberately does not throw or repair: the request is already malformed by
- * the time it reaches here, and the fault has never been reproducible from the
- * session log. The point is to capture the shape once, in the wild.
+ * Runs before {@link repairToolUseAdjacency} so the malformed shape is still
+ * captured in the wild even though the request that follows is repaired.
  */
 export function reportToolUseAdjacencyViolations(messages: MessageParam[], model: string): void {
 	try {
