@@ -902,6 +902,37 @@ describe("AgentSession compaction characterization", () => {
 		await expect(compaction).resolves.toMatchObject({ summary: expect.stringContaining("manual compaction") });
 	});
 
+	it("cancels manual compaction during deferred-extension preflight", async () => {
+		let releaseDeferredExtensions: (() => void) | undefined;
+		let signalDeferredExtensionsStarted: (() => void) | undefined;
+		const deferredExtensionsStarted = new Promise<void>((resolve) => {
+			signalDeferredExtensionsStarted = resolve;
+		});
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		useSummaryStreamFn(harness, "manual compaction");
+		const sessionWithDeferredExtensions = harness.session as unknown as SessionWithDeferredExtensions;
+		vi.spyOn(sessionWithDeferredExtensions._extensionRunner, "loadDeferredExtensions").mockImplementation(
+			async () => {
+				signalDeferredExtensionsStarted?.();
+				await new Promise<void>((resolve) => {
+					releaseDeferredExtensions = resolve;
+				});
+			},
+		);
+
+		const compaction = harness.session.compact();
+		await deferredExtensionsStarted;
+		harness.session.abortCompaction();
+		releaseDeferredExtensions?.();
+
+		await expect(compaction).rejects.toThrow("Compaction cancelled");
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(0);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+	});
+
 	it("drains queued prompts when manual compaction preflight fails", async () => {
 		let rejectDeferredExtensions: ((error: Error) => void) | undefined;
 		let signalDeferredExtensionsStarted: (() => void) | undefined;
