@@ -927,6 +927,12 @@ describe("AgentSession compaction characterization", () => {
 
 		const compaction = harness.session.compact();
 		await deferredExtensionsStarted;
+		harness.session.recordBashResult("echo preflight", {
+			output: "preflight result",
+			exitCode: 0,
+			cancelled: false,
+			truncated: false,
+		});
 		await harness.session.sendCustomMessage(
 			{
 				customType: "test",
@@ -937,11 +943,16 @@ describe("AgentSession compaction characterization", () => {
 			{ triggerTurn: true },
 		);
 		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
+		expect(harness.session.hasPendingBashMessages).toBe(true);
 
 		rejectDeferredExtensions?.(new Error("deferred extension failed"));
 		await expect(compaction).rejects.toThrow("deferred extension failed");
 		await vi.waitFor(() => {
 			expect(harness.session.agent.hasQueuedMessages()).toBe(false);
+			expect(harness.session.hasPendingBashMessages).toBe(false);
+			expect(harness.session.messages).toContainEqual(
+				expect.objectContaining({ role: "bashExecution", command: "echo preflight", output: "preflight result" }),
+			);
 			expect(harness.session.messages).toContainEqual(
 				expect.objectContaining({
 					customType: "test",

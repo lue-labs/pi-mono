@@ -3282,6 +3282,7 @@ export class AgentSession {
 			if (this._compactionAbortController === abortController) {
 				this._compactionAbortController = undefined;
 			}
+			this._flushPendingBashMessages();
 			this._drainQueuedMessagesPostCompaction();
 			throw error;
 		}
