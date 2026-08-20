@@ -950,6 +950,7 @@ describe("AgentSession compaction characterization", () => {
 		await vi.waitFor(() => {
 			expect(harness.session.agent.hasQueuedMessages()).toBe(false);
 			expect(harness.session.hasPendingBashMessages).toBe(false);
+			expect(harness.eventsOfType("agent_settled")).toHaveLength(1);
 			expect(harness.session.messages).toContainEqual(
 				expect.objectContaining({ role: "bashExecution", command: "echo preflight", output: "preflight result" }),
 			);

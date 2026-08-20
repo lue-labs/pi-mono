@@ -2083,19 +2083,40 @@ export class AgentSession {
 	private _drainQueuedMessagesPostCompaction(): void {
 		if (this._disposed || !this.agent.hasQueuedMessages()) return;
 		if (this.isStreaming || this.isCompacting || this.agent.isProcessing) return;
-		void (async () => {
+		void this._withActiveTurnCall(async () => {
 			try {
 				await this._extensionRunner.loadDeferredExtensions();
-				await this.agent.continue();
-				while (await this._handlePostAgentRun()) {
+				if (
+					this._disposed ||
+					!this.agent.hasQueuedMessages() ||
+					this._isAgentRunActive ||
+					this.isCompacting ||
+					this.agent.isProcessing
+				) {
+					return;
+				}
+
+				this._isAgentRunActive = true;
+				try {
+					this._cancelIdleWake();
+					await this._refilterSystemPromptIfNeeded();
+					this._cacheHeartbeat.setSessionTarget(this._findLastAssistantMessage()?.timestamp);
+					this._cacheHeartbeat.noteActivity();
 					await this.agent.continue();
+					while (await this._handlePostAgentRun()) {
+						await this.agent.continue();
+					}
+				} finally {
+					this._systemPromptOverride = undefined;
+					this._flushPendingBashMessages();
+					await this._emitAgentSettled();
 				}
 			} catch {
 				// Racing run started or continue() rejected the trailing message
 				// shape: an active run drains the queue itself; otherwise the
 				// message stays visibly queued for the next turn.
 			}
-		})();
+		});
 	}
 
 	private _drainQueuedMessagesAfterCompactionLifecycle(): void {
