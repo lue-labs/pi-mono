@@ -2132,6 +2132,194 @@ describe("openai-codex streaming", () => {
 		});
 	});
 
+	it("preserves a compatible websocket continuation across a transient shorter request", async () => {
+		// seam: the public Codex Responses stream must preserve provider-visible continuation across request-view forks.
+		const token = mockToken();
+		const sentBodies: Array<{ input: unknown[]; previous_response_id?: string }> = [];
+
+		class MockWebSocket {
+			static OPEN = 1;
+			readyState = MockWebSocket.OPEN;
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+
+			constructor(_url: string, _protocols?: string | string[] | { headers?: Record<string, string> }) {
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(data: string): void {
+				const body = JSON.parse(data) as { input: unknown[]; previous_response_id?: string };
+				sentBodies.push(body);
+				const responseId = `resp_${sentBodies.length}`;
+				const outputEvents =
+					sentBodies.length === 1
+						? [
+								{
+									type: "response.output_item.added",
+									item: {
+										type: "message",
+										id: "msg_1",
+										role: "assistant",
+										status: "in_progress",
+										content: [],
+									},
+								},
+								{ type: "response.content_part.added", part: { type: "output_text", text: "" } },
+								{ type: "response.output_text.delta", delta: "Stable answer" },
+								{
+									type: "response.output_item.done",
+									item: {
+										type: "message",
+										id: "msg_1",
+										role: "assistant",
+										status: "completed",
+										content: [{ type: "output_text", text: "Stable answer" }],
+									},
+								},
+							]
+						: sentBodies.length === 2
+							? [
+									{
+										type: "response.output_item.added",
+										item: {
+											type: "custom_tool_call",
+											id: "ctc_2",
+											call_id: "call_2",
+											name: "sample_tool",
+											input: "",
+										},
+									},
+									{ type: "response.custom_tool_call_input.delta", item_id: "ctc_2", delta: "wake" },
+									{ type: "response.custom_tool_call_input.done", item_id: "ctc_2", input: "wake" },
+									{
+										type: "response.output_item.done",
+										item: {
+											type: "custom_tool_call",
+											id: "ctc_2",
+											call_id: "call_2",
+											name: "sample_tool",
+											input: "wake",
+										},
+									},
+								]
+							: [];
+				queueMicrotask(() => {
+					for (const event of [
+						{ type: "response.created", response: { id: responseId } },
+						...outputEvents,
+						{
+							type: "response.completed",
+							response: {
+								id: responseId,
+								status: "completed",
+								usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+							},
+						},
+					]) {
+						this.dispatch("message", { data: JSON.stringify(event) });
+					}
+				});
+			}
+
+			close(): void {
+				this.readyState = 3;
+			}
+
+			private dispatch(type: string, event: unknown): void {
+				for (const listener of this.listeners.get(type) ?? []) {
+					listener(event);
+				}
+			}
+		}
+
+		vi.stubGlobal("WebSocket", MockWebSocket);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+			compat: { supportsOpenAIGrammarTools: true },
+		};
+		const tools: Context["tools"] = [
+			{
+				name: "sample_tool",
+				description: "Sample tool",
+				parameters: Type.Object({ payload: Type.String() }),
+				constrainedSampling: { type: "grammar", variants: { openai_lark: "start: /[a-z]+/" } },
+			},
+		];
+		const stableContext: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Stable history", timestamp: 1 }],
+			tools,
+		};
+
+		const stableResponse = await streamOpenAICodexResponses(model, stableContext, {
+			apiKey: token,
+			sessionId: "transient-shorter-request",
+			transport: "websocket-cached",
+		}).result();
+		const wakeContext: Context = {
+			...stableContext,
+			messages: [{ role: "user", content: "Monitor wake", timestamp: 2 }],
+		};
+		const wakeResponse = await streamOpenAICodexResponses(model, wakeContext, {
+			apiKey: token,
+			sessionId: "transient-shorter-request",
+			transport: "websocket-cached",
+		}).result();
+		const restoredContext: Context = {
+			...stableContext,
+			messages: [
+				...stableContext.messages,
+				stableResponse,
+				...wakeContext.messages,
+				wakeResponse,
+				{
+					role: "toolResult",
+					toolCallId: "call_2|ctc_2",
+					toolName: "sample_tool",
+					content: [{ type: "text", text: "wake result" }],
+					isError: false,
+					timestamp: 3,
+				},
+			],
+		};
+		await streamOpenAICodexResponses(model, restoredContext, {
+			apiKey: token,
+			sessionId: "transient-shorter-request",
+			transport: "websocket-cached",
+		}).result();
+
+		expect(sentBodies).toHaveLength(3);
+		expect(sentBodies[1].previous_response_id).toBeUndefined();
+		expect(sentBodies[2].previous_response_id).toBe("resp_1");
+		expect(sentBodies[2].input).toEqual([
+			{ role: "user", content: [{ type: "input_text", text: "Monitor wake" }] },
+			{ type: "custom_tool_call", id: "ctc_2", call_id: "call_2", name: "sample_tool", input: "wake" },
+			{ type: "custom_tool_call_output", call_id: "call_2", output: "wake result" },
+		]);
+	});
+
 	it.each(["websocket", "sse"] as const)(
 		"recovers a missing cached websocket continuation via %s",
 		async (recoveryTransport) => {

@@ -957,12 +957,14 @@ interface CachedWebSocketContinuationState {
 	lastResponseItems: ResponseInput;
 }
 
+const MAX_CACHED_WEBSOCKET_CONTINUATIONS = 2;
+
 interface CachedWebSocketConnection {
 	socket: WebSocketLike;
 	busy: boolean;
 	createdAt: number;
 	idleTimer?: ReturnType<typeof setTimeout>;
-	continuation?: CachedWebSocketContinuationState;
+	continuations: CachedWebSocketContinuationState[];
 }
 
 export interface OpenAICodexWebSocketDebugStats {
@@ -1306,7 +1308,7 @@ async function acquireWebSocket(
 	}
 
 	const socket = await connectWebSocket(url, headers, signal, connectTimeoutMs, env);
-	const entry: CachedWebSocketConnection = { socket, busy: true, createdAt: Date.now() };
+	const entry: CachedWebSocketConnection = { socket, busy: true, createdAt: Date.now(), continuations: [] };
 	accountEntries = websocketSessionCache.get(sessionId);
 	if (!accountEntries) {
 		accountEntries = new Map();
@@ -1543,22 +1545,18 @@ function getCachedWebSocketInputDelta(
 }
 
 function buildCachedWebSocketRequestBody(entry: CachedWebSocketConnection, body: RequestBody): RequestBody {
-	const continuation = entry.continuation;
-	if (!continuation) {
-		return body;
+	for (const continuation of entry.continuations) {
+		const delta = getCachedWebSocketInputDelta(body, continuation);
+		if (delta && continuation.lastResponseId) {
+			return {
+				...body,
+				previous_response_id: continuation.lastResponseId,
+				input: delta,
+			};
+		}
 	}
 
-	const delta = getCachedWebSocketInputDelta(body, continuation);
-	if (!delta || !continuation.lastResponseId) {
-		entry.continuation = undefined;
-		return body;
-	}
-
-	return {
-		...body,
-		previous_response_id: continuation.lastResponseId,
-		input: delta,
-	};
+	return body;
 }
 
 async function* startWebSocketOutputOnFirstEvent(
@@ -1650,15 +1648,16 @@ async function processWebSocketStream(
 				includeSystemPrompt: false,
 				grammarToolInputProperties,
 			}).filter((item) => item.type !== "function_call_output" && item.type !== "custom_tool_call_output");
-			entry.continuation = {
+			entry.continuations.unshift({
 				lastRequestBody: fullBody,
 				lastResponseId: output.responseId,
 				lastResponseItems: responseItems,
-			};
+			});
+			entry.continuations.length = Math.min(entry.continuations.length, MAX_CACHED_WEBSOCKET_CONTINUATIONS);
 		}
 	} catch (error) {
 		if (entry) {
-			entry.continuation = undefined;
+			entry.continuations = [];
 		}
 		keepConnection = false;
 		throw error;
