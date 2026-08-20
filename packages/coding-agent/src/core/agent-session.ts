@@ -486,6 +486,7 @@ export class AgentSession {
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 
 	// Compaction state
+	private _manualCompactionPreflightAbortController: AbortController | undefined = undefined;
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
@@ -2882,7 +2883,7 @@ export class AgentSession {
 			}
 			await this._getIdleWaitPromise();
 		}
-		if (this._compactionAbortController !== abortController) {
+		if (this._manualCompactionPreflightAbortController !== abortController) {
 			throw new Error("Compaction was cancelled");
 		}
 	}
@@ -3238,6 +3239,7 @@ export class AgentSession {
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
 		if (
+			this._manualCompactionPreflightAbortController !== undefined ||
 			this._compactionAbortController !== undefined ||
 			this._autoCompactionAbortController !== undefined ||
 			this._branchSummaryAbortController !== undefined
@@ -3246,12 +3248,14 @@ export class AgentSession {
 		}
 
 		const abortController = new AbortController();
-		this._compactionAbortController = abortController;
+		this._manualCompactionPreflightAbortController = abortController;
 		try {
 			await this._abortForManualCompaction(abortController);
 			if (abortController.signal.aborted) {
 				throw new Error("Compaction cancelled");
 			}
+			this._compactionAbortController = abortController;
+			this._manualCompactionPreflightAbortController = undefined;
 			// Manual compaction is independently provider-capable and can run before
 			// the first prompt, so it needs the same settled tool registry.
 			await this._extensionRunner.loadDeferredExtensions();
@@ -3259,6 +3263,9 @@ export class AgentSession {
 				throw new Error("Compaction cancelled");
 			}
 		} catch (error) {
+			if (this._manualCompactionPreflightAbortController === abortController) {
+				this._manualCompactionPreflightAbortController = undefined;
+			}
 			if (this._compactionAbortController === abortController) {
 				this._compactionAbortController = undefined;
 			}
@@ -3438,6 +3445,7 @@ export class AgentSession {
 	 * Cancel in-progress compaction (manual or auto).
 	 */
 	abortCompaction(): void {
+		this._manualCompactionPreflightAbortController?.abort();
 		this._compactionAbortController?.abort();
 		this._autoCompactionAbortController?.abort();
 	}
@@ -3571,6 +3579,7 @@ export class AgentSession {
 			return false;
 		}
 		if (
+			this._manualCompactionPreflightAbortController !== undefined ||
 			this._compactionAbortController !== undefined ||
 			this._autoCompactionAbortController !== undefined ||
 			this._branchSummaryAbortController !== undefined

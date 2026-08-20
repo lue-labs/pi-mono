@@ -39,6 +39,10 @@ type SessionWithDeferredExtensions = {
 	};
 };
 
+type SessionWithManualCompactionPreflight = SessionWithCompactionInternals & {
+	_abortForManualCompaction: (abortController: AbortController) => Promise<void>;
+};
+
 /** Fork-owned CacheHeartbeatManager internals (src/core/cache-heartbeat.ts). */
 type CacheHeartbeatInternals = {
 	noteActivity: () => void;
@@ -841,6 +845,33 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.eventsOfType("compaction_start")).toHaveLength(1);
 		expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("keeps idle waiters unblocked while manual compaction preflight owns the compaction slot", async () => {
+		let releasePreflight: (() => void) | undefined;
+		let signalPreflightStarted: (() => void) | undefined;
+		const preflightStarted = new Promise<void>((resolve) => {
+			signalPreflightStarted = resolve;
+		});
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		useSummaryStreamFn(harness, "manual compaction");
+		const sessionInternals = harness.session as unknown as SessionWithManualCompactionPreflight;
+		vi.spyOn(sessionInternals, "_abortForManualCompaction").mockImplementation(async () => {
+			signalPreflightStarted?.();
+			await new Promise<void>((resolve) => {
+				releasePreflight = resolve;
+			});
+		});
+
+		const manualCompaction = harness.session.compact();
+		await preflightStarted;
+
+		expect(harness.session.isCompacting).toBe(false);
+		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+		releasePreflight?.();
+		await expect(manualCompaction).resolves.toMatchObject({ summary: expect.stringContaining("manual compaction") });
 	});
 
 	it("remains compacting while manual compaction loads deferred extensions", async () => {
