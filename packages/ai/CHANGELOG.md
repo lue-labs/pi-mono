@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: Codex Responses WebSocket continuation now retains the two most recent successful request branches, so a transient shorter monitor request cannot overwrite the compatible full-history baseline and force a second full-context cache miss when normal history resumes.
+
 - Fix: `cacheRetention: "none"` no longer leaks Codex session affinity. `thread-id` / `x-client-request-id`, WebSocket pooling, and pooled-connection debug stats are provider-visible and now derive from the retention-gated session id; SSE-fallback and failure bookkeeping stay on the real Pi session id so a broken transport is not redialed every turn. Also selects the OpenCode `max_tokens` fixtures by capability instead of pinned model ids, which is the documented policy in `test/helpers/models.ts`.
 
 - Fix: `StringEnum` infers the literal union its documentation promises. The type parameter is now `const`, so a bare array literal no longer widens to `string[]` and collapses `Static<typeof Schema>` to `string`; `as const` call sites and non-literal `string[]` values are unaffected, and the emitted schema does not change.
