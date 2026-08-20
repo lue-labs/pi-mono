@@ -3218,7 +3218,7 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
-		if (this._manualCompactionPending) {
+		if (this._manualCompactionPending || this._autoCompactionAbortController !== undefined) {
 			throw new Error("Compaction is already in progress");
 		}
 
@@ -3540,7 +3540,7 @@ export class AgentSession {
 		if (this._autoCompactDisabledThisSession) {
 			return false;
 		}
-		if (this._autoCompactionAbortController !== undefined) {
+		if (this._manualCompactionPending || this._autoCompactionAbortController !== undefined) {
 			return false;
 		}
 
