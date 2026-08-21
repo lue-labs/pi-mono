@@ -8,6 +8,8 @@ Release numbers track the fork's GitHub Packages releases, versioned in lockstep
 
 ### Changed
 
+- **Version-only release PRs now recognize caret/tilde internal dependency range bumps as release mechanics.** Changesets updates `^0.x` workspace ranges alongside exact lockstep pins; the changelog gate no longer misclassifies that generated package metadata as undocumented source behavior.
+
 - **The nine current fork packages move from the user-owned `@valkyriweb` scope to organization-owned `@lue-labs`.** Package manifests, internal dependencies/imports, pending Changesets, generated install locks, release tooling, registry routing, and current documentation now use the organization scope; publish metadata points at `lue-labs/pi-mono` so GitHub Packages can establish native repository and Actions access. The legacy scope remains configured during consumer transition, and previously published `@valkyriweb/*` versions remain immutable rollback targets.
 
 - **The shared `agent`, `Agent`, and `Task` delegations now run in the background by default.** Calls that omit both `background` and the Claude-compatible `run_in_background` alias return immediately with a run id for single, parallel `tasks[]`, and sequential `chain[]` modes; `background:false` or `run_in_background:false` remains an explicit synchronous opt-out, and conflicting dual aliases still fail clearly. The shared Agent/Task schema and help text now advertise the default. This is a one-time deterministic Agent tool-schema/description rewarm; execution, chain ordering, and task fan-out semantics are unchanged.

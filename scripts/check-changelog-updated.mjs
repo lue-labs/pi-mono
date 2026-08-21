@@ -56,7 +56,7 @@ function isVersionLine(content) {
 	const semver = String.raw`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?`;
 	return (
 		new RegExp(String.raw`^"version":\s*"${semver}",?$`).test(content) ||
-		new RegExp(String.raw`^"@lue-labs/[^"]+":\s*"${semver}",?$`).test(content)
+		new RegExp(String.raw`^"@lue-labs/[^"]+":\s*"[~^]?${semver}",?$`).test(content)
 	);
 }
 
