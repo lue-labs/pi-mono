@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 Bash policy: ban process substitution `<(...)` / `>(...)` in `detectUnsafeConstructs`.
