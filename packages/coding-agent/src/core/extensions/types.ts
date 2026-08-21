@@ -71,6 +71,7 @@ import type {
 import type { SlashCommandInfo } from "../slash-commands.ts";
 import type { SourceInfo } from "../source-info.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import type { Task } from "../tasks/types.ts";
 import type { BashOperations } from "../tools/bash.ts";
 import type { EditToolDetails } from "../tools/edit.ts";
 import type {
@@ -1546,6 +1547,28 @@ export interface ExtensionAPI {
 	getLiveSession(taskId: string): AgentSession | undefined;
 
 	// =========================================================================
+	// Task Registry
+	// =========================================================================
+
+	/**
+	 * Register a `Task` adapter for a new task type so the unified task surface
+	 * (`TaskStop`, `TaskBackgroundList`) can dispatch to it. Mirrors the core
+	 * built-in registrations for agent runs and background bash jobs; lets an
+	 * extension own a long-running thing (e.g. a backgrounded MCP tool call) and
+	 * have it stoppable/listable through the standard tools. Backed by the one
+	 * shared registry — all extensions and core see the same adapter table, so
+	 * importing the core registry singleton directly (which would create a second
+	 * table under a duplicated module instance) is unnecessary and unsafe.
+	 */
+	registerTaskAdapter(task: Task): void;
+
+	/**
+	 * Find the registered `Task` adapter that owns `taskId`, or `undefined` when
+	 * no adapter recognizes it. Snapshots each adapter to resolve ownership.
+	 */
+	findTaskAdapter(taskId: string): Task | undefined;
+
+	// =========================================================================
 	// Agent Engine Registries (B2)
 	// =========================================================================
 
@@ -2377,6 +2400,27 @@ export type ExtensionLoadMode = "eager" | "deferred";
 export interface ExtensionLoadRequest {
 	path: string;
 	load?: ExtensionLoadMode;
+	/**
+	 * True when the extension was found by scanning an extensions directory
+	 * (`.pi/extensions/`, the agent dir, or a configured directory) rather than
+	 * being named by the user via `-e`, settings, or a package manifest.
+	 *
+	 * Discovered extensions are conveniences, so a load failure degrades to a
+	 * warning instead of aborting startup. Explicitly requested extensions keep
+	 * failing hard. See docs/worktree-bootstrap.md.
+	 */
+	discovered?: boolean;
+}
+
+/** A single extension that failed to load. */
+export interface ExtensionLoadError {
+	path: string;
+	error: string;
+	/**
+	 * True when the failing extension was auto-discovered. Callers treat these as
+	 * non-fatal warnings unless strict extension loading is enabled.
+	 */
+	discovered?: boolean;
 }
 
 export interface DeferredExtension {
@@ -2388,7 +2432,7 @@ export interface DeferredExtension {
 export interface LoadExtensionsResult {
 	extensions: Extension[];
 	deferredExtensions: DeferredExtension[];
-	errors: Array<{ path: string; error: string }>;
+	errors: ExtensionLoadError[];
 	/** Shared event bus used by eager and deferred extensions. */
 	eventBus: EventBus;
 	/** Shared runtime - actions are throwing stubs until runner.initialize() */

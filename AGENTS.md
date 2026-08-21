@@ -2,15 +2,16 @@
 
 This npm-workspace fork of Pi carries Luke's minimal, upstream-compatible extension seams and the packages used by `my-pi`.
 
-- Prefer an extension or Pi package in `~/Projects/personal/my-pi` over changing `packages/coding-agent` core; record the missing seam before a core change.
-- Use Node `>=24.14.0`. Before push, run `npm run check`; run targeted tests rather than `npm test`, which includes paid API/e2e coverage.
-- Never edit generated model files directly; run the generators through `npm run generate:models`.
+- Reach for an extension or a Pi package in `~/Projects/personal/my-pi` before you change `packages/coding-agent` core, and record the missing seam whenever a core change turns out to be unavoidable.
+- Build on Node `>=24.14.0` and run `npm run check` before every push, choosing targeted tests over `npm test` because the full suite bills paid API and e2e coverage.
+- Regenerate model files through `npm run generate:models` rather than editing the generated output by hand.
 
 ## Read when
 
 | Task | Read |
 |---|---|
 | Pi behavior, extensions, hooks, filters, TypeScript, models, or setup registry | [Code conventions](docs/agents/code-conventions.md) and the relevant [coding-agent docs](packages/coding-agent/docs/index.md) |
+| Setting up a fresh worktree, or diagnosing a repo-local extension that fails to load | [Fresh worktrees and non-fatal extension loading](docs/worktree-bootstrap.md) |
 | Installing dependencies, testing, typechecking, building, or interactive TUI checks | [Testing and dependency safety](docs/agents/testing-and-dependencies.md) |
 | Branches, commits, PR review, issues/comments, or GitHub Actions | [GitHub and collaboration workflow](docs/agents/github-workflow.md) and [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Changesets, changelogs, package publication, binaries, or releases | [Releases and change records](docs/agents/releases-and-changes.md) |

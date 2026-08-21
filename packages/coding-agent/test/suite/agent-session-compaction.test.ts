@@ -33,6 +33,16 @@ type SessionWithCompactionInternals = {
 	_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
 };
 
+type SessionWithDeferredExtensions = {
+	_extensionRunner: {
+		loadDeferredExtensions: () => Promise<void>;
+	};
+};
+
+type SessionWithManualCompactionPreflight = SessionWithCompactionInternals & {
+	_abortForManualCompaction: (abortController: AbortController) => Promise<void>;
+};
+
 /** Fork-owned CacheHeartbeatManager internals (src/core/cache-heartbeat.ts). */
 type CacheHeartbeatInternals = {
 	noteActivity: () => void;
@@ -654,6 +664,414 @@ describe("AgentSession compaction characterization", () => {
 		harness.session.abortCompaction();
 
 		await expect(compactPromise).rejects.toThrow("Compaction cancelled");
+	});
+
+	it("rejects duplicate manual compaction without clearing the active run controller", async () => {
+		let beforeCompactCalls = 0;
+		let releaseFirstCompaction: (() => void) | undefined;
+		let signalFirstCompactionStarted: (() => void) | undefined;
+		const firstCompactionStarted = new Promise<void>((resolve) => {
+			signalFirstCompactionStarted = resolve;
+		});
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						beforeCompactCalls++;
+						if (beforeCompactCalls === 1) {
+							signalFirstCompactionStarted?.();
+							await new Promise<void>((resolve) => {
+								releaseFirstCompaction = resolve;
+							});
+						}
+						return {
+							compaction: {
+								summary: "manual compaction",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+
+		const firstCompaction = harness.session.compact();
+		await firstCompactionStarted;
+
+		await expect(harness.session.compact()).rejects.toThrow("Compaction is already in progress");
+		releaseFirstCompaction?.();
+		await expect(firstCompaction).resolves.toMatchObject({ summary: "manual compaction" });
+
+		expect(beforeCompactCalls).toBe(1);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(1);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("skips duplicate auto-compaction without clearing the active run controller", async () => {
+		let beforeCompactCalls = 0;
+		let releaseFirstCompaction: (() => void) | undefined;
+		let signalFirstCompactionStarted: (() => void) | undefined;
+		const firstCompactionStarted = new Promise<void>((resolve) => {
+			signalFirstCompactionStarted = resolve;
+		});
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						beforeCompactCalls++;
+						if (beforeCompactCalls === 1) {
+							signalFirstCompactionStarted?.();
+							await new Promise<void>((resolve) => {
+								releaseFirstCompaction = resolve;
+							});
+						}
+						return {
+							compaction: {
+								summary: "auto compaction",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		const firstCompaction = sessionInternals._runAutoCompaction("threshold", false);
+		await firstCompactionStarted;
+
+		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+		releaseFirstCompaction?.();
+		await expect(firstCompaction).resolves.toBe(false);
+
+		expect(beforeCompactCalls).toBe(1);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(1);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("rejects manual compaction while auto-compaction owns the session", async () => {
+		let releaseAutoCompaction: (() => void) | undefined;
+		let signalAutoCompactionStarted: (() => void) | undefined;
+		const autoCompactionStarted = new Promise<void>((resolve) => {
+			signalAutoCompactionStarted = resolve;
+		});
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						signalAutoCompactionStarted?.();
+						await new Promise<void>((resolve) => {
+							releaseAutoCompaction = resolve;
+						});
+						return {
+							compaction: {
+								summary: "auto compaction",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		const autoCompaction = sessionInternals._runAutoCompaction("threshold", false);
+		await autoCompactionStarted;
+
+		await expect(harness.session.compact()).rejects.toThrow("Compaction is already in progress");
+		releaseAutoCompaction?.();
+		await expect(autoCompaction).resolves.toBe(false);
+
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(1);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("skips auto-compaction while manual compaction owns the session", async () => {
+		let releaseManualCompaction: (() => void) | undefined;
+		let signalManualCompactionStarted: (() => void) | undefined;
+		const manualCompactionStarted = new Promise<void>((resolve) => {
+			signalManualCompactionStarted = resolve;
+		});
+		const harness = await createHarness({
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						signalManualCompactionStarted?.();
+						await new Promise<void>((resolve) => {
+							releaseManualCompaction = resolve;
+						});
+						return {
+							compaction: {
+								summary: "manual compaction",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		const manualCompaction = harness.session.compact();
+		await manualCompactionStarted;
+
+		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+		releaseManualCompaction?.();
+		await expect(manualCompaction).resolves.toMatchObject({ summary: "manual compaction" });
+
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(1);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("keeps idle waiters unblocked while manual compaction preflight owns the compaction slot", async () => {
+		let releasePreflight: (() => void) | undefined;
+		let signalPreflightStarted: (() => void) | undefined;
+		const preflightStarted = new Promise<void>((resolve) => {
+			signalPreflightStarted = resolve;
+		});
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		useSummaryStreamFn(harness, "manual compaction");
+		const sessionInternals = harness.session as unknown as SessionWithManualCompactionPreflight;
+		vi.spyOn(sessionInternals, "_abortForManualCompaction").mockImplementation(async () => {
+			signalPreflightStarted?.();
+			await new Promise<void>((resolve) => {
+				releasePreflight = resolve;
+			});
+		});
+
+		const manualCompaction = harness.session.compact();
+		await preflightStarted;
+
+		expect(harness.session.isCompacting).toBe(false);
+		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+		releasePreflight?.();
+		await expect(manualCompaction).resolves.toMatchObject({ summary: expect.stringContaining("manual compaction") });
+	});
+
+	it("remains compacting while manual compaction loads deferred extensions", async () => {
+		let releaseDeferredExtensions: (() => void) | undefined;
+		let signalDeferredExtensionsStarted: (() => void) | undefined;
+		const deferredExtensionsStarted = new Promise<void>((resolve) => {
+			signalDeferredExtensionsStarted = resolve;
+		});
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		useSummaryStreamFn(harness, "manual compaction");
+		const sessionWithDeferredExtensions = harness.session as unknown as SessionWithDeferredExtensions;
+		vi.spyOn(sessionWithDeferredExtensions._extensionRunner, "loadDeferredExtensions").mockImplementation(
+			async () => {
+				signalDeferredExtensionsStarted?.();
+				await new Promise<void>((resolve) => {
+					releaseDeferredExtensions = resolve;
+				});
+			},
+		);
+
+		const compaction = harness.session.compact();
+		await deferredExtensionsStarted;
+
+		expect(harness.session.isCompacting).toBe(true);
+		releaseDeferredExtensions?.();
+		await expect(compaction).resolves.toMatchObject({ summary: expect.stringContaining("manual compaction") });
+	});
+
+	it("cancels manual compaction during deferred-extension preflight", async () => {
+		let releaseDeferredExtensions: (() => void) | undefined;
+		let signalDeferredExtensionsStarted: (() => void) | undefined;
+		const deferredExtensionsStarted = new Promise<void>((resolve) => {
+			signalDeferredExtensionsStarted = resolve;
+		});
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		useSummaryStreamFn(harness, "manual compaction");
+		const sessionWithDeferredExtensions = harness.session as unknown as SessionWithDeferredExtensions;
+		vi.spyOn(sessionWithDeferredExtensions._extensionRunner, "loadDeferredExtensions").mockImplementation(
+			async () => {
+				signalDeferredExtensionsStarted?.();
+				await new Promise<void>((resolve) => {
+					releaseDeferredExtensions = resolve;
+				});
+			},
+		);
+
+		const compaction = harness.session.compact();
+		await deferredExtensionsStarted;
+		harness.session.abortCompaction();
+		releaseDeferredExtensions?.();
+
+		await expect(compaction).rejects.toThrow("Compaction cancelled");
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(0);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+	});
+
+	it("drains queued prompts when manual compaction preflight fails", async () => {
+		let rejectDeferredExtensions: ((error: Error) => void) | undefined;
+		let signalDeferredExtensionsStarted: (() => void) | undefined;
+		const deferredExtensionsStarted = new Promise<void>((resolve) => {
+			signalDeferredExtensionsStarted = resolve;
+		});
+		const harness = await createHarness();
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		harness.setResponses([fauxAssistantMessage("queued prompt delivered")]);
+		const sessionWithDeferredExtensions = harness.session as unknown as SessionWithDeferredExtensions;
+		let loadCount = 0;
+		vi.spyOn(sessionWithDeferredExtensions._extensionRunner, "loadDeferredExtensions").mockImplementation(
+			async () => {
+				loadCount++;
+				if (loadCount !== 1) return;
+				signalDeferredExtensionsStarted?.();
+				await new Promise<void>((_resolve, reject) => {
+					rejectDeferredExtensions = () => reject(new Error("deferred extension failed"));
+				});
+			},
+		);
+
+		const compaction = harness.session.compact();
+		await deferredExtensionsStarted;
+		harness.session.recordBashResult("echo preflight", {
+			output: "preflight result",
+			exitCode: 0,
+			cancelled: false,
+			truncated: false,
+		});
+		await harness.session.sendCustomMessage(
+			{
+				customType: "test",
+				content: [{ type: "text", text: "queued while manual preflight fails" }],
+				display: false,
+				details: undefined,
+			},
+			{ triggerTurn: true },
+		);
+		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
+		expect(harness.session.hasPendingBashMessages).toBe(true);
+
+		rejectDeferredExtensions?.(new Error("deferred extension failed"));
+		await expect(compaction).rejects.toThrow("deferred extension failed");
+		await vi.waitFor(() => {
+			expect(harness.session.agent.hasQueuedMessages()).toBe(false);
+			expect(harness.session.hasPendingBashMessages).toBe(false);
+			expect(harness.eventsOfType("agent_settled")).toHaveLength(1);
+			expect(harness.session.messages).toContainEqual(
+				expect.objectContaining({ role: "bashExecution", command: "echo preflight", output: "preflight result" }),
+			);
+			expect(harness.session.messages).toContainEqual(
+				expect.objectContaining({
+					customType: "test",
+					content: [{ type: "text", text: "queued while manual preflight fails" }],
+				}),
+			);
+		});
+	});
+
+	it("drains queued prompts after auto-compaction preflight fails inside an active run", async () => {
+		let rejectDeferredExtensions: ((error: Error) => void) | undefined;
+		let signalDeferredExtensionsStarted: (() => void) | undefined;
+		const deferredExtensionsStarted = new Promise<void>((resolve) => {
+			signalDeferredExtensionsStarted = resolve;
+		});
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "prompt is too long" }),
+			fauxAssistantMessage("queued prompt delivered"),
+		]);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals &
+			SessionWithDeferredExtensions;
+		let loadCount = 0;
+		vi.spyOn(sessionInternals._extensionRunner, "loadDeferredExtensions").mockImplementation(async () => {
+			loadCount++;
+			if (loadCount !== 3) return;
+			signalDeferredExtensionsStarted?.();
+			await new Promise<void>((_resolve, reject) => {
+				rejectDeferredExtensions = () => reject(new Error("deferred extension failed"));
+			});
+		});
+
+		const prompt = harness.session.prompt("trigger auto preflight");
+		await deferredExtensionsStarted;
+		await harness.session.sendCustomMessage(
+			{
+				customType: "test",
+				content: [{ type: "text", text: "queued while auto preflight fails" }],
+				display: false,
+				details: undefined,
+			},
+			{ triggerTurn: true },
+		);
+		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
+
+		rejectDeferredExtensions?.(new Error("deferred extension failed"));
+		await expect(prompt).rejects.toThrow("deferred extension failed");
+		await vi.waitFor(() => {
+			expect(harness.session.agent.hasQueuedMessages()).toBe(false);
+			expect(harness.session.messages).toContainEqual(
+				expect.objectContaining({
+					customType: "test",
+					content: [{ type: "text", text: "queued while auto preflight fails" }],
+				}),
+			);
+		});
+	});
+
+	it("cancels auto-compaction during deferred-extension preflight", async () => {
+		let releaseDeferredExtensions: (() => void) | undefined;
+		let signalDeferredExtensionsStarted: (() => void) | undefined;
+		const deferredExtensionsStarted = new Promise<void>((resolve) => {
+			signalDeferredExtensionsStarted = resolve;
+		});
+		const harness = await createHarness();
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals &
+			SessionWithDeferredExtensions;
+		vi.spyOn(sessionInternals._extensionRunner, "loadDeferredExtensions").mockImplementation(async () => {
+			signalDeferredExtensionsStarted?.();
+			await new Promise<void>((resolve) => {
+				releaseDeferredExtensions = resolve;
+			});
+		});
+
+		const compaction = sessionInternals._runAutoCompaction("threshold", false);
+		await deferredExtensionsStarted;
+		harness.session.abortCompaction();
+		releaseDeferredExtensions?.();
+
+		await expect(compaction).resolves.toBe(false);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
+		expect(harness.eventsOfType("compaction_end")).toContainEqual(
+			expect.objectContaining({ reason: "threshold", aborted: true }),
+		);
 	});
 
 	it("resumes after threshold compaction when only agent-level queued messages exist", async () => {

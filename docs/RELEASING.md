@@ -11,9 +11,9 @@
 > match all publishable workspaces. Reconcile those surfaces before the next
 > release; do not infer a lockstep package set.
 
-Canonical release runbook for `valkyriweb/pi-mono`. The root `AGENTS.md`
+Canonical release runbook for `lue-labs/pi-mono`. The root `AGENTS.md`
 "Releasing" section is the agent-facing copy; this document is the human-facing
-source of truth. Keep the two in sync — if a step changes, change it here first.
+source of truth. Keep the two in sync, and when a step changes, change it here first.
 
 ## Model
 
@@ -30,7 +30,7 @@ releases.
 
 ## Steps
 
-### 1. Update changelogs
+### Update changelogs
 
 Each package's `[Unreleased]` section must reflect what shipped. Run the `/cl`
 prompt against the latest commit on `main` first if it has not been run; it
@@ -38,7 +38,7 @@ audits and updates every package's `[Unreleased]` section. Fork-wide
 operational changes that do not belong to a package go in root
 `FORK-CHANGELOG.md`.
 
-### 2. Local smoke test
+### Local smoke test
 
 Build an unpublished release and smoke test it from outside the repo so it
 cannot resolve workspace files:
@@ -66,7 +66,7 @@ Verify Node and Bun startup, model/account listing, interactive startup, and at
 least one real prompt against the intended default provider. Failures are
 release blockers unless the maintainer explicitly accepts the risk.
 
-### 3. Run the release script
+### Run the release script
 
 CI publishes to npm; the local script handles version bump, changelog
 finalization, commit, tag, and push.
@@ -76,7 +76,7 @@ PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:patch   
 PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:minor   # breaking changes
 ```
 
-`npm_config_min_release_age=0` is only for the release command — it lets the
+`npm_config_min_release_age=0` belongs to the release command alone, where it lets the
 release lockfile refresh proceed when a workspace package version was published
 recently. Review any lockfile or shrinkwrap diff the release creates before the
 push.
@@ -87,14 +87,14 @@ fresh `## [Unreleased]` sections, commits `Add [Unreleased] section for next
 cycle`, then pushes `main` and the tag. **Do not re-run the release script after
 a tag has been pushed.**
 
-### 4. CI publishes the packages
+### CI publishes the packages
 
 Pushing the `vX.Y.Z` tag triggers `.github/workflows/build-binaries.yml`. The
 `publish-npm` job uses npm trusted publishing via GitHub Actions OIDC
 (environment `npm-publish`). No local `npm publish`, `npm whoami`, OTP, or
 WebAuthn flow is required for the OIDC path.
 
-### 5. If CI publish fails
+### When CI publish fails
 
 Inspect the failed `publish-npm` job. The publish helper is idempotent and skips
 versions already present on npm, so re-run the tag workflow after fixing CI or a
@@ -110,7 +110,7 @@ Only if the OIDC path is unavailable and you must publish locally:
    so you can open the npm auth URL immediately.
 3. When npm prints an auth URL, cmd/ctrl-click it, log in, and pick
    "don't ask again for N minutes" if offered. This can happen more than once.
-4. After a failed publish, only re-run the publish command — never re-run
+4. After a failed publish, only re-run the publish command, never
    `npm run release:patch` / `release:minor`.
 
 ## Gates that must be green before release

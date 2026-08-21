@@ -22,47 +22,66 @@ export interface ServerToolResultBlockLike {
 	content: unknown;
 }
 
-/**
- * Normalize a server tool result block (web_search/web_fetch) into a compact,
- * display-only summary. Never persisted or sent back to the API.
- */
-export function summarizeServerToolResult(block: ServerToolResultBlockLike): {
+/** Compact, display-only summary of one provider-executed tool result. */
+export interface ServerToolResultSummary {
 	toolName: string;
 	status: "completed" | "error";
 	sources?: ServerToolSource[];
 	errorCode?: string;
-} {
+}
+
+/**
+ * The one place this module inspects an untyped wire value. Everything below
+ * reads through `fields`/`stringField` instead of asserting inline, so a shape
+ * assumption cannot leak past this boundary.
+ */
+function fields(value: unknown): Readonly<Record<string, unknown>> | undefined {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+	return value as Readonly<Record<string, unknown>>;
+}
+
+/** Reads one string field, or undefined when absent or not a string. */
+function stringField(record: Readonly<Record<string, unknown>> | undefined, key: string): string | undefined {
+	const value = record?.[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Normalize a server tool result block (web_search/web_fetch) into a compact,
+ * display-only summary. Never persisted or sent back to the API.
+ */
+export function summarizeServerToolResult(block: ServerToolResultBlockLike): ServerToolResultSummary {
 	const toolName =
 		block.type === "web_fetch_tool_result"
 			? "web_fetch"
 			: block.type === "advisor_tool_result"
 				? "advisor"
 				: "web_search";
-	const content = block.content as Record<string, unknown> | unknown[] | null | undefined;
+	const content = block.content;
 
 	// Error shape: { type: "web_search_tool_result_error" | ..., error_code: "..." }
-	if (content && !Array.isArray(content) && typeof (content as Record<string, unknown>).error_code === "string") {
-		return { toolName, status: "error", errorCode: (content as Record<string, unknown>).error_code as string };
+	const errorCode = stringField(fields(content), "error_code");
+	if (errorCode !== undefined) {
+		return { toolName, status: "error", errorCode };
 	}
 
 	// web_search: content is an array of { title, url, ... } result blocks.
 	if (Array.isArray(content)) {
 		const sources: ServerToolSource[] = [];
 		for (const item of content) {
-			if (item && typeof item === "object" && typeof (item as Record<string, unknown>).url === "string") {
-				const record = item as Record<string, unknown>;
-				sources.push({
-					url: record.url as string,
-					title: typeof record.title === "string" ? (record.title as string) : undefined,
-				});
+			const record = fields(item);
+			const url = stringField(record, "url");
+			if (url !== undefined) {
+				sources.push({ url, title: stringField(record, "title") });
 			}
 		}
 		return { toolName, status: "completed", sources };
 	}
 
 	// web_fetch: content is a single retrieved-document object, often { url, ... }.
-	if (content && typeof content === "object" && typeof (content as Record<string, unknown>).url === "string") {
-		return { toolName, status: "completed", sources: [{ url: (content as Record<string, unknown>).url as string }] };
+	const url = stringField(fields(content), "url");
+	if (url !== undefined) {
+		return { toolName, status: "completed", sources: [{ url }] };
 	}
 
 	return { toolName, status: "completed" };

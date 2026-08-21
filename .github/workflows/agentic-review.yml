@@ -152,6 +152,18 @@ jobs:
           repository: valkyriweb/agent-scripts
           path: agent-scripts
           token: ${{ secrets.GH_CLONE_TOKEN }}
+      # rusty-review (the Correctness engine) lives in the valkyriweb/skills SoT,
+      # NOT in agent-scripts. agent-scripts HEAD ships `agent-skills/` (harness
+      # system prompts only) and no `skills/rusty-review/`, so the old
+      # `agent-scripts/skills/rusty-review/...` path resolved to nothing and the
+      # Correctness stage silently degraded to a manual diff pass (issue #318).
+      - name: Checkout skills SoT (rusty-review engine)
+        if: env.RUN_REVIEW == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: valkyriweb/skills
+          path: skills-sot
+          token: ${{ secrets.GH_CLONE_TOKEN }}
       - name: Checkout claude-bridge
         if: env.RUN_REVIEW == 'true'
         uses: actions/checkout@v7
@@ -159,6 +171,30 @@ jobs:
           repository: valkyriweb/pi-claude-bridge
           path: pi-claude-bridge
           token: ${{ secrets.GH_CLONE_TOKEN }}
+
+      # Detect the rusty-review engine across the SoT layouts instead of hardcoding
+      # one path, and FAIL LOUDLY if it is absent — a missing engine must break the
+      # required check, never silently pass as a manual review (issue #318).
+      - name: Resolve rusty-review engine
+        if: env.RUN_REVIEW == 'true'
+        run: |
+          set -euo pipefail
+          CANDIDATES=(
+            "$GITHUB_WORKSPACE/skills-sot/rusty-review/scripts/rusty-review"
+            "$GITHUB_WORKSPACE/skills-sot/review/scripts/rusty-review"
+            "$GITHUB_WORKSPACE/agent-scripts/skills/rusty-review/scripts/rusty-review"
+            "$GITHUB_WORKSPACE/agent-scripts/agent-skills/rusty-review/scripts/rusty-review"
+          )
+          for c in "${CANDIDATES[@]}"; do
+            if [ -f "$c" ]; then
+              chmod +x "$c" || true
+              echo "RUSTY_REVIEW_BIN=$c" >> "$GITHUB_ENV"
+              echo "resolved rusty-review engine: $c"
+              exit 0
+            fi
+          done
+          echo "::error::rusty-review engine not found in any known location — Correctness stage cannot run. Searched: ${CANDIDATES[*]}"
+          exit 1
 
       # Build the `actions` profile from my-pi@main SOURCE against the fork under
       # test — not a frozen `npm:@valkyriweb/my-pi-actions@<pin>`. A pinned tarball
@@ -195,7 +231,7 @@ jobs:
             "packages": ["$GITHUB_WORKSPACE/my-pi/packages/my-pi-actions"]
           }
           EOF
-          ln -sfn "$GITHUB_WORKSPACE/agent-scripts/skills" "$HOME/.pi/agent/skills"
+          ln -sfn "$GITHUB_WORKSPACE/skills-sot" "$HOME/.pi/agent/skills"
           # The `actions` profile is a local package (absolute path above); pi reads
           # its package.json `pi.extensions` (../../extensions/...) in place, loading
           # the harness extensions + the Workflow tool from my-pi@main source. A
@@ -252,7 +288,7 @@ jobs:
             --argjson pr "$PR_NUMBER" \
             --arg base "origin/$BASE_REF" \
             --arg root "$GITHUB_WORKSPACE" \
-            --arg rusty "$GITHUB_WORKSPACE/agent-scripts/skills/rusty-review/scripts/rusty-review" \
+            --arg rusty "$RUSTY_REVIEW_BIN" \
             --arg poster "$AR/post-review.mjs" \
             --argjson advisory "$([ "$ADVISORY" = "true" ] && echo true || echo false)" \
             '{pr:$pr, base:$base, repoRoot:$root, rustyReviewBin:$rusty, posterScript:$poster, advisoryOnly:$advisory, blockPriority:0}')

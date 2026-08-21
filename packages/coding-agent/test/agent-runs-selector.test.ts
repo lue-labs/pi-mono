@@ -2,10 +2,12 @@ import { beforeAll, describe, expect, test } from "vitest";
 import type { AgentRecentRun } from "../src/core/agents/status.ts";
 import type { AgentRunDetails } from "../src/core/agents/types.ts";
 import {
+	AGENT_RUN_SETTLED_VIEW_GRACE_MS,
 	formatAgentRunDetailView,
 	formatAgentRunRow,
 	getAgentRunResumePrompt,
 	normalizeAgentRunResumePrompt,
+	selectAgentRunRows,
 	shouldZoomAgentRunRow,
 } from "../src/modes/interactive/components/agent-runs-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -221,5 +223,67 @@ describe("agent runs selector formatting", () => {
 		expect(prompt.placeholder).toContain("Steering message");
 		expect(normalizeAgentRunResumePrompt("  continue with tests  ")).toBe("continue with tests");
 		expect(normalizeAgentRunResumePrompt("  ")).toBeUndefined();
+	});
+});
+
+// CC 2.1.232 parity: the durable registry retains terminal runs; only the
+// view filters and orders them (running first, newest first, 30s settled
+// grace). See selectAgentRunRows docs for the binary evidence.
+describe("selectAgentRunRows", () => {
+	const now = Date.parse("2026-08-15T12:00:00Z");
+	const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
+
+	test("orders running rows first, then newest-first by start time", () => {
+		const oldRunning = run({ id: "agent-1", status: "running", startedAt: iso(-60_000) });
+		const newerDone = run({ id: "agent-2", status: "failed", startedAt: iso(-30_000) });
+		const newestRunning = run({ id: "agent-3", status: "running", startedAt: iso(-10_000) });
+		const rows = selectAgentRunRows([newerDone, oldRunning, newestRunning], now);
+		expect(rows.map((r) => r.id)).toEqual(["agent-3", "agent-1", "agent-2"]);
+	});
+
+	test("hides completed and cancelled runs older than the settled grace", () => {
+		const stale = run({
+			id: "agent-1",
+			status: "completed",
+			startedAt: iso(-120_000),
+			endedAt: iso(-AGENT_RUN_SETTLED_VIEW_GRACE_MS - 1),
+		});
+		const staleCancelled = run({
+			id: "agent-2",
+			status: "cancelled",
+			startedAt: iso(-120_000),
+			endedAt: iso(-AGENT_RUN_SETTLED_VIEW_GRACE_MS - 1),
+		});
+		const fresh = run({
+			id: "agent-3",
+			status: "completed",
+			startedAt: iso(-60_000),
+			endedAt: iso(-5_000),
+		});
+		const rows = selectAgentRunRows([stale, staleCancelled, fresh], now);
+		expect(rows.map((r) => r.id)).toEqual(["agent-3"]);
+	});
+
+	test("never ages out failed or interrupted runs — they carry actionable state", () => {
+		const failed = run({
+			id: "agent-1",
+			status: "failed",
+			startedAt: iso(-700_000),
+			endedAt: iso(-500_000),
+		});
+		const interrupted = run({
+			id: "agent-2",
+			status: "interrupted",
+			startedAt: iso(-600_000),
+			endedAt: iso(-500_000),
+			resumable: true,
+		});
+		const rows = selectAgentRunRows([failed, interrupted], now);
+		expect(rows.map((r) => r.id)).toEqual(["agent-2", "agent-1"]);
+	});
+
+	test("keeps a completed run without a parseable endedAt", () => {
+		const noEnd = run({ id: "agent-1", status: "completed", startedAt: iso(-120_000) });
+		expect(selectAgentRunRows([noEnd], now).map((r) => r.id)).toEqual(["agent-1"]);
 	});
 });
