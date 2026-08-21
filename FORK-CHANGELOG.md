@@ -8,6 +8,8 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Changed
 
+- **Release builds now use the canonical root workspace build instead of an obsolete hand-maintained package list.** The old workflow omitted telemetry, session backends, protocol, client, and server after the upstream workspace expansion, then still attempted to build the removed orchestrator package. The first post-transfer App canary proved authentication and package install succeeded, but compilation stopped when coding-agent could not resolve the unbuilt client/protocol declarations. `npm run build` owns the dependency order and the build gate, preventing future workspace additions from silently drifting out of release automation.
+
 - **The Baseten GLM 5.2 registry contract now includes image input.** The generated model already follows the live Baseten modality metadata; its focused assertion now covers both `text` and `image` instead of failing every otherwise-unrelated PR after the provider added vision support.
 
 - **Repository ownership moved from `valkyriweb/pi-mono` to `lue-labs/pi-mono` without moving the `@valkyriweb/*` package namespace.** Active installers, release helpers, workflows, and canonical documentation now use the organization-owned repository. npm reads and publishes authenticate with the retained package-owner token because GitHub repository transfer removes granular package links rather than moving user-owned packages. Historical GitHub URLs continue through GitHub's repository redirect.
