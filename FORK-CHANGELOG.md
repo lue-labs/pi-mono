@@ -8,6 +8,10 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Changed
 
+- **The `/agents runs` view now orders and prunes like Claude Code's background-tasks dialog.** Running rows sort first, then newest-first by start time; completed agents stay visible only during their retention window, while failed/interrupted runs that still need attention are never silently dropped — all at the view layer over the unchanged durable run registry (`selectAgentRunRows`). TUI rendering only; no system-prompt or `tools[]` bytes change.
+
+### Changed
+
 - **The Baseten GLM 5.2 registry contract now includes image input.** The generated model already follows the live Baseten modality metadata; its focused assertion now covers both `text` and `image` instead of failing every otherwise-unrelated PR after the provider added vision support.
 
 - **Repository ownership moved from `valkyriweb/pi-mono` to `lue-labs/pi-mono` without moving the `@valkyriweb/*` package namespace.** Active installers, release helpers, workflows, and canonical documentation now use the organization-owned repository. npm reads and publishes authenticate with the retained package-owner token because GitHub repository transfer removes granular package links rather than moving user-owned packages. Historical GitHub URLs continue through GitHub's repository redirect.
