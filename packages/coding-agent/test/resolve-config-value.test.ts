@@ -9,6 +9,18 @@ import {
 } from "../src/core/resolve-config-value.ts";
 import * as shellModule from "../src/utils/shell.ts";
 
+// Override execSync per-test to simulate transient spawn failures. Defaults to
+// the real implementation so unrelated command tests keep working.
+const { execSyncMock } = vi.hoisted(() => ({ execSyncMock: { impl: null as ((cmd: string) => string) | null } }));
+vi.mock("child_process", async (importActual) => {
+	const actual = await importActual<typeof import("child_process")>();
+	return {
+		...actual,
+		execSync: (command: string, options?: unknown) =>
+			execSyncMock.impl ? execSyncMock.impl(command) : actual.execSync(command, options as never),
+	};
+});
+
 describe("resolveConfigValue", () => {
 	let tempDir: string;
 
@@ -21,6 +33,7 @@ describe("resolveConfigValue", () => {
 	afterEach(() => {
 		if (existsSync(tempDir)) rmSync(tempDir, { recursive: true });
 		clearConfigValueCache();
+		execSyncMock.impl = null;
 		vi.restoreAllMocks();
 	});
 
@@ -100,6 +113,50 @@ describe("resolveConfigValue", () => {
 		expect(resolveConfigValueUncached(command)).toBe("value");
 		expect(resolveConfigValueUncached(command)).toBe("value");
 		expect(readFileSync(counterFile, "utf-8").trim()).toBe("2");
+	});
+
+	test("recovers from a one-shot transient spawn failure via retry (#171)", () => {
+		if (process.platform === "win32") return;
+		let call = 0;
+		execSyncMock.impl = () => {
+			call++;
+			if (call === 1) {
+				const error = new Error("spawn /bin/sh EAGAIN") as NodeJS.ErrnoException;
+				error.code = "EAGAIN"; // spawn-level failure: process never ran, no status/signal
+				throw error;
+			}
+			return "recovered-key\n";
+		};
+		expect(resolveConfigValueUncached("!cat /some/api.key")).toBe("recovered-key");
+		expect(call).toBe(2);
+	});
+
+	test("falls back to last-known-good cache on persistent transient failure (#171)", () => {
+		if (process.platform === "win32") return;
+		expect(resolveConfigValueUncached("!echo good-key")).toBe("good-key"); // seeds last-known-good
+		let call = 0;
+		execSyncMock.impl = () => {
+			call++;
+			const error = new Error("spawn /bin/sh EAGAIN") as NodeJS.ErrnoException;
+			error.code = "EAGAIN";
+			throw error;
+		};
+		expect(resolveConfigValueUncached("!echo good-key")).toBe("good-key"); // served from cache
+		expect(call).toBe(2); // one attempt + one retry
+	});
+
+	test("does not retry or serve cache when the command definitively fails (#171)", () => {
+		if (process.platform === "win32") return;
+		expect(resolveConfigValueUncached("!echo seeded")).toBe("seeded");
+		let call = 0;
+		execSyncMock.impl = () => {
+			call++;
+			const error = new Error("Command failed: exit 1") as NodeJS.ErrnoException & { status: number };
+			error.status = 1; // process ran and exited non-zero: definitive failure
+			throw error;
+		};
+		expect(resolveConfigValueUncached("!echo seeded")).toBeUndefined();
+		expect(call).toBe(1); // no retry on a definitive failure
 	});
 
 	test("uses stdin when the configured Windows shell requires it", () => {
