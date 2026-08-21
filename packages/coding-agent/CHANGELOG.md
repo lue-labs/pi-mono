@@ -9,6 +9,9 @@ This package's release notes are split:
 
 ## Unreleased
 
+<<<<<<< HEAD
+- Added `normalizeAgentToolModeForRender` (with `AgentRenderNormalization`/`AgentRenderTask` types) to the package public surface: a renderer-safe counterpart to `normalizeAgentToolMode` that accepts partial/stringified/object/array Agent-tool arguments, preserves execution alias precedence for completed inputs, and returns an explicit `valid`/`partial`/`invalid` state instead of throwing while a call is still streaming. Lets extensions render Agent calls without copying execution alias semantics ([#263](https://github.com/valkyriweb/pi-mono/issues/263)).
+=======
 - CI: pull requests now run the unit test suite (`unit-tests` job in `ci.yml`, via `test.sh`). Previously no PR job ran tests and `release.yml` only ran three suites post-merge, so regressions landed on main unseen. Fixed the four it had been hiding: the bash tool crashing on a context without a session manager, the fork mis-detecting itself as the official distribution (scope-sweep regression in `OFFICIAL_PACKAGE_NAME`, re-enabling first-time setup), the `ultra` tier alias pointing at the non-existent `gpt-5.6` on `openai`/`azure-openai-responses`, and a Cloudflare test pinned to a retired model id.
 
 - Fix: `packages/coding-agent/node_modules` is no longer tracked. It had been committed as a symlink to its own absolute path, so every checkout replaced the real workspace directory with an unresolvable path and any npm/npx spawn from this package failed with `spawn ELOOP` (exit 194) — including the first `coding-agent` step of `npm run test:build-gate`. No runtime or published-package change.
@@ -57,6 +60,7 @@ This package's release notes are split:
 - Stripped per-field descriptions from the `agent`/`Agent`/`Task` tool's `tasks[]`/`chain[]` array-item schema (bare `taskSchema` variant), keeping full descriptions only on the single-mode top-level fields. Descriptions are advisory-only and never validated, so `tasks[]`/`chain[]` items accept/reject identically before and after (verified against both `Value.Check` and the compiled `Compile` path). Agent tool 5905→3845 B (−2060), default tool set 16775→14715 B (−2060). One-time `tools[]` re-warm, byte-stable thereafter. See `agent-schema-dedupe.md` Option D.
 
 - Encode pure string-literal enums in the `agent`/`Agent`/`Task`, `grep`, and `bash_output` tool schemas as JSON Schema `{type:"string", enum:[...]}` via the upstream `StringEnum` helper instead of TypeBox `anyOf`-of-`const`. Serialized `tools[]` bytes drop with byte-identical validation semantics (verified against both `Value.Check` and the compiled `Compile` path): Agent tool 7144→5905 B (−1239), grep 3415→3289 B (−126), bash_output `mode` −63 B. One-time `tools[]` re-warm, byte-stable thereafter.
+>>>>>>> origin/main
 
 - Fixed bash tool crash (`Cannot read properties of undefined (reading 'getSessionId')`) when `execute` is called with a ctx lacking `sessionManager` (extension test harnesses); guard added after the owner-session reap change ([#325](https://github.com/valkyriweb/pi-mono/pull/325)) broke my-pi's extension gate ([#333](https://github.com/valkyriweb/pi-mono/pull/333)).
 
