@@ -31,7 +31,7 @@
 		"changeset": "changeset",
 		"changeset:status": "changeset status",
 		"version-packages": "changeset version && npm install --package-lock-only --ignore-scripts && npm run shrinkwrap:coding-agent && npm run install-lock:coding-agent",
-		"publish:changesets": "changeset publish",
+		"publish:changesets": "npm_config_ignore_scripts=true changeset publish",
 		"generate:models": "npm --prefix packages/ai run generate-models && npm --prefix packages/ai run generate-image-models",
 		"hydrate:model-data": "npm --prefix packages/ai run hydrate-model-data",
 		"check:model-data": "npm --prefix packages/ai run check:model-data",

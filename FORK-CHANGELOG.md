@@ -8,6 +8,8 @@ Release numbers track the fork's GitHub Packages releases, versioned in lockstep
 
 ### Changed
 
+- **Changesets publishing now reuses the canonical release build instead of concurrently rerunning destructive package lifecycle builds.** The nine-package organization-scope release exposed a race: parallel `prepublishOnly` scripts cleaned shared dependency declarations while client, server, and agent-core were compiling, leaving six packages published and three failed. The release workflow already completed the ordered root build and gates, so the publish command now sets npm's `ignore-scripts` config; retries skip immutable versions already present and publish the remaining artifacts from the verified build.
+
 - **Version-only release PRs now recognize caret/tilde internal dependency range bumps as release mechanics.** Changesets updates `^0.x` workspace ranges alongside exact lockstep pins; the changelog gate no longer misclassifies that generated package metadata as undocumented source behavior.
 
 - **The nine current fork packages move from the user-owned `@valkyriweb` scope to organization-owned `@lue-labs`.** Package manifests, internal dependencies/imports, pending Changesets, generated install locks, release tooling, registry routing, and current documentation now use the organization scope; publish metadata points at `lue-labs/pi-mono` so GitHub Packages can establish native repository and Actions access. The legacy scope remains configured during consumer transition, and previously published `@valkyriweb/*` versions remain immutable rollback targets.
