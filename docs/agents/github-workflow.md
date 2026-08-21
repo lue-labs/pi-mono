@@ -5,7 +5,7 @@ Read when changing branches, reviewing a PR, editing GitHub Actions, or writing 
 ## Git safety
 
 - Check `git status` before and after edits. Assume unexpected changes belong to another agent; never revert them.
-- Do not run destructive Git commands—`git reset --hard`, `git clean`, forced checkout/restore—or bypass hooks with `--no-verify`.
+- Never run destructive Git commands (`git reset --hard`, `git clean`, forced checkout or restore) and never bypass hooks with `--no-verify`.
 - Do not amend commits unless asked.
 - Stage and commit only your own changed paths. Do not use `git add -A` or `git add .` in a shared worktree.
 - If another agent touches the same file, inspect both diffs and preserve both intents. Prefer worktrees for parallel work.
@@ -26,6 +26,6 @@ Do not move the active worktree to a PR branch unless explicitly asked. Inspect 
 
 - Treat recurring workflow failures, skipped required jobs, permission failures, and noisy notifications as product defects.
 - Prefer checks that enforce real contracts over advisory checks with no owner.
-- Disable inherited workflows that do not serve `valkyriweb/pi-mono`; verify branch-protection requirements first.
+- Disable inherited workflows that do not serve `lue-labs/pi-mono`; verify branch-protection requirements first.
 - Scheduled workflows must short-circuit before expensive or write operations when there is no work.
 - Review workflow health from outside the workflow under review.

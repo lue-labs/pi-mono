@@ -24,11 +24,14 @@ export function isLatestThinkingModifiedError(error: unknown): boolean {
 	);
 }
 
-export function stripThinkingFromLatestAssistantTurn(messages: MessageParam[]): {
+/** Result of stripping stale thinking blocks from the latest assistant turn. */
+export interface ThinkingStripResult {
 	messages: MessageParam[];
 	removedThinkingBlocks: number;
 	removedAssistantMessage: boolean;
-} {
+}
+
+export function stripThinkingFromLatestAssistantTurn(messages: MessageParam[]): ThinkingStripResult {
 	let latestAssistantIndex = -1;
 	for (let index = messages.length - 1; index >= 0; index--) {
 		if (messages[index].role === "assistant") {

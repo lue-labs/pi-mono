@@ -330,7 +330,7 @@ function hasRootNode(emitter: unknown): emitter is { rootNode: HljsNode } {
 	);
 }
 
-let loggedEmitterShapeError = false;
+let loggedMissingEmitterRootNode = false;
 
 function highlightLine(state: { lang: string | null }, line: string, theme: Theme): Block[] {
 	const code = `${line}\n`;
@@ -344,9 +344,9 @@ function highlightLine(state: { lang: string | null }, line: string, theme: Them
 	// emitter is an internal hljs property not exposed in its type definitions
 	const emitter = (result as unknown as { emitter?: unknown }).emitter;
 	if (!hasRootNode(emitter)) {
-		if (!loggedEmitterShapeError) {
-			loggedEmitterShapeError = true;
-			console.error("color-diff: hljs emitter shape mismatch; syntax highlighting disabled.");
+		if (!loggedMissingEmitterRootNode) {
+			loggedMissingEmitterRootNode = true;
+			console.error("color-diff: hljs emitter has no rootNode, so syntax highlighting is disabled.");
 		}
 		return [[defaultStyle(theme), code]];
 	}

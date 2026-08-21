@@ -238,12 +238,14 @@ function finalizeGlobResults(args: {
 	const truncation = truncateHead(rawOutput, args.full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER });
 	let resultOutput = truncation.content;
 	const details: GlobToolDetails = {
-		...(args.backend ? { backend: args.backend } : {}),
 		elapsedMs: Date.now() - args.startedAt,
 		mode: args.outputMode,
 		sort: args.sort,
 		entriesReturned: args.outputMode === "count" ? sorted.length : paged.length,
 	};
+	if (args.backend) {
+		details.backend = args.backend;
+	}
 	const notices: string[] = [];
 	if (args.outputMode !== "count" && resultLimitReached) {
 		notices.push(

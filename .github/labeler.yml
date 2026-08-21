@@ -1,12 +1,12 @@
 # Path-based PR labels for actions/labeler@v5.
 #
-# Prerequisite: the pkg:* labels below do not exist in valkyriweb/pi-mono yet
+# Prerequisite: the pkg:* labels below do not exist in lue-labs/pi-mono yet
 # (they are upstream's). Create them before enabling the Labeler workflow:
 #
-#   gh label create pkg:agent        --repo valkyriweb/pi-mono --color e99695 --description "Agent runtime package"
-#   gh label create pkg:ai           --repo valkyriweb/pi-mono --color f9d0c4 --description "LLM API package"
-#   gh label create pkg:coding-agent --repo valkyriweb/pi-mono --color 0e8a16 --description "Coding agent CLI"
-#   gh label create pkg:tui          --repo valkyriweb/pi-mono --color 1d76db --description "Terminal UI library"
+#   gh label create pkg:agent        --repo lue-labs/pi-mono --color e99695 --description "Agent runtime package"
+#   gh label create pkg:ai           --repo lue-labs/pi-mono --color f9d0c4 --description "LLM API package"
+#   gh label create pkg:coding-agent --repo lue-labs/pi-mono --color 0e8a16 --description "Coding agent CLI"
+#   gh label create pkg:tui          --repo lue-labs/pi-mono --color 1d76db --description "Terminal UI library"
 #
 # `documentation` already exists in the fork.
 

@@ -1869,7 +1869,13 @@ export class InteractiveMode {
 			const extensionErrors = this.session.resourceLoader.getExtensions().errors;
 			if (extensionErrors.length > 0) {
 				for (const error of extensionErrors) {
-					extensionDiagnostics.push({ type: "error", message: error.error, path: error.path });
+					// Auto-discovered extensions are skipped rather than fatal, so report them
+					// as warnings. They stay listed: a skipped extension must remain visible.
+					extensionDiagnostics.push({
+						type: error.discovered ? "warning" : "error",
+						message: error.discovered ? `Skipped: ${error.error}` : error.error,
+						path: error.path,
+					});
 				}
 			}
 
@@ -2497,11 +2503,16 @@ export class InteractiveMode {
 	private getVisibleExtensionFooterIds(): string[] {
 		return this.session.extensionRunner
 			.getRegisteredFooters()
-			.filter(({ spec }) => spec.visible?.() ?? true)
+			.filter(({ id, spec, extensionPath }) => {
+				try {
+					if (!(spec.visible?.() ?? true)) return false;
+					return spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0;
+				} catch (err) {
+					this.footer.reportFooterPillError(id, extensionPath, err);
+					return false;
+				}
+			})
 			.sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0))
-			.filter(
-				({ spec }) => spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0,
-			)
 			.map(({ id }) => id);
 	}
 

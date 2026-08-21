@@ -11,6 +11,11 @@ import {
 	unregisterLiveSession as unregisterLiveSessionInRegistry,
 } from "../agents/live-sessions.ts";
 import {
+	findTaskAdapter as findTaskAdapterInRegistry,
+	registerTaskAdapter as registerTaskAdapterInRegistry,
+} from "../tasks/index.ts";
+import type { Task } from "../tasks/types.ts";
+import {
 	addAction,
 	addFilter,
 	applyFilters,
@@ -78,6 +83,8 @@ type ForkExtensionAPI = Pick<
 	| "registerLiveSession"
 	| "unregisterLiveSession"
 	| "getLiveSession"
+	| "registerTaskAdapter"
+	| "findTaskAdapter"
 	| "registerAgentDefinitions"
 	| "registerAgentChains"
 	| "registerContextMode"
@@ -161,6 +168,16 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 		getLiveSession(taskId: string): AgentSession | undefined {
 			runtime.assertActive();
 			return getLiveSessionFromRegistry(taskId);
+		},
+
+		registerTaskAdapter(task: Task): void {
+			runtime.assertActive();
+			registerTaskAdapterInRegistry(task);
+		},
+
+		findTaskAdapter(taskId: string): Task | undefined {
+			runtime.assertActive();
+			return findTaskAdapterInRegistry(taskId);
 		},
 
 		registerAgentDefinitions(definitions) {
