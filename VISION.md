@@ -1,4 +1,4 @@
-# VISION.md — valkyriweb/pi-mono
+# VISION.md — lue-labs/pi-mono
 
 ## Purpose
 

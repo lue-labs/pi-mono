@@ -26,6 +26,6 @@ Do not move the active worktree to a PR branch unless explicitly asked. Inspect 
 
 - Treat recurring workflow failures, skipped required jobs, permission failures, and noisy notifications as product defects.
 - Prefer checks that enforce real contracts over advisory checks with no owner.
-- Disable inherited workflows that do not serve `valkyriweb/pi-mono`; verify branch-protection requirements first.
+- Disable inherited workflows that do not serve `lue-labs/pi-mono`; verify branch-protection requirements first.
 - Scheduled workflows must short-circuit before expensive or write operations when there is no work.
 - Review workflow health from outside the workflow under review.
