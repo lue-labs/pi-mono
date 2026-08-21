@@ -6,6 +6,7 @@ import { basename, join } from "path";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 import { APP_NAME, getBinDir } from "../config.ts";
+import { fetchWithRetry } from "./management-http.ts";
 
 const TOOLS_DIR = getBinDir();
 const NETWORK_TIMEOUT_MS = 10_000;
@@ -144,10 +145,13 @@ export function toolDisplayName(command: string): string {
 
 // Fetch latest release version from GitHub
 async function getLatestVersion(repo: string): Promise<string> {
-	const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-		headers: { "User-Agent": `${APP_NAME}-coding-agent` },
-		signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
-	});
+	const response = await fetchWithRetry(
+		`https://api.github.com/repos/${repo}/releases/latest`,
+		{
+			headers: { "User-Agent": `${APP_NAME}-coding-agent` },
+		},
+		{ timeoutMs: NETWORK_TIMEOUT_MS },
+	);
 
 	if (!response.ok) {
 		throw new Error(`GitHub API error: ${response.status}`);
@@ -159,9 +163,7 @@ async function getLatestVersion(repo: string): Promise<string> {
 
 // Download a file from URL
 async function downloadFile(url: string, dest: string): Promise<void> {
-	const response = await fetch(url, {
-		signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-	});
+	const response = await fetchWithRetry(url, undefined, { timeoutMs: DOWNLOAD_TIMEOUT_MS });
 
 	if (!response.ok) {
 		throw new Error(`Failed to download: ${response.status}`);

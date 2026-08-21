@@ -47,7 +47,7 @@ interface CompactReadClassification {
 	label: string;
 }
 
-const COMPACT_RESOURCE_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
+const COMPACT_RESOURCE_FILE_NAMES = new Set(["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 
 /**
  * Pluggable operations for the read tool.
@@ -192,7 +192,7 @@ function formatReadResult(
 
 	const rawPath = str(args?.file_path ?? args?.path);
 	const output = getTextOutput(result, showImages);
-	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+	const lang = !isError && rawPath ? getLanguageFromPath(rawPath) : undefined;
 	const renderedLines = lang ? highlightCode(replaceTabs(output), lang) : output.split("\n");
 	const lines = trimTrailingEmptyLines(renderedLines);
 	const maxLines = options.expanded ? lines.length : 10;
@@ -368,7 +368,12 @@ export function createReadToolDefinition(
 							resolve({ content, details });
 						} catch (error: any) {
 							signal?.removeEventListener("abort", onAbort);
-							if (!aborted) reject(error);
+							if (aborted) return;
+							if (error?.code === "EISDIR") {
+								reject(new Error(`${path} is a directory, not a file. Use bash (ls) to list its contents.`));
+							} else {
+								reject(error);
+							}
 						}
 					})();
 				},

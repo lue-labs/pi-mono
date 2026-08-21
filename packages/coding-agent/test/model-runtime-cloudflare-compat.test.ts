@@ -56,10 +56,23 @@ async function createCloudflareRuntime(): Promise<{ modelRuntime: ModelRuntime; 
 	return { modelRuntime, modelRegistry: new ModelRegistry(modelRuntime) };
 }
 
+// Pick by capability, never by literal id: the generated catalog is rebuilt from
+// live provider data at build time, so a pinned id (this test used to hardcode
+// workers-ai/@cf/moonshotai/kimi-k2.5) silently disappears when the provider
+// retires the model. What matters here is only that the endpoint routes through
+// the openai-completions compat path that the `openai` mock above intercepts.
+function pickCompatModelId(modelRuntime: ModelRuntime): string {
+	const model = modelRuntime.getModels("cloudflare-ai-gateway").find((m) => m.api === "openai-completions");
+	if (!model) {
+		throw new Error("no cloudflare-ai-gateway model with api=openai-completions in the generated catalog");
+	}
+	return model.id;
+}
+
 describe("ModelRegistry Cloudflare compat streaming", () => {
 	it("materializes the Cloudflare endpoint through ModelRuntime streaming", async () => {
 		const { modelRuntime } = await createCloudflareRuntime();
-		const model = modelRuntime.getModel("cloudflare-ai-gateway", "workers-ai/@cf/moonshotai/kimi-k2.5");
+		const model = modelRuntime.getModel("cloudflare-ai-gateway", pickCompatModelId(modelRuntime));
 		expect(model).toBeDefined();
 
 		resetApiProviders();
@@ -74,14 +87,19 @@ describe("ModelRegistry Cloudflare compat streaming", () => {
 	});
 
 	it("materializes the Cloudflare endpoint after extension-style auth resolution", async () => {
-		const { modelRegistry } = await createCloudflareRuntime();
-		const model = modelRegistry.find("cloudflare-ai-gateway", "workers-ai/@cf/moonshotai/kimi-k2.5");
+		const { modelRuntime, modelRegistry } = await createCloudflareRuntime();
+		const model = modelRegistry.find("cloudflare-ai-gateway", pickCompatModelId(modelRuntime));
 		expect(model).toBeDefined();
 
 		resetApiProviders();
 		const auth = await modelRegistry.getApiKeyAndHeaders(model!);
 		expect(auth.ok).toBe(true);
 		if (!auth.ok) throw new Error(auth.error);
+		expect(auth.headers).toMatchObject({
+			"cf-aig-authorization": "Bearer test-token",
+			Authorization: null,
+			"x-api-key": null,
+		});
 
 		await complete(model!, { messages: [] }, auth);
 
@@ -91,5 +109,7 @@ describe("ModelRegistry Cloudflare compat streaming", () => {
 		};
 		expect(clientOptions.baseURL).toBe("https://gateway.ai.cloudflare.com/v1/test-account/test-gateway/compat");
 		expect(clientOptions.defaultHeaders?.["cf-aig-authorization"]).toBe("Bearer test-token");
+		expect(clientOptions.defaultHeaders?.Authorization).toBeNull();
+		expect(clientOptions.defaultHeaders?.["x-api-key"]).toBeNull();
 	});
 });

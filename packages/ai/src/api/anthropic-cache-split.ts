@@ -14,33 +14,51 @@ import type { CacheControlEphemeral } from "@anthropic-ai/sdk/resources/messages
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "../types.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
-export function splitSystemPromptForCache(systemPrompt: string, cacheControl?: CacheControlEphemeral) {
+type SystemPromptBlock = {
+	type: "text";
+	text: string;
+	cache_control?: CacheControlEphemeral;
+};
+
+/**
+ * Builds one system-prompt text block.
+ *
+ * Keys are assigned in the order `type`, `text`, `cache_control`, and
+ * `cache_control` is omitted entirely rather than set to a falsy value when
+ * absent. Both matter: the wire bytes are produced by insertion-order
+ * serialization, and Anthropic's prompt cache matches on the exact prefix
+ * bytes.
+ */
+function systemPromptBlock(text: string, cacheControl?: CacheControlEphemeral): SystemPromptBlock {
+	const block: SystemPromptBlock = {
+		type: "text",
+		text: sanitizeSurrogates(text),
+	};
+	if (cacheControl) {
+		block.cache_control = cacheControl;
+	}
+	return block;
+}
+
+export function splitSystemPromptForCache(
+	systemPrompt: string,
+	cacheControl?: CacheControlEphemeral,
+): SystemPromptBlock[] {
 	const boundaryIndex = systemPrompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
 	if (boundaryIndex === -1) {
-		return [
-			{
-				type: "text" as const,
-				text: sanitizeSurrogates(systemPrompt),
-				...(cacheControl ? { cache_control: cacheControl } : {}),
-			},
-		];
+		return [systemPromptBlock(systemPrompt, cacheControl)];
 	}
 
 	const stable = systemPrompt.slice(0, boundaryIndex).trimEnd();
 	const dynamic = systemPrompt.slice(boundaryIndex + SYSTEM_PROMPT_DYNAMIC_BOUNDARY.length).trimStart();
-	return [
-		stable
-			? {
-					type: "text" as const,
-					text: sanitizeSurrogates(stable),
-					...(cacheControl ? { cache_control: cacheControl } : {}),
-				}
-			: undefined,
-		dynamic
-			? {
-					type: "text" as const,
-					text: sanitizeSurrogates(dynamic),
-				}
-			: undefined,
-	].filter((block): block is Exclude<typeof block, undefined> => Boolean(block));
+	const blocks: SystemPromptBlock[] = [];
+	if (stable) {
+		blocks.push(systemPromptBlock(stable, cacheControl));
+	}
+	if (dynamic) {
+		// The dynamic tail deliberately carries no cache_control: that is what
+		// keeps per-session content from busting the shared static prefix.
+		blocks.push(systemPromptBlock(dynamic));
+	}
+	return blocks;
 }

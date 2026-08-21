@@ -124,6 +124,12 @@ export interface ForkAgentOptions {
 	/** Short human label for logs/UI. */
 	description?: string;
 	/**
+	 * Hide this internal fork from user-facing task lists, agent panes, and
+	 * footer attention counts. The run remains addressable by id for lifecycle
+	 * control and diagnostics. Default false.
+	 */
+	hidden?: boolean;
+	/**
 	 * When true (default), suppresses the `agent_completion` transcript
 	 * notification for this fork. Extension-initiated forks (e.g. pi-memory
 	 * extraction) should stay silent — the extension owns any transcript

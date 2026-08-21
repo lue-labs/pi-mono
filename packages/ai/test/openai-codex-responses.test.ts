@@ -23,7 +23,7 @@ function buildBodyWith(tools: Tool[]) {
 		messages: [],
 		tools,
 	};
-	return buildRequestBody(model, context);
+	return buildRequestBody(model, context, undefined);
 }
 
 describe("buildRequestBody — Codex prompt cache", () => {

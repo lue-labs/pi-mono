@@ -27,7 +27,6 @@ function createSession(options: {
 	reasoning?: boolean;
 	thinkingLevel?: string;
 	pendingAutoModelAlias?: string;
-	isUsingOAuth?: boolean;
 	usage?: AssistantUsage;
 	entries?: unknown[];
 	branchEntries?: unknown[];
@@ -44,6 +43,10 @@ function createSession(options: {
 			nativeDeferredTools?: boolean;
 		};
 	};
+	branchUsage?: AssistantUsage;
+	compactionUsage?: AssistantUsage;
+	toolUsage?: AssistantUsage;
+	usingSubscription?: boolean;
 }): AgentSession {
 	const usage = options.usage;
 	const entries =
@@ -90,9 +93,6 @@ function createSession(options: {
 				];
 			},
 		},
-		modelRegistry: {
-			isUsingOAuth: () => options.isUsingOAuth ?? false,
-		},
 		pendingAutoModelAlias: options.pendingAutoModelAlias,
 		sessionManager: {
 			getEntries: () => entries,
@@ -107,7 +107,7 @@ function createSession(options: {
 				tokens: 24_600,
 			},
 		modelRuntime: {
-			isUsingOAuth: () => false,
+			isUsingSubscription: () => options.usingSubscription ?? false,
 		},
 	};
 
@@ -999,5 +999,48 @@ describe("FooterComponent width handling", () => {
 
 		expect(rendered).toContain("Agents: 1 running");
 		expect(rendered).toContain("/agents runs");
+	});
+
+	it("marks Kimi Coding costs as subscription estimates", () => {
+		const session = createSession({
+			sessionName: "",
+			provider: "kimi-coding",
+			usage: {
+				input: 100,
+				output: 10,
+				cacheRead: 0,
+				cacheWrite: 0,
+				cost: { total: 1.234 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		expect(stripAnsi(footer.render(120)[1])).toContain("$1.234 (sub)");
+	});
+
+	it("marks explicitly identified subscription auth", () => {
+		const session = createSession({ sessionName: "", provider: "anthropic", usingSubscription: true });
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		expect(stripAnsi(footer.render(120)[1])).toContain("$0.000 (sub)");
+	});
+
+	it("does not mark generic OAuth sign-in as a subscription", () => {
+		const session = createSession({
+			sessionName: "",
+			provider: "openrouter",
+			usage: {
+				input: 100,
+				output: 10,
+				cacheRead: 0,
+				cacheWrite: 0,
+				cost: { total: 1.234 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+		const stats = stripAnsi(footer.render(120)[1]);
+
+		expect(stats).toContain("$1.234");
+		expect(stats).not.toContain("(sub)");
 	});
 });

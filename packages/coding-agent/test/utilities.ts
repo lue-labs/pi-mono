@@ -8,6 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Agent } from "@valkyriweb/pi-agent-core";
 import type { OAuthCredentials } from "@valkyriweb/pi-ai";
+import { streamSimple } from "@valkyriweb/pi-ai/compat";
 import { builtinProviders } from "@valkyriweb/pi-ai/providers/all";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
@@ -93,7 +94,7 @@ export async function resolveApiKey(provider: string): Promise<string | undefine
 		if (!oauth) return undefined;
 		let credential = entry;
 		if (Date.now() >= credential.expires) {
-			credential = await oauth.refresh(credential);
+			credential = await oauth.refresh(credential, new AbortController().signal);
 			storage[provider] = credential;
 			saveAuthStorage(storage);
 		}
@@ -229,7 +230,9 @@ export function createTestResourceLoader(options: CreateTestResourceLoaderOption
 		getThemes: () => ({ themes: [], diagnostics: [] }),
 		getAgentsFiles: () => ({ agentsFiles: [] }),
 		getSystemPrompt: () => undefined,
+		getSystemPromptSource: () => undefined,
 		getAppendSystemPrompt: () => [],
+		getAppendSystemPromptSources: () => [],
 		extendResources: () => {},
 		reload: async () => {},
 	};
@@ -251,6 +254,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
 			systemPrompt: options.systemPrompt ?? "You are a helpful assistant. Be extremely concise.",
 			tools: createCodingTools(process.cwd()),
 		},
+		streamFn: streamSimple,
 	});
 
 	const sessionManager = options.inMemory ? SessionManager.inMemory() : SessionManager.create(tempDir);

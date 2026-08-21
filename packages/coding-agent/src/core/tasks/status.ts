@@ -10,7 +10,10 @@ function taskTypeLabel(type: TaskType): string {
 }
 
 export function taskNeedsInput(task: TaskSnapshot): boolean {
-	return task.needsInput ?? (task.status === "interrupted" || task.status === "failed");
+	// Needs-input is an explicit claim by the task provider (e.g. a bash job
+	// stalled on an interactive prompt). Never derived from status: terminal or
+	// interrupted tasks are settled state, not a user wait.
+	return task.needsInput === true;
 }
 
 export function taskIsWorking(task: TaskSnapshot): boolean {
@@ -63,7 +66,14 @@ export function formatTaskStatus(tasks = listTasks(), detailId?: string): string
 		const type = taskTypeLabel(task.type);
 		const resumable = task.resumable ? " resumable" : "";
 		const error = task.error ? ` error: ${task.error}` : "";
-		lines.push(`${task.id} [${type}] ${task.status}${resumable} ${elapsed(task)} ${task.description}${error}`);
+		const lifecycle = task.lifecycle?.promptStalled
+			? " waiting for prompt"
+			: task.lifecycle?.terminalReason
+				? ` reason: ${task.lifecycle.terminalReason}`
+				: "";
+		lines.push(
+			`${task.id} [${type}] ${task.status}${resumable} ${elapsed(task)} ${task.description}${lifecycle}${error}`,
+		);
 	}
 	lines.push(
 		"",

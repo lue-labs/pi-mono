@@ -30,15 +30,21 @@ import type {
 	ToolResultMessage,
 } from "../types.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
+import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
+import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { splitSystemPromptForCache } from "./anthropic-cache-split.ts";
 import { type ServerToolResultBlockLike, summarizeServerToolResult } from "./anthropic-server-tools.ts";
-import { isLatestThinkingModifiedError, stripThinkingFromMessageParams } from "./anthropic-thinking-recovery.ts";
+import {
+	isLatestThinkingModifiedError,
+	stripStaleThinkingFromMessageParams,
+	stripThinkingFromLatestAssistantTurn,
+} from "./anthropic-thinking-recovery.ts";
 import {
 	convertedToolCache,
 	convertOneTool,
@@ -52,6 +58,7 @@ import {
 	clampMaxTokensToContext,
 	MIN_THINKING_BUDGET,
 } from "./simple-options.ts";
+import { repairToolUseAdjacency, reportToolUseAdjacencyViolations } from "./tool-use-adjacency.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 /**
@@ -267,6 +274,31 @@ function stripToolReferencesFromContent(
 	return convertContentBlocks(filtered);
 }
 
+// Drop transcript tool_reference blocks naming tools absent from this request's
+// tools[]. Anthropic requires every tool_reference to exactly match an entry in
+// tools[] and 400s the whole request otherwise ("Tool reference 'X' not found in
+// available tools") — which happens when a transcript is replayed with a smaller
+// tool set (forked child with filtered tools, changed profile, resumed session).
+function dropUnknownToolReferences(
+	content: (TextContent | ImageContent | { type: "tool_reference"; name: string })[],
+	requestToolNames: ReadonlySet<string>,
+	normalizeToolName: (name: string) => string,
+): (TextContent | ImageContent | { type: "tool_reference"; name: string })[] {
+	const filtered: (TextContent | ImageContent | { type: "tool_reference"; name: string })[] = [];
+	for (const block of content) {
+		if (block.type !== "tool_reference") {
+			filtered.push(block);
+			continue;
+		}
+		const name = normalizeToolName(block.name);
+		if (requestToolNames.has(name)) filtered.push({ ...block, name });
+	}
+	if (filtered.length === 0 && content.length > 0) {
+		return [{ type: "text", text: "[Tool reference removed - tool not available in this request]" }];
+	}
+	return filtered;
+}
+
 export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export type AnthropicThinkingDisplay = "summarized" | "omitted";
@@ -288,7 +320,9 @@ function getAnthropicCompat(
 		supportsCacheControlOnTools: model.compat?.supportsCacheControlOnTools ?? true,
 		supportsTemperature: model.compat?.supportsTemperature ?? true,
 		allowEmptySignature: model.compat?.allowEmptySignature ?? false,
+		supportsStrictTools: model.compat?.supportsStrictTools ?? false,
 		supportsToolReferences: model.compat?.supportsToolReferences ?? defaultSupportsToolReferences(model),
+		inlineDeferredTools: model.compat?.inlineDeferredTools ?? false,
 	};
 }
 
@@ -635,7 +669,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			stopReason: "pending",
 			timestamp: Date.now(),
 		};
 
@@ -670,6 +704,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					shouldUseToolSearchBeta(model, context),
 					usesExtendedCacheTtl(model, options?.cacheRetention, options?.env),
 					options?.headers,
+					options?.fetch,
 					copilotDynamicHeaders,
 					cacheSessionId,
 				);
@@ -686,29 +721,58 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			if (nextParams !== undefined) {
 				params = nextParams as MessageCreateParamsStreaming;
 			}
+			// After onPayload, never before: an extension may replace messages
+			// wholesale, so the pre-hook array is not what the provider sees. Record
+			// the shape first — the log is the evidence trail — then repair it:
+			// Anthropic rejects the whole request on a split pair, and a frozen
+			// history replays the same 400 forever (killed lue-kube 01a0202f).
+			reportToolUseAdjacencyViolations(params.messages, model.id);
+			const repairedMessages = repairToolUseAdjacency(params.messages);
+			if (repairedMessages !== params.messages) {
+				// Never mutate the hook's object — extensions may return a frozen
+				// payload, and in-place assignment would fail every request.
+				params = { ...params, messages: repairedMessages };
+			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
-				maxRetries: options?.maxRetries ?? 0,
+				maxRetries: 0,
 			};
 			let response: Awaited<ReturnType<ReturnType<typeof client.messages.create>["asResponse"]>>;
 			try {
-				response = await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
+				response = await retryProviderRequest(
+					() => client.messages.create({ ...params, stream: true }, requestOptions).asResponse(),
+					{
+						maxRetries: options?.maxRetries,
+						maxRetryDelayMs: options?.maxRetryDelayMs,
+						signal: options?.signal,
+					},
+				);
 			} catch (error) {
-				// Graceful self-heal for the signed-thinking-block round-trip 400.
-				// Anthropic rejects a request when a thinking/redacted_thinking block
-				// in the latest assistant message does not byte-match what it signed
-				// (drifted signature from a crashed/paused turn, post-compaction
-				// replay, or content mutation). With no recovery this poisons every
-				// subsequent request and wedges the session. Retry ONCE with all
-				// thinking blocks stripped from history: Anthropic only validates
-				// REPLAYED thinking blocks, so a request carrying none always passes,
-				// and fresh thinking is still generated for the new turn. This is the
-				// same drop the cross-model path in transformMessages already applies.
-				// (#thinking-roundtrip)
+				// Anthropic combines consecutive assistant params into one turn, so recover
+				// the final contiguous assistant run while preserving every earlier signed
+				// block. (#thinking-roundtrip)
 				if (!isLatestThinkingModifiedError(error)) throw error;
-				params = { ...params, messages: stripThinkingFromMessageParams(params.messages) };
-				response = await client.messages.create({ ...params, stream: true }, requestOptions).asResponse();
+				const recovery = stripThinkingFromLatestAssistantTurn(params.messages);
+				params = { ...params, messages: recovery.messages };
+				appendAssistantMessageDiagnostic(
+					output,
+					createAssistantMessageDiagnostic("anthropic_latest_thinking_recovery", error, {
+						summary:
+							"Dropped reasoning from the latest assistant turn for one retry; earlier signed reasoning was preserved.",
+						lostAssistantTurns: 1,
+						removedThinkingBlocks: recovery.removedThinkingBlocks,
+						removedAssistantMessage: recovery.removedAssistantMessage,
+					}),
+				);
+				response = await retryProviderRequest(
+					() => client.messages.create({ ...params, stream: true }, requestOptions).asResponse(),
+					{
+						maxRetries: options?.maxRetries,
+						maxRetryDelayMs: options?.maxRetryDelayMs,
+						signal: options?.signal,
+					},
+				);
 			}
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
@@ -730,7 +794,6 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			// trimmed. Resolve pause_turn in-stream so callers only ever see a
 			// completed turn. See `mapStopReason` and the signed-thinking-block
 			// round-trip path below (~line 1163). (#thinking-roundtrip)
-			let rawStopReason: string | undefined;
 			let pauseResumeCount = 0;
 			const MAX_PAUSE_TURN_RESUMES = 16;
 
@@ -774,7 +837,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						if (event.content_block.type === "text") {
 							const block: Block = {
 								type: "text",
-								text: "",
+								text: event.content_block.text ?? "",
 								index: event.index,
 							};
 							output.content.push(block);
@@ -782,8 +845,8 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						} else if (event.content_block.type === "thinking") {
 							const block: Block = {
 								type: "thinking",
-								thinking: "",
-								thinkingSignature: "",
+								thinking: event.content_block.thinking ?? "",
+								thinkingSignature: event.content_block.signature ?? "",
 								index: event.index,
 							};
 							output.content.push(block);
@@ -939,7 +1002,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						}
 					} else if (event.type === "message_delta") {
 						if (event.delta.stop_reason) {
-							rawStopReason = event.delta.stop_reason;
+							output.rawStopReason = event.delta.stop_reason;
 							const { stopReason, errorMessage } = mapStopReason(
 								event.delta.stop_reason,
 								event.delta.stop_details,
@@ -980,7 +1043,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					}
 				}
 
-				if (rawStopReason !== "pause_turn" || options?.signal?.aborted) break;
+				if (output.rawStopReason !== "pause_turn" || options?.signal?.aborted) break;
 
 				if (++pauseResumeCount > MAX_PAUSE_TURN_RESUMES) {
 					throw new Error(
@@ -1022,6 +1085,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				if (nextContinuation !== undefined) {
 					continuationParams = nextContinuation as MessageCreateParamsStreaming;
 				}
+				reportToolUseAdjacencyViolations(continuationParams.messages, model.id);
+				const repairedContinuation = repairToolUseAdjacency(continuationParams.messages);
+				if (repairedContinuation !== continuationParams.messages) {
+					continuationParams = { ...continuationParams, messages: repairedContinuation };
+				}
 
 				// Snapshot the completed call's cumulative totals; the next call's
 				// message_start/delta will add this call's contribution on top.
@@ -1031,7 +1099,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				carryOverUsage.cacheWrite = output.usage.cacheWrite;
 				carryOverUsage.cacheWrite1h = output.usage.cacheWrite1h ?? 0;
 
-				rawStopReason = undefined;
+				output.rawStopReason = undefined;
 				response = await client.messages
 					.create({ ...continuationParams, stream: true }, requestOptions)
 					.asResponse();
@@ -1042,6 +1110,9 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				throw new Error("Request was aborted");
 			}
 
+			if (output.stopReason === "pending") {
+				throw new Error("Anthropic stream ended without a stop reason");
+			}
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
 				// Preserve the upstream stop reason: "refusal"/"sensitive" map to
 				// "error" in mapStopReason, and a generic message both hides the
@@ -1050,8 +1121,8 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				// transient stream drops (retryable).
 				throw new Error(
 					output.errorMessage ??
-						(rawStopReason
-							? `Provider ended turn with stop reason: ${rawStopReason}`
+						(output.rawStopReason
+							? `Provider ended turn with stop reason: ${output.rawStopReason}`
 							: "Stream ended before message_stop"),
 				);
 			}
@@ -1186,6 +1257,7 @@ function createClient(
 	useToolSearchBeta: boolean,
 	useExtendedCacheTtlBeta: boolean,
 	optionsHeaders?: ProviderHeaders,
+	fetch?: typeof globalThis.fetch,
 	dynamicHeaders?: Record<string, string>,
 	sessionId?: string,
 ): { client: Anthropic; isOAuthToken: boolean } {
@@ -1212,6 +1284,7 @@ function createClient(
 			authToken: apiKey ?? null,
 			baseURL: model.baseUrl,
 			dangerouslyAllowBrowser: true,
+			fetch,
 			defaultHeaders: mergeHeadersWithAnthropicBetas(
 				betaFeatures,
 				{
@@ -1234,6 +1307,7 @@ function createClient(
 			authToken: apiKey,
 			baseURL: model.baseUrl,
 			dangerouslyAllowBrowser: true,
+			fetch,
 			defaultHeaders: mergeHeadersWithAnthropicBetas(
 				["claude-code-20250219", "oauth-2025-04-20", ...betaFeatures],
 				{
@@ -1258,6 +1332,7 @@ function createClient(
 		authToken: null,
 		baseURL: model.baseUrl,
 		dangerouslyAllowBrowser: true,
+		fetch,
 		defaultHeaders: mergeHeadersWithAnthropicBetas(
 			betaFeatures,
 			{
@@ -1289,11 +1364,33 @@ function buildParams(
 	// names) and `Tool.name` agree on identity.
 	const normalizeToolName = (name: string): string =>
 		canonicalToWire.get(name) ?? (isOAuthToken ? toClaudeCodeName(name) : name);
-	const toolPlacement = splitDeferredTools(context, compat.supportsToolReferences, normalizeToolName);
+	// Inline-schema lane (opt-in, gateways that drop the native deferral wire):
+	// transcript-activated tools are excluded from wire tools[] permanently and
+	// their schemas are delivered as text after the activating tool_result, so
+	// tools[] stays byte-stable and activation never busts the cache prefix.
+	const inlineDeferred = compat.inlineDeferredTools && !compat.supportsToolReferences;
+	const toolPlacement = splitDeferredTools(
+		context,
+		compat.supportsToolReferences || inlineDeferred,
+		normalizeToolName,
+		inlineDeferred,
+	);
 	// Never defer every tool — Anthropic still needs at least one immediate
 	// definition, so an all-deferred split falls back to sending everything now.
-	const deferredToolNames: ReadonlySet<string> =
+	const messageAnchoredNames: ReadonlySet<string> =
 		toolPlacement.immediate.length > 0 ? new Set(toolPlacement.deferred.keys()) : new Set();
+	// tool_reference lanes mark message-anchored tools as defer_loading stubs in
+	// tools[]; the inline lane must not (the gateway drops the field and would
+	// send full schemas — the exact prefix mutation this lane exists to avoid).
+	const deferredToolNames: ReadonlySet<string> = inlineDeferred ? new Set() : messageAnchoredNames;
+	const inlineToolSchemas: ReadonlyMap<string, Tool> | undefined =
+		inlineDeferred && messageAnchoredNames.size > 0 ? toolPlacement.deferred : undefined;
+	const wireTools: Tool[] | undefined = inlineToolSchemas !== undefined ? toolPlacement.immediate : context.tools;
+	// Wire names of every tool serialized into this request's tools[] (same
+	// expression as convertTools). Transcript tool_reference blocks are filtered
+	// against this set — Anthropic rejects the request when a reference names a
+	// tool that is not in tools[].
+	const requestToolNames: ReadonlySet<string> = new Set((wireTools ?? []).map((tool) => normalizeToolName(tool.name)));
 	const params: MessageCreateParamsStreaming = {
 		model: model.id,
 		messages: convertMessages(
@@ -1306,6 +1403,8 @@ function buildParams(
 			canonicalToWire,
 			deferredToolNames,
 			normalizeToolName,
+			requestToolNames,
+			inlineToolSchemas,
 		),
 		max_tokens: options?.maxTokens ?? model.maxTokens,
 		stream: true,
@@ -1333,14 +1432,14 @@ function buildParams(
 		params.temperature = options.temperature;
 	}
 
-	if (context.tools && context.tools.length > 0) {
+	if (wireTools && wireTools.length > 0) {
 		// Claude Code (OAuth identity) never puts cache_control on tools — only on
 		// system prompt blocks and messages. Providers that support it get a
 		// cache_control marker on the last tool definition (skipped when that tool
 		// is deferred: the API rejects both defer_loading and cache_control on the
 		// same tool definition).
 		params.tools = convertTools(
-			context.tools,
+			wireTools,
 			model,
 			isOAuthToken,
 			compat.supportsEagerToolInputStreaming,
@@ -1420,8 +1519,10 @@ function convertMessages(
 	canonicalToWire?: Map<string, string>,
 	deferredToolNames: ReadonlySet<string> = new Set(),
 	normalizeToolName: (name: string) => string = (name) => name,
+	requestToolNames: ReadonlySet<string> = new Set(),
+	inlineToolSchemas?: ReadonlyMap<string, Tool>,
 ): MessageParam[] {
-	const params: MessageParam[] = [];
+	let params: MessageParam[] = [];
 	const loadedToolNames = new Set<string>();
 
 	// Transform messages for cross-provider compatibility
@@ -1531,9 +1632,13 @@ function convertMessages(
 						input: block.arguments ?? {},
 					});
 				} else if (block.type === "tool_reference" && supportsDeferredTools) {
+					const wireName = normalizeToolName(block.name);
+					// Skip references to tools missing from this request's tools[] —
+					// Anthropic 400s the whole request on an unresolvable reference.
+					if (!requestToolNames.has(wireName)) continue;
 					blocks.push({
 						type: "tool_reference",
-						tool_name: canonicalToWire?.get(block.name) ?? block.name,
+						tool_name: wireName,
 					} as unknown as ContentBlockParam);
 				}
 			}
@@ -1557,7 +1662,23 @@ function convertMessages(
 				const references: { type: "tool_reference"; tool_name: string }[] = [];
 				for (const name of result.addedToolNames ?? []) {
 					const normalizedName = normalizeToolName(name);
-					if (!deferredToolNames.has(normalizedName) || loadedToolNames.has(normalizedName)) continue;
+					if (loadedToolNames.has(normalizedName)) continue;
+					// Inline-schema lane: deliver the activated tool's full definition as
+					// a text block after this tool_result batch. tools[] never mutates,
+					// so activation stays append-only for the prompt cache. Rendered via
+					// convertOneTool so the model sees the exact tools[] shape
+					// (deterministic key order — byte-stable across replays).
+					const inlineTool = inlineToolSchemas?.get(normalizedName);
+					if (inlineTool) {
+						loadedToolNames.add(normalizedName);
+						const definition = convertOneTool(inlineTool, model, false, false, normalizedName);
+						siblingContent.push({
+							type: "text",
+							text: `<tool-loaded>\n${JSON.stringify(definition)}\n</tool-loaded>\nThis tool is now available. Invoke it by name like any other tool.`,
+						});
+						continue;
+					}
+					if (!deferredToolNames.has(normalizedName)) continue;
 					loadedToolNames.add(normalizedName);
 					references.push({
 						type: "tool_reference",
@@ -1565,7 +1686,10 @@ function convertMessages(
 					});
 				}
 				const convertedContent = supportsDeferredTools
-					? convertContentBlocks(result.content, canonicalToWire)
+					? convertContentBlocks(
+							dropUnknownToolReferences(result.content, requestToolNames, normalizeToolName),
+							canonicalToWire,
+						)
 					: stripToolReferencesFromContent(result.content);
 				toolResults.push({
 					type: "tool_result",
@@ -1602,6 +1726,14 @@ function convertMessages(
 				content: [...toolResults, ...siblingContent],
 			});
 		}
+	}
+
+	// Thinking blocks older than the last real user turn are discarded by
+	// Anthropic, so replaying them only makes our bytes diverge from the history
+	// it keeps and forces a full-transcript rewrite at every user turn. Set
+	// PI_STALE_THINKING_REPLAY=1 to restore the old replay-everything behaviour.
+	if (process.env.PI_STALE_THINKING_REPLAY !== "1") {
+		params = stripStaleThinkingFromMessageParams(params);
 	}
 
 	// Add cache_control to the last user message to cache conversation history
@@ -1729,7 +1861,7 @@ function mapStopReason(
 		case "stop_sequence":
 			return { stopReason: "stop" }; // We don't supply stop sequences, so this should never happen
 		case "sensitive": // Content flagged by safety filters (not yet in SDK types)
-			return { stopReason: "error" };
+			return { stopReason: "error", errorMessage: "Provider stopped with: sensitive" };
 		default:
 			// Handle unknown stop reasons gracefully (API may add new values)
 			throw new Error(`Unhandled stop reason: ${reason}`);

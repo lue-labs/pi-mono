@@ -15,6 +15,14 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Context, Model, Tool } from "../types.ts";
 
+/**
+ * A JSON Schema fragment as it arrives from a tool definition. Tool schemas
+ * cross a wire boundary (an MCP server can re-emit `tools/list` at any time),
+ * so this is the widest honest description of that input rather than a claim
+ * about its shape.
+ */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
 export function hasDeferredTool(context: Context): boolean {
 	return context.tools?.some((tool) => tool.deferLoading && !tool.alwaysLoad) ?? false;
 }
@@ -39,12 +47,14 @@ export function hasToolReferenceContent(context: Context): boolean {
  *
  * Refs: my-pi/docs/cache-break-investigation-2026-05-16.md Fix #2.
  */
-function sortObjectKeysDeep(value: unknown): unknown {
+function sortObjectKeysDeep(value: JsonValue): JsonValue {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
-	const input = value as Record<string, unknown>;
-	const out: Record<string, unknown> = {};
-	for (const key of Object.keys(input).sort()) {
-		out[key] = sortObjectKeysDeep(input[key]);
+	const out: { [key: string]: JsonValue } = {};
+	for (const key of Object.keys(value).sort()) {
+		const entry = value[key];
+		if (entry !== undefined) {
+			out[key] = sortObjectKeysDeep(entry);
+		}
 	}
 	return out;
 }
@@ -101,9 +111,18 @@ export function convertOneTool(
 		}
 		// No advisor model configured → fall through to the client tool path.
 	}
-	const schema = tool.parameters as { properties?: unknown; required?: string[] };
+	const schema = tool.parameters as { properties?: JsonValue; required?: string[] };
 	const properties = sortObjectKeysDeep(schema.properties ?? {}) as Record<string, unknown>;
 	const required = (schema.required ?? []).slice().sort();
+	// anti-slop(no-conditional-empty-object-spread) fires on the two flag
+	// spreads below and stays unfixed on purpose. Key insertion order here is
+	// the serialized byte order of the cached tools[] prefix, and the flags must
+	// sit between `description` and `input_schema`. Building the object
+	// statement-by-statement cannot reproduce that order without either moving
+	// the flags after `input_schema` (which changes the wire bytes and busts
+	// every existing tools[] cache prefix once) or casting a Record back to
+	// Anthropic.Messages.Tool (which launders the type the rule set exists to
+	// protect). Recorded in docs/anti-slop/triage.md.
 	return {
 		name: wireName,
 		description: tool.description,

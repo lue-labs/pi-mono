@@ -330,7 +330,7 @@ function hasRootNode(emitter: unknown): emitter is { rootNode: HljsNode } {
 	);
 }
 
-let loggedEmitterShapeError = false;
+let loggedMissingEmitterRootNode = false;
 
 function highlightLine(state: { lang: string | null }, line: string, theme: Theme): Block[] {
 	const code = `${line}\n`;
@@ -344,9 +344,9 @@ function highlightLine(state: { lang: string | null }, line: string, theme: Them
 	// emitter is an internal hljs property not exposed in its type definitions
 	const emitter = (result as unknown as { emitter?: unknown }).emitter;
 	if (!hasRootNode(emitter)) {
-		if (!loggedEmitterShapeError) {
-			loggedEmitterShapeError = true;
-			console.error("color-diff: hljs emitter shape mismatch; syntax highlighting disabled.");
+		if (!loggedMissingEmitterRootNode) {
+			loggedMissingEmitterRootNode = true;
+			console.error("color-diff: hljs emitter has no rootNode, so syntax highlighting is disabled.");
 		}
 		return [[defaultStyle(theme), code]];
 	}
@@ -509,25 +509,29 @@ function wrapText(h: Highlight, width: number, theme: Theme): void {
 }
 
 function addLineNumber(h: Highlight, theme: Theme, maxDigits: number, fullDim: boolean): void {
-	const style: Style = {
+	const changedStyle: Style = {
 		foreground: h.marker ? decorationColor(h.marker, theme) : theme.foreground,
 		background: h.marker ? lineBackground(h.marker, theme) : theme.background,
 	};
+	const neutralStyle: Style = { foreground: theme.foreground, background: theme.background };
 	const shouldDim = h.marker === null || h.marker === " ";
 	for (let i = 0; i < h.lines.length; i++) {
 		const prefix = i === 0 ? ` ${String(h.lineNumber).padStart(maxDigits)} ` : " ".repeat(maxDigits + 2);
-		const wrapped = shouldDim && !fullDim ? `${DIM}${prefix}${UNDIM}` : prefix;
-		h.lines[i]!.unshift([style, wrapped]);
+		const wrapped = (shouldDim || i > 0) && !fullDim ? `${DIM}${prefix}${UNDIM}` : prefix;
+		h.lines[i]!.unshift([i === 0 ? changedStyle : neutralStyle, wrapped]);
 	}
 }
 
 function addMarker(h: Highlight, theme: Theme): void {
 	if (!h.marker) return;
-	const style: Style = {
+	const changedStyle: Style = {
 		foreground: decorationColor(h.marker, theme),
 		background: lineBackground(h.marker, theme),
 	};
-	for (const line of h.lines) line.unshift([style, h.marker]);
+	const neutralStyle: Style = { foreground: theme.foreground, background: theme.background };
+	for (let i = 0; i < h.lines.length; i++) {
+		h.lines[i]!.unshift([i === 0 ? changedStyle : neutralStyle, i === 0 ? h.marker : " "]);
+	}
 }
 
 function dimContent(h: Highlight): void {

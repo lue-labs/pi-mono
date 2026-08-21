@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
 import { Text } from "@valkyriweb/pi-tui";
@@ -14,8 +15,17 @@ import { getTextOutput, invalidArgText, shortenPath, str } from "./render-utils.
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, FULL_TRUNCATION, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
-function toPosixPath(value: string): string {
-	return value.split(path.sep).join("/");
+/** Relativize a glob result against the search root and normalize it to posix separators. */
+export function relativizeGlobResultPath(
+	resultPath: string,
+	searchPath: string,
+	pathModule: path.PlatformPath = path,
+): string {
+	const hadTrailingSeparator =
+		resultPath.endsWith(pathModule.sep) || (pathModule.sep === "\\" && resultPath.endsWith("/"));
+	const relativePath = pathModule.isAbsolute(resultPath) ? pathModule.relative(searchPath, resultPath) : resultPath;
+	const posixPath = relativePath.split(pathModule.sep).join("/");
+	return hadTrailingSeparator && !posixPath.endsWith("/") ? `${posixPath}/` : posixPath;
 }
 
 const globSchema = Type.Object({
@@ -28,6 +38,23 @@ const globSchema = Type.Object({
 		Type.Boolean({
 			description:
 				"Respect .gitignore and similar ignore files (default: true). Set false to include ignored files.",
+		}),
+	),
+	outputMode: Type.Optional(
+		Type.Union([Type.Literal("paths"), Type.Literal("count")], {
+			description: "Output mode: paths (default) or count (number of matching paths).",
+		}),
+	),
+	output_mode: Type.Optional(
+		Type.Union([Type.Literal("paths"), Type.Literal("count")], { description: "Alias for outputMode." }),
+	),
+	offset: Type.Optional(
+		Type.Number({ description: "Number of matching paths to skip before returning results (default: 0)" }),
+	),
+	sort: Type.Optional(
+		Type.Union([Type.Literal("name"), Type.Literal("modified"), Type.Literal("none")], {
+			description:
+				"Sort results by name, by modified time (newest first), or leave backend order unchanged (default: none \u2014 rg backend already returns modified-time order).",
 		}),
 	),
 	timeout: Type.Optional(
@@ -49,6 +76,8 @@ const MAX_TIMEOUT_SECONDS = 300;
 const VCS_DIRS = [".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
 
 type GlobBackend = "rg" | "bfs" | "fd";
+type GlobOutputMode = "paths" | "count";
+type GlobSort = "name" | "modified" | "none";
 
 interface GlobBackendCommand {
 	backend: GlobBackend;
@@ -97,6 +126,8 @@ export function buildFdArgs(input: {
 		if (!input.pattern.startsWith("/") && !input.pattern.startsWith("**/") && input.pattern !== "**") {
 			effectivePattern = `**/${input.pattern}`;
 		}
+		// fd matches full paths using native separators on Windows.
+		if (process.platform === "win32") effectivePattern = effectivePattern.replaceAll("/", String.raw`[/\\]`);
 	}
 	args.push("--", effectivePattern, input.searchPath);
 	return args;
@@ -161,6 +192,75 @@ export interface GlobToolDetails {
 	path?: string;
 	pattern?: string;
 	entriesReturned?: number;
+	backend?: GlobBackend;
+	elapsedMs?: number;
+	mode?: GlobOutputMode;
+	sort?: GlobSort;
+	appliedLimit?: number;
+	appliedOffset?: number;
+}
+
+function sortGlobResults(paths: string[], searchPath: string, sort: GlobSort): string[] {
+	if (sort === "none") return paths;
+	const sorted = [...paths];
+	if (sort === "name") {
+		sorted.sort((a, b) => a.localeCompare(b));
+		return sorted;
+	}
+	// Stat each path once up front: a comparator that stats would issue ~2n*log(n)
+	// synchronous syscalls for the same n distinct answers.
+	const mtimes = new Map<string, number>();
+	for (const relativePath of sorted) {
+		mtimes.set(
+			relativePath,
+			statSync(path.resolve(searchPath, relativePath), { throwIfNoEntry: false })?.mtimeMs ?? 0,
+		);
+	}
+	sorted.sort((a, b) => (mtimes.get(b) ?? 0) - (mtimes.get(a) ?? 0) || a.localeCompare(b));
+	return sorted;
+}
+
+function finalizeGlobResults(args: {
+	relativized: string[];
+	searchPath: string;
+	outputMode: GlobOutputMode;
+	sort: GlobSort;
+	offset: number;
+	requestedLimit: number;
+	full?: boolean;
+	backend?: GlobBackend;
+	startedAt: number;
+}): { content: Array<{ type: "text"; text: string }>; details: GlobToolDetails } {
+	const sorted = sortGlobResults(args.relativized, args.searchPath, args.sort);
+	const paged = sorted.slice(args.offset, args.offset + args.requestedLimit);
+	const resultLimitReached = sorted.length > args.offset + args.requestedLimit;
+	const rawOutput = args.outputMode === "count" ? String(sorted.length) : paged.join("\n");
+	const truncation = truncateHead(rawOutput, args.full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER });
+	let resultOutput = truncation.content;
+	const details: GlobToolDetails = {
+		elapsedMs: Date.now() - args.startedAt,
+		mode: args.outputMode,
+		sort: args.sort,
+		entriesReturned: args.outputMode === "count" ? sorted.length : paged.length,
+	};
+	if (args.backend) {
+		details.backend = args.backend;
+	}
+	const notices: string[] = [];
+	if (args.outputMode !== "count" && resultLimitReached) {
+		notices.push(
+			`${args.requestedLimit} results limit reached. Use offset=${args.offset + args.requestedLimit} to continue, or refine pattern`,
+		);
+		details.resultLimitReached = args.requestedLimit;
+		details.appliedLimit = args.requestedLimit;
+	}
+	if (args.offset > 0) details.appliedOffset = args.offset;
+	if (truncation.truncated) {
+		notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+		details.truncation = truncation;
+	}
+	if (notices.length > 0) resultOutput += `\n\n[${notices.join(". ")}]`;
+	return { content: [{ type: "text", text: resultOutput }], details };
 }
 
 function timeoutMsFromSeconds(timeout: number | undefined): number {
@@ -308,7 +408,7 @@ export function createGlobToolDefinition(
 	return {
 		name: toolName,
 		label,
-		description: `Fast file pattern matching tool. Returns matching file paths relative to the search directory, sorted by modification time when the rg backend is available. Use this tool for file discovery; do not invoke \`find\` via bash — those calls are blocked at runtime. Prefers rg, then bfs, then fd. The rg and fd backends respect .gitignore by default; if a known file is missing because it may be ignored, retry the same Glob call with ignore:false. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
+		description: `Fast file pattern matching tool. Returns matching file paths relative to the search directory, sorted by modification time when the rg backend is available. Use this tool for file discovery; do not invoke \`find\` via bash — those calls are blocked at runtime. Prefers rg, then bfs, then fd. The rg and fd backends respect .gitignore by default; if a known file is missing because it may be ignored, retry the same Glob call with ignore:false. Supports offset and outputMode=count for token-efficient broad searches, and sort=name/modified/none to reorder or preserve backend order. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
 		promptSnippet: "Match files by glob pattern",
 		executionMode: "parallel",
 		parameters: globSchema,
@@ -319,9 +419,24 @@ export function createGlobToolDefinition(
 				path: searchDir,
 				limit,
 				ignore,
+				outputMode,
+				output_mode,
+				offset,
+				sort,
 				timeout,
 				full,
-			}: { pattern: string; path?: string; limit?: number; ignore?: boolean; timeout?: number; full?: boolean },
+			}: {
+				pattern: string;
+				path?: string;
+				limit?: number;
+				ignore?: boolean;
+				outputMode?: GlobOutputMode;
+				output_mode?: GlobOutputMode;
+				offset?: number;
+				sort?: GlobSort;
+				timeout?: number;
+				full?: boolean;
+			},
 			signal?: AbortSignal,
 			_onUpdate?,
 			_ctx?,
@@ -355,7 +470,28 @@ export function createGlobToolDefinition(
 				(async () => {
 					try {
 						const searchPath = resolveToCwd(searchDir || ".", cwd);
-						const effectiveLimit = full ? Number.MAX_SAFE_INTEGER : (limit ?? DEFAULT_LIMIT);
+						if (outputMode && output_mode && outputMode !== output_mode) {
+							settle(() => reject(new Error("outputMode and output_mode differ")));
+							return;
+						}
+						const outputModeValue: GlobOutputMode = outputMode ?? output_mode ?? "paths";
+						const offsetValue = Math.max(0, offset ?? 0);
+						const sortValue: GlobSort = sort ?? "none";
+						const requestedLimit = full ? Number.MAX_SAFE_INTEGER : (limit ?? DEFAULT_LIMIT);
+						// `count` must see every match to report a true total, and a sort is only
+						// meaningful over the whole result set — ordering a backend-truncated
+						// window would return "the first N found, sorted" while claiming to be
+						// the sorted first N.
+						const needsCompleteResultSet = outputModeValue === "count" || sortValue !== "none";
+						// Fetch ONE past the returned window. `finalizeGlobResults` decides
+						// "there are more matches" with `sorted.length > offset + limit`, which
+						// can never be true if the backend was capped at exactly that many —
+						// the limit-reached notice and `details.resultLimitReached` silently
+						// disappeared for every capped result set (#403). The extra row is
+						// sliced off before output; it only makes overflow observable.
+						const effectiveLimit =
+							full || needsCompleteResultSet ? Number.MAX_SAFE_INTEGER : offsetValue + requestedLimit + 1;
+						const startedAt = Date.now();
 						const respectIgnores = ignore !== false;
 						const ops = customOps ?? defaultGlobOperations;
 
@@ -412,36 +548,18 @@ export function createGlobToolDefinition(
 							}
 
 							// Relativize paths against the search root for stable output.
-							const relativized = results.map((p) => {
-								if (p.startsWith(searchPath)) return toPosixPath(p.slice(searchPath.length + 1));
-								return toPosixPath(path.relative(searchPath, p));
+							const relativized = results.map((p) => relativizeGlobResultPath(p, searchPath));
+							const { content, details } = finalizeGlobResults({
+								relativized,
+								searchPath,
+								outputMode: outputModeValue,
+								sort: sortValue,
+								offset: offsetValue,
+								requestedLimit,
+								full,
+								startedAt,
 							});
-							const resultLimitReached = relativized.length >= effectiveLimit;
-							const rawOutput = relativized.join("\n");
-							const truncation = truncateHead(
-								rawOutput,
-								full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
-							);
-							let resultOutput = truncation.content;
-							const details: GlobToolDetails = {};
-							const notices: string[] = [];
-							if (resultLimitReached) {
-								notices.push(`${effectiveLimit} results limit reached`);
-								details.resultLimitReached = effectiveLimit;
-							}
-							if (truncation.truncated) {
-								notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
-								details.truncation = truncation;
-							}
-							if (notices.length > 0) {
-								resultOutput += `\n\n[${notices.join(". ")}]`;
-							}
-							settle(() =>
-								resolve({
-									content: [{ type: "text", text: resultOutput }],
-									details: Object.keys(details).length > 0 ? details : undefined,
-								}),
-							);
+							settle(() => resolve({ content, details }));
 							return;
 						}
 
@@ -497,10 +615,7 @@ export function createGlobToolDefinition(
 							if (backendCommand.backend === "rg") {
 								if (lines.length >= effectiveLimit) return;
 								const trimmed = line.replace(/\r$/, "").trim();
-								let relativePath = trimmed;
-								if (trimmed.startsWith(searchPath)) relativePath = trimmed.slice(searchPath.length + 1);
-								else relativePath = path.relative(searchPath, trimmed);
-								if (!matchesGlobPattern(toPosixPath(relativePath), pattern)) return;
+								if (!matchesGlobPattern(relativizeGlobResultPath(trimmed, searchPath), pattern)) return;
 							}
 							lines.push(line);
 							if (backendCommand.backend === "rg" && lines.length >= effectiveLimit) stopChild?.();
@@ -524,12 +639,7 @@ export function createGlobToolDefinition(
 								for (const rawLine of lines) {
 									const line = rawLine.replace(/\r$/, "").trim();
 									if (!line) continue;
-									const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
-									let relativePath = line;
-									if (line.startsWith(searchPath)) relativePath = line.slice(searchPath.length + 1);
-									else relativePath = path.relative(searchPath, line);
-									if (hadTrailingSlash && !relativePath.endsWith("/")) relativePath += "/";
-									relativized.push(toPosixPath(relativePath));
+									relativized.push(relativizeGlobResultPath(line, searchPath));
 								}
 								const partialOutput = truncateHead(relativized.join("\n"), {
 									maxLines: Number.MAX_SAFE_INTEGER,
@@ -570,45 +680,21 @@ export function createGlobToolDefinition(
 							for (const rawLine of lines) {
 								const line = rawLine.replace(/\r$/, "").trim();
 								if (!line) continue;
-								const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
-								let relativePath = line;
-								if (line.startsWith(searchPath)) {
-									relativePath = line.slice(searchPath.length + 1);
-								} else {
-									relativePath = path.relative(searchPath, line);
-								}
-								if (hadTrailingSlash && !relativePath.endsWith("/")) relativePath += "/";
-								relativized.push(toPosixPath(relativePath));
+								relativized.push(relativizeGlobResultPath(line, searchPath));
 							}
 
-							const resultLimitReached = relativized.length >= effectiveLimit;
-							const rawOutput = relativized.join("\n");
-							const truncation = truncateHead(
-								rawOutput,
-								full ? FULL_TRUNCATION : { maxLines: Number.MAX_SAFE_INTEGER },
-							);
-							let resultOutput = truncation.content;
-							const details: GlobToolDetails = {};
-							const notices: string[] = [];
-							if (resultLimitReached) {
-								notices.push(
-									`${effectiveLimit} results limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`,
-								);
-								details.resultLimitReached = effectiveLimit;
-							}
-							if (truncation.truncated) {
-								notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
-								details.truncation = truncation;
-							}
-							if (notices.length > 0) {
-								resultOutput += `\n\n[${notices.join(". ")}]`;
-							}
-							settle(() =>
-								resolve({
-									content: [{ type: "text", text: resultOutput }],
-									details: Object.keys(details).length > 0 ? details : undefined,
-								}),
-							);
+							const { content, details } = finalizeGlobResults({
+								relativized,
+								searchPath,
+								outputMode: outputModeValue,
+								sort: sortValue,
+								offset: offsetValue,
+								requestedLimit,
+								full,
+								backend: backendCommand.backend,
+								startedAt,
+							});
+							settle(() => resolve({ content, details }));
 						});
 					} catch (e) {
 						if (signal?.aborted || isAbortError(e)) {

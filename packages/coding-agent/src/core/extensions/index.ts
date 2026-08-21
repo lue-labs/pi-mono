@@ -77,6 +77,7 @@ export type {
 	ExtensionFlag,
 	ExtensionFooterSpec,
 	ExtensionHandler,
+	ExtensionLoadError,
 	ExtensionMainPaneAPI,
 	ExtensionMainPaneFactory,
 	ExtensionMode,
@@ -107,6 +108,8 @@ export type {
 	LoadExtensionsResult,
 	LsToolCallEvent,
 	LsToolResultEvent,
+	MarkdownTransformContext,
+	MarkdownTransformer,
 	// Events - Message
 	MessageEndEvent,
 	MessageRenderer,
