@@ -10,7 +10,6 @@ import { isPierreDiffRendererEnabled, renderPierrePatchToAnsi } from "../../util
 import type { ToolDefinition } from "../extensions/types.ts";
 import {
 	applyEditsToNormalizedContent,
-	computeEditsDiff,
 	type DiffHunk,
 	detectLineEnding,
 	type Edit,
@@ -70,8 +69,6 @@ export interface EditToolDetails {
 	firstChangedLine?: number;
 	/** Structured hunks for rich syntax-highlighted diff rendering */
 	hunks?: DiffHunk[];
-	/** Small original-file prefix for syntax context; never the full file. */
-	originalContentPreview?: string;
 }
 
 /**
@@ -274,7 +271,7 @@ type EditToolResultLike = {
 type EditCallRenderComponent = Box & {
 	preview?: EditPreview;
 	previewArgsKey?: string;
-	previewPending?: boolean;
+	settled?: boolean;
 	settledError?: boolean;
 };
 
@@ -282,7 +279,7 @@ function createEditCallRenderComponent(): EditCallRenderComponent {
 	return Object.assign(new Box(1, 1, (text: string) => text), {
 		preview: undefined as EditPreview | undefined,
 		previewArgsKey: undefined as string | undefined,
-		previewPending: false,
+		settled: false,
 		settledError: false,
 	});
 }
@@ -333,6 +330,31 @@ function hasRenderableStreamingDiff(previewInput: { path: string; edits: Edit[] 
 	return previewInput?.edits.every((edit) => edit.oldText.length > 0) ?? false;
 }
 
+function createArgumentEditPreview(edits: Edit[]): EditDiffResult {
+	const diffs: string[] = [];
+	const hunks: DiffHunk[] = [];
+	const originals: string[] = [];
+	let firstChangedLine: number | undefined;
+	let oldOffset = 0;
+	let newOffset = 0;
+	for (const edit of edits) {
+		const originalContent = normalizeToLF(edit.oldText);
+		const newContent = normalizeToLF(edit.newText);
+		const result = generateDiffString(originalContent, newContent);
+		diffs.push(result.diff);
+		originals.push(originalContent);
+		if (firstChangedLine === undefined && result.firstChangedLine !== undefined) {
+			firstChangedLine = newOffset + result.firstChangedLine;
+		}
+		for (const hunk of result.hunks) {
+			hunks.push({ ...hunk, oldStart: oldOffset + hunk.oldStart, newStart: newOffset + hunk.newStart });
+		}
+		oldOffset += originalContent.split("\n").length;
+		newOffset += newContent.split("\n").length;
+	}
+	return { diff: diffs.join("\n"), patch: "", firstChangedLine, hunks, originalContent: originals.join("\n") };
+}
+
 function formatEditCall(args: RenderableEditArgs | undefined, theme: Theme, label: string, cwd: string): string {
 	const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
 	return `${theme.fg("toolTitle", theme.bold(label))} ${pathDisplay}`;
@@ -344,6 +366,7 @@ function formatEditResult(
 	result: EditToolResultLike,
 	theme: Theme,
 	isError: boolean,
+	expanded: boolean,
 ): string | undefined {
 	const rawPath = str(args?.file_path ?? args?.path);
 	const previewDiff = preview && !("error" in preview) ? preview.diff : undefined;
@@ -358,6 +381,7 @@ function formatEditResult(
 		}
 		return theme.fg("error", errorText);
 	}
+	if (!expanded) return undefined;
 
 	const resultDiff = result.details?.diff;
 	if (resultDiff && resultDiff !== previewDiff) {
@@ -373,19 +397,28 @@ function formatEditResult(
 
 function getEditHeaderBg(
 	preview: EditPreview | undefined,
+	settled: boolean | undefined,
 	settledError: boolean | undefined,
 	theme: Theme,
 ): (text: string) => string {
-	if (preview) {
-		if ("error" in preview) {
-			return (text: string) => theme.bg("toolErrorBg", text);
-		}
-		return (text: string) => theme.bg("toolSuccessBg", text);
-	}
-	if (settledError) {
+	if (settledError || (settled && preview && "error" in preview)) {
 		return (text: string) => theme.bg("toolErrorBg", text);
 	}
+	if (settled && preview && !("error" in preview)) {
+		return (text: string) => theme.bg("toolSuccessBg", text);
+	}
 	return (text: string) => theme.bg("toolPendingBg", text);
+}
+
+function getDiffSummary(preview: Exclude<EditPreview, EditDiffError>): string {
+	const lines = preview.hunks?.flatMap((hunk) => hunk.lines) ?? preview.diff.split("\n");
+	let additions = 0;
+	let removals = 0;
+	for (const line of lines) {
+		if (line.startsWith("+") && !line.startsWith("+++")) additions++;
+		if (line.startsWith("-") && !line.startsWith("---")) removals++;
+	}
+	return `+${additions} -${removals}`;
 }
 
 function buildEditCallComponent(
@@ -394,19 +427,26 @@ function buildEditCallComponent(
 	theme: Theme,
 	label: string,
 	cwd: string,
+	expanded: boolean,
+	executionStarted: boolean,
 	invalidateHost?: () => void,
 ): EditCallRenderComponent {
-	component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
+	component.setBgFn(getEditHeaderBg(component.preview, component.settled, component.settledError, theme));
 	component.clear();
 	component.addChild(new Text(formatEditCall(args, theme, label, cwd), 0, 0));
 
 	if (!component.preview) {
+		if (executionStarted) {
+			component.addChild(new Text(theme.fg("muted", "Running…"), 0, 0));
+		}
 		return component;
 	}
 
 	component.addChild(new Spacer(1));
 	if ("error" in component.preview) {
 		component.addChild(new Text(theme.fg("error", component.preview.error), 0, 0));
+	} else if (!expanded) {
+		component.addChild(new Text(theme.fg("muted", getDiffSummary(component.preview)), 0, 0));
 	} else if (component.preview.hunks?.length && args) {
 		const rawPath = str((args as RenderableEditArgs)?.file_path ?? (args as RenderableEditArgs)?.path);
 		const filePath = rawPath ?? "";
@@ -445,7 +485,6 @@ function setEditPreview(
 			(current.diff !== preview.diff || current.firstChangedLine !== preview.firstChangedLine));
 	component.preview = preview;
 	component.previewArgsKey = argsKey;
-	component.previewPending = false;
 	return changed;
 }
 
@@ -532,7 +571,6 @@ export function createEditToolDefinition(
 						patch,
 						firstChangedLine: diffResult.firstChangedLine,
 						hunks: diffResult.hunks,
-						originalContentPreview: diffResult.originalContent.slice(0, 4_000),
 					},
 				};
 			});
@@ -545,24 +583,24 @@ export function createEditToolDefinition(
 				: undefined;
 
 			if (component.previewArgsKey !== argsKey) {
-				component.preview = undefined;
+				component.preview = hasRenderableStreamingDiff(previewInput)
+					? createArgumentEditPreview(previewInput.edits)
+					: undefined;
 				component.previewArgsKey = argsKey;
-				component.previewPending = false;
+				component.settled = false;
 				component.settledError = false;
 			}
 
-			if (hasRenderableStreamingDiff(previewInput) && !component.preview && !component.previewPending) {
-				component.previewPending = true;
-				const requestKey = argsKey;
-				void computeEditsDiff(previewInput.path, previewInput.edits, context.cwd).then((preview) => {
-					if (component.previewArgsKey === requestKey) {
-						setEditPreview(component, preview, requestKey);
-						context.invalidate();
-					}
-				});
-			}
-
-			return buildEditCallComponent(component, args, theme, label, context.cwd, context.invalidate);
+			return buildEditCallComponent(
+				component,
+				args,
+				theme,
+				label,
+				context.cwd,
+				context.expanded,
+				context.executionStarted,
+				context.invalidate,
+			);
 		},
 		renderResult(result, _options, theme, context) {
 			const callComponent = context.state.callComponent;
@@ -574,6 +612,8 @@ export function createEditToolDefinition(
 			const resultDiff = !context.isError ? typedResult.details?.diff : undefined;
 			let changed = false;
 			if (callComponent) {
+				callComponent.settled = true;
+				if (context.isError) callComponent.preview = undefined;
 				if (typeof resultDiff === "string") {
 					changed =
 						setEditPreview(
@@ -582,7 +622,7 @@ export function createEditToolDefinition(
 								diff: resultDiff,
 								firstChangedLine: typedResult.details?.firstChangedLine,
 								hunks: typedResult.details?.hunks ?? [],
-								originalContent: typedResult.details?.originalContentPreview ?? "",
+								originalContent: "",
 								patch: typedResult.details?.patch ?? "",
 							},
 							argsKey,
@@ -599,12 +639,21 @@ export function createEditToolDefinition(
 						theme,
 						label,
 						context.cwd,
+						context.expanded,
+						context.executionStarted,
 						context.invalidate,
 					);
 				}
 			}
 
-			const output = formatEditResult(context.args, callComponent?.preview, typedResult, theme, context.isError);
+			const output = formatEditResult(
+				context.args,
+				callComponent?.preview,
+				typedResult,
+				theme,
+				context.isError,
+				context.expanded,
+			);
 			const component = (context.lastComponent as Container | undefined) ?? new Container();
 			component.clear();
 			if (!output) {
@@ -623,7 +672,7 @@ export function createEditToolDefinition(
 					new ColorDiffComponent(
 						typedResult.details.hunks,
 						rawPath ?? "",
-						typedResult.details.originalContentPreview ?? null,
+						null,
 						false,
 						typedResult.details.patch,
 						context.invalidate,

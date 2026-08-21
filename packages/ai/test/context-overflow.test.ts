@@ -14,7 +14,7 @@
 import type { ChildProcess } from "child_process";
 import { execSync, spawn } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { complete, getModels } from "../src/compat.ts";
+import { complete, getModel, getModels } from "../src/compat.ts";
 import type { AssistantMessage, Context, Model, Usage } from "../src/types.ts";
 import { isContextOverflow } from "../src/utils/overflow.ts";
 import { hasAzureOpenAICredentials } from "./azure-utils.ts";
@@ -126,9 +126,9 @@ describe("Context overflow error handling", () => {
 	describe("GitHub Copilot (OAuth)", () => {
 		// OpenAI model via Copilot
 		it.skipIf(!githubCopilotToken)(
-			"gpt-5.5 - should detect overflow via isContextOverflow",
+			"Google model - should detect overflow via isContextOverflow",
 			async () => {
-				const model = pickModel("github-copilot");
+				const model = pickModel("github-copilot", (candidate) => candidate.id.startsWith("gemini-"));
 				const result = await testContextOverflow(model, githubCopilotToken!);
 				logResult(result);
 
@@ -463,6 +463,30 @@ describe("Context overflow error handling", () => {
 
 			expect(result.stopReason).toBe("length");
 			expect(result.usage.output).toBe(0);
+			expect(isContextOverflow(result.response, model.contextWindow)).toBe(true);
+		}, 120000);
+	});
+
+	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_API_KEY)("Qwen Token Plan", () => {
+		it("qwen3.7-max - should detect overflow via isContextOverflow", async () => {
+			const model = getModel("qwen-token-plan", "qwen3.7-max");
+			const result = await testContextOverflow(model, process.env.QWEN_TOKEN_PLAN_API_KEY!);
+			logResult(result);
+
+			expect(result.stopReason).toBe("error");
+			expect(result.errorMessage).toMatch(/input length/i);
+			expect(isContextOverflow(result.response, model.contextWindow)).toBe(true);
+		}, 120000);
+	});
+
+	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_CN_API_KEY)("Qwen Token Plan (CN)", () => {
+		it("qwen3.7-max - should detect overflow via isContextOverflow", async () => {
+			const model = getModel("qwen-token-plan-cn", "qwen3.7-max");
+			const result = await testContextOverflow(model, process.env.QWEN_TOKEN_PLAN_CN_API_KEY!);
+			logResult(result);
+
+			expect(result.stopReason).toBe("error");
+			expect(result.errorMessage).toMatch(/input length/i);
 			expect(isContextOverflow(result.response, model.contextWindow)).toBe(true);
 		}, 120000);
 	});

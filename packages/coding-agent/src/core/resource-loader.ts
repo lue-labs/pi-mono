@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME } from "../config.ts";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
@@ -31,6 +31,7 @@ import type {
 	InlineExtension,
 	LoadExtensionsResult,
 } from "./extensions/types.ts";
+import { findGitPaths } from "./footer-data-provider.ts";
 import { DefaultPackageManager, type PathMetadata, type ResolvedResource } from "./package-manager.ts";
 import type { PromptTemplate } from "./prompt-templates.ts";
 import { loadPromptTemplates } from "./prompt-templates.ts";
@@ -58,7 +59,9 @@ export interface ResourceLoader {
 	getThemes(): { themes: Theme[]; diagnostics: ResourceDiagnostic[] };
 	getAgentsFiles(): { agentsFiles: ContextFile[]; diagnostics?: ResourceDiagnostic[] };
 	getSystemPrompt(): string | undefined;
+	getSystemPromptSource(): { path: string } | undefined;
 	getAppendSystemPrompt(): string[];
+	getAppendSystemPromptSources(): Array<{ path: string }>;
 	extendResources(paths: ResourceExtensionPaths): void;
 	reload(options?: ResourceLoaderReloadOptions): Promise<void>;
 }
@@ -93,11 +96,14 @@ function resolvePromptInput(
 }
 
 function loadContextFileFromDir(dir: string): ContextFile | null {
-	const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+	const candidates = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
 	for (const filename of candidates) {
 		const filePath = join(dir, filename);
 		if (existsSync(filePath)) {
 			try {
+				if (!statSync(filePath).isFile()) {
+					continue;
+				}
 				return {
 					path: filePath,
 					content: readFileSync(filePath, "utf-8"),
@@ -132,6 +138,49 @@ function realpathOrSelf(filePath: string): string {
 	}
 }
 
+/**
+ * Turn a resolved resource into an extension load request, marking the ones that
+ * were auto-discovered by scanning an extensions directory.
+ *
+ * Only `source: "auto"` with `origin: "top-level"` is a directory scan (see
+ * `addAutoDiscoveredResources` in package-manager.ts). A settings entry
+ * (`source: "local"`) or a package-provided extension (`origin: "package"`) was
+ * named by someone, so its load failure must stay fatal.
+ */
+function toExtensionLoadRequest(resource: ResolvedResource): ExtensionLoadRequest {
+	const discovered = resource.metadata.source === "auto" && resource.metadata.origin === "top-level";
+	return discovered
+		? { path: resource.path, load: resource.load, discovered: true }
+		: { path: resource.path, load: resource.load };
+}
+
+/**
+ * The main repo's context file that a nested linked worktree's own copy shadows: both
+ * occupy the same logical repository scope, so loading both applies that context twice. Returns
+ * undefined when nothing is shadowed, leaving normal ancestor inheritance alone.
+ *
+ * Returned canonicalized (realpath), because `git worktree add` writes the `.git`
+ * file's `gitdir:` target in realpath form while cwd may still be symlinked
+ * (macOS `/tmp` -> `/private/tmp`).
+ */
+function findShadowedContextFile(cwd: string): string | undefined {
+	const gitPaths = findGitPaths(cwd);
+	if (!gitPaths) return undefined;
+	const commonGitDir = canonicalizePath(gitPaths.commonGitDir);
+	const worktreeRoot = canonicalizePath(gitPaths.repoDir);
+	const mainRepoRoot = dirname(commonGitDir);
+	// False for an ordinary repo, where the two are the same dir, and for a sibling
+	// worktree (`git worktree add ../feat`), whose main repo is not an ancestor.
+	if (!worktreeRoot.startsWith(`${mainRepoRoot}${sep}`)) return undefined;
+	// dirname of the common git dir is the main worktree root only when that dir is
+	// itself checked out from the same repo. In a bare layout (`proj/.bare` +
+	// `proj/main`) it is just the directory holding `.bare`, which tracks nothing; a
+	// submodule's gitdir has no `commondir`, so it lands under `.git/modules`.
+	if (canonicalizePath(join(mainRepoRoot, ".git")) !== commonGitDir) return undefined;
+	const worktreeContextFile = loadContextFileFromDir(worktreeRoot);
+	return worktreeContextFile ? join(mainRepoRoot, basename(worktreeContextFile.path)) : undefined;
+}
+
 export function loadProjectContextFiles(options: {
 	cwd: string;
 	agentDir: string;
@@ -155,12 +204,17 @@ export function loadProjectContextFiles(options: {
 	if (options.projectTrusted !== false) {
 		const ancestorContextFiles: ContextFile[] = [];
 
+		const shadowedContextFile = findShadowedContextFile(resolvedCwd);
 		let currentDir = resolvedCwd;
 		const root = resolve("/");
 
 		while (true) {
 			const contextFile = loadContextFileFromDir(currentDir);
-			if (contextFile) {
+			// A nested linked worktree's own context file shadows the main repo's copy:
+			// both cover the same logical repository scope.
+			const isShadowed =
+				shadowedContextFile !== undefined && canonicalizePath(contextFile?.path ?? "") === shadowedContextFile;
+			if (contextFile && !isShadowed) {
 				const realPath = realpathOrSelf(contextFile.path);
 				if (!seenRealPaths.has(realPath)) {
 					ancestorContextFiles.unshift(contextFile);
@@ -268,11 +322,14 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private agentsFileDiagnostics: ResourceDiagnostic[];
 	private contextFileImportCache: ContextFileImportCache;
 	private systemPrompt?: string;
+	private systemPromptSourcePath?: string;
 	private appendSystemPrompt: string[];
+	private appendSystemPromptSourcePaths: string[];
 	private lastSkillPaths: string[];
 	private extensionSkillSourceInfos: Map<string, SourceInfo>;
 	private extensionPromptSourceInfos: Map<string, SourceInfo>;
 	private extensionThemeSourceInfos: Map<string, SourceInfo>;
+	private resourceMetadataByPath: Map<string, PathMetadata>;
 	private lastPromptPaths: string[];
 	private lastThemePaths: string[];
 	private loaded: boolean;
@@ -324,10 +381,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.agentsFileDiagnostics = [];
 		this.contextFileImportCache = createContextFileImportCache();
 		this.appendSystemPrompt = [];
+		this.appendSystemPromptSourcePaths = [];
 		this.lastSkillPaths = [];
 		this.extensionSkillSourceInfos = new Map();
 		this.extensionPromptSourceInfos = new Map();
 		this.extensionThemeSourceInfos = new Map();
+		this.resourceMetadataByPath = new Map();
 		this.lastPromptPaths = [];
 		this.lastThemePaths = [];
 		this.loaded = false;
@@ -374,8 +433,16 @@ export class DefaultResourceLoader implements ResourceLoader {
 		return this.systemPrompt;
 	}
 
+	getSystemPromptSource(): { path: string } | undefined {
+		return this.systemPromptSourcePath ? { path: this.systemPromptSourcePath } : undefined;
+	}
+
 	getAppendSystemPrompt(): string[] {
 		return this.appendSystemPrompt;
+	}
+
+	getAppendSystemPromptSources(): Array<{ path: string }> {
+		return this.appendSystemPromptSourcePaths.map((path) => ({ path }));
 	}
 
 	extendResources(paths: ResourceExtensionPaths): void {
@@ -398,7 +465,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 				this.lastSkillPaths,
 				skillPaths.map((entry) => entry.path),
 			);
-			this.updateSkillsFromPaths(this.lastSkillPaths);
+			this.updateSkillsFromPaths(this.lastSkillPaths, this.resourceMetadataByPath);
 		}
 
 		if (promptPaths.length > 0) {
@@ -406,7 +473,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 				this.lastPromptPaths,
 				promptPaths.map((entry) => entry.path),
 			);
-			this.updatePromptsFromPaths(this.lastPromptPaths);
+			this.updatePromptsFromPaths(this.lastPromptPaths, this.resourceMetadataByPath);
 		}
 
 		if (themePaths.length > 0) {
@@ -414,7 +481,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 				this.lastThemePaths,
 				themePaths.map((entry) => entry.path),
 			);
-			this.updateThemesFromPaths(this.lastThemePaths);
+			this.updateThemesFromPaths(this.lastThemePaths, this.resourceMetadataByPath);
 		}
 	}
 
@@ -446,7 +513,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
 		});
-		const metadataByPath = new Map<string, PathMetadata>();
+		// Kept on the instance so post-reload passes (extendResources) can still resolve package metadata.
+		this.resourceMetadataByPath = new Map();
+		const metadataByPath = this.resourceMetadataByPath;
 
 		this.extensionSkillSourceInfos = new Map();
 		this.extensionPromptSourceInfos = new Map();
@@ -464,10 +533,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		const getEnabledPaths = (resources: ResolvedResource[]): string[] =>
 			getEnabledResources(resources).map((r) => r.path);
-		const enabledExtensionRequests = getEnabledResources(resolvedPaths.extensions).map((r) => ({
-			path: r.path,
-			load: r.load,
-		}));
+		const enabledExtensionRequests = getEnabledResources(resolvedPaths.extensions).map((r) =>
+			toExtensionLoadRequest(r),
+		);
 		const enabledSkillResources = getEnabledResources(resolvedPaths.skills);
 		const enabledPrompts = getEnabledPaths(resolvedPaths.prompts);
 		const enabledThemes = getEnabledPaths(resolvedPaths.themes);
@@ -487,6 +555,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 
 		const cliEnabledExtensions = getEnabledPaths(cliExtensionPaths.extensions);
+		// `-e <path>` is an explicit request: no `discovered` flag, so failures stay fatal.
 		const cliEnabledExtensionRequests = cliEnabledExtensions.map((path) => ({ path, load: "eager" as const }));
 		const cliEnabledSkills = getEnabledPaths(cliExtensionPaths.skills);
 		const cliEnabledPrompts = getEnabledPaths(cliExtensionPaths.prompts);
@@ -590,6 +659,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 			diagnosticsSink: this.agentsFileDiagnostics,
 		});
 		this.systemPrompt = this.systemPromptOverride ? this.systemPromptOverride(baseSystemPrompt) : baseSystemPrompt;
+		this.systemPromptSourcePath =
+			systemPromptSource && existsSync(systemPromptSource) ? resolvePath(systemPromptSource) : undefined;
 
 		const discoveredAppend = this.discoverAppendSystemPromptFile();
 		const appendSources = this.appendSystemPromptSource ?? (discoveredAppend ? [discoveredAppend] : []);
@@ -605,6 +676,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.appendSystemPrompt = this.appendSystemPromptOverride
 			? this.appendSystemPromptOverride(baseAppend)
 			: baseAppend;
+		this.appendSystemPromptSourcePaths = appendSources
+			.filter((source) => existsSync(source))
+			.map((source) => resolvePath(source));
 		this.loaded = true;
 	}
 
@@ -613,9 +687,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
 		});
-		const enabledExtensionRequests = resolvedPaths.extensions
-			.filter((r) => r.enabled)
-			.map((r) => ({ path: r.path, load: r.load }));
+		const enabledExtensionRequests = resolvedPaths.extensions.filter((r) => r.enabled).map(toExtensionLoadRequest);
 		const cliEnabledExtensionRequests = cliExtensionPaths.extensions
 			.filter((r) => r.enabled)
 			.map((r) => ({ path: r.path, load: "eager" as const }));
@@ -948,7 +1020,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 			const canonicalPath = canonicalizePath(resolved);
 			if (seen.has(canonicalPath)) continue;
 			seen.add(canonicalPath);
-			merged.push({ path: resolved, load: request.load ?? "eager" });
+			// Preserve `discovered` across the merge. CLI requests are listed first, so
+			// an extension that is both `-e`-requested and auto-discovered stays explicit.
+			merged.push(
+				request.discovered
+					? { path: resolved, load: request.load ?? "eager", discovered: true }
+					: { path: resolved, load: request.load ?? "eager" },
+			);
 		}
 
 		return merged;
@@ -1086,6 +1164,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 			const extensionPath = `<inline:${isNamed ? input.name : index + 1}>`;
 			try {
 				const extension = await loadExtensionFromFactory(factory, this.cwd, this.eventBus, runtime, extensionPath);
+				extension.hidden = isNamed && input.hidden;
 				extensions.push(extension);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "failed to load extension";

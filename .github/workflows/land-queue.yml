@@ -1,0 +1,412 @@
+name: Land Queue
+
+# Serial PR lander — poor-man's merge queue (merge queue proper is unavailable:
+# user-owned private repo). Protocol: push → label `ready-to-land` → walk away.
+#
+# Processes the oldest labeled PR at a time:
+#   conflict            → eject: swap label to `needs-rebase`, comment
+#   behind main         → update-branch via CRAFT_PUSH_PAT (re-triggers checks), wait
+#   required check fail → one auto-rerun (`land-retried` applied only after the rerun
+#                         is verified to exist — #850 defect C), then eject `land-failed`
+#   checks pending      → wait for the next wake
+#   checks DEAD (none runnable ≥ grace period after a head change — e.g. a bot-
+#   credential push left them action_required) → one PAT empty-commit self-heal
+#   (`ci-retrigger [land-queue]` marker), then eject `needs-attention` (#850 defect B)
+#   green + up to date  → refresh head/base/enrollment/checks, expected-head
+#                         merge, then advance to the next queued PR
+#
+# Stateless/idempotent: every wake re-derives queue state from labels + API.
+# Serialization: `concurrency` group + head-of-queue-only processing.
+# Credential: CRAFT_PUSH_PAT (user PAT) so update-branch merge commits re-run
+# checks with auto-approval — GITHUB_TOKEN pushes would suppress them.
+# Docs: docs/land-queue.md
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: ["CI","Agentic PR Review"]
+    types: [completed]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/30 * * * *" # fallback for missed events
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: land-queue
+  cancel-in-progress: false
+
+jobs:
+  land:
+    # Skip label events for other labels early (cheap); every other trigger runs.
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'ready-to-land'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Split-token: GITHUB_TOKEN does the READS (it can see check/status state;
+      # the fine-grained CRAFT_PUSH_PAT cannot — it lacks checks/statuses/contents
+      # read, only pull-requests:write). PAT does the WRITES (update-branch, merge,
+      # labels) because GITHUB_TOKEN pushes are suppressed by loop-prevention.
+      contents: read
+      pull-requests: read
+      checks: read
+      statuses: read
+      # write: flake reruns (`gh run rerun`) use GITHUB_TOKEN — the fine-grained
+      # PAT has no actions scope, so PAT reruns 403'd silently forever (#850 C).
+      # Reruns re-execute an existing run (no new event), so loop-prevention
+      # does not suppress them.
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}   # default: reads + run reruns
+      PAT: ${{ secrets.CRAFT_PUSH_PAT }} # writes, via GH_TOKEN="$PAT" prefix
+      GH_REPO: ${{ github.repository }}
+      REQUIRED_CHECKS: "check fork-safety-check gate review"
+      # Dead-checks watchdog (#850 B): if a queued head has had NO runnable
+      # required check for this long after its last head change, the checks are
+      # presumed dead (action_required strand, suppressed trigger, CI outage) —
+      # not merely slow. Grace covers normal check-start latency (~1 min).
+      DEAD_CHECKS_GRACE_MINS: "10"
+      RETRIGGER_MARKER: "ci-retrigger [land-queue]"
+    steps:
+      - name: Process queue head
+        run: |
+          set -euo pipefail
+
+          eject() { # <pr> <label> <comment>  (writes — PAT)
+            GH_TOKEN="$PAT" gh pr edit "$1" --remove-label ready-to-land --remove-label land-retried --add-label "$2" || true
+            GH_TOKEN="$PAT" gh pr comment "$1" --body "$3"
+          }
+
+          # Fail-closed required-check guard (issue #658). GitHub reports a
+          # required check that never produced a run as ABSENT, not failing — so
+          # an invalid/broken required-check workflow can flip mergeStateStatus
+          # to CLEAN and let a PR merge past CI on review alone (this bit us in a
+          # ci.yml outage: #648 merged with no functioning `gate`). Merge only
+          # when every REQUIRED_CHECKS name has >=1 rollup run AND all its runs
+          # are COMPLETED + SUCCESS/SKIPPED/NEUTRAL; a MISSING name → not
+          # satisfied → skip (wait), never merge. (#674 renamed Agentic's
+          # colliding `gate` job → `preflight`, so a suppressed CI gate now reads
+          # as a MISSING `gate` here instead of being masked by a green
+          # same-named scope check.)
+          required_checks_satisfied() { # <pr-view-json>
+            local view="$1" name entries
+            for name in $REQUIRED_CHECKS; do
+              entries=$(jq -c --arg n "$name" '[.statusCheckRollup[] | select(.name == $n)]' <<<"$view")
+              if [ "$(jq 'length' <<<"$entries")" -eq 0 ]; then
+                echo "  required check '$name' has no run (absent) — fail-closed"; return 1
+              fi
+              if [ "$(jq '[.[] | select(.status != "COMPLETED" or (.conclusion | ascii_upcase | IN("SUCCESS","SKIPPED","NEUTRAL") | not))] | length' <<<"$entries")" -gt 0 ]; then
+                echo "  required check '$name' not all green — fail-closed"; return 1
+              fi
+            done
+            return 0
+          }
+
+          # Dead-checks watchdog (#850 defect B). "Pending" and "will never
+          # start" look identical to the merge gate; distinguish them here. We
+          # only reach this when nothing failed and not everything is green — so
+          # every required name is either live (queued/in-progress), green, or
+          # ABSENT (e.g. a bot-credential push left the head's runs
+          # action_required: jobs never spawn, so required names never appear in
+          # the rollup — exactly how PR #842 sat BLOCKED silently). A head with
+          # nothing live past the grace period is DEAD, not slow:
+          #   1st offense → self-heal: PAT (user-actor) empty commit — the only
+          #     retrigger with correct pull_request check semantics
+          #     (workflow_dispatch spawns no PR checks; the run-approve API 403s
+          #     on non-fork runs). New head ⇒ fresh checks, auto-approved.
+          #   marker already at head + still dead → eject `needs-attention`.
+          watchdog_dead_checks() { # <pr> <branch> <sha> <pr-view-json>
+            local pr="$1" branch="$2" sha="$3" view="$4" live head_date head_epoch age_mins head_msg tree new
+            live=$(jq -r --arg names "$REQUIRED_CHECKS" '
+              [.statusCheckRollup[] | select(.name as $n | $names | split(" ") | index($n))
+               | select(.status != "COMPLETED")] | length' <<<"$view")
+            if [ "$live" -gt 0 ]; then
+              return 0 # something is queued/running — genuinely pending, wait
+            fi
+            head_date=$(gh api "repos/$GH_REPO/commits/$sha" --jq .commit.committer.date 2>/dev/null || echo "")
+            head_epoch=$(jq -rn --arg d "$head_date" '$d | try fromdate catch 0' 2>/dev/null || echo 0)
+            [ "$head_epoch" -eq 0 ] && { echo "  watchdog: cannot read head commit date — skip"; return 0; }
+            age_mins=$(( ($(date +%s) - head_epoch) / 60 ))
+            if [ "$age_mins" -lt "$DEAD_CHECKS_GRACE_MINS" ]; then
+              echo "  watchdog: no live required checks but head only ${age_mins}m old (grace ${DEAD_CHECKS_GRACE_MINS}m) — wait"
+              return 0
+            fi
+            head_msg=$(gh api "repos/$GH_REPO/commits/$sha" --jq '.commit.message' 2>/dev/null | head -1)
+            if [ "${head_msg#*"$RETRIGGER_MARKER"}" != "$head_msg" ]; then
+              echo "  watchdog: head is already a retrigger commit and checks are still dead — ejecting"
+              eject "$pr" needs-attention \
+                "🚦 land-queue: required checks never started on ${sha:0:8} even after a watchdog retrigger (dead checks — see #850). Ejected; investigate CI triggering, then re-apply \`ready-to-land\`."
+              return 0
+            fi
+            echo "  watchdog: head ${sha:0:8} has had no runnable required checks for ${age_mins}m — self-healing with a PAT empty commit"
+            tree=$(GH_TOKEN="$PAT" gh api "repos/$GH_REPO/git/commits/$sha" --jq .tree.sha) || { echo "::warning::watchdog: read commit failed"; return 0; }
+            new=$(GH_TOKEN="$PAT" gh api -X POST "repos/$GH_REPO/git/commits" \
+              -f message="chore: $RETRIGGER_MARKER — dead checks on ${sha:0:8} (#850 watchdog)" \
+              -f tree="$tree" -f "parents[]=$sha" --jq .sha) || { echo "::warning::watchdog: create commit failed"; return 0; }
+            if GH_TOKEN="$PAT" gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$branch" -f sha="$new"; then
+              GH_TOKEN="$PAT" gh pr edit "$pr" --remove-label land-retried 2>/dev/null || true # new head ⇒ fresh retry budget
+              echo "  watchdog: retriggered #$pr with empty commit ${new:0:8}; checks re-run on the new head"
+              exit 0 # one mutation per run
+            fi
+            echo "::warning::watchdog: ref update failed for #$pr (racing head move?)"
+            return 0
+          }
+
+          # All state comes from `gh pr view` (pull-requests:read only) — the
+          # fine-grained PAT lacks contents:read, so the compare + check-runs
+          # REST endpoints 403. mergeStateStatus (under branch-protection
+          # strict:false) is a conflict hint, not a freshness proof: GitHub can
+          # report CLEAN while baseRefOid is behind main. Required-check verdicts
+          # come from statusCheckRollup; final base freshness is checked below.
+          #
+          # We scan the WHOLE queue oldest-first, not just the head, so a stuck
+          # PR never blocks the ones behind it (head-of-line blocking). Each run
+          # performs at most ONE merge, plus (merge train) at most ONE follow-up
+          # update-branch for the next queued candidate — starting its check
+          # re-run in the same run instead of waiting for the push-event wake.
+          # Serial land order is preserved: still one merge per run; ejects,
+          # reruns and transient skips keep scanning.
+          merged=false
+          queue=$(gh pr list --label ready-to-land --state open --base main \
+            --json number,createdAt --jq 'sort_by(.createdAt) | .[].number')
+          if [ -z "$queue" ]; then
+            echo "queue empty"
+            exit 0
+          fi
+
+          for pr in $queue; do
+            v=$(gh pr view "$pr" --json isDraft,reviewDecision,headRefName,headRefOid,mergeStateStatus,labels,statusCheckRollup)
+            draft=$(jq -r '.isDraft' <<<"$v")
+            review=$(jq -r '.reviewDecision // ""' <<<"$v")
+            sha=$(jq -r .headRefOid <<<"$v")
+            branch=$(jq -r .headRefName <<<"$v")
+            state=$(jq -r .mergeStateStatus <<<"$v")
+            retried=$(jq -r '[.labels[].name] | index("land-retried") != null' <<<"$v")
+            echo "candidate #$pr ($branch @ ${sha:0:8}) mergeState=$state draft=$draft review=${review:-none} retried=$retried"
+
+            # --- Not-ready for a human reason → eject with feedback, keep scanning ---
+            if [ "$draft" = "true" ]; then
+              eject "$pr" needs-attention \
+                "🚦 land-queue: PR is a draft. Mark it ready for review, then re-apply \`ready-to-land\`."
+              continue
+            fi
+            case "$review" in
+              CHANGES_REQUESTED)
+                eject "$pr" needs-attention \
+                  "🚦 land-queue: changes requested in review. Address them and get re-approval (or dismiss the review), then re-apply \`ready-to-land\`."
+                continue ;;
+              REVIEW_REQUIRED)
+                eject "$pr" needs-attention \
+                  "🚦 land-queue: required review not yet approved. Get an approval, then re-apply \`ready-to-land\`."
+                continue ;;
+            esac
+
+            case "$state" in
+              DIRTY)
+                eject "$pr" needs-rebase \
+                  "🚦 land-queue: merge conflict with \`main\`. Ejected from the queue — rebase/merge main, then re-apply \`ready-to-land\`."
+                continue ;;
+              UNKNOWN)
+                echo "#$pr mergeability still computing; skipping this pass"
+                continue ;;
+              BEHIND)
+                echo "#$pr behind main — updating branch (one update-branch per run)"
+                GH_TOKEN="$PAT" gh pr edit "$pr" --remove-label land-retried 2>/dev/null || true # new head ⇒ fresh retry budget
+                if GH_TOKEN="$PAT" gh api -X PUT "repos/$GH_REPO/pulls/$pr/update-branch" -f "expected_head_sha=$sha"; then
+                  echo "update-branch requested for #$pr; checks re-run on the new head"
+                  exit 0
+                fi
+                echo "::warning::update-branch failed for #$pr (racing head move?); trying next candidate"
+                continue ;;
+              CLEAN | HAS_HOOKS | UNSTABLE)
+                if [ "$merged" = true ]; then
+                  # Merge train: already merged this run; this candidate was CLEAN
+                  # against the PRE-merge main, so its state is stale. Refresh once —
+                  # if it is now BEHIND, start its update-branch immediately instead
+                  # of waiting for the next wake (saves one event hop per queued PR).
+                  sleep "${LAND_TRAIN_SETTLE:-5}" # let GitHub recompute mergeability after the merge
+                  fresh=$(gh pr view "$pr" --json mergeStateStatus,headRefOid)
+                  fstate=$(jq -r .mergeStateStatus <<<"$fresh")
+                  fsha=$(jq -r .headRefOid <<<"$fresh")
+                  echo "merge-train: #$pr post-merge mergeState=$fstate"
+                  if [ "$fstate" = "BEHIND" ]; then
+                    GH_TOKEN="$PAT" gh pr edit "$pr" --remove-label land-retried 2>/dev/null || true
+                    GH_TOKEN="$PAT" gh api -X PUT "repos/$GH_REPO/pulls/$pr/update-branch" -f "expected_head_sha=$fsha" \
+                      && echo "merge-train: update-branch requested for #$pr" \
+                      || echo "::warning::merge-train: update-branch failed for #$pr (racing head move?)"
+                  fi
+                  # One merge + at most one train update per run — stop here.
+                  exit 0
+                fi
+                # Apparently up to date; required checks satisfied per branch
+                # protection (UNSTABLE = only a non-required check is unhappy).
+                # The final snapshot below proves base freshness before merge.
+                # — but only after the fail-closed guard confirms every required
+                # check actually reported green (mergeStateStatus alone treats an
+                # absent required check as mergeable — issue #658).
+                if ! required_checks_satisfied "$v"; then
+                  echo "#$pr mergeState=$state but a required check is absent/incomplete — fail-closed, not merging (issue #658)"
+                  watchdog_dead_checks "$pr" "$branch" "$sha" "$v"
+                  continue
+                fi
+
+                # The first snapshot only selects a candidate. Re-read immediately
+                # before merge so a push after that selection cannot inherit its
+                # stale eligibility. The merge command below binds this SHA again.
+                if ! fresh=$(gh pr view "$pr" --json state,isDraft,reviewDecision,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,labels,statusCheckRollup); then
+                  echo "::warning::final state refresh failed for #$pr; retaining queue labels"
+                  continue
+                fi
+                fresh_pr_state=$(jq -r .state <<<"$fresh")
+                fresh_draft=$(jq -r .isDraft <<<"$fresh")
+                fresh_review=$(jq -r '.reviewDecision // ""' <<<"$fresh")
+                fresh_branch=$(jq -r .headRefName <<<"$fresh")
+                fresh_sha=$(jq -r .headRefOid <<<"$fresh")
+                fresh_base_name=$(jq -r .baseRefName <<<"$fresh")
+                fresh_base=$(jq -r .baseRefOid <<<"$fresh")
+                fresh_merge_state=$(jq -r .mergeStateStatus <<<"$fresh")
+                fresh_enrolled=$(jq -r '[.labels[].name] | index("ready-to-land") != null' <<<"$fresh")
+
+                if [ "$fresh_pr_state" != "OPEN" ] || [ "$fresh_draft" != "false" ] \
+                  || [ "$fresh_branch" != "$branch" ] || [ "$fresh_base_name" != "main" ]; then
+                  echo "#$pr final PR shape changed (state=$fresh_pr_state draft=$fresh_draft head=$fresh_branch base=$fresh_base_name); retaining queue labels"
+                  continue
+                fi
+                case "$fresh_review" in
+                  CHANGES_REQUESTED | REVIEW_REQUIRED)
+                    echo "#$pr review decision changed to $fresh_review; retaining queue labels"
+                    continue ;;
+                esac
+                if [ "$fresh_sha" != "$sha" ]; then
+                  echo "#$pr head moved during final refresh (${sha:0:8} → ${fresh_sha:0:8}); retaining queue labels"
+                  continue
+                fi
+                case "$fresh_merge_state" in
+                  CLEAN | HAS_HOOKS | UNSTABLE) ;;
+                  *)
+                    echo "#$pr final merge state changed to $fresh_merge_state; retaining queue labels"
+                    continue ;;
+                esac
+                if [ "$fresh_enrolled" != "true" ]; then
+                  echo "#$pr is no longer enrolled; not merging"
+                  continue
+                fi
+                if ! required_checks_satisfied "$fresh"; then
+                  echo "#$pr required checks changed after candidate selection; retaining queue labels"
+                  continue
+                fi
+                # baseRefOid is the PR's recorded merge base, not the live base
+                # ref. A mismatch means the head is stale (or GraphQL is lagging);
+                # both cases conservatively request update-branch.
+                if ! live_base=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha); then
+                  echo "::warning::cannot read live main SHA for #$pr; retaining queue labels"
+                  continue
+                fi
+                if [ -z "$live_base" ]; then
+                  echo "::warning::live main SHA was empty for #$pr; retaining queue labels"
+                  continue
+                fi
+                if [ "$fresh_base" != "$live_base" ]; then
+                  echo "#$pr base ${fresh_base:0:8} is behind live main ${live_base:0:8}; updating branch before merge"
+                  GH_TOKEN="$PAT" gh pr edit "$pr" --remove-label land-retried 2>/dev/null || true
+                  if GH_TOKEN="$PAT" gh api -X PUT "repos/$GH_REPO/pulls/$pr/update-branch" -f "expected_head_sha=$fresh_sha"; then
+                    echo "update-branch requested for #$pr; checks re-run on the new head"
+                    exit 0
+                  fi
+                  echo "::warning::final update-branch failed for #$pr (racing head/base move?); retaining ready-to-land"
+                  continue
+                fi
+
+                echo "✅ #$pr green + up to date — merging (serial: one merge per run)"
+                if ! GH_TOKEN="$PAT" gh pr merge "$pr" --merge --match-head-commit "$sha"; then
+                  echo "::warning::merge rejected for #$pr (head or eligibility changed); retaining queue labels"
+                  continue
+                fi
+                GH_TOKEN="$PAT" gh pr edit "$pr" --remove-label ready-to-land --remove-label land-retried 2>/dev/null \
+                  || echo "::warning::merged #$pr but failed to remove queue labels"
+                # Stack-aware landing (follow-up #643). If this PR was the base of
+                # other open PRs — a stacked diff (cloud-stacked-diffs skill), or
+                # anything branched off it — those children now dangle on a merged
+                # branch. Retarget each DIRECT child to main AND apply
+                # `ready-to-land` so the queue can see + land it next (#1014: the
+                # documented contract labels only the stack bottom, so a retargeted
+                # child carries no label and the `--label ready-to-land` scan can
+                # never see it — the queue owns the label here). The child's own
+                # draft / review / check state still gates it (we never force a
+                # link past its own approval — a draft/changes-requested child is
+                # ejected with feedback on the next pass). Grandchildren retarget
+                # when their parent lands, so the whole stack drains bottom-up, one
+                # link per run.
+                #
+                # No git rebase / force-push needed: we merge via --merge, so the
+                # child already contains this step's commits; retargeting makes it
+                # BEHIND and the existing update-branch path fast-forwards it with a
+                # merge commit — no duplication. ⚠️ This correctness relies on the
+                # --merge strategy above; a squash-merge repo would duplicate the
+                # merged commits and instead need `git rebase --onto` on a checkout
+                # (needs contents:write the lander deliberately lacks). Keep --merge.
+                children=$(gh pr list --state open --base "$branch" --json number --jq '.[].number' 2>/dev/null || true)
+                for child in $children; do
+                  echo "↳ stacked child #$child based on merged \`$branch\` — retargeting to main + labeling ready-to-land"
+                  GH_TOKEN="$PAT" gh pr edit "$child" --base main --add-label ready-to-land || { echo "::warning::retarget failed for #$child"; continue; }
+                  # shellcheck disable=SC2016  # %s are printf placeholders, not shell expansions
+                  body=$(printf '🚦 land-queue: stack-aware retarget\n- Actor: land-queue workflow (%s)\n- Trigger: parent #%s (base branch `%s`) merged into `main`\n- Evidence: merged head %s; child base was `%s`\n- Action: retargeted this PR base `%s` → `main` and applied `ready-to-land` (queue-owned; see #1014)\n- Result: now visible to the land queue; will land bottom-up once it is ready + green + up to date\n- Next state: continue — its own draft / review / required checks still gate it' "$GH_REPO" "$pr" "$branch" "${sha:0:8}" "$branch" "$branch")
+                  GH_TOKEN="$PAT" gh pr comment "$child" --body "$body" || true
+                done
+                # Merge train: keep scanning so the NEXT queued candidate's
+                # update-branch can start in this same run (handled above via
+                # the merged=true branch on its now-stale CLEAN/BEHIND state).
+                merged=true
+                continue ;;
+              *) # BLOCKED — a required check is pending or failed; inspect rollup
+                # Safe superset: every rollup entry carrying a required name must
+                # be COMPLETED with SUCCESS/SKIPPED/NEUTRAL. Post-#674 `gate` is
+                # emitted by CI alone (Agentic's preflight no longer collides), so
+                # a suppressed CI gate leaves `gate` absent and the fail-closed
+                # guard above catches it — no green scope check masks it.
+                failed=false
+                for name in $REQUIRED_CHECKS; do
+                  runs=$(jq -c --arg n "$name" '[.statusCheckRollup[] | select(.name == $n)]' <<<"$v")
+                  if [ "$(jq '[.[] | select(.status == "COMPLETED" and (.conclusion | ascii_upcase | IN("SUCCESS","SKIPPED","NEUTRAL") | not))] | length' <<<"$runs")" -gt 0 ]; then failed=true; fi
+                done
+                if [ "$failed" = true ]; then
+                  if [ "$retried" = "false" ]; then
+                    # One flake rerun. Rerun FIRST, verify it registered, and only
+                    # then spend the `land-retried` budget (#850 defect C: the old
+                    # order marked the label, then the rerun — done with the PAT,
+                    # which has no actions scope — 403'd into `|| true`, so the
+                    # budget was spent on a rerun that never existed).
+                    echo "required check failed on #$pr — attempting one flake rerun"
+                    rerun_ok=false
+                    for rid in $(gh run list --commit "$sha" --json databaseId,conclusion \
+                        --jq '.[] | select(.conclusion != "success" and .conclusion != "" and .conclusion != "skipped") | .databaseId' 2>/dev/null); do
+                      if gh run rerun "$rid" --failed; then
+                        sleep "${RERUN_VERIFY_SETTLE:-3}" # GitHub registers the new attempt asynchronously
+                        st=$(gh api "repos/$GH_REPO/actions/runs/$rid" --jq .status 2>/dev/null || echo "")
+                        case "$st" in queued|in_progress|requested|waiting|pending) rerun_ok=true ;; esac
+                        echo "  rerun of $rid: status=${st:-unknown}"
+                      else
+                        echo "::warning::rerun request failed for run $rid on #$pr"
+                      fi
+                    done
+                    if [ "$rerun_ok" = true ]; then
+                      GH_TOKEN="$PAT" gh pr edit "$pr" --add-label land-retried
+                    else
+                      echo "::warning::no rerun registered for #$pr — retry budget NOT spent; next wake tries again"
+                    fi
+                    continue
+                  fi
+                  eject "$pr" land-failed \
+                    "🚦 land-queue: required checks failed twice on ${sha:0:8} (flake rerun spent). Ejected — fix, push, re-apply \`ready-to-land\`."
+                  continue
+                fi
+                watchdog_dead_checks "$pr" "$branch" "$sha" "$v"
+                echo "#$pr checks pending ($state); skipping this pass"
+                continue ;;
+            esac
+          done
+
+          echo "no actionable candidate this pass (all pending, ejected, or skipped)"

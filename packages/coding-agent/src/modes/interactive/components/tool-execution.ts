@@ -1,17 +1,20 @@
-import { Box, type Component, Container, getCapabilities, Image, Spacer, Text, type TUI } from "@valkyriweb/pi-tui";
+import { type Component, Container, getCapabilities, Image, Spacer, Text, type TUI } from "@valkyriweb/pi-tui";
 import type { ToolDefinition, ToolRenderContext } from "../../../core/extensions/types.ts";
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
 import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
 import { convertToPng } from "../../../utils/image-convert.ts";
 import { theme } from "../theme/theme.ts";
+import { ToolPanel } from "./tool-panel.ts";
 
 export interface ToolExecutionOptions {
 	showImages?: boolean;
 	imageWidthCells?: number;
 }
 
+export type ToolExecutionState = "queued" | "running" | "completed" | "error";
+
 export class ToolExecutionComponent extends Container {
-	private contentBox: Box;
+	private contentPanel: ToolPanel;
 	private contentText: Text;
 	private selfRenderContainer: Container;
 	private callRendererComponent?: Component;
@@ -39,6 +42,7 @@ export class ToolExecutionComponent extends Container {
 	};
 	private convertedImages: Map<number, { data: string; mimeType: string }> = new Map();
 	private hideComponent = false;
+	private disposed = false;
 
 	constructor(
 		toolName: string,
@@ -62,17 +66,15 @@ export class ToolExecutionComponent extends Container {
 
 		this.addChild(new Spacer(1));
 
-		// Always create all shell variants. contentBox is used for default renderer-based composition.
-		// selfRenderContainer is used when the tool renders its own framing.
-		// contentText is reserved for generic fallback rendering when no tool definition exists.
-		this.contentBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
-		this.contentText = new Text("", 1, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentPanel = new ToolPanel((text) => theme.bg("toolPendingBg", text));
+		this.contentText = new Text("", 0, 0);
 		this.selfRenderContainer = new Container();
 
 		if (this.hasRendererDefinition()) {
-			this.addChild(this.getRenderShell() === "self" ? this.selfRenderContainer : this.contentBox);
+			this.addChild(this.getRenderShell() === "self" ? this.selfRenderContainer : this.contentPanel);
 		} else {
-			this.addChild(this.contentText);
+			this.contentPanel.addChild(this.contentText);
+			this.addChild(this.contentPanel);
 		}
 
 		this.updateDisplay();
@@ -117,6 +119,7 @@ export class ToolExecutionComponent extends Container {
 			args: this.args,
 			toolCallId: this.toolCallId,
 			invalidate: () => {
+				if (this.disposed) return;
 				this.invalidate();
 				this.ui.requestRender();
 			},
@@ -142,6 +145,11 @@ export class ToolExecutionComponent extends Container {
 			return undefined;
 		}
 		return new Text(theme.fg("toolOutput", output), 0, 0);
+	}
+
+	private updatePanelBackground(): void {
+		const background = this.isPartial ? "toolPendingBg" : this.result?.isError ? "toolErrorBg" : "toolSuccessBg";
+		this.contentPanel.setBackground((text) => theme.bg(background, text));
 	}
 
 	updateArgs(args: any): void {
@@ -189,7 +197,7 @@ export class ToolExecutionComponent extends Container {
 
 			const index = i;
 			convertToPng(img.data, img.mimeType).then((converted) => {
-				if (converted) {
+				if (converted && !this.disposed) {
 					this.convertedImages.set(index, converted);
 					this.updateDisplay();
 					this.ui.requestRender();
@@ -213,13 +221,36 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
+	getToolCallId(): string {
+		return this.toolCallId;
+	}
+
+	isVisible(): boolean {
+		return !this.hideComponent;
+	}
+
+	getExecutionState(): ToolExecutionState {
+		if (this.result?.isError) return "error";
+		if (this.result && !this.isPartial) return "completed";
+		return this.executionStarted ? "running" : "queued";
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		const disposeRenderer = this.rendererState?.dispose;
+		if (typeof disposeRenderer === "function") disposeRenderer();
+		this.rendererState = {};
+	}
+
 	override invalidate(): void {
+		if (this.disposed) return;
 		super.invalidate();
 		this.updateDisplay();
 	}
 
 	override render(width: number): string[] {
-		if (this.hideComponent) {
+		if (this.disposed || this.hideComponent) {
 			return [];
 		}
 
@@ -251,24 +282,17 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private updateDisplay(): void {
+		if (this.disposed) return;
 		if (this.getRenderShell() === "hidden") {
 			this.hideComponent = true;
 			return;
 		}
 
-		const bgFn = this.isPartial
-			? (text: string) => theme.bg("toolPendingBg", text)
-			: this.result?.isError
-				? (text: string) => theme.bg("toolErrorBg", text)
-				: (text: string) => theme.bg("toolSuccessBg", text);
-
 		let hasContent = false;
 		this.hideComponent = false;
+		this.updatePanelBackground();
 		if (this.hasRendererDefinition()) {
-			const renderContainer = this.getRenderShell() === "self" ? this.selfRenderContainer : this.contentBox;
-			if (renderContainer instanceof Box) {
-				renderContainer.setBgFn(bgFn);
-			}
+			const renderContainer = this.getRenderShell() === "self" ? this.selfRenderContainer : this.contentPanel;
 			renderContainer.clear();
 
 			const callRenderer = this.getCallRenderer();
@@ -318,7 +342,6 @@ export class ToolExecutionComponent extends Container {
 				}
 			}
 		} else {
-			this.contentText.setCustomBgFn(bgFn);
 			this.contentText.setText(this.formatToolExecution());
 			hasContent = true;
 		}

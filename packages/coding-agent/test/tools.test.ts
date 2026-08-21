@@ -4,7 +4,12 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeBashWithOperations } from "../src/core/bash-executor.ts";
-import { type BashOperations, createBashTool, createLocalBashOperations } from "../src/core/tools/bash.ts";
+import {
+	BASH_TIMEOUT_ENV_VAR,
+	type BashOperations,
+	createBashTool,
+	createLocalBashOperations,
+} from "../src/core/tools/bash.ts";
 import { computeEditsDiff } from "../src/core/tools/edit-diff.ts";
 import { buildBfsArgs, buildFdArgs, buildRgFilesArgs } from "../src/core/tools/glob.ts";
 import { buildRgArgs, buildUgrepArgs } from "../src/core/tools/grep.ts";
@@ -110,6 +115,7 @@ describe("Coding Agent Tools", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		// Clean up test directory
 		rmSync(testDir, { recursive: true, force: true });
 	});
@@ -132,6 +138,15 @@ describe("Coding Agent Tools", () => {
 			const testFile = join(testDir, "nonexistent.txt");
 
 			await expect(readTool.execute("test-call-2", { path: testFile })).rejects.toThrow(/ENOENT|not found/i);
+		});
+
+		it("should reject directories with an instructive error instead of raw EISDIR", async () => {
+			const subDir = join(testDir, "some-dir");
+			mkdirSync(subDir);
+
+			await expect(readTool.execute("test-call-dir", { path: subDir })).rejects.toThrow(
+				/is a directory, not a file.*bash \(ls\)/,
+			);
 		});
 
 		it("should truncate files exceeding line limit", async () => {
@@ -362,23 +377,7 @@ describe("Coding Agent Tools", () => {
 			expect(result.details.patch).toContain("+Hello, testing!");
 			expect(applyPatch(originalContent, result.details.patch)).toBe("Hello, testing!");
 			expect("originalContent" in result.details).toBe(false);
-			expect(result.details.originalContentPreview).toBe(originalContent);
-		});
-
-		it("should cap original content stored in edit details", async () => {
-			const testFile = join(testDir, "edit-large-original.txt");
-			const originalContent = `${"x".repeat(5000)}\nneedle\n`;
-			writeFileSync(testFile, originalContent);
-
-			const result = await editTool.execute("test-call-5b", {
-				path: testFile,
-				edits: [{ oldText: "needle", newText: "thread" }],
-			});
-
-			expect(result.details).toBeDefined();
-			expect("originalContent" in result.details).toBe(false);
-			expect(result.details.originalContentPreview).toBe(originalContent.slice(0, 4000));
-			expect(result.details.originalContentPreview.length).toBeLessThanOrEqual(4000);
+			expect("originalContentPreview" in result.details).toBe(false);
 		});
 
 		it("should fail if text not found", async () => {
@@ -645,8 +644,12 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should include full output path for truncated timeout and abort errors", async () => {
+			vi.stubEnv(BASH_TIMEOUT_ENV_VAR, undefined);
 			for (const testCase of [
-				{ error: "timeout:5", expected: "Command timed out after 5 seconds" },
+				{
+					error: "timeout:5",
+					expected: "Command timed out after 1s and its process tree was killed (foreground limit 120s).",
+				},
 				{ error: "aborted", expected: "Command aborted" },
 			]) {
 				const operations: BashOperations = {
@@ -1254,17 +1257,32 @@ describe("Coding Agent Tools", () => {
 			expect(result.details?.truncation?.outputBytes).toBeLessThanOrEqual(50 * 1024);
 		});
 
-		it("should reject unsupported multiline mode clearly", async () => {
+		it("should match across lines with multiline:true", async () => {
 			const testFile = join(testDir, "multiline.txt");
+			writeFileSync(testFile, "needle\nacross\nunrelated\n");
+
+			const result = await grepTool.execute("test-call-grep-multiline", {
+				pattern: "needle.*across",
+				path: testFile,
+				multiline: true,
+			});
+			const output = getTextOutput(result);
+
+			expect(output).toContain("multiline.txt:1: needle");
+			expect(output).toContain("multiline.txt-2- across");
+			expect(output).not.toContain("unrelated");
+		});
+
+		it("should not match across lines without multiline", async () => {
+			const testFile = join(testDir, "multiline-off.txt");
 			writeFileSync(testFile, "needle\nacross\n");
 
-			await expect(
-				grepTool.execute("test-call-grep-multiline", {
-					pattern: "needle.*across",
-					path: testFile,
-					multiline: true,
-				}),
-			).rejects.toThrow(/multiline is not supported/);
+			const result = await grepTool.execute("test-call-grep-multiline-off", {
+				pattern: "needle.*across",
+				path: testFile,
+			});
+
+			expect(getTextOutput(result)).toContain("No matches found");
 		});
 
 		it("should honor explicit higher grep timeout", async () => {
@@ -1313,6 +1331,116 @@ describe("Coding Agent Tools", () => {
 
 			expect(outputLines).toContain("visible.txt");
 			expect(outputLines).toContain(".secret/hidden.txt");
+		});
+
+		it("should support outputMode=count, offset, and sort=name", async () => {
+			writeFileSync(join(testDir, "b.txt"), "b");
+			writeFileSync(join(testDir, "a.txt"), "a");
+			writeFileSync(join(testDir, "c.txt"), "c");
+
+			const countResult = await globTool.execute("test-call-glob-count", {
+				pattern: "*.txt",
+				path: testDir,
+				outputMode: "count",
+			});
+			expect(getTextOutput(countResult).trim()).toBe("3");
+
+			const sortedResult = await globTool.execute("test-call-glob-sort-name", {
+				pattern: "*.txt",
+				path: testDir,
+				sort: "name",
+			});
+			expect(
+				getTextOutput(sortedResult)
+					.split("\n")
+					.map((line) => line.trim())
+					.filter(Boolean),
+			).toEqual(["a.txt", "b.txt", "c.txt"]);
+
+			const pagedResult = await globTool.execute("test-call-glob-offset", {
+				pattern: "*.txt",
+				path: testDir,
+				sort: "name",
+				limit: 1,
+				offset: 1,
+			});
+			// One page of a 3-match set: the page itself, plus a continuation notice —
+			// the remaining match is only knowable because the sort saw every result.
+			const pagedOutput = getTextOutput(pagedResult);
+			expect(pagedOutput.split("\n")[0].trim()).toBe("b.txt");
+			expect(pagedOutput).toContain("offset=2");
+		});
+
+		it("counts and sorts over the whole result set, not the limited window", async () => {
+			for (const name of ["e.txt", "d.txt", "c.txt", "b.txt", "a.txt"]) {
+				writeFileSync(join(testDir, name), name);
+			}
+
+			// `limit` caps returned paths, never the reported total.
+			const countResult = await globTool.execute("test-call-glob-count-beyond-limit", {
+				pattern: "*.txt",
+				path: testDir,
+				outputMode: "count",
+				limit: 2,
+			});
+			expect(getTextOutput(countResult).trim()).toBe("5");
+
+			// A sort must order every match before paging, so a limit returns the
+			// globally-first entries rather than whatever the backend happened to find first.
+			const sortedResult = await globTool.execute("test-call-glob-sort-beyond-limit", {
+				pattern: "*.txt",
+				path: testDir,
+				sort: "name",
+				limit: 2,
+			});
+			expect(
+				getTextOutput(sortedResult)
+					.split("\n")
+					.map((line) => line.trim())
+					.filter((line) => line.endsWith(".txt")),
+			).toEqual(["a.txt", "b.txt"]);
+		});
+
+		it("reports the limit-reached notice on the default unsorted path (#403)", async () => {
+			// The default path (sort:"none", outputMode:"paths") asks the backend for
+			// only as many results as it returns, so overflow is invisible unless one
+			// extra row is fetched. Without it a capped list looks complete to the model.
+			for (let i = 0; i < 5; i += 1) writeFileSync(join(testDir, `cap-${i}.txt`), "x");
+
+			const result = await globTool.execute("test-call-glob-limit-notice", {
+				pattern: "cap-*.txt",
+				path: testDir,
+				limit: 3,
+			});
+
+			const paths = getTextOutput(result)
+				.split("\n")
+				.map((line) => line.trim())
+				.filter((line) => line.endsWith(".txt"));
+			expect(paths).toHaveLength(3);
+			expect(getTextOutput(result)).toContain("3 results limit reached");
+			expect(getTextOutput(result)).toContain("offset=3");
+			expect(result.details?.resultLimitReached).toBe(3);
+
+			// Exactly-at-limit is not overflow: no notice, no phantom continuation.
+			const exact = await globTool.execute("test-call-glob-limit-exact", {
+				pattern: "cap-*.txt",
+				path: testDir,
+				limit: 5,
+			});
+			expect(getTextOutput(exact)).not.toContain("results limit reached");
+			expect(exact.details?.resultLimitReached).toBeUndefined();
+		});
+
+		it("should reject conflicting outputMode and output_mode", async () => {
+			await expect(
+				globTool.execute("test-call-glob-mode-conflict", {
+					pattern: "*.txt",
+					path: testDir,
+					outputMode: "count",
+					output_mode: "paths",
+				} as any),
+			).rejects.toThrow("outputMode and output_mode differ");
 		});
 
 		it("should respect .gitignore with the rg backend", async () => {
@@ -1565,6 +1693,14 @@ describe("Coding Agent Tools", () => {
 			expect((definition.parameters as any).properties.timeout).toBeDefined();
 			expect((definition.parameters as any).properties.timeout.exclusiveMinimum).toBe(0);
 			expect((definition.parameters as any).properties.timeout.maximum).toBe(300);
+		});
+
+		it("should expose outputMode, output_mode, offset, and sort in the schema", () => {
+			const properties = (createGlobToolDefinition(process.cwd()).parameters as any).properties;
+			expect(properties.outputMode).toBeDefined();
+			expect(properties.output_mode).toBeDefined();
+			expect(properties.offset).toBeDefined();
+			expect(properties.sort).toBeDefined();
 		});
 
 		it("should time out slow Glob calls with an actionable result", async () => {

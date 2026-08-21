@@ -88,6 +88,7 @@ describe("ExtensionRunner B2/B3 hooks", () => {
 			throw new Error("forkAgent not implemented in test runner");
 		},
 		transcriptAppend: () => {},
+		getScopedModels: () => [],
 	};
 
 	const createRunner = (result: LoadExtensionsResult): ExtensionRunner => {

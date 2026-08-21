@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { type Component, TUI } from "../src/tui.ts";
+import type { Component } from "../src/tui.ts";
+import { TuiMainScreen } from "../src/tui-main-screen.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
 /** Component that records how often it is rendered and what input it receives. */
@@ -23,7 +24,7 @@ class FocusProbe implements Component {
 describe("TUI focus reporting (DEC mode 1004)", () => {
 	it("consumes focus-in/out events and still forwards user input", async () => {
 		const terminal = new VirtualTerminal(80, 24);
-		const tui = new TUI(terminal);
+		const tui = new TuiMainScreen(terminal);
 		const probe = new FocusProbe();
 		tui.addChild(probe);
 		tui.setFocus(probe);
@@ -43,7 +44,7 @@ describe("TUI focus reporting (DEC mode 1004)", () => {
 
 	it("defers renders while unfocused and flushes once on focus-in", async () => {
 		const terminal = new VirtualTerminal(80, 24);
-		const tui = new TUI(terminal);
+		const tui = new TuiMainScreen(terminal);
 		const probe = new FocusProbe();
 		tui.addChild(probe);
 		tui.setFocus(probe);

@@ -257,7 +257,10 @@ export class FooterComponent implements Component {
 		const pendingAutoModelAlias = this.session.pendingAutoModelAlias;
 		const thinkingLevel = state.thinkingLevel || "off";
 		const providerCount = this.footerData.getAvailableProviderCount();
-		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
+		// Kimi Coding is subscription-backed despite using API-key authentication.
+		const usingSubscription = state.model
+			? state.model.provider === "kimi-coding" || this.session.modelRuntime.isUsingSubscription(state.model.provider)
+			: false;
 		const renderKey = [
 			width,
 			basePwd,

@@ -1,4 +1,5 @@
 import type { AutocompleteProvider } from "./autocomplete.ts";
+import type { EditorHighlighter } from "./components/editor.ts";
 import type { Component } from "./tui.ts";
 
 /**
@@ -58,6 +59,9 @@ export interface EditorComponent extends Component {
 
 	/** Set the autocomplete provider */
 	setAutocompleteProvider?(provider: AutocompleteProvider): void;
+
+	/** Style spans of the editor's text in place. Pass `undefined` to clear. */
+	setHighlighter?(highlighter: EditorHighlighter | undefined): void;
 
 	// =========================================================================
 	// Appearance (optional)

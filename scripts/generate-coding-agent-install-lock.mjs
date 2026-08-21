@@ -15,7 +15,7 @@ const internalPackagePrefix = "@valkyriweb/pi-";
 const installPackageName = "@valkyriweb/pi-coding-agent-install";
 const allowedInstallScriptPackages = new Map([
 	["@google/genai@1.52.0", "preinstall is a no-op in the published package"],
-	["protobufjs@7.6.4", "postinstall only warns about protobufjs version scheme mismatches"],
+	["protobufjs@7.6.5", "postinstall only warns about protobufjs version scheme mismatches"],
 	["koffi@2.16.2", "fork keeps koffi optionalDependency for Windows VT input (Shift+Tab); install scripts build the native addon"],
 ]);
 

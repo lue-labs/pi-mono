@@ -4,6 +4,7 @@ import {
 	getChildResourceLoaderOptions,
 	getFilteredForkMessages,
 	resolveContextPolicy,
+	substitutePlaceholdersForUnresolvedToolCalls,
 } from "../src/core/agents/context.ts";
 import type { AgentDefinition } from "../src/core/agents/types.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -174,6 +175,150 @@ describe("agent context inheritance", () => {
 		expect(messages).toContain(keepResult);
 		// orphan dropped
 		expect(messages).not.toContain(orphanResult);
+	});
+
+	test("fork filtering moves a displaced tool_result immediately after its tool_use", () => {
+		const assistant: AssistantMessage = {
+			...assistantBase,
+			role: "assistant",
+			content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } }],
+			stopReason: "toolUse",
+		};
+		const interruption: UserMessage = {
+			role: "user",
+			content: [{ type: "text", text: "course correction" }],
+			timestamp: Date.now(),
+		};
+		const result: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: "call-1",
+			toolName: "read",
+			content: [{ type: "text", text: "read result" }],
+			isError: false,
+			timestamp: Date.now(),
+		};
+
+		expect(substitutePlaceholdersForUnresolvedToolCalls([assistant, interruption, result])).toEqual([
+			assistant,
+			result,
+			interruption,
+		]);
+	});
+
+	test("fork filtering keeps a complete multi-tool result batch atomic", () => {
+		const assistant: AssistantMessage = {
+			...assistantBase,
+			role: "assistant",
+			content: [
+				{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a" } },
+				{ type: "toolCall", id: "call-2", name: "read", arguments: { path: "b" } },
+			],
+			stopReason: "toolUse",
+		};
+		const result1: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: "call-1",
+			toolName: "read",
+			content: [{ type: "text", text: "a" }],
+			isError: false,
+			timestamp: 1,
+		};
+		const result2: ToolResultMessage = { ...result1, toolCallId: "call-2", content: [{ type: "text", text: "b" }] };
+		const interruption: UserMessage = { role: "user", content: "later", timestamp: 2 };
+
+		expect(substitutePlaceholdersForUnresolvedToolCalls([assistant, result2, interruption, result1])).toEqual([
+			assistant,
+			result1,
+			result2,
+			interruption,
+		]);
+	});
+
+	test("fork filtering fills only the missing result in a mixed assistant turn", () => {
+		const assistant: AssistantMessage = {
+			...assistantBase,
+			role: "assistant",
+			content: [
+				{ type: "text", text: "checking both files" },
+				{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a" } },
+				{ type: "toolCall", id: "call-2", name: "read", arguments: { path: "b" } },
+			],
+			stopReason: "toolUse",
+		};
+		const result: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: "call-2",
+			toolName: "read",
+			content: [{ type: "text", text: "b" }],
+			isError: false,
+			timestamp: 1,
+		};
+
+		const messages = substitutePlaceholdersForUnresolvedToolCalls([assistant, result]);
+		expect(messages[0]).toBe(assistant);
+		expect(messages.slice(1).map((message) => message.role === "toolResult" && message.toolCallId)).toEqual([
+			"call-1",
+			"call-2",
+		]);
+		expect(messages[1]).toMatchObject({
+			role: "toolResult",
+			toolCallId: "call-1",
+			content: [{ type: "text", text: "Another Agent task is in progress." }],
+		});
+		expect(messages[2]).toBe(result);
+	});
+
+	test("fork filtering drops a result that appears before its tool_use", () => {
+		const earlyResult: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: "call-1",
+			toolName: "read",
+			content: [{ type: "text", text: "too early" }],
+			isError: false,
+			timestamp: 1,
+		};
+		const assistant: AssistantMessage = {
+			...assistantBase,
+			role: "assistant",
+			content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } }],
+			stopReason: "toolUse",
+		};
+
+		const messages = substitutePlaceholdersForUnresolvedToolCalls([earlyResult, assistant]);
+		expect(messages).not.toContain(earlyResult);
+		expect(messages).toEqual([
+			assistant,
+			expect.objectContaining({ role: "toolResult", toolCallId: "call-1", timestamp: 0 }),
+		]);
+	});
+
+	test("fork filtering repairs a displaced result after compaction replay", () => {
+		const session = SessionManager.inMemory();
+		const assistant: AssistantMessage = {
+			...assistantBase,
+			role: "assistant",
+			content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } }],
+			stopReason: "toolUse",
+		};
+		const result: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: "call-1",
+			toolName: "read",
+			content: [{ type: "text", text: "read result" }],
+			isError: false,
+			timestamp: 1,
+		};
+		const assistantId = session.appendMessage(assistant);
+		session.appendCustomMessageEntry("test.interruption", "visible interruption", true);
+		session.appendMessage(result);
+		session.appendCompaction("summary", assistantId, 100);
+
+		const messages = getFilteredForkMessages(session);
+		const assistantIndex = messages.indexOf(assistant);
+		expect(messages[assistantIndex + 1]).toBe(result);
+		expect(messages.filter((message) => message.role === "toolResult" && message.toolCallId === "call-1")).toEqual([
+			result,
+		]);
 	});
 
 	// CACHE CRITICAL: two fork children built from the same parent state must

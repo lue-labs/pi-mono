@@ -1,0 +1,13 @@
+import type { ImageContent, TextContent, ThinkingContent, ToolCall, ToolReferenceContent } from "../types.ts";
+
+// Fork: content unions include provider-native tool references.
+type Content = TextContent | ImageContent | ThinkingContent | ToolCall | ToolReferenceContent;
+
+/** Extract and join text from message content. */
+export function contentText(content: string | readonly Content[], separator = "\n"): string {
+	if (typeof content === "string") return content;
+	return content
+		.filter((block) => block.type === "text")
+		.map((block) => block.text)
+		.join(separator);
+}
