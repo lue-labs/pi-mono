@@ -1,10 +1,4 @@
-import type {
-	ConnectionState,
-	ConnectionStateChange,
-	PiClient,
-	SessionLease,
-	Unsubscribe,
-} from "@valkyriweb/pi-client";
+import type { ConnectionState, ConnectionStateChange, PiClient, SessionLease, Unsubscribe } from "@lue-labs/pi-client";
 import type {
 	ModelMetadata,
 	ModelRef,
@@ -14,7 +8,7 @@ import type {
 	SessionSnapshot,
 	ThinkingLevel,
 	TranscriptItem,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import {
 	applyTranscriptProgress,
 	applyTranscriptSnapshot,

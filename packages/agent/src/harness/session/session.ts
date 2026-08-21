@@ -1,4 +1,4 @@
-import { uuidv7 } from "@valkyriweb/pi-ai";
+import { uuidv7 } from "@lue-labs/pi-ai";
 import type { AgentMessage } from "../../types.ts";
 import type {
 	BranchBounds,

@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 Skip an auto-discovered extension that fails to load instead of exiting.

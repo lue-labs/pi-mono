@@ -1,6 +1,6 @@
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Transport } from "@valkyriweb/pi-ai";
-import type { TuiMode as RendererTuiMode, ScrollViewScrollbar } from "@valkyriweb/pi-tui";
+import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Transport } from "@lue-labs/pi-ai";
+import type { TuiMode as RendererTuiMode, ScrollViewScrollbar } from "@lue-labs/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";

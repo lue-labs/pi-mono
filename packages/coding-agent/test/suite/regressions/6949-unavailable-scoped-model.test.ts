@@ -1,5 +1,5 @@
-import type { Api, Model } from "@valkyriweb/pi-ai";
-import { setKeybindings } from "@valkyriweb/pi-tui";
+import type { Api, Model } from "@lue-labs/pi-ai";
+import { setKeybindings } from "@lue-labs/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../../../src/core/keybindings.ts";
 import { ScopedModelsSelectorComponent } from "../../../src/modes/interactive/components/scoped-models-selector.ts";

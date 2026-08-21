@@ -3,8 +3,8 @@
 
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
-import { StringEnum } from "@valkyriweb/pi-ai";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
+import { StringEnum } from "@lue-labs/pi-ai";
 import { type Static, Type } from "typebox";
 import {
 	BASH_MAX_OUTPUT_BYTES,

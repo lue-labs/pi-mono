@@ -27,7 +27,7 @@ permissions:
   contents: write       # push autofix commits to same-repo PR branches
   pull-requests: write  # post the review + inline comments
   issues: write         # code-craft-pr files Tier-3 issues
-  packages: read        # @valkyriweb/* from GitHub Packages
+  packages: read        # @lue-labs/pi-* plus @valkyriweb/agentic-review from GitHub Packages
 
 concurrency:
   group: agentic-review-${{ github.event.pull_request.number }}
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # GitHub Packages read auth for @valkyriweb/*. GITHUB_TOKEN cannot read
+      # GitHub Packages read auth for both organization and legacy user scopes. GITHUB_TOKEN cannot read
       # user-owned restricted packages (E403), so use a classic read:packages PAT.
       NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
       RUN_REVIEW: ${{ needs.gate.outputs.should_run == 'true' && needs.gate.outputs.authorized == 'true' }}
@@ -138,7 +138,7 @@ jobs:
           # expands it from the environment at read time, so single quotes are
           # correct here. Silence shellcheck's "expressions don't expand" warning.
           # shellcheck disable=SC2016
-          printf '@valkyriweb:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n' > "$HOME/.npmrc"
+          printf '@lue-labs:registry=https://npm.pkg.github.com\n@valkyriweb:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n' > "$HOME/.npmrc"
 
       - name: Install agentic-review pipeline (GitHub Packages)
         if: env.RUN_REVIEW == 'true'

@@ -17,7 +17,7 @@ pkg update && pkg upgrade
 pkg install nodejs termux-api git
 
 # Install pi
-npm install -g --ignore-scripts @valkyriweb/pi-coding-agent
+npm install -g --ignore-scripts @lue-labs/pi-coding-agent
 
 # Create config directory
 mkdir -p ~/.pi/agent

@@ -1,4 +1,4 @@
-import { getKeybindings, truncateToWidth } from "@valkyriweb/pi-tui";
+import { getKeybindings, truncateToWidth } from "@lue-labs/pi-tui";
 import {
 	formatAgentRunDetailView,
 	shouldZoomAgentRunRow,

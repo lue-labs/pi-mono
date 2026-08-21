@@ -1,4 +1,4 @@
-import type { AssistantMessage } from "@valkyriweb/pi-ai";
+import type { AssistantMessage } from "@lue-labs/pi-ai";
 import type { SessionEntry } from "./session-manager.ts";
 
 /**

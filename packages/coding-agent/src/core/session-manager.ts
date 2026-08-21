@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import { type ImageContent, type Message, type TextContent, type Usage, uuidv7 } from "@valkyriweb/pi-ai";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import { type ImageContent, type Message, type TextContent, type Usage, uuidv7 } from "@lue-labs/pi-ai";
 import { randomUUID } from "crypto";
 import {
 	appendFileSync,

@@ -7,7 +7,7 @@
  *
  * Usage:
  *
- *   import { completeSimple, type Model } from "@valkyriweb/pi-ai";
+ *   import { completeSimple, type Model } from "@lue-labs/pi-ai";
  *   const harness = createLLMHarness({
  *     call: createPiModelCaller(myModel),
  *   });
@@ -18,8 +18,8 @@
  * harness call is on the hot path for every BuildInterface invocation.
  */
 
-import type { Api, Model } from "@valkyriweb/pi-ai";
-import { completeSimple } from "@valkyriweb/pi-ai/compat";
+import type { Api, Model } from "@lue-labs/pi-ai";
+import { completeSimple } from "@lue-labs/pi-ai/compat";
 import type { ModelCaller } from "./ui-harness.ts";
 
 export interface PiModelCallerOptions {

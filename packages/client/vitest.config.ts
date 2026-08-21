@@ -9,7 +9,7 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: {
-			"@valkyriweb/pi-protocol": fileURLToPath(new URL("../protocol/src/index.ts", import.meta.url)),
+			"@lue-labs/pi-protocol": fileURLToPath(new URL("../protocol/src/index.ts", import.meta.url)),
 		},
 	},
 });

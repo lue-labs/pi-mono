@@ -7,7 +7,7 @@ This page gets you from install to a useful first pi session.
 Pi is distributed as an npm package:
 
 ```bash
-npm install -g --ignore-scripts @valkyriweb/pi-coding-agent
+npm install -g --ignore-scripts @lue-labs/pi-coding-agent
 ```
 
 `--ignore-scripts` disables dependency lifecycle scripts during install. Pi does not require install scripts for normal npm installs.
@@ -18,16 +18,16 @@ Use the package manager that installed pi. The curl installer uses npm globally,
 
 ```bash
 # curl installer or npm install -g
-npm uninstall -g @valkyriweb/pi-coding-agent
+npm uninstall -g @lue-labs/pi-coding-agent
 
 # pnpm
-pnpm remove -g @valkyriweb/pi-coding-agent
+pnpm remove -g @lue-labs/pi-coding-agent
 
 # Yarn
-yarn global remove @valkyriweb/pi-coding-agent
+yarn global remove @lue-labs/pi-coding-agent
 
 # Bun
-bun uninstall -g @valkyriweb/pi-coding-agent
+bun uninstall -g @lue-labs/pi-coding-agent
 ```
 
 Uninstalling pi leaves settings, credentials, sessions, and installed pi packages in `~/.pi/agent/`.

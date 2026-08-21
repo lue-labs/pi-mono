@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-ai": patch
+"@lue-labs/pi-ai": patch
 ---
 
 Make `StringEnum` infer the literal union it documents.

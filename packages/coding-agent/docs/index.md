@@ -7,7 +7,7 @@ Pi is a minimal terminal coding harness. It is designed to stay small at the cor
 Install Pi with npm:
 
 ```bash
-npm install -g --ignore-scripts @valkyriweb/pi-coding-agent
+npm install -g --ignore-scripts @lue-labs/pi-coding-agent
 ```
 
 `--ignore-scripts` disables dependency lifecycle scripts during install. Pi does not require install scripts for normal npm installs.
@@ -21,10 +21,10 @@ curl -fsSL https://pi.dev/install.sh | sh
 To uninstall pi itself, use npm for curl and npm installs:
 
 ```bash
-npm uninstall -g @valkyriweb/pi-coding-agent
+npm uninstall -g @lue-labs/pi-coding-agent
 ```
 
-For pnpm, Yarn, or Bun installs, use the matching global remove command: `pnpm remove -g @valkyriweb/pi-coding-agent`, `yarn global remove @valkyriweb/pi-coding-agent`, or `bun uninstall -g @valkyriweb/pi-coding-agent`.
+For pnpm, Yarn, or Bun installs, use the matching global remove command: `pnpm remove -g @lue-labs/pi-coding-agent`, `yarn global remove @lue-labs/pi-coding-agent`, or `bun uninstall -g @lue-labs/pi-coding-agent`.
 
 Then run it in a project directory:
 

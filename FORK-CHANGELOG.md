@@ -2,11 +2,13 @@
 
 Fork-specific changes maintained by lue-labs. Upstream package changelogs stay reserved for upstream release notes and upstreamable changes.
 
-Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Packages, versioned in lockstep via Changesets); dates are release-tag creation dates. Entries were back-attributed to releases via git blame → earliest containing release tag.
+Release numbers track the fork's GitHub Packages releases, versioned in lockstep via Changesets. Current packages use `@lue-labs/*`; releases before the organization migration used `@valkyriweb/*`. Dates are release-tag creation dates. Entries were back-attributed to releases via git blame → earliest containing release tag.
 
 ## [Unreleased]
 
 ### Changed
+
+- **The nine current fork packages move from the user-owned `@valkyriweb` scope to organization-owned `@lue-labs`.** Package manifests, internal dependencies/imports, pending Changesets, generated install locks, release tooling, registry routing, and current documentation now use the organization scope; publish metadata points at `lue-labs/pi-mono` so GitHub Packages can establish native repository and Actions access. The legacy scope remains configured during consumer transition, and previously published `@valkyriweb/*` versions remain immutable rollback targets.
 
 - **Extensions can now register task adapters through the injected `ExtensionAPI`.** `registerTaskAdapter`/`findTaskAdapter` are thin passthroughs to the shared task registry (mirroring `registerLiveSession`), and `listTasks()` enumerates any adapter exposing an optional `list()`, so an extension can own a long-running thing — e.g. a backgrounded MCP tool call — and have it stoppable via `TaskStop` and listable in `TaskBackgroundList` without importing the core registry singleton. Additive platform seam; no system-prompt or `tools[]` bytes change.
 - **The `/agents runs` view now orders and prunes like Claude Code's background-tasks dialog.** Running rows sort first, then newest-first by start time; completed agents stay visible only during their retention window, while failed/interrupted runs that still need attention are never silently dropped — all at the view layer over the unchanged durable run registry (`selectAgentRunRows`). TUI rendering only; no system-prompt or `tools[]` bytes change.

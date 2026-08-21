@@ -1,7 +1,7 @@
 {
-	"name": "@valkyriweb/pi-session-backend-sqlite-node",
+	"name": "@lue-labs/pi-session-backend-sqlite-node",
 	"version": "0.84.4",
-	"description": "Node sqlite session backend for @valkyriweb/pi-agent-core sessions",
+	"description": "Node sqlite session backend for @lue-labs/pi-agent-core sessions",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -27,15 +27,15 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/lue-labs/pi-mono.git",
 		"directory": "packages/session-backends/sqlite-node"
 	},
 	"engines": {
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@valkyriweb/pi-ai": "0.84.4",
-		"@valkyriweb/pi-agent-core": "0.84.4"
+		"@lue-labs/pi-ai": "0.84.4",
+		"@lue-labs/pi-agent-core": "0.84.4"
 	},
 	"devDependencies": {
 		"@vitest/coverage-v8": "4.1.9",

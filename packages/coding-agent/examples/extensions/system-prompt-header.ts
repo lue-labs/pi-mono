@@ -3,7 +3,7 @@
  *
  * Demonstrates ctx.getSystemPrompt() for accessing the effective system prompt.
  */
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("agent_start", (_event, ctx) => {

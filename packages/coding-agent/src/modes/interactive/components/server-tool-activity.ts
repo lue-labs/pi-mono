@@ -1,5 +1,5 @@
-import type { ServerToolSource } from "@valkyriweb/pi-ai";
-import { Box, Container, Spacer, Text } from "@valkyriweb/pi-tui";
+import type { ServerToolSource } from "@lue-labs/pi-ai";
+import { Box, Container, Spacer, Text } from "@lue-labs/pi-tui";
 import { theme } from "../theme/theme.ts";
 
 const MAX_SOURCES_SHOWN = 5;

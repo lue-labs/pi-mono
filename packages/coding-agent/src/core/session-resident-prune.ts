@@ -18,7 +18,7 @@
  * Fork provenance: extracted verbatim from session-manager.ts (fork-delta
  * reforge slice 1); tier `platform` in pi-fork-patch-inventory.
  */
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
 import type {
 	AssistantMessage,
 	ImageContent,
@@ -27,7 +27,7 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 	Usage,
-} from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
 import { closeSync, openSync, readSync } from "fs";
 import { StringDecoder } from "string_decoder";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";

@@ -1,5 +1,5 @@
-import type { AgentMessage, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { type Api, clampThinkingLevel, type Model, type ToolResultMessage } from "@valkyriweb/pi-ai";
+import type { AgentMessage, ThinkingLevel } from "@lue-labs/pi-agent-core";
+import { type Api, clampThinkingLevel, type Model, type ToolResultMessage } from "@lue-labs/pi-ai";
 import type { DefaultResourceLoaderOptions } from "../resource-loader.ts";
 import { buildSessionContext, type ReadonlySessionManager } from "../session-manager.ts";
 import type { AgentDefinition, AgentTaskConfig, ContextMode, ResolvedContextPolicy } from "./types.ts";

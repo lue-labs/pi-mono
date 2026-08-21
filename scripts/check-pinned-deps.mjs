@@ -24,7 +24,7 @@ function collectPackageJsonFiles(directory) {
 }
 
 function isInternalWorkspaceDependency(name) {
-	return name.startsWith("@valkyriweb/pi-");
+	return name.startsWith("@lue-labs/pi-");
 }
 
 function isNonRegistrySpecifier(specifier) {

@@ -40,11 +40,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model } from "@valkyriweb/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@valkyriweb/pi-coding-agent";
-import { CONFIG_DIR_NAME, DynamicBorder, getAgentDir } from "@valkyriweb/pi-coding-agent";
-import { Container, Key, type SelectItem, SelectList, Text } from "@valkyriweb/pi-tui";
+import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Api, Model } from "@lue-labs/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@lue-labs/pi-coding-agent";
+import { CONFIG_DIR_NAME, DynamicBorder, getAgentDir } from "@lue-labs/pi-coding-agent";
+import { Container, Key, type SelectItem, SelectList, Text } from "@lue-labs/pi-tui";
 
 // Preset configuration
 interface Preset {

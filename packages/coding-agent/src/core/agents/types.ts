@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model, Usage } from "@valkyriweb/pi-ai";
+import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Api, Model, Usage } from "@lue-labs/pi-ai";
 
 export type AgentSource = "builtin" | "user" | "project";
 export type ContextMode = "default" | "fork" | "slim" | "none";

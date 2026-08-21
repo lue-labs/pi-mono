@@ -344,13 +344,13 @@ export {
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools
 export {
+	type AgentRenderNormalization,
+	type AgentRenderTask,
 	BASH_BG_DEFAULT_MAX_OUTPUT_BYTES,
 	BASH_BG_MAX_LOG_READ_BYTES,
 	BASH_BG_STALL_TAIL_BYTES,
 	BASH_BG_STALL_THRESHOLD_MS,
 	BASH_BG_WATCHDOG_INTERVAL_MS,
-	type AgentRenderNormalization,
-	type AgentRenderTask,
 	type BashBgJob,
 	type BashBgJobKind,
 	type BashBgJobOptions,

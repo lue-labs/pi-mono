@@ -1,4 +1,4 @@
-import type { Component } from "@valkyriweb/pi-tui";
+import type { Component } from "@lue-labs/pi-tui";
 import { theme } from "../theme/theme.ts";
 
 /**

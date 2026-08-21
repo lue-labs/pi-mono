@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type Model, type ToolResultMessage, type Usage } from "@valkyriweb/pi-ai";
-import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
+import type { AgentTool, ThinkingLevel } from "@lue-labs/pi-agent-core";
+import { fauxAssistantMessage, fauxToolCall, type Model, type ToolResultMessage, type Usage } from "@lue-labs/pi-ai";
+import { registerFauxProvider } from "@lue-labs/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { addFilter } from "../../src/core/extensions/extension-hooks.ts";

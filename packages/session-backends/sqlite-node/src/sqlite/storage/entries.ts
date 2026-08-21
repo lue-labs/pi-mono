@@ -1,4 +1,4 @@
-import type { Entry, EntryOrder } from "@valkyriweb/pi-agent-core";
+import type { Entry, EntryOrder } from "@lue-labs/pi-agent-core";
 import type { SqliteDatabase } from "../types.ts";
 
 export interface EntryRow {

@@ -6,7 +6,7 @@
  * - `pi --mode json "prompt"` - JSON event stream
  */
 
-import type { AssistantMessage, ImageContent } from "@valkyriweb/pi-ai";
+import type { AssistantMessage, ImageContent } from "@lue-labs/pi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import type { InputSource } from "../core/extensions/types.ts";
 import { flushRawStdout, waitForRawStdoutBackpressure, writeRawStdout } from "../core/output-guard.ts";

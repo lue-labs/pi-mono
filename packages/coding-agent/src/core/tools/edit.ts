@@ -1,5 +1,5 @@
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
-import { Box, Container, Spacer, Text } from "@valkyriweb/pi-tui";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
+import { Box, Container, Spacer, Text } from "@lue-labs/pi-tui";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
 import { type Static, Type } from "typebox";

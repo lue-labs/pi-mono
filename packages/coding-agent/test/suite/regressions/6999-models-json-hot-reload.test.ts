@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setKeybindings, type TUI } from "@valkyriweb/pi-tui";
+import { setKeybindings, type TUI } from "@lue-labs/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { KeybindingsManager } from "../../../src/core/keybindings.ts";

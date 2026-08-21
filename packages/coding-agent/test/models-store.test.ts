@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model } from "@valkyriweb/pi-ai";
+import type { Model } from "@lue-labs/pi-ai";
 import lockfile from "proper-lockfile";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FileModelsStore } from "../src/core/models-store.ts";

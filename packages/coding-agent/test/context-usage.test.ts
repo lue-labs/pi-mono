@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import {

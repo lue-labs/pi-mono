@@ -24,7 +24,7 @@ import type {
 	AgentTool,
 	PrepareNextTurnContext,
 	ThinkingLevel,
-} from "@valkyriweb/pi-agent-core";
+} from "@lue-labs/pi-agent-core";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -35,8 +35,8 @@ import type {
 	Tool,
 	ToolResultMessage,
 	Usage,
-} from "@valkyriweb/pi-ai";
-import { contentText } from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
+import { contentText } from "@lue-labs/pi-ai";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -48,7 +48,7 @@ import {
 	type RetryCallbacks,
 	resetApiProviders,
 	streamSimple,
-} from "@valkyriweb/pi-ai/compat";
+} from "@lue-labs/pi-ai/compat";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";

@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Transport } from "@valkyriweb/pi-ai";
+import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Transport } from "@lue-labs/pi-ai";
 import {
 	type Component,
 	Container,
@@ -12,7 +12,7 @@ import {
 	SettingsList,
 	Spacer,
 	Text,
-} from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
 import { formatHttpIdleTimeoutMs, HTTP_IDLE_TIMEOUT_CHOICES } from "../../../core/http-dispatcher.ts";
 import type {
 	DefaultProjectTrust,

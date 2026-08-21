@@ -1,4 +1,4 @@
-import type { JsonValue, ProtocolError, ProtocolErrorCode } from "@valkyriweb/pi-protocol";
+import type { JsonValue, ProtocolError, ProtocolErrorCode } from "@lue-labs/pi-protocol";
 
 export class PiServerError extends Error {
 	readonly code: ProtocolErrorCode;

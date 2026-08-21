@@ -1,7 +1,7 @@
 import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
-import type { Api, ImageContent, Model, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
-import { Text } from "@valkyriweb/pi-tui";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
+import type { Api, ImageContent, Model, TextContent, ToolReferenceContent } from "@lue-labs/pi-ai";
+import { Text } from "@lue-labs/pi-tui";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
 import { type Static, Type } from "typebox";

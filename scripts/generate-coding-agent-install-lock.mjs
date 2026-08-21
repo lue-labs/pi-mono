@@ -11,8 +11,8 @@ const outputDir = join(codingAgentDir, "install-lock");
 const rootLockfilePath = join(repoRoot, "package-lock.json");
 const outputPackageJsonPath = join(outputDir, "package.json");
 const outputLockfilePath = join(outputDir, "package-lock.json");
-const internalPackagePrefix = "@valkyriweb/pi-";
-const installPackageName = "@valkyriweb/pi-coding-agent-install";
+const internalPackagePrefix = "@lue-labs/pi-";
+const installPackageName = "@lue-labs/pi-coding-agent-install";
 const allowedInstallScriptPackages = new Map([
 	["@google/genai@1.52.0", "preinstall is a no-op in the published package"],
 	["protobufjs@7.6.5", "postinstall only warns about protobufjs version scheme mismatches"],
@@ -201,7 +201,7 @@ function addInternalWorkspace(installLockPackages, addedPaths, queue, name, work
 	const entry = copyPackageJsonEntry(packageJson, { includeName: false });
 	// Do not stamp internal fork packages with a public npm tarball URL. The
 	// installer runs with the fork's scoped registry config, so leaving `resolved`
-	// unset lets npm resolve @valkyriweb packages from GitHub Packages instead.
+	// unset lets npm resolve @lue-labs packages from GitHub Packages instead.
 
 	installLockPackages[outputPath] = sortedPackageEntry(entry);
 	addedPaths.add(outputPath);

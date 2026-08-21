@@ -11,8 +11,8 @@
 //  2. interrupt: aborting a turn with a tool call in flight still records a
 //     toolResult for that call before anything else lands.
 
-import type { AgentMessage, AgentTool } from "@valkyriweb/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
+import type { AgentMessage, AgentTool } from "@lue-labs/pi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, type Harness } from "../harness.ts";

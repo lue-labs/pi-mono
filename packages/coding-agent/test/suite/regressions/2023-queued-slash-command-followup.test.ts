@@ -1,6 +1,6 @@
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "../harness.ts";

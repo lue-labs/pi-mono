@@ -1,4 +1,4 @@
-import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@valkyriweb/pi-tui";
+import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@lue-labs/pi-tui";
 import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.ts";
 
 /**

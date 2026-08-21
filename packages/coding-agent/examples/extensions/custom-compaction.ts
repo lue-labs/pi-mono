@@ -13,9 +13,9 @@
  *   pi --extension examples/extensions/custom-compaction.ts
  */
 
-import { uuidv7 } from "@valkyriweb/pi-ai";
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
-import { convertToLlm, serializeConversation } from "@valkyriweb/pi-coding-agent";
+import { uuidv7 } from "@lue-labs/pi-ai";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
+import { convertToLlm, serializeConversation } from "@lue-labs/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_before_compact", async (event, ctx) => {

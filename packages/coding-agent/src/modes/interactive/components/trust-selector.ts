@@ -1,4 +1,4 @@
-import { Container, getKeybindings, Spacer, Text } from "@valkyriweb/pi-tui";
+import { Container, getKeybindings, Spacer, Text } from "@lue-labs/pi-tui";
 import {
 	getProjectTrustOptions,
 	type ProjectTrustOption,

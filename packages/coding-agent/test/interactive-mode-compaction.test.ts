@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import { Container, Text, type TUI } from "@valkyriweb/pi-tui";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import { Container, Text, type TUI } from "@lue-labs/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";

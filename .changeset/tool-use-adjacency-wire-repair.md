@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-ai": patch
+"@lue-labs/pi-ai": patch
 ---
 
 Repair `tool_use` → `tool_result` adjacency on the outgoing Anthropic request after `onPayload`.

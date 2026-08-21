@@ -1,4 +1,4 @@
-import { type Context, fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import { type Context, fauxAssistantMessage } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { executeAgentTool } from "../../src/core/agents/executor.ts";
 import {

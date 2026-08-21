@@ -35,8 +35,8 @@ import {
 	type ProviderRequestOptions,
 	type SimpleStreamOptions,
 	type StreamOptions,
-} from "@valkyriweb/pi-ai";
-import * as builtinProviderCatalog from "@valkyriweb/pi-ai/providers/all";
+} from "@lue-labs/pi-ai";
+import * as builtinProviderCatalog from "@lue-labs/pi-ai/providers/all";
 import { getAgentDir } from "../config.ts";
 import { operationSignal, raceWithAbortSignal } from "../utils/abort.ts";
 import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";

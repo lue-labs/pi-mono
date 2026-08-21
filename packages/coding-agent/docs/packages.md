@@ -40,7 +40,7 @@ pi update --extension npm:@foo/bar
 
 These commands manage pi packages and `pi update` can update the pi CLI installation. To uninstall pi itself, see [Quickstart](quickstart.md#uninstall).
 
-> **Maintainer note:** `pii` is the npm-installed CLI on Luke's machines. `pii update self` reinstalls the published package and overwrites any direct edits under the global `node_modules/@valkyriweb/pi-coding-agent/dist/` tree. If a local hotfix was applied there, land the fix in `packages/coding-agent/src/`, rebuild `packages/coding-agent`, and reinstall/publish from that source instead of relying on the patched global dist.
+> **Maintainer note:** `pii` is the npm-installed CLI on Luke's machines. `pii update self` reinstalls the published package and overwrites any direct edits under the global `node_modules/@lue-labs/pi-coding-agent/dist/` tree. If a local hotfix was applied there, land the fix in `packages/coding-agent/src/`, rebuild `packages/coding-agent`, and reinstall/publish from that source instead of relying on the patched global dist.
 
 By default, `install` and `remove` write to user settings (`~/.pi/agent/settings.json`). Use `-l` to write to project settings (`.pi/settings.json`) instead. Project settings can be shared with your team, and pi installs any missing packages automatically on startup after the project is trusted.
 
@@ -186,7 +186,7 @@ If no `pi` manifest is present, pi auto-discovers resources from these directori
 
 Third party runtime dependencies belong in `dependencies` in `package.json`. Dependencies that do not register extensions, skills, prompt templates, or themes also belong in `dependencies`. When pi installs a package from npm or git, it runs `npm install`, so those dependencies are installed automatically.
 
-Pi bundles core packages for extensions and skills. If you import any of these, list them in `peerDependencies` with a `"*"` range and do not bundle them: `@valkyriweb/pi-ai`, `@valkyriweb/pi-agent-core`, `@valkyriweb/pi-coding-agent`, `@valkyriweb/pi-tui`, `typebox`.
+Pi bundles core packages for extensions and skills. If you import any of these, list them in `peerDependencies` with a `"*"` range and do not bundle them: `@lue-labs/pi-ai`, `@lue-labs/pi-agent-core`, `@lue-labs/pi-coding-agent`, `@lue-labs/pi-tui`, `typebox`.
 
 Other pi packages must be bundled in your tarball. Add them to `dependencies` and `bundledDependencies`, then reference their resources through `node_modules/` paths. Pi loads packages with separate module roots, so separate installs do not collide or share modules.
 

@@ -1,5 +1,5 @@
-import type { Component } from "@valkyriweb/pi-tui";
-import { Container, Text } from "@valkyriweb/pi-tui";
+import type { Component } from "@lue-labs/pi-tui";
+import { Container, Text } from "@lue-labs/pi-tui";
 import type { MessageRenderer } from "../../../core/extensions/types.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
 import { theme } from "../theme/theme.ts";

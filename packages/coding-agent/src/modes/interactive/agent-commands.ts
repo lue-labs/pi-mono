@@ -10,7 +10,7 @@
  * `this.*` receiver was renamed to `host.*`. Behavior must not change here
  * without updating `~/Projects/personal/my-pi/docs/pi-fork-patch-inventory.md`.
  */
-import type { Component } from "@valkyriweb/pi-tui";
+import type { Component } from "@lue-labs/pi-tui";
 import type { AgentSession } from "../../core/agent-session.ts";
 import { findAgentChain, loadAgentChainRegistry } from "../../core/agents/chains.ts";
 import { buildAgentDoctorReport } from "../../core/agents/doctor.ts";

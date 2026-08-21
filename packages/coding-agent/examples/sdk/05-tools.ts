@@ -10,7 +10,7 @@
  * extensions system using pi.registerTool().
  */
 
-import { createAgentSession, SessionManager } from "@valkyriweb/pi-coding-agent";
+import { createAgentSession, SessionManager } from "@lue-labs/pi-coding-agent";
 
 // Read-only mode (no edit/write)
 const { session: readOnlySession } = await createAgentSession({

@@ -10,7 +10,7 @@ import {
 	streamSimple,
 	type ToolResultMessage,
 	type UserMessage,
-} from "@valkyriweb/pi-ai/compat";
+} from "@lue-labs/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import { Agent, type AgentEvent } from "../src/index.ts";
 import { calculateTool } from "./utils/calculate.ts";

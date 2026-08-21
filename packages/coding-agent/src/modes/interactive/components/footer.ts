@@ -1,5 +1,5 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { type Component, truncateToWidth, visibleWidth } from "@valkyriweb/pi-tui";
+import { type Component, truncateToWidth, visibleWidth } from "@lue-labs/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
 import { computeCacheHealth } from "../../../core/cache-health.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";

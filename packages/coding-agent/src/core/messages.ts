@@ -5,8 +5,8 @@
  * and provides a transformer to convert them to LLM-compatible messages.
  */
 
-import type { AgentMessage, CustomMessage } from "@valkyriweb/pi-agent-core";
-import type { ImageContent, Message, TextContent, ToolCall, ToolResultMessage } from "@valkyriweb/pi-ai";
+import type { AgentMessage, CustomMessage } from "@lue-labs/pi-agent-core";
+import type { ImageContent, Message, TextContent, ToolCall, ToolResultMessage } from "@lue-labs/pi-ai";
 
 export type { CustomMessage };
 
@@ -56,7 +56,7 @@ export interface CompactionSummaryMessage {
 }
 
 // Extend CustomAgentMessages via declaration merging
-declare module "@valkyriweb/pi-agent-core" {
+declare module "@lue-labs/pi-agent-core" {
 	interface CustomAgentMessages {
 		bashExecution: BashExecutionMessage;
 		custom: CustomMessage;

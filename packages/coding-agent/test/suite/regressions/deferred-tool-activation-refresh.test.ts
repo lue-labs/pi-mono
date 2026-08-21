@@ -1,4 +1,4 @@
-import { type Context, fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
+import { type Context, fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";

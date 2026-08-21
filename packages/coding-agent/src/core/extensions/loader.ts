@@ -7,14 +7,14 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import * as _bundledPiAgentCore from "@valkyriweb/pi-agent-core";
-import type { Provider } from "@valkyriweb/pi-ai";
-import * as _bundledPiAi from "@valkyriweb/pi-ai";
-import * as _bundledPiAiCompat from "@valkyriweb/pi-ai/compat";
-import * as _bundledPiAiOauth from "@valkyriweb/pi-ai/oauth";
-import * as _bundledPiAiProviders from "@valkyriweb/pi-ai/providers/all";
-import type { KeyId } from "@valkyriweb/pi-tui";
-import * as _bundledPiTui from "@valkyriweb/pi-tui";
+import * as _bundledPiAgentCore from "@lue-labs/pi-agent-core";
+import type { Provider } from "@lue-labs/pi-ai";
+import * as _bundledPiAi from "@lue-labs/pi-ai";
+import * as _bundledPiAiCompat from "@lue-labs/pi-ai/compat";
+import * as _bundledPiAiOauth from "@lue-labs/pi-ai/oauth";
+import * as _bundledPiAiProviders from "@lue-labs/pi-ai/providers/all";
+import type { KeyId } from "@lue-labs/pi-tui";
+import * as _bundledPiTui from "@lue-labs/pi-tui";
 import { createJiti } from "jiti/static";
 // Static imports of packages that extensions may use.
 // These MUST be static so Bun bundles them into the compiled binary.
@@ -24,7 +24,7 @@ import * as _bundledTypeboxCompile from "typebox/compile";
 import * as _bundledTypeboxValue from "typebox/value";
 import { CONFIG_DIR_NAME, getAgentDir, isBunBinary } from "../../config.ts";
 // NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
-// avoiding a circular dependency. Extensions can import from @valkyriweb/pi-coding-agent.
+// avoiding a circular dependency. Extensions can import from @lue-labs/pi-coding-agent.
 import * as _bundledPiCodingAgent from "../../index.ts";
 import { resolvePath } from "../../utils/paths.ts";
 import { createEventBus, type EventBus } from "../event-bus.ts";
@@ -63,12 +63,21 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@sinclair/typebox": _bundledTypebox,
 	"@sinclair/typebox/compile": _bundledTypeboxCompile,
 	"@sinclair/typebox/value": _bundledTypeboxValue,
-	"@valkyriweb/pi-agent-core": _bundledPiAgentCore,
-	"@valkyriweb/pi-tui": _bundledPiTui,
-	"@valkyriweb/pi-ai": _bundledPiAi,
+	"@lue-labs/pi-agent-core": _bundledPiAgentCore,
+	"@lue-labs/pi-tui": _bundledPiTui,
+	"@lue-labs/pi-ai": _bundledPiAi,
 	// Fork-scope extensions opt into the legacy global dispatch API by importing
 	// the explicit /compat subpath; register it so the resolve succeeds in the
-	// compiled binary (the bare @valkyriweb/pi-ai root stays the strict core).
+	// compiled binary (the bare @lue-labs/pi-ai root stays the strict core).
+	"@lue-labs/pi-ai/compat": _bundledPiAiCompat,
+	"@lue-labs/pi-ai/oauth": _bundledPiAiOauth,
+	"@lue-labs/pi-ai/providers/all": _bundledPiAiProviders,
+	"@lue-labs/pi-coding-agent": _bundledPiCodingAgent,
+	// Legacy fork-scope compatibility keeps already-published @valkyriweb
+	// extensions working while consumers migrate to the organization scope.
+	"@valkyriweb/pi-agent-core": _bundledPiAgentCore,
+	"@valkyriweb/pi-tui": _bundledPiTui,
+	"@valkyriweb/pi-ai": _bundledPiAiCompat,
 	"@valkyriweb/pi-ai/compat": _bundledPiAiCompat,
 	"@valkyriweb/pi-ai/oauth": _bundledPiAiOauth,
 	"@valkyriweb/pi-ai/providers/all": _bundledPiAiProviders,
@@ -126,16 +135,25 @@ function getAliases(): Record<string, string> {
 	};
 
 	const piCodingAgentEntry = packageIndex;
-	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@valkyriweb/pi-agent-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@valkyriweb/pi-tui");
+	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@lue-labs/pi-agent-core");
+	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@lue-labs/pi-tui");
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
 	// superset of the core entrypoint): existing extensions using the old
 	// global API keep working at runtime until compat is removed.
-	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@valkyriweb/pi-ai/compat");
-	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@valkyriweb/pi-ai/oauth");
-	const piAiProvidersEntry = resolveWorkspaceOrImport("ai/dist/providers/all.js", "@valkyriweb/pi-ai/providers/all");
+	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@lue-labs/pi-ai/compat");
+	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@lue-labs/pi-ai/oauth");
+	const piAiProvidersEntry = resolveWorkspaceOrImport("ai/dist/providers/all.js", "@lue-labs/pi-ai/providers/all");
 
 	_aliases = {
+		"@lue-labs/pi-coding-agent": piCodingAgentEntry,
+		"@lue-labs/pi-agent-core": piAgentCoreEntry,
+		"@lue-labs/pi-tui": piTuiEntry,
+		"@lue-labs/pi-ai/providers/all": piAiProvidersEntry,
+		"@lue-labs/pi-ai/compat": piAiCompatEntry,
+		"@lue-labs/pi-ai/oauth": piAiOauthEntry,
+		"@lue-labs/pi-ai": piAiCompatEntry,
+		// Preserve runtime compatibility for extension packages published before
+		// the fork moved from the user scope to the organization scope.
 		"@valkyriweb/pi-coding-agent": piCodingAgentEntry,
 		"@valkyriweb/pi-agent-core": piAgentCoreEntry,
 		"@valkyriweb/pi-tui": piTuiEntry,
@@ -145,7 +163,7 @@ function getAliases(): Record<string, string> {
 		"@valkyriweb/pi-ai": piAiCompatEntry,
 		// Upstream package-name compatibility: third-party extensions import the
 		// upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
-		// Map them onto the fork's @valkyriweb/* entries so value imports resolve
+		// Map them onto the fork's @lue-labs/* entries so value imports resolve
 		// in the bundled binary (type-only imports already erase at runtime).
 		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
 		"@earendil-works/pi-agent-core": piAgentCoreEntry,
@@ -176,7 +194,7 @@ function getAliases(): Record<string, string> {
  * Test-only: the exact module specifiers extensions can resolve, for BOTH
  * resolution paths — the compiled Bun binary (`VIRTUAL_MODULES`) and Node/dev
  * (jiti `getAliases()`). The two MUST stay in lockstep; a drift between them is
- * what dropped `@valkyriweb/pi-ai/compat` from the binary map and broke fork
+ * what dropped `@lue-labs/pi-ai/compat` from the binary map and broke fork
  * extension loading in the 0.80.x daily driver. Guarded by
  * loader-module-alias-symmetry.test.ts.
  */
@@ -192,7 +210,7 @@ export function getExtensionModuleSpecifiersForTests(): {
 
 /**
  * The jiti resolution options (`virtualModules`/`alias`) that make
- * `@valkyriweb/pi-coding-agent`, `@valkyriweb/pi-tui`, etc. resolve to the
+ * `@lue-labs/pi-coding-agent`, `@lue-labs/pi-tui`, etc. resolve to the
  * running binary's own bundled modules instead of falling through to plain
  * Node `node_modules` resolution — which frequently doesn't have those
  * exact package names on disk (npm peer-conflict dedup renames, workspace
@@ -200,7 +218,7 @@ export function getExtensionModuleSpecifiersForTests(): {
  * (e.g. `cli/agent-view-command.ts`'s standalone dashboard-package import,
  * which used to build its own bare `createJiti()` with no alias/virtualModule
  * config at all and could resolve the entrypoint file but not that file's
- * own `@valkyriweb/*` imports) MUST reuse this, not reimplement it — a second
+ * own `@lue-labs/*` imports) MUST reuse this, not reimplement it — a second
  * copy is exactly the kind of drift `loader-module-alias-symmetry.test.ts`
  * exists to catch for the two branches already in this module.
  */

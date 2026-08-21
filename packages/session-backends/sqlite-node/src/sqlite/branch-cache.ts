@@ -1,5 +1,5 @@
-import { SessionError } from "@valkyriweb/pi-agent-core";
-import { uuidv7 } from "@valkyriweb/pi-ai";
+import { SessionError } from "@lue-labs/pi-agent-core";
+import { uuidv7 } from "@lue-labs/pi-ai";
 import {
 	copyBranchEntriesThroughSeq,
 	deleteBranchEntries,

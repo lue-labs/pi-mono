@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { NodeExecutionEnv } from "@valkyriweb/pi-agent-core/node";
+import { NodeExecutionEnv } from "@lue-labs/pi-agent-core/node";
 import { describe, expect, it } from "vitest";
 import { createNodeSqliteFactory, SqliteSessionRepository } from "../src/index.ts";
 import {

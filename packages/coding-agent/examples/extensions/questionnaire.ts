@@ -5,8 +5,8 @@
  * Multiple questions: tab bar navigation between questions
  */
 
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, Text, visibleWidth, wrapTextWithAnsi } from "@valkyriweb/pi-tui";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
+import { Editor, type EditorTheme, Key, matchesKey, Text, visibleWidth, wrapTextWithAnsi } from "@lue-labs/pi-tui";
 import { Type } from "typebox";
 
 // Types

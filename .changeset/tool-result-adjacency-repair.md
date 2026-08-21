@@ -1,6 +1,6 @@
 ---
-"@valkyriweb/pi-ai": patch
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-ai": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 Repair `tool_use` -> `tool_result` adjacency at request assembly so an injected message can never brick a session.

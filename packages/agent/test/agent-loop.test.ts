@@ -6,7 +6,7 @@ import {
 	type Model,
 	type ToolResultMessage,
 	type UserMessage,
-} from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { agentLoop, agentLoopContinue } from "../src/agent-loop.ts";

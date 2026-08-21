@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
 

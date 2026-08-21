@@ -1,6 +1,6 @@
-import { Agent } from "@valkyriweb/pi-agent-core";
-import { createModels } from "@valkyriweb/pi-ai";
-import { anthropicProvider } from "@valkyriweb/pi-ai/providers/anthropic";
+import { Agent } from "@lue-labs/pi-agent-core";
+import { createModels } from "@lue-labs/pi-ai";
+import { anthropicProvider } from "@lue-labs/pi-ai/providers/anthropic";
 
 const models = createModels();
 models.setProvider(anthropicProvider());

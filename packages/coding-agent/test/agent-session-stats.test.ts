@@ -1,5 +1,5 @@
-import { Agent } from "@valkyriweb/pi-agent-core";
-import { type AssistantMessage, streamSimple, type ToolResultMessage, type Usage } from "@valkyriweb/pi-ai/compat";
+import { Agent } from "@lue-labs/pi-agent-core";
+import { type AssistantMessage, streamSimple, type ToolResultMessage, type Usage } from "@lue-labs/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";

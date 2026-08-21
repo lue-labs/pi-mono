@@ -1,4 +1,4 @@
-import { Container, Text } from "@valkyriweb/pi-tui";
+import { Container, Text } from "@lue-labs/pi-tui";
 import { theme } from "../theme/theme.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 

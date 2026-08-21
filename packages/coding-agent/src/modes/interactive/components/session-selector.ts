@@ -12,7 +12,7 @@ import {
 	Text,
 	truncateToWidth,
 	visibleWidth,
-} from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
 import { KeybindingsManager } from "../../../core/keybindings.ts";
 import { listActiveSessionPaths, listCrashedSessionPaths } from "../../../core/session-liveness.ts";
 import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.ts";

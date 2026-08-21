@@ -18,8 +18,8 @@ import {
 	type RefreshModelsContext,
 	type SimpleStreamOptions,
 	type StreamOptions,
-} from "@valkyriweb/pi-ai";
-import { getApiProvider } from "@valkyriweb/pi-ai/compat";
+} from "@lue-labs/pi-ai";
+import { getApiProvider } from "@lue-labs/pi-ai/compat";
 import type { ModelConfig, ModelsJsonModel, ModelsJsonModelOverride, ModelsJsonProvider } from "./model-config.ts";
 import {
 	clearConfigValueCache,

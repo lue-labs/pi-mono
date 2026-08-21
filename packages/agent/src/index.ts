@@ -1,6 +1,6 @@
 // Core Agent
 
-export { uuidv7 } from "@valkyriweb/pi-ai";
+export { uuidv7 } from "@lue-labs/pi-ai";
 export type {
 	AttributeValue,
 	ExactTelemetryAttributes,
@@ -33,13 +33,13 @@ export type {
 	TelemetrySpanDefinition,
 	TelemetryStartAttributeDefinition,
 	TypedSpanStarter,
-} from "@valkyriweb/pi-telemetry";
+} from "@lue-labs/pi-telemetry";
 export {
 	createTypedSpanStarter,
 	defineTelemetrySchema,
 	InMemoryTelemetryContext,
 	NOOP_TELEMETRY_CONTEXT,
-} from "@valkyriweb/pi-telemetry";
+} from "@lue-labs/pi-telemetry";
 export * from "./agent.ts";
 // Loop functions
 export * from "./agent-loop.ts";

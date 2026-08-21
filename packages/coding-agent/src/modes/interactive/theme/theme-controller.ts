@@ -1,4 +1,4 @@
-import type { TUI } from "@valkyriweb/pi-tui";
+import type { TUI } from "@lue-labs/pi-tui";
 import type { SettingsManager } from "../../../core/settings-manager.ts";
 import {
 	detectTerminalBackgroundFromEnv,

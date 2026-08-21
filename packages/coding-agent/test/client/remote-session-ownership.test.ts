@@ -1,4 +1,4 @@
-import { PiSessionOwnershipError } from "@valkyriweb/pi-client";
+import { PiSessionOwnershipError } from "@lue-labs/pi-client";
 import { describe, expect, test } from "vitest";
 import { RemoteSession } from "../../src/client/remote-session.ts";
 import { collectRequests, connectClient, MemoryServer, sessionSnapshot } from "./support.ts";

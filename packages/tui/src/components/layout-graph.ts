@@ -3,7 +3,7 @@
  *
  * See: rusty/docs/prd/generative-ui-proposal.md §5.3 for the design.
  *
- * Types live here in `@valkyriweb/pi-tui` so the LayoutRenderer can
+ * Types live here in `@lue-labs/pi-tui` so the LayoutRenderer can
  * consume them without depending on the coding-agent package. The TypeBox
  * runtime validation schema is defined in
  * `packages/coding-agent/src/core/tools/layout-graph.ts`, which re-exports

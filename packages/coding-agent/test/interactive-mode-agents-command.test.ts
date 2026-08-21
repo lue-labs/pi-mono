@@ -1,4 +1,4 @@
-import { setKeybindings } from "@valkyriweb/pi-tui";
+import { setKeybindings } from "@lue-labs/pi-tui";
 import stripAnsi from "strip-ansi";
 import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { clearAgentRecentRunsForTests, startAgentRecentRun } from "../src/core/agents/status.ts";

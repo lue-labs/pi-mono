@@ -1,7 +1,7 @@
 // Fork-owned module (fork-delta reforge slice 3): B5 TUI extension slot types
 // moved verbatim from types.ts. Re-exported from types.ts for import compat.
 
-import type { Component, TUI } from "@valkyriweb/pi-tui";
+import type { Component, TUI } from "@lue-labs/pi-tui";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 
 // ============================================================================

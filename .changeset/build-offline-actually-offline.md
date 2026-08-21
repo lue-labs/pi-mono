@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 Make the repository's `build:offline` actually offline.

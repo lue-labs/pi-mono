@@ -2,8 +2,8 @@
  * Shared utilities for compaction and branch summarization.
  */
 
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import { contentText, type Message } from "@valkyriweb/pi-ai";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import { contentText, type Message } from "@lue-labs/pi-ai";
 
 // ============================================================================
 // Auto-compaction thrashing detector

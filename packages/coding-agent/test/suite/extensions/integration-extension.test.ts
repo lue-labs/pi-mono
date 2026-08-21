@@ -1,5 +1,5 @@
-import type { Context } from "@valkyriweb/pi-ai";
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import type { Context } from "@lue-labs/pi-ai";
+import { fauxAssistantMessage } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { clearAgentRecentRunsForTests } from "../../../src/core/agents/status.ts";
 import type { AgentHandle, ExtensionAPI } from "../../../src/index.ts";

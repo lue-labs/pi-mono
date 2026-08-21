@@ -1,4 +1,4 @@
-import type { Context, Model } from "@valkyriweb/pi-ai";
+import type { Context, Model } from "@lue-labs/pi-ai";
 import { describe, expect, it } from "vitest";
 import { createPromptCacheAffinityKey } from "../src/core/cache-affinity.ts";
 

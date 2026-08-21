@@ -1,4 +1,4 @@
-import type { Api, Model, ModelsStoreEntry, Provider } from "@valkyriweb/pi-ai";
+import type { Api, Model, ModelsStoreEntry, Provider } from "@lue-labs/pi-ai";
 import { VERSION } from "../config.ts";
 import { fetchWithRetry } from "../utils/management-http.ts";
 import { getPiUserAgent } from "../utils/pi-user-agent.ts";

@@ -1,4 +1,4 @@
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { toJsonEvent } from "../../../src/modes/json-event.ts";
 import { createHarness, type Harness } from "../harness.ts";

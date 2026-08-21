@@ -1,4 +1,4 @@
-import type { SessionSnapshot } from "@valkyriweb/pi-protocol";
+import type { SessionSnapshot } from "@lue-labs/pi-protocol";
 import { describe, expect, test } from "vitest";
 import {
 	applyTranscriptProgress,

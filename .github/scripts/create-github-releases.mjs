@@ -14,7 +14,7 @@
 //
 // Usage: node create-github-releases.mjs '<publishedPackages JSON>'
 //   publishedPackages: changesets/action `publishedPackages` output, e.g.
-//   [{"name":"@valkyriweb/pi-coding-agent","version":"0.31.0"}]
+//   [{"name":"@lue-labs/pi-coding-agent","version":"0.31.0"}]
 
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -73,7 +73,7 @@ for (const { name, version } of published) {
 
   const dir = nameToDir.get(name);
   const lines = [
-    `Fork release of \`${name}\` \`${version}\`, published to GitHub Packages (@valkyriweb scope).`,
+    `Fork release of \`${name}\` \`${version}\`, published to GitHub Packages (@lue-labs scope).`,
     "",
     `- **Fork release notes:** [FORK-CHANGELOG.md](${forkChangelogUrl})`,
   ];

@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read   # read published @valkyriweb/* deps (orchestrator) from GitHub Packages
+      packages: read   # read published @lue-labs/pi-* dependencies from GitHub Packages
     env:
       RELEASE_TAG: ${{ inputs.tag || github.event.inputs.tag || github.ref_name }}
       SOURCE_REF: ${{ inputs.source_ref || github.event.inputs.source_ref || inputs.tag || github.event.inputs.tag || github.ref_name }}
@@ -60,8 +60,8 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-          # @valkyriweb scope is routed to GitHub Packages by the committed .npmrc;
-          # point setup-node at it so NODE_AUTH_TOKEN authenticates that registry.
+          # @lue-labs and legacy @valkyriweb scopes are routed to GitHub Packages
+          # by the committed .npmrc; NODE_AUTH_TOKEN authenticates that registry.
           registry-url: 'https://npm.pkg.github.com'
 
       - name: Hydrate release model data
@@ -79,10 +79,10 @@ jobs:
             --out "release-assets/pi-${VERSION}-source.tar.gz"
 
       - name: Build binaries from source archive
-        # fork: packages/server depends on the published @valkyriweb/pi-coding-agent;
+        # fork: packages/server depends on the published @lue-labs/pi-coding-agent;
         # build-binaries.sh runs npm ci, which must authenticate to GitHub Packages.
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -293,5 +293,5 @@ jobs:
 
   # NOTE: the upstream `publish-npm` job (trusted publishing to public
   # registry.npmjs.org) was intentionally removed. This is a PRIVATE fork
-  # (lue-labs/pi-mono); packages publish to GitHub Packages under @valkyriweb
+  # (lue-labs/pi-mono); packages publish to GitHub Packages under @lue-labs
   # via release.yml. Publishing fork code to public npm would leak it.

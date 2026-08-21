@@ -25,7 +25,7 @@ import {
 	createLLMHarness,
 	createPiModelCaller,
 	type ExtensionAPI,
-} from "@valkyriweb/pi-coding-agent";
+} from "@lue-labs/pi-coding-agent";
 
 export default function buildInterfaceLLMExtension(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {

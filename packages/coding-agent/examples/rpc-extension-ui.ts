@@ -27,7 +27,7 @@ import {
 	SelectList,
 	type TUI,
 	TuiMainScreen,
-} from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

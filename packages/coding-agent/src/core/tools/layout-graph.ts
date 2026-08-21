@@ -1,7 +1,7 @@
 /**
  * Layout Graph — TypeBox runtime validation schema.
  *
- * Type definitions live in `@valkyriweb/pi-tui` so the LayoutRenderer
+ * Type definitions live in `@lue-labs/pi-tui` so the LayoutRenderer
  * can consume them without depending on this package. This file owns the
  * runtime validation surface (TypeBox) and re-exports the types for
  * convenience.
@@ -20,7 +20,7 @@ export {
 	type LayoutOption,
 	type LayoutResponse,
 	type LayoutTextStyle,
-} from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
 
 const optionSchema = Type.Object({
 	value: Type.String({ description: "Stable identifier for this option" }),

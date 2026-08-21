@@ -1,4 +1,4 @@
-import type { RequestEnvelope } from "@valkyriweb/pi-protocol";
+import type { RequestEnvelope } from "@lue-labs/pi-protocol";
 import { describe, expect, test } from "vitest";
 import { collectRequests, connectClient, MemoryServer, openRemoteSession, sessionSnapshot } from "./support.ts";
 
