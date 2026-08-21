@@ -19,23 +19,27 @@ import type {
 	Api,
 	AssistantMessageEvent,
 	AssistantMessageEventStream,
+	ConstrainedSamplingConfig,
 	Context,
 	ImageContent,
 	Model,
 	OAuthCredentials,
 	OAuthLoginCallbacks,
+	Provider,
 	ProviderHeaders,
 	RefreshModelsContext,
 	SimpleStreamOptions,
 	TextContent,
 	ToolReferenceContent,
 	ToolResultMessage,
+	Usage,
 } from "@valkyriweb/pi-ai";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
 	Component,
 	EditorComponent,
+	EditorHighlighter,
 	EditorTheme,
 	KeyId,
 	OverlayHandle,
@@ -55,6 +59,7 @@ import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsManager } from "../keybindings.ts";
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
+import type { ScopedModel } from "../model-resolver.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -66,6 +71,7 @@ import type {
 import type { SlashCommandInfo } from "../slash-commands.ts";
 import type { SourceInfo } from "../source-info.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import type { Task } from "../tasks/types.ts";
 import type { BashOperations } from "../tools/bash.ts";
 import type { EditToolDetails } from "../tools/edit.ts";
 import type {
@@ -88,7 +94,6 @@ import type { ExtensionFooterSpec, ExtensionMainPaneFactory, ExtensionOverlayFac
 export type { ExecOptions, ExecResult } from "../exec.ts";
 export type { AppKeybinding, KeybindingsManager } from "../keybindings.ts";
 export type { BuildSystemPromptOptions } from "../system-prompt.ts";
-export type { AgentToolResult, AgentToolUpdateCallback, ToolExecutionMode };
 export type {
 	AgentHandle,
 	ForkAgentOptions,
@@ -105,6 +110,7 @@ export type {
 	ExtensionOverlayAPI,
 	ExtensionOverlayFactory,
 } from "./ui-slots.ts";
+export type { AgentToolResult, AgentToolUpdateCallback, ToolExecutionMode };
 
 // ============================================================================
 // UI Context
@@ -243,6 +249,14 @@ export interface ExtensionUIContext {
 	addAutocompleteProvider(factory: AutocompleteProviderFactory): void;
 
 	/**
+	 * Style spans of the input editor's text in place, e.g. to show that a token
+	 * was recognized. The highlighter receives the editor's full text and returns
+	 * absolute `{ start, end, style }` ranges. Highlighters from all extensions are
+	 * merged; overlapping ranges resolve to the earliest-starting one.
+	 */
+	addInputHighlighter(highlighter: EditorHighlighter): void;
+
+	/**
 	 * Set a custom editor component via factory function.
 	 * Pass undefined to restore the default editor.
 	 *
@@ -368,6 +382,13 @@ export interface ExtensionContext {
 	modelRegistry: ModelRegistry;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
+	/** Models scoped to this session (resolved from `--models` /
+	 *  `enabledModels` settings against the available catalogue). Same set
+	 *  the `/scoped-models` command shows. Empty when no scoping is
+	 *  configured (all available models are usable). Read-only snapshot. */
+	scopedModels: readonly ScopedModel[];
+	/** Current thinking level, when provided by the session runtime. */
+	thinkingLevel?: ThinkingLevel;
 	/** Whether no turn-starting call, compaction, or agent run is active. */
 	isIdle(): boolean;
 	/** Whether project-local trust is active for this context. */
@@ -576,6 +597,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	providers?: string[];
 	/** Parameter schema (TypeBox) */
 	parameters: TParams;
+	/** Optional provider-side constrained sampling request for this tool. Set false to explicitly disable it, equivalent to leaving it undefined. */
+	constrainedSampling?: false | ConstrainedSamplingConfig;
 	/** Controls whether ToolExecutionComponent renders the standard colored shell or the tool renders its own framing. */
 	renderShell?: "default" | "self" | "hidden";
 
@@ -1092,6 +1115,8 @@ interface ToolResultEventBase {
 	agentId?: string;
 	/** The run that spawned this result's agent run; undefined at top level. */
 	parentAgentId?: string;
+	/** Usage from the tool execution itself, if available. */
+	usage?: Usage;
 }
 
 export interface BashToolResultEvent extends ToolResultEventBase {
@@ -1261,6 +1286,7 @@ export interface ToolResultEventResult {
 	content?: (TextContent | ImageContent | ToolReferenceContent)[];
 	details?: unknown;
 	isError?: boolean;
+	usage?: Usage;
 }
 
 export interface MessageEndEventResult {
@@ -1293,6 +1319,7 @@ export interface SessionBeforeTreeResult {
 	summary?: {
 		summary: string;
 		details?: unknown;
+		usage?: Usage;
 	};
 	/** Override custom instructions for summarization */
 	customInstructions?: string;
@@ -1308,7 +1335,17 @@ export interface SessionBeforeTreeResult {
 
 export interface MessageRenderOptions {
 	expanded: boolean;
+	/** Horizontal padding configured by the outputPad setting. */
+	outputPad: number;
 }
+
+export interface MarkdownTransformContext {
+	messageType: "user" | "assistant" | "assistant-thinking";
+	isStreaming: boolean;
+	availableWidth: number;
+}
+
+export type MarkdownTransformer = (markdown: string, context: MarkdownTransformContext) => string;
 
 export interface EntryRenderOptions {
 	expanded: boolean;
@@ -1460,6 +1497,8 @@ export interface ExtensionAPI {
 	/** Register a custom renderer for CustomMessageEntry. */
 	registerMessageRenderer<T = unknown>(customType: string, renderer: MessageRenderer<T>): void;
 
+	/** Register a transformer for user and assistant Markdown before Pi renders it in the interactive transcript. */
+	registerMarkdownTransformer(transformer: MarkdownTransformer): void;
 	/**
 	 * Register a default renderer for `customType` that pi-core may fall back to
 	 * when no per-extension renderer was registered for that type. Used by
@@ -1506,6 +1545,28 @@ export interface ExtensionAPI {
 	 * session is currently registered.
 	 */
 	getLiveSession(taskId: string): AgentSession | undefined;
+
+	// =========================================================================
+	// Task Registry
+	// =========================================================================
+
+	/**
+	 * Register a `Task` adapter for a new task type so the unified task surface
+	 * (`TaskStop`, `TaskBackgroundList`) can dispatch to it. Mirrors the core
+	 * built-in registrations for agent runs and background bash jobs; lets an
+	 * extension own a long-running thing (e.g. a backgrounded MCP tool call) and
+	 * have it stoppable/listable through the standard tools. Backed by the one
+	 * shared registry — all extensions and core see the same adapter table, so
+	 * importing the core registry singleton directly (which would create a second
+	 * table under a duplicated module instance) is unnecessary and unsafe.
+	 */
+	registerTaskAdapter(task: Task): void;
+
+	/**
+	 * Find the registered `Task` adapter that owns `taskId`, or `undefined` when
+	 * no adapter recognizes it. Snapshots each adapter to resolve ownership.
+	 */
+	findTaskAdapter(taskId: string): Task | undefined;
 
 	// =========================================================================
 	// Agent Engine Registries (B2)
@@ -1771,6 +1832,7 @@ export interface ExtensionAPI {
 	 *   }
 	 * });
 	 */
+	registerProvider(provider: Provider): void;
 	registerProvider(name: string, config: ProviderConfig): void;
 
 	/**
@@ -1806,7 +1868,12 @@ export interface ProviderConfig {
 	apiKey?: string;
 	/** API type. Required at provider or model level when defining models. */
 	api?: Api;
-	/** Optional streamSimple handler for custom APIs. */
+	/**
+	 * Optional streamSimple handler for custom APIs.
+	 * Implementations must invoke `options.onPayload` before sending the provider request and use any
+	 * returned replacement payload. They must invoke `options.onResponse` after receiving the response
+	 * and before consuming its body, matching built-in providers.
+	 */
 	streamSimple?: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream;
 	/** Custom headers to include in requests. */
 	headers?: Record<string, string>;
@@ -1816,19 +1883,21 @@ export interface ProviderConfig {
 	models?: ProviderModelConfig[];
 	/**
 	 * Refresh this provider's model list. The returned list replaces extension-provided models.
-	 * Use context.store explicitly when the catalog should persist across sessions.
+	 * Use context.publish({ persist: entry }) when the catalog should persist across sessions.
 	 */
 	refreshModels?(context: RefreshModelsContext): Promise<ProviderModelConfig[]>;
 	/** OAuth provider for /login support. The `id` is set automatically from the provider name. */
 	oauth?: {
 		/** Display name for the provider in login UI. */
 		name: string;
+		/** Whether access through this auth method is backed by a provider subscription. */
+		isSubscription?: boolean;
 		/** @deprecated Retained for source compatibility; canonical auth flows ignore it. */
 		usesCallbackServer?: boolean;
 		/** Run the login flow, return credentials to persist. */
 		login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
 		/** Refresh expired credentials, return updated credentials to persist. */
-		refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;
+		refreshToken(credentials: OAuthCredentials, signal: AbortSignal): Promise<OAuthCredentials>;
 		/** Convert credentials to API key string for the provider. */
 		getApiKey(credentials: OAuthCredentials): string;
 		/** Legacy synchronous credential-dependent model projection. */
@@ -1873,6 +1942,8 @@ export type InlineExtension =
 			/** Display name shown as `<inline:name>` in the startup Extensions list. */
 			name: string;
 			factory: ExtensionFactory;
+			/** Omit this extension from the startup Extensions list. */
+			hidden?: boolean;
 	  };
 
 // ============================================================================
@@ -1959,21 +2030,48 @@ export interface ExtensionServiceHandle<T> {
 
 export type ExtensionFilter<T = unknown> = (value: T, ...args: unknown[]) => T | Promise<T>;
 
-export interface ExtensionHookHandle {
-	name: string;
+/** Payloads for core-owned filter hooks. String hook names remain supported for extension compatibility. */
+export interface ExtensionHookFilterMap {
+	"systemPrompt:build": string;
+	"model:resolve": ModelResolveFilterValue;
+	"message:end": AgentMessage;
+	"provider:beforeRequest": unknown;
+}
+
+export type ExtensionHookName = keyof ExtensionHookFilterMap;
+
+export interface ModelResolveFilterValue {
+	requestedModel: string;
+	model: Model<Api>;
+	thinkingLevel: ThinkingLevel;
+	metadata?: Record<string, unknown>;
+}
+
+export interface ExtensionHookHandle<Name extends string = string> {
+	name: Name;
 	action(id: string, action: ExtensionFactory, options?: { priority?: number }): () => void;
-	filter<T = unknown>(id: string, filter: ExtensionFilter<T>, options?: { priority?: number }): () => void;
+	filter<T = Name extends ExtensionHookName ? ExtensionHookFilterMap[Name] : unknown>(
+		id: string,
+		filter: ExtensionFilter<T>,
+		options?: { priority?: number },
+	): () => void;
 	removeAction(id: string): void;
 	removeFilter(id: string): void;
 	unregister(): void;
 }
 
 export interface ExtensionHooksAPI {
-	register(name: string, options?: { description?: string }): ExtensionHookHandle;
-	get(name: string): ExtensionHookHandle;
+	register<Name extends string>(name: Name, options?: { description?: string }): ExtensionHookHandle<Name>;
+	get<Name extends string>(name: Name): ExtensionHookHandle<Name>;
 	unregister(name: string): void;
 	addAction(name: string, id: string, action: ExtensionFactory, options?: { priority?: number }): () => void;
 	removeAction(name: string, id: string): void;
+	addFilter<Name extends ExtensionHookName>(
+		name: Name,
+		id: string,
+		filter: ExtensionFilter<ExtensionHookFilterMap[Name]>,
+		options?: { priority?: number },
+	): () => void;
 	addFilter<T = unknown>(
 		name: string,
 		id: string,
@@ -1981,6 +2079,11 @@ export interface ExtensionHooksAPI {
 		options?: { priority?: number },
 	): () => void;
 	removeFilter(name: string, id: string): void;
+	applyFilters<Name extends ExtensionHookName>(
+		name: Name,
+		value: ExtensionHookFilterMap[Name],
+		...args: unknown[]
+	): Promise<ExtensionHookFilterMap[Name]>;
 	applyFilters<T = unknown>(name: string, value: T, ...args: unknown[]): Promise<T>;
 }
 
@@ -2043,14 +2146,18 @@ export interface ExtensionRuntimeState {
 	 * extensions read it at handler/init time via `pi.getExtensionConfig(ns)`.
 	 */
 	extensionConfig: Record<string, unknown>;
-	/** Provider registrations queued during extension loading, processed when runner binds */
+	/** Legacy provider-config registrations queued during extension loading, processed when runner binds. */
 	pendingProviderRegistrations: Array<{ name: string; config: ProviderConfig; extensionPath: string }>;
+	/** Native pi-ai provider registrations queued during extension loading, processed when runner binds. */
+	pendingNativeProviderRegistrations: Array<{ provider: Provider; extensionPath: string }>;
 	/** Throws when this extension instance is stale after runtime replacement. */
 	assertActive: () => void;
 	/** Marks this extension instance as stale after runtime replacement or reload. */
 	invalidate: (message?: string) => void;
 	/** When true, registerTool() refreshes the registry without activating newly registered tools. */
 	suppressNewToolActivation: boolean;
+	/** Retain an event-bus subscription until this runtime is invalidated. */
+	trackEventBusSubscription: (unsubscribe: () => void) => () => void;
 	/**
 	 * Register or unregister a provider.
 	 *
@@ -2058,6 +2165,7 @@ export interface ExtensionRuntimeState {
 	 * After bindCore(): calls ModelRegistry directly for immediate effect.
 	 */
 	registerProvider: (name: string, config: ProviderConfig, extensionPath?: string) => void;
+	registerNativeProvider: (provider: Provider, extensionPath?: string) => void;
 	unregisterProvider: (name: string, extensionPath?: string) => void;
 	/**
 	 * Set the shared agent run registry. First call wins; later calls are
@@ -2133,6 +2241,7 @@ export interface ExtensionActions {
  */
 export interface ExtensionContextActions {
 	getModel: () => Model<any> | undefined;
+	getScopedModels: () => readonly ScopedModel[];
 	isIdle: () => boolean;
 	isProjectTrusted: () => boolean;
 	getSignal: () => AbortSignal | undefined;
@@ -2186,12 +2295,14 @@ export interface ExtensionRuntime extends ExtensionRuntimeState, ExtensionAction
 export interface Extension {
 	path: string;
 	resolvedPath: string;
+	hidden?: boolean;
 	sourceInfo: SourceInfo;
 	handlers: Map<string, HandlerFn[]>;
 	tools: Map<string, RegisteredTool>;
 	messageRenderers: Map<string, MessageRenderer>;
 	/** Default renderers consulted when no per-extension renderer matched. */
 	defaultMessageRenderers: Map<string, MessageRenderer>;
+	markdownTransformer?: MarkdownTransformer;
 	entryRenderers?: Map<string, EntryRenderer>;
 	commands: Map<string, RegisteredCommand>;
 	flags: Map<string, ExtensionFlag>;
@@ -2289,6 +2400,27 @@ export type ExtensionLoadMode = "eager" | "deferred";
 export interface ExtensionLoadRequest {
 	path: string;
 	load?: ExtensionLoadMode;
+	/**
+	 * True when the extension was found by scanning an extensions directory
+	 * (`.pi/extensions/`, the agent dir, or a configured directory) rather than
+	 * being named by the user via `-e`, settings, or a package manifest.
+	 *
+	 * Discovered extensions are conveniences, so a load failure degrades to a
+	 * warning instead of aborting startup. Explicitly requested extensions keep
+	 * failing hard. See docs/worktree-bootstrap.md.
+	 */
+	discovered?: boolean;
+}
+
+/** A single extension that failed to load. */
+export interface ExtensionLoadError {
+	path: string;
+	error: string;
+	/**
+	 * True when the failing extension was auto-discovered. Callers treat these as
+	 * non-fatal warnings unless strict extension loading is enabled.
+	 */
+	discovered?: boolean;
 }
 
 export interface DeferredExtension {
@@ -2300,7 +2432,7 @@ export interface DeferredExtension {
 export interface LoadExtensionsResult {
 	extensions: Extension[];
 	deferredExtensions: DeferredExtension[];
-	errors: Array<{ path: string; error: string }>;
+	errors: ExtensionLoadError[];
 	/** Shared event bus used by eager and deferred extensions. */
 	eventBus: EventBus;
 	/** Shared runtime - actions are throwing stubs until runner.initialize() */

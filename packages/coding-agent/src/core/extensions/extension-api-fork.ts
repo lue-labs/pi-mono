@@ -11,6 +11,11 @@ import {
 	unregisterLiveSession as unregisterLiveSessionInRegistry,
 } from "../agents/live-sessions.ts";
 import {
+	findTaskAdapter as findTaskAdapterInRegistry,
+	registerTaskAdapter as registerTaskAdapterInRegistry,
+} from "../tasks/index.ts";
+import type { Task } from "../tasks/types.ts";
+import {
 	addAction,
 	addFilter,
 	applyFilters,
@@ -23,6 +28,7 @@ import type {
 	Extension,
 	ExtensionAPI,
 	ExtensionFactory,
+	ExtensionHookHandle,
 	ExtensionRuntime,
 	MessageRenderer,
 	SessionState,
@@ -39,7 +45,7 @@ export function deleteExtensionProcessServiceForTests(id: string): void {
 	processServices.delete(id);
 }
 
-function createHookHandle(name: string, assertActive: () => void) {
+function createHookHandle<Name extends string>(name: Name, assertActive: () => void): ExtensionHookHandle<Name> {
 	return {
 		name,
 		action(id: string, action: ExtensionFactory, options?: { priority?: number }) {
@@ -77,6 +83,8 @@ type ForkExtensionAPI = Pick<
 	| "registerLiveSession"
 	| "unregisterLiveSession"
 	| "getLiveSession"
+	| "registerTaskAdapter"
+	| "findTaskAdapter"
 	| "registerAgentDefinitions"
 	| "registerAgentChains"
 	| "registerContextMode"
@@ -160,6 +168,16 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 		getLiveSession(taskId: string): AgentSession | undefined {
 			runtime.assertActive();
 			return getLiveSessionFromRegistry(taskId);
+		},
+
+		registerTaskAdapter(task: Task): void {
+			runtime.assertActive();
+			registerTaskAdapterInRegistry(task);
+		},
+
+		findTaskAdapter(taskId: string): Task | undefined {
+			runtime.assertActive();
+			return findTaskAdapterInRegistry(taskId);
 		},
 
 		registerAgentDefinitions(definitions) {
@@ -268,12 +286,12 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 		},
 
 		hooks: {
-			register(name, options) {
+			register<Name extends string>(name: Name, options?: { description?: string }): ExtensionHookHandle<Name> {
 				runtime.assertActive();
 				registerHook(name, options);
 				return createHookHandle(name, runtime.assertActive);
 			},
-			get(name) {
+			get<Name extends string>(name: Name): ExtensionHookHandle<Name> {
 				runtime.assertActive();
 				registerHook(name);
 				return createHookHandle(name, runtime.assertActive);
@@ -290,7 +308,12 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 				runtime.assertActive();
 				removeAction(name, id);
 			},
-			addFilter(name, id, filter, options) {
+			addFilter<T = unknown>(
+				name: string,
+				id: string,
+				filter: (value: T, ...args: unknown[]) => T | Promise<T>,
+				options?: { priority?: number },
+			) {
 				runtime.assertActive();
 				return addFilter(name, id, filter, options);
 			},
@@ -298,7 +321,7 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 				runtime.assertActive();
 				removeFilter(name, id);
 			},
-			applyFilters(name, value, ...args) {
+			applyFilters<T = unknown>(name: string, value: T, ...args: unknown[]): Promise<T> {
 				runtime.assertActive();
 				return applyFilters(name, value, ...args);
 			},

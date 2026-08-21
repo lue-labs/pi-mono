@@ -9,7 +9,7 @@
  * in `core/agents/status.ts`). Other task types are reserved for later layers.
  */
 
-export type TaskType = "local_agent" | "local_bash" | "monitor" | "intercom_peer";
+export type TaskType = "local_agent" | "local_bash" | "monitor" | "intercom_peer" | "mcp_background";
 
 /**
  * Lifecycle states. Terminal: `completed | failed | cancelled | killed`.
@@ -50,6 +50,8 @@ export interface TaskSnapshot {
 	 * that has no live in-process controller left to attach to.
 	 */
 	sessionPath?: string;
+	/** Path to persisted task output when the adapter exposes one (e.g. a bash log). */
+	outputPath?: string;
 	/**
 	 * True when this task wants user attention right now: an ordinary (non-
 	 * persistent-parked) interrupted run, a failed run, or a running run that
@@ -59,6 +61,20 @@ export interface TaskSnapshot {
 	 * over "working" whenever both are non-zero.
 	 */
 	needsInput?: boolean;
+	/** Internal task omitted from ordinary user-facing task enumeration. */
+	hidden?: boolean;
+	/**
+	 * Optional runtime lifecycle evidence for the task pane. This stays out of
+	 * model-facing tool parameters so adapters can add detail without changing
+	 * control schemas.
+	 */
+	lifecycle?: {
+		ownerSessionId?: string;
+		terminalReason?: string;
+		promptStalled?: boolean;
+		outputBytes?: number;
+		outputLimitBytes?: number;
+	};
 	/**
 	 * Id to use for control-plane operations (kill/requestShutdown/injectMessage,
 	 * and any other API that dispatches on a task id — including consumers that
@@ -112,6 +128,14 @@ export interface TaskOutputResult {
 export interface Task {
 	type: TaskType;
 	snapshot(taskId: string): TaskSnapshot | undefined;
+	/**
+	 * Enumerate this adapter's live tasks. Adapters whose source of truth is an
+	 * external registry (agent runs, bash bg) leave this undefined and are
+	 * enumerated explicitly by `listTasks`; adapters that own their own in-process
+	 * store (e.g. an extension-registered task type) implement this so their
+	 * tasks surface in `TaskBackgroundList` generically.
+	 */
+	list?: () => TaskSnapshot[];
 	/**
 	 * Read the task's accumulated output. Each adapter renders its native shape:
 	 * bash returns its status header + bounded log slice; an agent returns its

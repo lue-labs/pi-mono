@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import * as _bundledPiAgentCore from "@valkyriweb/pi-agent-core";
+import type { Provider } from "@valkyriweb/pi-ai";
 import * as _bundledPiAi from "@valkyriweb/pi-ai";
 import * as _bundledPiAiCompat from "@valkyriweb/pi-ai/compat";
 import * as _bundledPiAiOauth from "@valkyriweb/pi-ai/oauth";
@@ -29,6 +30,7 @@ import { resolvePath } from "../../utils/paths.ts";
 import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
+import { manifestEntryPath, readPiManifest } from "../pi-manifest.ts";
 import { createSyntheticSourceInfo } from "../source-info.ts";
 import { recordTiming, time, timingsEnabled } from "../timings.ts";
 import { createForkExtensionAPI } from "./extension-api-fork.ts";
@@ -39,9 +41,11 @@ import type {
 	Extension,
 	ExtensionAPI,
 	ExtensionFactory,
+	ExtensionLoadError,
 	ExtensionLoadRequest,
 	ExtensionRuntime,
 	LoadExtensionsResult,
+	MarkdownTransformer,
 	MessageRenderer,
 	ProviderConfig,
 	RegisteredCommand,
@@ -94,8 +98,10 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 
 const require = createRequire(import.meta.url);
 
+const isTypeScriptSourceRuntime = !isBunBinary && path.extname(fileURLToPath(import.meta.url)) === ".ts";
+
 /**
- * Get aliases for jiti (used in Node.js/development mode).
+ * Get aliases for jiti (used in built Node.js mode).
  * In Bun binary mode, virtualModules is used instead.
  */
 let _aliases: Record<string, string> | null = null;
@@ -200,8 +206,12 @@ export function getExtensionModuleSpecifiersForTests(): {
  */
 export function getExtensionJitiResolutionOptions():
 	| { virtualModules: Record<string, unknown>; tryNative: false }
+	| { virtualModules: Record<string, unknown>; tsconfigPaths: true }
 	| { alias: Record<string, string> } {
-	return isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() };
+	if (isBunBinary) return { virtualModules: VIRTUAL_MODULES, tryNative: false };
+	// Source TypeScript reuses the host-resolved modules and root tsconfig paths.
+	if (isTypeScriptSourceRuntime) return { virtualModules: VIRTUAL_MODULES, tsconfigPaths: true };
+	return { alias: getAliases() };
 }
 
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
@@ -239,6 +249,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.");
 	};
 	const state: { staleMessage?: string; runRegistry?: RunRegistry; telemetry?: AgentTelemetry } = {};
+	const eventBusUnsubscribers = new Set<() => void>();
 	// Default no-op stubs for B5 show/hide handlers. interactive-mode replaces
 	// these via `ExtensionRunner.bindSlotUI()`; non-UI modes silently swallow
 	// show/hide requests.
@@ -273,19 +284,40 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		extensionConfig: {},
 		pendingProviderRegistrations: [],
 		suppressNewToolActivation: false,
+		pendingNativeProviderRegistrations: [],
 		assertActive,
 		invalidate: (message) => {
-			state.staleMessage ??=
+			if (state.staleMessage) return;
+			state.staleMessage =
 				message ??
 				"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
+			for (const unsubscribe of eventBusUnsubscribers) unsubscribe();
+			eventBusUnsubscribers.clear();
+		},
+		trackEventBusSubscription: (unsubscribe) => {
+			let active = true;
+			const trackedUnsubscribe = () => {
+				if (!active) return;
+				active = false;
+				eventBusUnsubscribers.delete(trackedUnsubscribe);
+				unsubscribe();
+			};
+			eventBusUnsubscribers.add(trackedUnsubscribe);
+			return trackedUnsubscribe;
 		},
 		// Pre-bind: queue registrations so bindCore() can flush them once the
 		// model registry is available. bindCore() replaces both with direct calls.
 		registerProvider: (name, config, extensionPath = "<unknown>") => {
 			runtime.pendingProviderRegistrations.push({ name, config, extensionPath });
 		},
+		registerNativeProvider: (provider, extensionPath = "<unknown>") => {
+			runtime.pendingNativeProviderRegistrations.push({ provider, extensionPath });
+		},
 		unregisterProvider: (name) => {
 			runtime.pendingProviderRegistrations = runtime.pendingProviderRegistrations.filter((r) => r.name !== name);
+			runtime.pendingNativeProviderRegistrations = runtime.pendingNativeProviderRegistrations.filter(
+				(r) => r.provider.id !== name,
+			);
 		},
 		setRunRegistry: (registry) => {
 			if (!state.runRegistry) state.runRegistry = registry;
@@ -374,6 +406,11 @@ function createExtensionAPI(
 			extension.messageRenderers.set(customType, renderer as MessageRenderer);
 		},
 
+		registerMarkdownTransformer(transformer: MarkdownTransformer): void {
+			runtime.assertActive();
+			extension.markdownTransformer = transformer;
+		},
+
 		registerEntryRenderer<T>(customType: string, renderer: EntryRenderer<T>): void {
 			runtime.assertActive();
 			extension.entryRenderers ??= new Map();
@@ -458,9 +495,14 @@ function createExtensionAPI(
 			runtime.setThinkingLevel(level);
 		},
 
-		registerProvider(name: string, config: ProviderConfig) {
+		registerProvider(providerOrName: Provider | string, config?: ProviderConfig) {
 			runtime.assertActive();
-			runtime.registerProvider(name, config, extension.path);
+			if (typeof providerOrName === "string") {
+				if (!config) throw new Error("Provider config is required when registering by name");
+				runtime.registerProvider(providerOrName, config, extension.path);
+				return;
+			}
+			runtime.registerNativeProvider(providerOrName, extension.path);
 		},
 
 		unregisterProvider(name: string) {
@@ -468,7 +510,16 @@ function createExtensionAPI(
 			runtime.unregisterProvider(name, extension.path);
 		},
 
-		events: eventBus,
+		events: {
+			emit(channel, data) {
+				runtime.assertActive();
+				eventBus.emit(channel, data);
+			},
+			on(channel, handler) {
+				runtime.assertActive();
+				return runtime.trackEventBusSubscription(eventBus.on(channel, handler));
+			},
+		},
 	} as ExtensionAPI;
 
 	return api;
@@ -632,7 +683,7 @@ async function loadExtensionsInternal(
 ): Promise<LoadExtensionsResult> {
 	const extensions: Extension[] = [];
 	const deferredExtensions: DeferredExtension[] = [];
-	const errors: Array<{ path: string; error: string }> = [];
+	const errors: ExtensionLoadError[] = [];
 	const cacheToken = useCache ? useExtensionCacheCwd(cwd) : undefined;
 	const resolvedCwd = cacheToken?.cwd ?? resolvePath(cwd);
 	const resolvedEventBus = eventBus ?? createEventBus();
@@ -640,7 +691,7 @@ async function loadExtensionsInternal(
 
 	const timing = timingsEnabled();
 	for (const input of inputs) {
-		const { path: extPath, load } = normalizeLoadRequest(input);
+		const { path: extPath, load, discovered } = normalizeLoadRequest(input);
 		if (load === "deferred") {
 			deferredExtensions.push({ path: extPath });
 			continue;
@@ -659,7 +710,9 @@ async function loadExtensionsInternal(
 		}
 
 		if (error) {
-			errors.push({ path: extPath, error });
+			// Carry the discovered flag onto the error so callers can decide whether
+			// this failure is fatal (explicitly requested) or a skip (auto-discovered).
+			errors.push(discovered ? { path: extPath, error, discovered: true } : { path: extPath, error });
 			continue;
 		}
 
@@ -695,26 +748,6 @@ export async function loadExtensionsCached(
 	return loadExtensionsInternal(inputs, cwd, eventBus, runtime, true);
 }
 
-interface PiManifest {
-	extensions?: string[];
-	themes?: string[];
-	skills?: string[];
-	prompts?: string[];
-}
-
-function readPiManifest(packageJsonPath: string): PiManifest | null {
-	try {
-		const content = fs.readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content);
-		if (pkg.pi && typeof pkg.pi === "object") {
-			return pkg.pi as PiManifest;
-		}
-		return null;
-	} catch {
-		return null;
-	}
-}
-
 function isExtensionFile(name: string): boolean {
 	return name.endsWith(".ts") || name.endsWith(".js") || name.endsWith(".mjs");
 }
@@ -739,8 +772,8 @@ function resolveExtensionEntries(dir: string): string[] | null {
 		const manifest = readPiManifest(packageJsonPath);
 		if (manifest?.extensions?.length) {
 			const entries: string[] = [];
-			for (const extPath of manifest.extensions) {
-				const resolvedExtPath = path.resolve(dir, extPath);
+			for (const extEntry of manifest.extensions) {
+				const resolvedExtPath = path.resolve(dir, manifestEntryPath(extEntry));
 				if (fs.existsSync(resolvedExtPath)) {
 					entries.push(resolvedExtPath);
 				}
@@ -831,26 +864,28 @@ export async function discoverAndLoadExtensions(
 ): Promise<LoadExtensionsResult> {
 	const resolvedCwd = resolvePath(cwd);
 	const resolvedAgentDir = resolvePath(agentDir);
-	const allPaths: string[] = [];
+	const allPaths: ExtensionLoadRequest[] = [];
 	const seen = new Set<string>();
 
-	const addPaths = (paths: string[]) => {
+	// `discovered` marks extensions found by scanning a directory. Their load
+	// failures are non-fatal; explicitly named ones stay fatal.
+	const addPaths = (paths: string[], discovered: boolean) => {
 		for (const p of paths) {
 			const resolved = path.resolve(p);
 			if (!seen.has(resolved)) {
 				seen.add(resolved);
-				allPaths.push(p);
+				allPaths.push(discovered ? { path: p, load: "eager", discovered: true } : { path: p, load: "eager" });
 			}
 		}
 	};
 
 	// 1. Project-local extensions: cwd/${CONFIG_DIR_NAME}/extensions/
 	const localExtDir = path.join(resolvedCwd, CONFIG_DIR_NAME, "extensions");
-	addPaths(discoverExtensionsInDir(localExtDir));
+	addPaths(discoverExtensionsInDir(localExtDir), true);
 
 	// 2. Global extensions: agentDir/extensions/
 	const globalExtDir = path.join(resolvedAgentDir, "extensions");
-	addPaths(discoverExtensionsInDir(globalExtDir));
+	addPaths(discoverExtensionsInDir(globalExtDir), true);
 
 	// 3. Explicitly configured paths
 	for (const p of configuredPaths) {
@@ -859,15 +894,18 @@ export async function discoverAndLoadExtensions(
 			// Check for package.json with pi manifest or index.ts
 			const entries = resolveExtensionEntries(resolved);
 			if (entries) {
-				addPaths(entries);
+				// A directory named explicitly, but its individual entry points were
+				// still found by scanning, so treat them as discovered.
+				addPaths(entries, true);
 				continue;
 			}
 			// No explicit entries - discover individual files in directory
-			addPaths(discoverExtensionsInDir(resolved));
+			addPaths(discoverExtensionsInDir(resolved), true);
 			continue;
 		}
 
-		addPaths([resolved]);
+		// A file named explicitly by the caller: failing to load it stays fatal.
+		addPaths([resolved], false);
 	}
 
 	return loadExtensions(allPaths, resolvedCwd, eventBus);

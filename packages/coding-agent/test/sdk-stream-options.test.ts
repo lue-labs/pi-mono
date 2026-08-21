@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import { SettingsManager } from "../src/core/settings-manager.ts";
+import { type Settings, SettingsManager } from "../src/core/settings-manager.ts";
 import { MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS } from "../src/core/tool-artifacts.ts";
 
 import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
@@ -78,7 +78,7 @@ describe("createAgentSession stream options", () => {
 
 	async function captureStreamOptions(
 		api: Api,
-		settings: { httpIdleTimeoutMs?: number; websocketConnectTimeoutMs?: number },
+		settings: Partial<Settings>,
 		requestOptions: SimpleStreamOptions = {},
 		extensionSource?: string,
 	): Promise<SimpleStreamOptions | undefined> {
@@ -116,7 +116,7 @@ describe("createAgentSession stream options", () => {
 		});
 
 		try {
-			const stream = await session.agent.streamFn(model, { messages: [] }, requestOptions);
+			const stream = await session.agent.streamFunction(model, { messages: [] }, requestOptions);
 			await stream.result();
 			return capturedOptions;
 		} finally {
@@ -236,6 +236,15 @@ describe("createAgentSession stream options", () => {
 			session.dispose();
 			modelRegistry.unregisterProvider(model.provider);
 		}
+	});
+
+	it("forwards provider retry settings", async () => {
+		const options = await captureStreamOptions("openai-completions", {
+			retry: { provider: { maxRetries: 2, maxRetryDelayMs: 3000 } },
+		});
+
+		expect(options?.maxRetries).toBe(2);
+		expect(options?.maxRetryDelayMs).toBe(3000);
 	});
 
 	it("runs before_provider_headers on assembled headers without forwarding the transform", async () => {

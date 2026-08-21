@@ -17,8 +17,11 @@ import type { BashBgJob } from "../tools/bash.ts";
 import { getBashBgJob, killBashBgJob, renderBashBgOutput } from "../tools/bash.ts";
 import type { Task, TaskControlResult, TaskOutputResult, TaskSnapshot, TaskStatus } from "./types.ts";
 
-function mapStatus(status: BashBgJob["status"]): TaskStatus {
-	switch (status) {
+function mapStatus(job: BashBgJob): TaskStatus {
+	if (job.lifecycle?.terminalReason === "non_zero_exit" || job.lifecycle?.terminalReason === "output_limit") {
+		return "failed";
+	}
+	switch (job.status) {
 		case "running":
 			return "running";
 		case "exited":
@@ -36,19 +39,29 @@ function describeJob(job: BashBgJob): string {
 }
 
 function snapshotFromJob(job: BashBgJob): TaskSnapshot {
+	const lifecycle = job.lifecycle;
 	return {
 		id: job.id,
 		type: "local_bash",
-		status: mapStatus(job.status),
+		status: mapStatus(job),
 		description: describeJob(job),
 		startedAt: job.startedAt,
 		endedAt: job.endedAt,
+		outputPath: job.logPath,
 		// Background bash jobs cannot resume once stopped.
 		resumable: false,
 		error: job.error,
-		// A failed background job wants the user's attention, same bucket as a
-		// failed/interrupted agent run in the unified footer/pane.
-		needsInput: job.status === "failed",
+		// Needs-input only for a genuine user wait: the job stalled on an
+		// interactive prompt. A failed job is settled state (its failure is
+		// already delivered via task_notification), not a pending user action.
+		needsInput: lifecycle?.promptStalledAt !== undefined,
+		lifecycle: {
+			ownerSessionId: job.ownerSessionId,
+			terminalReason: lifecycle?.terminalReason,
+			promptStalled: lifecycle?.promptStalledAt !== undefined,
+			outputBytes: lifecycle?.outputBytes,
+			outputLimitBytes: lifecycle?.outputLimitBytes,
+		},
 	};
 }
 
