@@ -8,6 +8,7 @@ Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Pack
 
 ### Changed
 
+- **Extensions can now register task adapters through the injected `ExtensionAPI`.** `registerTaskAdapter`/`findTaskAdapter` are thin passthroughs to the shared task registry (mirroring `registerLiveSession`), and `listTasks()` enumerates any adapter exposing an optional `list()`, so an extension can own a long-running thing — e.g. a backgrounded MCP tool call — and have it stoppable via `TaskStop` and listable in `TaskBackgroundList` without importing the core registry singleton. Additive platform seam; no system-prompt or `tools[]` bytes change.
 - **The `/agents runs` view now orders and prunes like Claude Code's background-tasks dialog.** Running rows sort first, then newest-first by start time; completed agents stay visible only during their retention window, while failed/interrupted runs that still need attention are never silently dropped — all at the view layer over the unchanged durable run registry (`selectAgentRunRows`). TUI rendering only; no system-prompt or `tools[]` bytes change.
 
 ### Changed
