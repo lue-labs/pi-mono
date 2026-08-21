@@ -4,85 +4,22 @@
  * Schemas of deferLoading tools stay out of the cached prefix via provider
  * defer_loading; this suite pins the same rule for prompt prose:
  *   - system prompt NEVER contains promptSnippet/promptGuidelines of deferred
- *     tools (not at start, not after discovery — prefix stays byte-stable)
+ *     tools (prefix stays byte-stable)
  *   - alwaysLoad opts back into ambient prose
- *   - discovery delivers guidelines as text blocks in the tool_search result,
- *     delta-only (no duplicates on repeat discovery)
- *   - fallback mode emits guideline blocks too (its referenceBlocks are empty)
+ *
+ * The tool_search discovery/guideline-delivery engine moved to the
+ * pi-deferred-tools v2 extension (my-pi#1076); its unit tests moved with it.
  */
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	buildDeferredToolGuidelineBlock,
-	discoverDeferredTools,
-	planDeferredToolSearchResult,
-} from "../src/core/deferred-tools.ts";
-import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { pickModel } from "./helpers/models.ts";
-
-function makeDefinition(name: string, options: Partial<ToolDefinition> = {}): ToolDefinition {
-	return {
-		name,
-		label: name,
-		description: `${name} description`,
-		parameters: Type.Object({}),
-		execute: async () => ({ content: [{ type: "text", text: name }] }),
-		...options,
-	} as ToolDefinition;
-}
-
-describe("buildDeferredToolGuidelineBlock", () => {
-	it("wraps snippet and guidelines in a named tag", () => {
-		const block = buildDeferredToolGuidelineBlock(
-			makeDefinition("desk", {
-				promptSnippet: "Control the desk",
-				promptGuidelines: ["Raise slowly.", " Lower slowly. "],
-			}),
-		);
-		expect(block).toEqual({
-			type: "text",
-			text: '<tool-guidelines name="desk">\nControl the desk\n- Raise slowly.\n- Lower slowly.\n</tool-guidelines>',
-		});
-	});
-
-	it("returns undefined when the tool has no prose", () => {
-		expect(buildDeferredToolGuidelineBlock(makeDefinition("mute"))).toBeUndefined();
-		expect(
-			buildDeferredToolGuidelineBlock(makeDefinition("blank", { promptSnippet: "  ", promptGuidelines: [" "] })),
-		).toBeUndefined();
-	});
-});
-
-describe("discoverDeferredTools — guideline delta semantics", () => {
-	const definitions = [
-		makeDefinition("alpha", { deferLoading: true, promptGuidelines: ["Alpha rule."] }),
-		makeDefinition("beta", { deferLoading: true }),
-	];
-
-	it("emits guideline blocks only for newly discovered tools with prose", () => {
-		const first = discoverDeferredTools(definitions, ["alpha", "beta"]);
-		expect(first.guidelineBlocks).toHaveLength(1);
-		expect(first.guidelineBlocks[0]?.text).toContain('name="alpha"');
-		expect(first.guidelineBlocks[0]?.text).toContain("- Alpha rule.");
-
-		const repeat = discoverDeferredTools(definitions, ["alpha"], first.discoveredToolNames);
-		expect(repeat.guidelineBlocks).toHaveLength(0);
-	});
-
-	it("ships guideline blocks in fallback mode even though referenceBlocks are empty", () => {
-		const plan = planDeferredToolSearchResult(definitions, ["alpha"], { nativeDeferredTools: false });
-		expect(plan.referenceBlocks).toHaveLength(0);
-		expect(plan.guidelineBlocks).toHaveLength(1);
-		expect(plan.activateToolNames).toEqual(["alpha"]);
-	});
-});
 
 describe("system prompt excludes deferred-tool prose", () => {
 	let tempDir: string;

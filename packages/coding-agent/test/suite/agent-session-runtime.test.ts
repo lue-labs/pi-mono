@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider } from "@valkyriweb/pi-ai/compat";
+import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@valkyriweb/pi-ai/compat";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CreateAgentSessionRuntimeFactory,
@@ -12,6 +13,7 @@ import {
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type {
+	AgentToolResult,
 	ExtensionAPI,
 	ExtensionFactory,
 	SessionBeforeForkEvent,
@@ -161,6 +163,55 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(persistedAssistant.usage.cost.total).toBe(0.123);
 	});
 
+	it("settles the active response before session replacement", async () => {
+		let toolStarted!: () => void;
+		const toolStartedPromise = new Promise<void>((resolve) => {
+			toolStarted = resolve;
+		});
+		const { runtime, faux } = await createRuntimeForTest((pi: ExtensionAPI) => {
+			pi.registerTool({
+				name: "block",
+				label: "Block",
+				description: "Blocks until aborted",
+				parameters: Type.Object({}),
+				execute: (_toolCallId, _params, signal) =>
+					new Promise<AgentToolResult<unknown>>((resolve) => {
+						toolStarted();
+						signal?.addEventListener("abort", () =>
+							resolve({ content: [{ type: "text", text: "tool aborted" }], details: {} }),
+						);
+					}),
+			});
+		});
+
+		await runtime.session.prompt("hello");
+		const firstSessionFile = runtime.session.sessionFile!;
+		await runtime.newSession();
+		await runtime.session.bindExtensions({});
+
+		faux.setResponses([fauxAssistantMessage(fauxToolCall("block", {}), { stopReason: "toolUse" })]);
+		const outgoingSession = runtime.session;
+		const promptPromise = outgoingSession.prompt("start blocking tool");
+		await toolStartedPromise;
+
+		const switchResult = await runtime.switchSession(firstSessionFile);
+		await promptPromise;
+
+		expect(switchResult.cancelled).toBe(false);
+		expect(runtime.session.sessionFile).toBe(firstSessionFile);
+		// The outgoing session settled before replacement: the interrupted tool
+		// call has a persisted tool result instead of dangling forever.
+		const outgoingEntries = SessionManager.open(outgoingSession.sessionFile!)
+			.getEntries()
+			.filter((entry) => entry.type === "message");
+		expect(outgoingEntries.map((entry) => entry.message.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+			"assistant",
+		]);
+	});
+
 	it("emits session_before_switch and session_start for new and resume flows", async () => {
 		const events: RecordedSessionEvent[] = [];
 		const { runtime } = await createRuntimeForTest((pi: ExtensionAPI) => {
@@ -288,6 +339,19 @@ describe("AgentSessionRuntime characterization", () => {
 		const cancelAtResult = await runtime.fork("missing-entry", { position: "at" });
 		expect(cancelAtResult).toEqual({ cancelled: true });
 		expect(events).toEqual([{ type: "session_before_fork", entryId: "missing-entry", position: "at" }]);
+	});
+
+	it("reports why an unflushed session cannot be forked", async () => {
+		const { runtime } = await createRuntimeForTest(() => {});
+		const sessionFile = runtime.session.sessionFile;
+		const leafId = runtime.session.sessionManager.getLeafId();
+		expect(sessionFile).toBeDefined();
+		expect(existsSync(sessionFile!)).toBe(false);
+		expect(leafId).toBeTruthy();
+
+		await expect(runtime.fork(leafId!, { position: "at" })).rejects.toThrow(
+			"This session has not been saved yet. Wait for the first assistant response before cloning or forking it.",
+		);
 	});
 
 	it("duplicates the current active branch when forking at the current position", async () => {

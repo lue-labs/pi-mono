@@ -96,6 +96,7 @@ describe("pi-observability tracer (issue 09)", () => {
 			throw new Error("forkAgent not implemented in test runner");
 		},
 		transcriptAppend: () => {},
+		getScopedModels: () => [],
 	};
 
 	const createRunner = (result: LoadExtensionsResult): ExtensionRunner => {

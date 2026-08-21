@@ -446,6 +446,91 @@ describe("AgentSession queue characterization", () => {
 		expect(getUserTexts(harness)).toEqual(["start"]);
 	});
 
+	it("aborts and resumes queued messages with steering-before-follow-up ordering", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("x".repeat(20_000)),
+			fauxAssistantMessage("handled steer"),
+			fauxAssistantMessage("handled follow-up"),
+		]);
+
+		const sawMessageUpdate = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type === "message_update") {
+					unsubscribe();
+					resolve();
+				}
+			});
+		});
+
+		const promptPromise = harness.session.prompt("start");
+		await sawMessageUpdate;
+		await harness.session.followUp("follow-up");
+		await harness.session.steer("steer");
+
+		const resumePromise = harness.session.abortAndResumeQueuedMessages();
+		await promptPromise;
+		await resumePromise;
+
+		expect(getUserTexts(harness)).toEqual(["start", "steer", "follow-up"]);
+		expect(getAssistantTexts(harness)).toEqual([expect.any(String), "handled steer", "handled follow-up"]);
+		expect(harness.session.pendingMessageCount).toBe(0);
+	});
+
+	it("preserves all-mode batching when resuming queued messages after abort", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.session.setSteeringMode("all");
+		harness.setResponses([fauxAssistantMessage("x".repeat(20_000)), fauxAssistantMessage("handled batch")]);
+
+		const sawMessageUpdate = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type === "message_update") {
+					unsubscribe();
+					resolve();
+				}
+			});
+		});
+
+		const promptPromise = harness.session.prompt("start");
+		await sawMessageUpdate;
+		await harness.session.steer("steer 1");
+		await harness.session.steer("steer 2");
+
+		const resumePromise = harness.session.abortAndResumeQueuedMessages();
+		await promptPromise;
+		await resumePromise;
+
+		expect(getUserTexts(harness)).toEqual(["start", "steer 1", "steer 2"]);
+		expect(getAssistantTexts(harness)).toEqual([expect.any(String), "handled batch"]);
+		expect(harness.session.pendingMessageCount).toBe(0);
+	});
+
+	it("plain-aborts when no queued messages are pending", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("x".repeat(20_000))]);
+
+		const sawMessageUpdate = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type === "message_update") {
+					unsubscribe();
+					resolve();
+				}
+			});
+		});
+
+		const promptPromise = harness.session.prompt("start");
+		await sawMessageUpdate;
+		const resumePromise = harness.session.abortAndResumeQueuedMessages();
+		await promptPromise;
+		await resumePromise;
+
+		expect(getUserTexts(harness)).toEqual(["start"]);
+		expect(harness.faux.state.callCount).toBe(1);
+	});
+
 	it("throws when queueing an extension command with steer", async () => {
 		const harness = await createHarness({
 			extensionFactories: [

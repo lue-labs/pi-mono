@@ -1,4 +1,4 @@
-import { ProcessTerminal, setKeybindings, TUI } from "@valkyriweb/pi-tui";
+import { ProcessTerminal, setKeybindings, type TUI, TuiMainScreen } from "@valkyriweb/pi-tui";
 import { existsSync } from "fs";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, getAgentDir, getSettingsPath, PACKAGE_NAME } from "../config.ts";
 import { areExperimentalFeaturesEnabled } from "../core/experimental.ts";
@@ -23,6 +23,11 @@ import {
 	type Theme,
 } from "../modes/interactive/theme/theme.ts";
 
+// DO NOT rewrite this scope to @valkyriweb. It names the *upstream* distribution
+// so the fork can recognise it is not upstream; rewriting it to our own scope
+// makes isOfficialDistribution() always true and re-enables official-only
+// onboarding on the fork. Blanket @earendil-works -> @valkyriweb sweeps during
+// upstream merges have broken this three times (e5409bf43, 5a8abf6db).
 const OFFICIAL_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 const OFFICIAL_APP_NAME = "pi";
 const OFFICIAL_CONFIG_DIR_NAME = ".pi";
@@ -79,7 +84,7 @@ export async function createStartupTui(settingsManager: SettingsManager): Promis
 	const terminalTheme = detectTerminalBackgroundFromEnv().theme;
 	initTheme(resolveThemeSetting(settingsManager.getThemeSetting(), terminalTheme) ?? terminalTheme);
 	setKeybindings(KeybindingsManager.create());
-	const ui = new TUI(new ProcessTerminal(), settingsManager.getShowHardwareCursor());
+	const ui: TUI = new TuiMainScreen(new ProcessTerminal(), settingsManager.getShowHardwareCursor(), getAgentDir());
 	ui.setClearOnShrink(settingsManager.getClearOnShrink());
 	return ui;
 }

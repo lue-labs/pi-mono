@@ -1,13 +1,54 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Agent } from "@valkyriweb/pi-agent-core";
+import { type AssistantMessage, type AssistantMessageEvent, EventStream } from "@valkyriweb/pi-ai";
+import { getModel } from "@valkyriweb/pi-ai/compat";
 import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentSession } from "../src/core/agent-session.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { prepareCompaction } from "../src/core/compaction/index.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createBashTool } from "../src/core/tools/bash.ts";
 import { pickModel } from "./helpers/models.ts";
+import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
+
+class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
+	constructor() {
+		super(
+			(event) => event.type === "done" || event.type === "error",
+			(event) => {
+				if (event.type === "done") return event.message;
+				if (event.type === "error") return event.error;
+				throw new Error("Unexpected event type");
+			},
+		);
+	}
+}
+
+function stoppedAssistantMessage(): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text: "done" }],
+		api: "anthropic-messages",
+		provider: "anthropic",
+		model: "mock",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: Date.now(),
+	};
+}
 
 describe("AgentSession dynamic tool registration", () => {
 	let tempDir: string;
@@ -23,6 +64,76 @@ describe("AgentSession dynamic tool registration", () => {
 		if (tempDir && existsSync(tempDir)) {
 			rmSync(tempDir, { recursive: true, force: true });
 		}
+	});
+
+	it("exposes session state before custom bash spawn hooks and supports opting out", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const sessionManager = SessionManager.create(tempDir, join(agentDir, "sessions"), { id: "bash-env-test" });
+		let sessionEnv: NodeJS.ProcessEnv | undefined;
+		let optedOutEnv: NodeJS.ProcessEnv | undefined;
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+			extensionFactories: [
+				(pi) => {
+					pi.registerTool(
+						createBashTool(tempDir, {
+							spawnHook: (ctx) => {
+								sessionEnv = ctx.env;
+								return ctx;
+							},
+						}),
+					);
+					pi.registerTool({
+						...createBashTool(tempDir, {
+							exposeSessionEnvironment: false,
+							spawnHook: (ctx) => {
+								optedOutEnv = ctx.env;
+								return ctx;
+							},
+						}),
+						name: "bash_without_session_env",
+						label: "bash without session env",
+					});
+				},
+			],
+		});
+		await resourceLoader.reload();
+
+		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model,
+			thinkingLevel: "high",
+			settingsManager,
+			sessionManager,
+			resourceLoader,
+		});
+
+		const bashTool = session.agent.state.tools.find((tool) => tool.name === "bash")!;
+		expect(session.systemPrompt).toContain(
+			"Inspect PI_* environment variables for current model and session details.",
+		);
+		await bashTool.execute("bash-env", { command: "printf ok" });
+		expect(sessionEnv).toMatchObject({
+			PI_SESSION_ID: session.sessionId,
+			PI_SESSION_FILE: session.sessionFile,
+			PI_PROVIDER: model.provider,
+			PI_MODEL: model.id,
+			PI_REASONING_LEVEL: session.thinkingLevel,
+		});
+
+		const optedOutBashTool = session.agent.state.tools.find((tool) => tool.name === "bash_without_session_env")!;
+		await optedOutBashTool.execute("bash-no-env", { command: "printf ok" });
+		expect(optedOutEnv).not.toHaveProperty("PI_SESSION_ID");
+		expect(optedOutEnv).not.toHaveProperty("PI_SESSION_FILE");
+		expect(optedOutEnv).not.toHaveProperty("PI_PROVIDER");
+		expect(optedOutEnv).not.toHaveProperty("PI_MODEL");
+		expect(optedOutEnv).not.toHaveProperty("PI_REASONING_LEVEL");
+
+		session.dispose();
 	});
 
 	it("refreshes tool registry when tools are registered after initialization", async () => {
@@ -137,7 +248,190 @@ describe("AgentSession dynamic tool registration", () => {
 		session.dispose();
 	});
 
-	it("adds tool_search when a deferred extension is the first deferred-tool provider", async () => {
+	it("loads deferred tool schemas and handlers before the first provider request", async () => {
+		vi.useFakeTimers();
+		try {
+			writeFileSync(
+				join(tempDir, "package.json"),
+				JSON.stringify({ pi: { extensions: [{ path: "./deferred-first-turn.mjs", load: "deferred" }] } }),
+			);
+			writeFileSync(
+				join(tempDir, "deferred-first-turn.mjs"),
+				`
+				export default function(pi) {
+					pi.registerTool({
+						name: "first_turn_tool",
+						label: "First Turn Tool",
+						description: "Must be present before the first provider request",
+						parameters: { type: "object", properties: {}, additionalProperties: false },
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+					});
+					pi.on("before_agent_start", (event) => {
+						pi.setActiveTools([...pi.getActiveTools(), "first_turn_tool"]);
+						return { systemPrompt: event.systemPrompt + "\\n\\nDEFERRED-FIRST-TURN" };
+					});
+				}
+			`,
+			);
+
+			const settingsManager = SettingsManager.create(tempDir, agentDir);
+			settingsManager.setProjectPackages([tempDir]);
+			const sessionManager = SessionManager.inMemory();
+			const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+			await resourceLoader.reload();
+
+			const model = pickModel("anthropic");
+			let providerToolNames: string[] = [];
+			let systemPromptAtProvider = "";
+			const agent = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: "Test", tools: [] },
+				streamFn: (_model, context) => {
+					providerToolNames = context.tools?.map((tool) => tool.name) ?? [];
+					systemPromptAtProvider = context.systemPrompt ?? "";
+					const stream = new MockAssistantStream();
+					queueMicrotask(() => {
+						const message = stoppedAssistantMessage();
+						stream.push({ type: "start", partial: { ...message, content: [] } });
+						stream.push({ type: "done", reason: "stop", message });
+					});
+					return stream;
+				},
+			});
+			const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+			await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
+			const modelRegistry = await createModelRegistry(authStorage, tempDir);
+			const session = new AgentSession({
+				agent,
+				sessionManager,
+				settingsManager,
+				cwd: tempDir,
+				modelRegistry,
+				modelRuntime: getModelRuntime(modelRegistry),
+				resourceLoader,
+			});
+			await session.bindExtensions({});
+
+			expect(session.getAllTools().map((tool) => tool.name)).not.toContain("first_turn_tool");
+
+			await session.prompt("first turn");
+
+			expect(providerToolNames).toContain("first_turn_tool");
+			expect(systemPromptAtProvider).toContain("DEFERRED-FIRST-TURN");
+
+			session.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("loads deferred tools before manual compaction sends the first provider request", async () => {
+		vi.useFakeTimers();
+		try {
+			writeFileSync(
+				join(tempDir, "package.json"),
+				JSON.stringify({ pi: { extensions: [{ path: "./deferred-compaction.mjs", load: "deferred" }] } }),
+			);
+			writeFileSync(
+				join(tempDir, "deferred-compaction.mjs"),
+				`
+				export default function(pi) {
+					pi.registerTool({
+						name: "deferred_compaction_tool",
+						label: "Deferred Compaction Tool",
+						description: "Must be present before compaction reaches the provider",
+						parameters: { type: "object", properties: {}, additionalProperties: false },
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+					});
+					pi.on("before_agent_start", () => {
+						pi.setActiveTools([...pi.getActiveTools(), "deferred_compaction_tool"]);
+					});
+				}
+			`,
+			);
+
+			const settingsManager = SettingsManager.create(tempDir, agentDir);
+			settingsManager.setProjectPackages([tempDir]);
+			const sessionManager = SessionManager.inMemory();
+			const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+			await resourceLoader.reload();
+
+			const model = pickModel("anthropic");
+			let providerToolNames: string[] = [];
+			const agent = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: "Test", tools: [] },
+				streamFn: (_model, context) => {
+					providerToolNames = context.tools?.map((tool) => tool.name) ?? [];
+					const stream = new MockAssistantStream();
+					queueMicrotask(() => {
+						const message = stoppedAssistantMessage();
+						message.content = [{ type: "text", text: "summary" }];
+						stream.push({ type: "start", partial: { ...message, content: [] } });
+						stream.push({ type: "done", reason: "stop", message });
+					});
+					return stream;
+				},
+			});
+			const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+			await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
+			const modelRegistry = await createModelRegistry(authStorage, tempDir);
+			const session = new AgentSession({
+				agent,
+				sessionManager,
+				settingsManager,
+				cwd: tempDir,
+				modelRegistry,
+				modelRuntime: getModelRuntime(modelRegistry),
+				resourceLoader,
+			});
+			await session.bindExtensions({});
+
+			const now = Date.now();
+			sessionManager.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: `message to compact ${"x".repeat(32_000)}` }],
+				timestamp: now - 1_000,
+			});
+			const compactableAssistant = stoppedAssistantMessage();
+			compactableAssistant.content = [{ type: "text", text: "x".repeat(32_000) }];
+			sessionManager.appendMessage({ ...compactableAssistant, timestamp: now - 750 });
+			sessionManager.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "recent message to keep" }],
+				timestamp: now - 500,
+			});
+			const recentAssistant = stoppedAssistantMessage();
+			recentAssistant.content = [{ type: "text", text: "y".repeat(10_000) }];
+			sessionManager.appendMessage({ ...recentAssistant, timestamp: now - 250 });
+			sessionManager.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "newest turn" }],
+				timestamp: now - 100,
+			});
+			session.agent.state.messages = sessionManager.buildSessionContext().messages;
+
+			expect(session.getAllTools().map((tool) => tool.name)).not.toContain("deferred_compaction_tool");
+			expect(
+				prepareCompaction(sessionManager.getBranch(), { enabled: true, keepRecentTokens: 100, reserveTokens: 1 }),
+			).toBeDefined();
+			vi.spyOn(settingsManager, "getCompactionSettings").mockReturnValue({
+				enabled: true,
+				keepRecentTokens: 100,
+				reserveTokens: 1,
+				residentPrune: true,
+			});
+
+			await session.compact();
+
+			expect(providerToolNames).toContain("deferred_compaction_tool");
+			session.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("registers a deferred extension tool without activating it, and adds no core tool_search", async () => {
 		writeFileSync(
 			join(tempDir, "package.json"),
 			JSON.stringify({ pi: { extensions: [{ path: "./deferred-extension.mjs", load: "deferred" }] } }),
@@ -175,10 +469,12 @@ describe("AgentSession dynamic tool registration", () => {
 		await session.bindExtensions({});
 		await new Promise((resolve) => setTimeout(resolve, 350));
 
-		expect(session.getAllTools().map((tool) => tool.name)).toEqual(
-			expect.arrayContaining(["late_deferred_tool", "tool_search"]),
-		);
-		expect(session.getActiveToolNames()).toContain("tool_search");
+		// The deferred-tool engine and `tool_search` left fork core in e304781a9
+		// (my-pi#1076); the my-pi pi-deferred-tools extension owns them now. Core
+		// still registers a deferred tool and keeps it out of the active set, but
+		// it no longer conjures a search tool of its own.
+		expect(session.getAllTools().map((tool) => tool.name)).toEqual(expect.arrayContaining(["late_deferred_tool"]));
+		expect(session.getAllTools().map((tool) => tool.name)).not.toContain("tool_search");
 		expect(session.getActiveToolNames()).not.toContain("late_deferred_tool");
 
 		session.dispose();

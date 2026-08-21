@@ -1,0 +1,139 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const childState = vi.hoisted(() => ({ child: undefined as ReturnType<typeof createChild> | undefined }));
+const fsState = vi.hoisted(() => ({ failOpen: false, failWrite: false }));
+
+function createChild() {
+	const child = new EventEmitter() as EventEmitter & {
+		pid: undefined;
+		stdout: PassThrough;
+		stderr: PassThrough;
+		unref: () => void;
+	};
+	child.pid = undefined;
+	child.stdout = new PassThrough();
+	child.stderr = new PassThrough();
+	child.unref = () => {};
+	return child;
+}
+
+vi.mock("node:child_process", () => ({
+	spawn: vi.fn(() => childState.child),
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		openSync: (...args: Parameters<typeof actual.openSync>) => {
+			if (fsState.failOpen) throw new Error("log open failed");
+			return actual.openSync(...args);
+		},
+		writeSync: (...args: Parameters<typeof actual.writeSync>) => {
+			if (fsState.failWrite) throw new Error("log write failed");
+			return actual.writeSync(...args);
+		},
+	};
+});
+
+import {
+	killAllBashBgJobs,
+	killBashBgJob,
+	spawnBashBackground,
+	subscribeBashBgJobs,
+	subscribeBashBgTerminal,
+} from "../src/core/tools/bash.ts";
+
+afterEach(() => {
+	killAllBashBgJobs();
+	childState.child = undefined;
+	fsState.failOpen = false;
+	fsState.failWrite = false;
+});
+
+describe("background bash output stream failures", () => {
+	it("does not spawn a child when the output artifact cannot be opened", async () => {
+		fsState.failOpen = true;
+		const { spawn } = await import("node:child_process");
+
+		expect(() => spawnBashBackground("echo never-runs", process.cwd())).toThrow("log open failed");
+		expect(spawn).not.toHaveBeenCalled();
+	});
+
+	it("turns output artifact write failures into stream errors", () => {
+		const child = createChild();
+		childState.child = child;
+		const terminal = vi.fn();
+		const unsubscribe = subscribeBashBgTerminal(terminal);
+		try {
+			const job = spawnBashBackground("echo never-runs", process.cwd());
+			fsState.failWrite = true;
+			child.stdout.write("output");
+			child.emit("exit", 0, null);
+			child.emit("close", 0, null);
+
+			expect(job.status).toBe("failed");
+			expect(job.lifecycle?.terminalReason).toBe("stream_error");
+			expect(job.error).toContain("log write failed");
+			expect(terminal).toHaveBeenCalledExactlyOnceWith(job);
+		} finally {
+			unsubscribe();
+		}
+	});
+
+	it("publishes a deliberate kill before pending stream cleanup", () => {
+		const child = createChild();
+		childState.child = child;
+		const changed = vi.fn();
+		const terminal = vi.fn();
+		const unsubscribeChanged = subscribeBashBgJobs(changed);
+		const unsubscribeTerminal = subscribeBashBgTerminal(terminal);
+		try {
+			const job = spawnBashBackground("echo never-runs", process.cwd());
+			changed.mockClear();
+
+			killBashBgJob(job.id);
+
+			expect(job).toMatchObject({ status: "killed", lifecycle: { terminalReason: "manual_kill" } });
+			expect(job.endedAt).toBeDefined();
+			expect(changed).toHaveBeenCalledExactlyOnceWith();
+			expect(terminal).not.toHaveBeenCalled();
+
+			child.stdout.emit("error", new Error("stdout disconnected"));
+			child.emit("exit", 0, null);
+			child.emit("close", 0, null);
+
+			expect(job).toMatchObject({ status: "killed", lifecycle: { terminalReason: "manual_kill" } });
+			expect(changed).toHaveBeenCalledExactlyOnceWith();
+			expect(terminal).not.toHaveBeenCalled();
+		} finally {
+			unsubscribeChanged();
+			unsubscribeTerminal();
+		}
+	});
+
+	it("handles a pipe error without publishing until the child closes", () => {
+		const child = createChild();
+		childState.child = child;
+		const terminal = vi.fn();
+		const unsubscribe = subscribeBashBgTerminal(terminal);
+		try {
+			const job = spawnBashBackground("echo never-runs", process.cwd());
+
+			child.stdout.emit("error", new Error("stdout disconnected"));
+			child.emit("exit", 0, null);
+			expect(job.status).toBe("running");
+			expect(terminal).not.toHaveBeenCalled();
+
+			child.emit("close", 0, null);
+			expect(job.status).toBe("failed");
+			expect(job.lifecycle?.terminalReason).toBe("stream_error");
+			expect(job.error).toContain("stdout disconnected");
+			expect(terminal).toHaveBeenCalledExactlyOnceWith(job);
+		} finally {
+			unsubscribe();
+		}
+	});
+});

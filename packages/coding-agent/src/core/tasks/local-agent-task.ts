@@ -62,10 +62,6 @@ function taskStatusFromRun(run: AgentRecentRun): TaskStatus {
 	return status === "idle" ? "idle" : mapStatus(status);
 }
 
-function needsInputFor(run: AgentRecentRun, status: TaskStatus): boolean {
-	return run.needsAttention || status === "interrupted" || status === "failed";
-}
-
 function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, index: number): TaskSnapshot {
 	const followsPersistentParent = run.persistent && run.runs.length === 1;
 	const status = followsPersistentParent ? taskStatusFromRun(run) : mapStatus(detail.status);
@@ -77,9 +73,11 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 		description: describeChildRun(detail),
 		label: run.label ?? detail.agent,
 		sessionPath: detail.sessionPath,
-		needsInput: followsPersistentParent
-			? needsInputFor(run, status)
-			: status === "interrupted" || status === "failed",
+		// Pi agents have no blocking path (no permission prompts; AskUserQuestion
+		// auto-proceeds without UI), so an agent task can never legitimately need
+		// input. Terminal/interrupted runs are settled state, not a user wait.
+		needsInput: false,
+		hidden: run.hidden,
 		startedAt,
 		endedAt:
 			status === "running" || status === "idle" || status === "interrupted"
@@ -100,7 +98,8 @@ function snapshotFromRun(run: AgentRecentRun): TaskSnapshot {
 		description: describeRun(run),
 		label: run.label,
 		sessionPath: run.sessionRefs.length === 1 ? run.sessionRefs[0]?.sessionPath : undefined,
-		needsInput: needsInputFor(run, status),
+		needsInput: false,
+		hidden: run.hidden,
 		startedAt: Date.parse(run.startedAt),
 		endedAt: run.endedAt ? Date.parse(run.endedAt) : undefined,
 		resumable: run.resumable,

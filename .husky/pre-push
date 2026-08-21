@@ -1,0 +1,8 @@
+#!/bin/sh
+# Preventable-CI pre-push gate (agent-race runner_infra_block ratchet). Runs the repo's
+# lint/typecheck/changelog checks locally so mechanical failures never reach a runner; graceful
+# no-op if agent-race is absent. Escape hatch: SKIP_PREVENTABLE_GATE=1 git push.
+_preventable_gate="$HOME/Projects/personal/agent-race/scripts/hooks/pre-push-preventable-gate.sh"
+if [ -x "$_preventable_gate" ]; then
+	"$_preventable_gate" || exit 1
+fi

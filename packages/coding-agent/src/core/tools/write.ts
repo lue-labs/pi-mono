@@ -196,6 +196,8 @@ export function createWriteToolDefinition(
 		promptSnippet: "Create or overwrite files",
 		promptGuidelines: [
 			"Use write only for new files or complete rewrites.",
+			"Prefer the Edit tool for modifying existing files — it only sends the diff.",
+			"NEVER create documentation files (*.md) or README files unless explicitly requested by the User.",
 			"After write succeeds, do not re-read the file to confirm it was written — write returns an error on failure.",
 		],
 		executionMode: "sequential",

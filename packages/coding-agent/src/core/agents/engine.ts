@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model } from "@valkyriweb/pi-ai";
+import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
+import type { Api, Model, Tool } from "@valkyriweb/pi-ai";
 import type { AgentHandle, ForkAgentOptions, ForkAgentResult } from "../extensions/types.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
 import type { AgentToolInput } from "../tools/agent.ts";
@@ -19,6 +19,11 @@ export const AGENTS_ENGINE_SERVICE_ID = "agents.engine";
 
 export interface AgentParentSnapshot {
 	activeTools: string[];
+	/** Executable parent tools in provider order. Fork children reuse these only
+	 * when their freshly-built registry lacks a parent-active handler. */
+	executableTools: AgentTool[];
+	providerTools: Tool[];
+	cacheAffinityKey?: string;
 	sessionManager: ReadonlySessionManager;
 	model: Model<Api> | undefined;
 	thinkingLevel: ThinkingLevel;
@@ -30,6 +35,7 @@ export interface AgentEngineOptions {
 	parentServices: AgentToolParentServices;
 	getParentSnapshot(): AgentParentSnapshot;
 	onBackgroundTerminal(notification: AgentBackgroundCompletion): void;
+	onBackgroundTerminalListener?(unsubscribe: () => void): void;
 }
 
 export interface AgentEngineRunOptions {
@@ -38,6 +44,14 @@ export interface AgentEngineRunOptions {
 }
 
 const agentEngineResolverStore = new AsyncLocalStorage<() => AgentEngine>();
+
+function isHiddenFork(opts: ForkAgentOptions): boolean {
+	if (opts.hidden === true) return true;
+	// Compatibility for existing extension forks that already mark themselves
+	// hidden through the intercom metadata convention (notably pi-memory).
+	const intercom = opts.metadata?.intercom;
+	return typeof intercom === "object" && intercom !== null && (intercom as Record<string, unknown>).hidden === true;
+}
 
 /** Bind native Agent/Task execution to the current session without shared-loader state. */
 export function runWithAgentEngineResolver<T>(resolver: () => AgentEngine, fn: () => T): T {
@@ -79,11 +93,15 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 		return {
 			parentServices: options.parentServices,
 			parentActiveTools: snapshot.activeTools,
+			parentExecutableTools: snapshot.executableTools,
+			parentProviderTools: snapshot.providerTools,
+			parentCacheAffinityKey: snapshot.cacheAffinityKey,
 			parentSessionManager: snapshot.sessionManager,
 			parentModel: snapshot.model,
 			parentThinkingLevel: snapshot.thinkingLevel,
 			parentSystemPrompt: snapshot.systemPrompt,
 			onBackgroundTerminal: options.onBackgroundTerminal,
+			onBackgroundTerminalListener: options.onBackgroundTerminalListener,
 			signal: runOptions?.signal,
 			onProgress: runOptions?.onProgress,
 		};
@@ -103,6 +121,20 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 			if (!input.runId) throw new Error(`agent control action ${action} requires runId`);
 			if (action === "inject") {
 				if (!input.message) throw new Error("agent control action inject requires message");
+				// Steer the live child sessions first: a running background run accepts
+				// input without losing its work. Only fall back to the destructive
+				// interrupt+resume path when the run can actually resume — otherwise an
+				// inject killed an unresumable run and discarded everything it had done.
+				const injected = await injectAgentRecentRun(input.runId, input.message);
+				if (injected.ok) return controlDetailsFromRun(injected.run, injected.message);
+				// Only a single background run can come back from an interrupt; a parallel
+				// fan-out would lose every child's work with no way to resume it.
+				if (!(injected.run?.mode === "single" && injected.run.execution === "background")) {
+					return controlDetailsFromRun(
+						injected.run,
+						`${input.runId} cannot accept an injected message (${injected.message}); the run was left untouched`,
+					);
+				}
 				await interruptAgentRecentRun(input.runId);
 				const resumed = await resumeAgentRecentRun(input.runId, input.message);
 				return controlDetailsFromRun(resumed.run, resumed.message);
@@ -146,6 +178,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 							agent: opts.agentType ?? "general",
 							task: opts.prompt,
 							description: opts.description,
+							hidden: isHiddenFork(opts),
 							// Default "fork" preserves prior behaviour (inherit parent prefix).
 							// Extensions wanting cache-stable prefixes pass "slim" or "none".
 							context: opts.context ?? "fork",
@@ -168,6 +201,9 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 				{
 					parentServices: options.parentServices,
 					parentActiveTools: snapshot.activeTools,
+					parentExecutableTools: snapshot.executableTools,
+					parentProviderTools: snapshot.providerTools,
+					parentCacheAffinityKey: snapshot.cacheAffinityKey,
 					parentSessionManager: snapshot.sessionManager,
 					parentModel: snapshot.model,
 					parentThinkingLevel: snapshot.thinkingLevel,
@@ -180,6 +216,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 					// feedback via ctx.transcript.append. Set silent:false to restore the
 					// standard agent_completion notification.
 					onBackgroundTerminal: opts.silent !== false ? undefined : options.onBackgroundTerminal,
+					onBackgroundTerminalListener: opts.silent !== false ? undefined : options.onBackgroundTerminalListener,
 					// Note: executor's background path replaces `signal` with its own
 					// AbortController. We chain the caller's signal below via
 					// cancelAgentRecentRun(runId) so abort still propagates.
@@ -194,6 +231,7 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 			// Chain the caller's signal onto the background run. cancelAgentRecentRun
 			// calls the registered controller's cancel(), which aborts every active
 			// child session and drives the run to a terminal status within ~1s.
+			let removeAbortListener = () => {};
 			if (forkSignal) {
 				const onAbort = () => {
 					void cancelAgentRecentRun(runId).catch(() => {});
@@ -202,8 +240,10 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 					onAbort();
 				} else {
 					forkSignal.addEventListener("abort", onAbort, { once: true });
+					removeAbortListener = () => forkSignal.removeEventListener("abort", onAbort);
 				}
 			}
+			void waitForAgentRecentRun(runId).then(removeAbortListener, removeAbortListener);
 
 			const readStatus = (): AgentToolStatus => {
 				const run = findAgentRecentRun(runId);

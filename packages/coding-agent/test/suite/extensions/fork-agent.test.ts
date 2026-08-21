@@ -3,11 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "@valkyriweb/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
-import { clearAgentRecentRunsForTests } from "../../../src/core/agents/status.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { clearAgentRecentRunsForTests, listAgentRecentRuns } from "../../../src/core/agents/status.ts";
 import { hookAgentsTools } from "../../../src/core/extensions/agents.ts";
 import { deleteExtensionProcessServiceForTests } from "../../../src/core/extensions/loader.ts";
-import { AGENTS_ENGINE_SERVICE_ID, type AgentEngine, type AgentHandle, type ExtensionAPI } from "../../../src/index.ts";
+import {
+	AGENTS_ENGINE_SERVICE_ID,
+	type AgentEngine,
+	type AgentHandle,
+	type ExtensionAPI,
+	getTaskSnapshot,
+	listTasks,
+} from "../../../src/index.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 interface CapturedFork {
@@ -91,12 +98,14 @@ function forkExtensionFactory(
 	options: {
 		allowedTools?: string[];
 		abortImmediately?: boolean;
+		signal?: AbortSignal;
 		context?: "fork" | "slim" | "none";
 		forkEveryTurn?: boolean;
 		metadata?: Record<string, unknown>;
 		cwd?: string;
 		agentType?: string;
 		persistent?: boolean;
+		hidden?: boolean;
 	} = {},
 ) {
 	const handles: AgentHandle[] = [];
@@ -114,9 +123,10 @@ function forkExtensionFactory(
 					...(options.context ? { context: options.context } : {}),
 					...(options.agentType ? { agentType: options.agentType } : {}),
 					...(options.persistent ? { persistent: options.persistent } : {}),
+					...(options.hidden ? { hidden: true } : {}),
 					...(options.metadata ? { metadata: options.metadata } : {}),
 					...(options.cwd ? { cwd: options.cwd } : {}),
-					...(controller ? { signal: controller.signal } : {}),
+					...(controller || options.signal ? { signal: controller?.signal ?? options.signal } : {}),
 				});
 				captured.handle = result.handle;
 				captured.sessionId = result.sessionId;
@@ -164,6 +174,35 @@ describe("ctx.forkAgent", () => {
 		expect(record.contexts.length).toBeGreaterThanOrEqual(1);
 		expect(record.contexts.some(isChildContext)).toBe(true);
 		expect(captured.parentSystemPrompts.length).toBe(1);
+	});
+
+	it("preserves a parent-only deferred tool handler in fork mode", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const { factory } = forkExtensionFactory(captured);
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		// Simulate a parent-only handler activated after startup's deferred batch.
+		// prompt() now awaits that batch, so establish the same lifecycle ordering
+		// before injecting the synthetic handler directly into agent state.
+		await harness.session.loadDeferredExtensions();
+		harness.session.agent.state.tools.push({
+			name: "ctx_execute",
+			label: "ctx_execute",
+			description: "Parent-activated deferred context tool",
+			parameters: { type: "object", properties: {} },
+			execute: async () => ({ content: [{ type: "text", text: "ctx ok" }], details: {} }),
+		} as never);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+
+		expect(captured.error).toBeUndefined();
+		const details = await captured.handle!.wait();
+		expect(details.status).toBe("completed");
+		const child = record.contexts.find(isChildContext);
+		expect(child?.tools?.map((tool) => tool.name)).toContain("ctx_execute");
 	});
 
 	it("routes forkAgent({ agentType }) through the named agent definition", async () => {
@@ -229,6 +268,27 @@ describe("ctx.forkAgent", () => {
 		expect(details.status).toBe("completed");
 		expect(details.runs[0]?.status).toBe("completed");
 		expect(record.contexts.some(isChildContext)).toBe(true);
+	});
+
+	it("hides internal forks from task enumeration while preserving direct diagnostics", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		// Existing pi-memory releases already carry this metadata marker; the core
+		// compatibility path makes the fix live after only a binary promotion.
+		const { factory } = forkExtensionFactory(captured, { metadata: { intercom: { hidden: true } } });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("kick off");
+		await captured.handle!.wait();
+
+		expect(listAgentRecentRuns().some((run) => run.label === "fork-agent test")).toBe(false);
+		const taskId = listAgentRecentRuns({ includeHidden: true }).find((run) => run.label === "fork-agent test")?.id;
+		expect(taskId).toBeDefined();
+		expect(listTasks().map((task) => task.id)).not.toContain(taskId);
+		expect(getTaskSnapshot(taskId!)).toMatchObject({ id: taskId, hidden: true });
 	});
 
 	it("forwards forkAgent({ cwd }) through the fork path without breaking the child run", async () => {
@@ -399,6 +459,9 @@ describe("ctx.forkAgent", () => {
 				const engine: AgentEngine = {
 					snapshot: () => ({
 						activeTools: harness.session.getActiveToolNames(),
+						executableTools: harness.session.getActiveExecutableTools(),
+						providerTools: harness.session.getActiveToolProviderSchemas(),
+						cacheAffinityKey: harness.session.getPromptCacheAffinityKey(),
 						sessionManager: harness.sessionManager,
 						model: harness.getModel(),
 						thinkingLevel: "off",
@@ -490,6 +553,23 @@ describe("ctx.forkAgent", () => {
 		expect(elapsed).toBeLessThan(2000);
 		expect(["cancelled", "interrupted"]).toContain(details.status);
 		expect(captured.handle!.status).toBe(details.status);
+	});
+
+	it("removes the parent abort listener after a normal terminal run", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const controller = new AbortController();
+		const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+		const { factory } = forkExtensionFactory(captured, { signal: controller.signal });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		harnesses.push(harness);
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+
+		await harness.session.prompt("go");
+		await captured.handle!.wait();
+
+		expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
 	});
 
 	// Regression: a settings.subagents provider model pin (the cheap model used for

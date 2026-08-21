@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Type } from "typebox";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { AgentEngine } from "../src/core/agents/engine.ts";
 import { writeAgentOutput } from "../src/core/agents/output.ts";
 import {
 	attachAgentRecentRunController,
@@ -11,8 +11,6 @@ import {
 	updateAgentRecentRunProgress,
 } from "../src/core/agents/status.ts";
 import type { AgentToolDetails } from "../src/core/agents/types.ts";
-import { createDeferredToolSearchTool } from "../src/core/deferred-tool-search-tool.ts";
-import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import {
 	createAgentToolDefinition,
 	normalizeAgentToolAliases,
@@ -51,6 +49,35 @@ describe("agent tool", () => {
 			maxOutputTokens: 1200,
 		});
 		expect(result.tasks[0].maxOutputTokens).toBe(1200);
+	});
+
+	test("tool execution preserves an automatic-worktree marker, but serialized cwd input cannot carry it", async () => {
+		const marker = Symbol.for("pi.worktree.autoCwd");
+		const inputs: Array<{ tasks: Array<Record<PropertyKey, unknown>> }> = [];
+		const engine = {
+			async run(input: { tasks: Array<Record<PropertyKey, unknown>> }) {
+				inputs.push(input);
+				return { mode: "single", status: "completed", runs: [], background: false } satisfies AgentToolDetails;
+			},
+		} as unknown as AgentEngine;
+		const tool = createAgentToolDefinition(process.cwd(), { engine });
+		const automaticInput = { agent: "general", task: "work", cwd: "/tmp/worktree" } as Parameters<
+			typeof tool.execute
+		>[1] &
+			Record<PropertyKey, unknown>;
+		automaticInput[marker] = true;
+
+		await tool.execute("automatic-worktree", automaticInput, undefined, undefined, { hasUI: false } as never);
+		await tool.execute(
+			"explicit-cwd",
+			JSON.parse(JSON.stringify({ agent: "general", task: "work", cwd: "/tmp/explicit" })),
+			undefined,
+			undefined,
+			{ hasUI: false } as never,
+		);
+
+		expect(inputs[0]?.tasks[0]?.[marker]).toBe(true);
+		expect(inputs[1]?.tasks[0]?.[marker]).toBeUndefined();
 	});
 
 	test("Claude-style single-agent aliases normalize to Pi fields", () => {
@@ -134,8 +161,13 @@ describe("agent tool", () => {
 			const taskItem = (
 				properties.tasks as { items: { properties: Record<string, { description?: string }>; required?: string[] } }
 			).items;
-			expect(taskItem.properties.subagent_type.description).toMatch(/preferred/);
-			expect(taskItem.properties.prompt.description).toMatch(/preferred/);
+			// tasks[]/chain[] items use a bare (description-stripped) taskSchema — same fields, same
+			// types, no per-field prose. Full descriptions live on the single-mode top-level fields
+			// only (see agent-schema-dedupe Option D).
+			expect(taskItem.properties.subagent_type).not.toHaveProperty("description");
+			expect(taskItem.properties.prompt).not.toHaveProperty("description");
+			expect(properties.subagent_type as { description?: string }).toHaveProperty("description");
+			expect((properties.prompt as { description?: string }).description).toMatch(/preferred/);
 			expect(taskItem.required ?? []).not.toContain("agent");
 			expect(taskItem.required ?? []).not.toContain("task");
 		}
@@ -177,7 +209,7 @@ describe("agent tool", () => {
 		expect(guidelines).toContain("self-verification evidence");
 	});
 
-	test("collapsed render shows per-agent work activity", () => {
+	test("collapsed result stays empty because the call card owns Agent activity", () => {
 		const tool = createAgentToolDefinition(process.cwd());
 		const details: AgentToolDetails = {
 			mode: "parallel",
@@ -217,10 +249,7 @@ describe("agent tool", () => {
 		const context = {} as unknown as Parameters<typeof renderResult>[3];
 		const component = renderResult(result, { expanded: false, isPartial: false }, theme, context);
 		const text = component.render(120).join("\n");
-		expect(text).toContain("└─");
-		expect(text).toContain("explore");
-		expect(text).toContain("⎿  grep: AgentProgressLine");
-		expect(text).toContain("Warning: explore running on frontier model clawrouter/claude-fable-5-200k");
+		expect(text).toBe("");
 	});
 
 	test("project agent confirmation cannot be bypassed by tool arguments", async () => {
@@ -244,7 +273,59 @@ describe("agent tool", () => {
 		).rejects.toThrow("Project agents require interactive confirmation");
 	});
 
-	test("action=inject interrupts a running run then resumes with the message", async () => {
+	test("action=inject steers a live run instead of interrupting it", async () => {
+		clearAgentRecentRunsForTests();
+		const run = startAgentRecentRun("parallel", [{ agent: "explore", task: "Inventory A" }], {
+			background: true,
+		});
+		const interrupt = vi.fn();
+		const resume = vi.fn();
+		const inject = vi.fn();
+		attachAgentRecentRunController(run.id, { interrupt, resume, inject });
+
+		const tool = createAgentToolDefinition(process.cwd());
+		const result = await tool.execute(
+			"tool-inject-live",
+			{ action: "inject", runId: run.id, message: "new evidence" } as Parameters<typeof tool.execute>[1],
+			undefined,
+			undefined,
+			{ hasUI: false } as Parameters<typeof tool.execute>[4],
+		);
+
+		expect(inject).toHaveBeenCalledWith("new evidence");
+		expect(interrupt).not.toHaveBeenCalled();
+		expect(resume).not.toHaveBeenCalled();
+		expect((result.content[0] as { text: string }).text).toContain(`Queued message for ${run.id}`);
+		clearAgentRecentRunsForTests();
+	});
+
+	test("action=inject leaves an unsteerable parallel run untouched", async () => {
+		clearAgentRecentRunsForTests();
+		const run = startAgentRecentRun("parallel", [{ agent: "explore", task: "Inventory A" }], {
+			background: true,
+		});
+		const interrupt = vi.fn();
+		const resume = vi.fn();
+		attachAgentRecentRunController(run.id, { interrupt, resume });
+
+		const tool = createAgentToolDefinition(process.cwd());
+		const result = await tool.execute(
+			"tool-inject-unresumable",
+			{ action: "inject", runId: run.id, message: "new evidence" } as Parameters<typeof tool.execute>[1],
+			undefined,
+			undefined,
+			{ hasUI: false } as Parameters<typeof tool.execute>[4],
+		);
+
+		// Regression: this used to interrupt the fan-out and then fail to resume it,
+		// destroying every child agent's work.
+		expect(interrupt).not.toHaveBeenCalled();
+		expect(resume).not.toHaveBeenCalled();
+		expect((result.content[0] as { text: string }).text).toContain("left untouched");
+		clearAgentRecentRunsForTests();
+	});
+
+	test("action=inject falls back to interrupt+resume for a single background run", async () => {
 		clearAgentRecentRunsForTests();
 		const dir = await makeTempDir();
 		const sessionPath = join(dir, "child-session.jsonl");
@@ -325,50 +406,6 @@ describe("agent tool", () => {
 		).rejects.toThrow("agent tool is unavailable");
 	});
 
-	test("deferred tool search prefers Claude-compatible agent aliases in query matches", () => {
-		const definitions: ToolDefinition[] = [
-			{
-				name: "agent",
-				label: "agent",
-				description: "agent",
-				deferLoading: true,
-				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "agent" }] }),
-			},
-			{
-				name: "Agent",
-				label: "Agent",
-				description: "agent",
-				deferLoading: true,
-				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "Agent" }] }),
-			},
-			{
-				name: "Task",
-				label: "Task",
-				description: "agent",
-				deferLoading: true,
-				parameters: Type.Object({}),
-				execute: async () => ({ content: [{ type: "text", text: "Task" }] }),
-			},
-		];
-		const tool = createDeferredToolSearchTool({
-			getToolDefinitions: () => definitions,
-			getModel: () => undefined,
-			getDiscoveredToolNames: () => [],
-			setDiscoveredToolNames: () => undefined,
-			actions: { getActiveToolNames: () => [], setActiveTools: () => undefined },
-		});
-
-		const params = { query: "agent" } as Parameters<typeof tool.execute>[1];
-		return tool
-			.execute("tool-search", params, undefined, undefined, {
-				hasUI: false,
-			} as Parameters<typeof tool.execute>[4])
-			.then((result) => {
-				const detail = result.details as { matchedToolNames?: string[] } | undefined;
-				expect(detail?.matchedToolNames).toEqual(expect.arrayContaining(["Agent", "Task"]));
-				expect(detail?.matchedToolNames).not.toContain("agent");
-			});
-	});
+	// removed: `deferred tool search prefers Claude-compatible agent aliases`
+	// createDeferredToolSearchTool moved to the pi-deferred-tools v2 extension (my-pi#1076).
 });

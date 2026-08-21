@@ -1,3 +1,4 @@
+import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
 
 const bedrockMock = vi.hoisted(() => ({
@@ -46,13 +47,14 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
 
 import { stream as streamBedrock } from "../src/api/bedrock-converse-stream.ts";
 import type { Context, Message } from "../src/types.ts";
-import { pickModel } from "./helpers/models.ts";
+import { hasCompatFlag, pickModel } from "./helpers/models.ts";
 
-const baseModel = pickModel("amazon-bedrock", (m) => m.id.startsWith("us."));
+const baseModel = pickModel("amazon-bedrock", hasCompatFlag("supportsStrictMode"));
+const noStrictModel = pickModel("amazon-bedrock", (m) => !hasCompatFlag("supportsStrictMode")(m));
 
-async function capturePayload(context: Context): Promise<unknown> {
+async function capturePayload(context: Context, model = baseModel): Promise<unknown> {
 	let capturedPayload: unknown;
-	const s = streamBedrock(baseModel, context, {
+	const s = streamBedrock(model, context, {
 		cacheRetention: "none",
 		signal: AbortSignal.abort(),
 		onPayload: (payload) => {
@@ -65,6 +67,34 @@ async function capturePayload(context: Context): Promise<unknown> {
 	}
 	return capturedPayload;
 }
+
+describe("Bedrock constrained sampling", () => {
+	it("gates native strict tool use by model capability", async () => {
+		const context: Context = {
+			messages: [{ role: "user", content: "Use the tool", timestamp: Date.now() }],
+			tools: [
+				{
+					name: "lookup",
+					description: "Look up a value",
+					parameters: Type.Object({ value: Type.String() }),
+					constrainedSampling: { type: "json_schema", strict: "require" },
+				},
+			],
+		};
+		const payload = await capturePayload(context);
+		const toolConfig = (payload as { toolConfig: { tools: Array<{ toolSpec: { strict?: boolean } }> } }).toolConfig;
+		expect(toolConfig.tools[0].toolSpec.strict).toBe(true);
+
+		context.tools![0].constrainedSampling = { type: "json_schema", strict: "prefer" };
+		const novaPayload = await capturePayload(context, noStrictModel);
+		const novaToolConfig = (
+			novaPayload as {
+				toolConfig: { tools: Array<{ toolSpec: { strict?: boolean } }> };
+			}
+		).toolConfig;
+		expect(novaToolConfig.tools[0].toolSpec.strict).toBeUndefined();
+	});
+});
 
 describe("bedrock convertMessages skips unknown content types", () => {
 	it("skips unknown user content blocks instead of throwing", async () => {
@@ -205,6 +235,25 @@ describe("bedrock convertMessages skips unknown content types", () => {
 
 	it("replaces blank tool result content with a placeholder", async () => {
 		const messages: Message[] = [
+			// The call must be declared: a tool_result whose tool_use is absent from
+			// the history is an orphan and is dropped at the transform seam (#479).
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "tool-1", name: "tool", arguments: {} }],
+				api: "bedrock-converse-stream",
+				provider: "amazon-bedrock",
+				model: baseModel.id,
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: Date.now(),
+			},
 			{
 				role: "toolResult",
 				toolCallId: "tool-1",
@@ -219,8 +268,8 @@ describe("bedrock convertMessages skips unknown content types", () => {
 		const p = payload as {
 			messages: Array<{ role: string; content: Array<{ toolResult: { content: unknown[] } }> }>;
 		};
-		expect(p.messages).toHaveLength(1);
-		expect(p.messages[0].content[0].toolResult.content).toEqual([{ text: "<empty>" }]);
+		expect(p.messages).toHaveLength(2);
+		expect(p.messages[1].content[0].toolResult.content).toEqual([{ text: "<empty>" }]);
 	});
 
 	it("skips assistant messages with only unknown content blocks", async () => {
