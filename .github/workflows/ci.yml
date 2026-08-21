@@ -10,6 +10,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Unit tests never ran on PRs: fork-safety-check covers lint/typecheck/build only,
+  # and release.yml runs a subset after code has already landed. That gap let a
+  # provider-transport regression sit on main with three red tests (see #467).
+  unit-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -s "$(which fdfind)" /usr/local/bin/fd
+
+      - name: Install dependencies
+        env:
+          # Packages remain under the personal @valkyriweb namespace.
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+        run: npm ci --ignore-scripts
+
+      - name: Build workspace declarations
+        run: npm run build
+
+      # test.sh runs the suite in an isolated HOME with every provider credential
+      # blanked, so live-API tests skip rather than flake or leak.
+      - name: Unit tests
+        run: ./test.sh
+
   fork-safety-check:
     runs-on: ubuntu-latest
     permissions:
@@ -72,9 +111,10 @@ jobs:
 
       - name: Install dependencies
         # packages/orchestrator depends on the published @valkyriweb/pi-coding-agent
-        # (registry, not workspace); authenticate npm to GitHub Packages.
+        # (registry, not workspace); authenticate as the package owner because
+        # repository transfer does not move the @valkyriweb package namespace.
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build workspace declarations

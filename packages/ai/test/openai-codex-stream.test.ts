@@ -1425,6 +1425,96 @@ describe("openai-codex streaming", () => {
 		});
 	});
 
+	it("keeps SSE-fallback bookkeeping on the real session id when cacheRetention is none", async () => {
+		// cacheRetention "none" gates only what the provider can see or retain. Local
+		// fallback state must still be keyed to the real Pi session, or a session whose
+		// WebSocket transport is broken retries it on every single turn.
+		const sessionId = "retention-none-fallback";
+		resetOpenAICodexWebSocketDebugStats(sessionId);
+		const token = mockToken();
+		const encoder = new TextEncoder();
+		let connections = 0;
+
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.enqueue(encoder.encode(buildSSEPayload({ status: "completed" })));
+							controller.close();
+						},
+					}),
+					{ status: 200, headers: { "content-type": "text/event-stream" } },
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		class FailingWebSocket {
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+
+			constructor() {
+				connections++;
+				queueMicrotask(() => {
+					for (const listener of this.listeners.get("error") ?? []) listener(new Error("connect refused"));
+					for (const listener of this.listeners.get("close") ?? []) listener({});
+				});
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(): void {}
+			close(): void {}
+		}
+		vi.stubGlobal("WebSocket", FailingWebSocket);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
+		};
+		const options = {
+			apiKey: token,
+			cacheRetention: "none" as const,
+			sessionId,
+			transport: "auto" as const,
+		};
+
+		await streamOpenAICodexResponses(model, context, options).result();
+		await streamOpenAICodexResponses(model, context, options).result();
+
+		// The failure is remembered against the real session id, so the second turn
+		// goes straight to SSE instead of dialing a socket that is known to be broken.
+		expect(connections).toBe(1);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(getOpenAICodexWebSocketDebugStats(sessionId)).toMatchObject({
+			websocketFailures: 1,
+			websocketFallbackActive: true,
+		});
+		resetOpenAICodexWebSocketDebugStats(sessionId);
+	});
+
 	it("closes one-shot websockets when cacheRetention is none", async () => {
 		const token = mockToken();
 		const sentBodies: Array<{ prompt_cache_key?: string }> = [];
@@ -2130,6 +2220,194 @@ describe("openai-codex streaming", () => {
 			lastDeltaInputItems: 2,
 			lastPreviousResponseId: "resp_1",
 		});
+	});
+
+	it("preserves a compatible websocket continuation across a transient shorter request", async () => {
+		// seam: the public Codex Responses stream must preserve provider-visible continuation across request-view forks.
+		const token = mockToken();
+		const sentBodies: Array<{ input: unknown[]; previous_response_id?: string }> = [];
+
+		class MockWebSocket {
+			static OPEN = 1;
+			readyState = MockWebSocket.OPEN;
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+
+			constructor(_url: string, _protocols?: string | string[] | { headers?: Record<string, string> }) {
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(data: string): void {
+				const body = JSON.parse(data) as { input: unknown[]; previous_response_id?: string };
+				sentBodies.push(body);
+				const responseId = `resp_${sentBodies.length}`;
+				const outputEvents =
+					sentBodies.length === 1
+						? [
+								{
+									type: "response.output_item.added",
+									item: {
+										type: "message",
+										id: "msg_1",
+										role: "assistant",
+										status: "in_progress",
+										content: [],
+									},
+								},
+								{ type: "response.content_part.added", part: { type: "output_text", text: "" } },
+								{ type: "response.output_text.delta", delta: "Stable answer" },
+								{
+									type: "response.output_item.done",
+									item: {
+										type: "message",
+										id: "msg_1",
+										role: "assistant",
+										status: "completed",
+										content: [{ type: "output_text", text: "Stable answer" }],
+									},
+								},
+							]
+						: sentBodies.length === 2
+							? [
+									{
+										type: "response.output_item.added",
+										item: {
+											type: "custom_tool_call",
+											id: "ctc_2",
+											call_id: "call_2",
+											name: "sample_tool",
+											input: "",
+										},
+									},
+									{ type: "response.custom_tool_call_input.delta", item_id: "ctc_2", delta: "wake" },
+									{ type: "response.custom_tool_call_input.done", item_id: "ctc_2", input: "wake" },
+									{
+										type: "response.output_item.done",
+										item: {
+											type: "custom_tool_call",
+											id: "ctc_2",
+											call_id: "call_2",
+											name: "sample_tool",
+											input: "wake",
+										},
+									},
+								]
+							: [];
+				queueMicrotask(() => {
+					for (const event of [
+						{ type: "response.created", response: { id: responseId } },
+						...outputEvents,
+						{
+							type: "response.completed",
+							response: {
+								id: responseId,
+								status: "completed",
+								usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+							},
+						},
+					]) {
+						this.dispatch("message", { data: JSON.stringify(event) });
+					}
+				});
+			}
+
+			close(): void {
+				this.readyState = 3;
+			}
+
+			private dispatch(type: string, event: unknown): void {
+				for (const listener of this.listeners.get(type) ?? []) {
+					listener(event);
+				}
+			}
+		}
+
+		vi.stubGlobal("WebSocket", MockWebSocket);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+			compat: { supportsOpenAIGrammarTools: true },
+		};
+		const tools: Context["tools"] = [
+			{
+				name: "sample_tool",
+				description: "Sample tool",
+				parameters: Type.Object({ payload: Type.String() }),
+				constrainedSampling: { type: "grammar", variants: { openai_lark: "start: /[a-z]+/" } },
+			},
+		];
+		const stableContext: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Stable history", timestamp: 1 }],
+			tools,
+		};
+
+		const stableResponse = await streamOpenAICodexResponses(model, stableContext, {
+			apiKey: token,
+			sessionId: "transient-shorter-request",
+			transport: "websocket-cached",
+		}).result();
+		const wakeContext: Context = {
+			...stableContext,
+			messages: [{ role: "user", content: "Monitor wake", timestamp: 2 }],
+		};
+		const wakeResponse = await streamOpenAICodexResponses(model, wakeContext, {
+			apiKey: token,
+			sessionId: "transient-shorter-request",
+			transport: "websocket-cached",
+		}).result();
+		const restoredContext: Context = {
+			...stableContext,
+			messages: [
+				...stableContext.messages,
+				stableResponse,
+				...wakeContext.messages,
+				wakeResponse,
+				{
+					role: "toolResult",
+					toolCallId: "call_2|ctc_2",
+					toolName: "sample_tool",
+					content: [{ type: "text", text: "wake result" }],
+					isError: false,
+					timestamp: 3,
+				},
+			],
+		};
+		await streamOpenAICodexResponses(model, restoredContext, {
+			apiKey: token,
+			sessionId: "transient-shorter-request",
+			transport: "websocket-cached",
+		}).result();
+
+		expect(sentBodies).toHaveLength(3);
+		expect(sentBodies[1].previous_response_id).toBeUndefined();
+		expect(sentBodies[2].previous_response_id).toBe("resp_1");
+		expect(sentBodies[2].input).toEqual([
+			{ role: "user", content: [{ type: "input_text", text: "Monitor wake" }] },
+			{ type: "custom_tool_call", id: "ctc_2", call_id: "call_2", name: "sample_tool", input: "wake" },
+			{ type: "custom_tool_call_output", call_id: "call_2", output: "wake result" },
+		]);
 	});
 
 	it.each(["websocket", "sse"] as const)(

@@ -23,6 +23,23 @@ export interface BashOutputToolDetails extends BashBgJob {
 }
 
 /**
+ * Size of a background job's log file, or 0 when it cannot be stat'd.
+ *
+ * The log is written by a detached child and reaped independently, so it can be
+ * absent, rotated, or replaced between the read and this call. The size is only
+ * ever rendered into a status header, and every caller already prints the log
+ * path beside it, so a missing file reads as "0.0 KB" rather than failing a
+ * report the caller asked for.
+ */
+function bashBgLogSize(logPath: string): number {
+	try {
+		return statSync(logPath).size;
+	} catch {
+		return 0;
+	}
+}
+
+/**
  * Render a background bash job's status header + bounded log slice — the body
  * of BashOutput, extracted so the task-registry seam (`core/tasks`) can reuse
  * the exact same bash rendering (tail/head/all
@@ -36,10 +53,7 @@ export function renderBashBgOutput(
 		mode: options?.mode ?? "tail",
 		maxLines: options?.maxLines ?? 200,
 	});
-	let logSize = 0;
-	try {
-		logSize = statSync(job.logPath).size;
-	} catch {}
+	const logSize = bashBgLogSize(job.logPath);
 	const elapsed = ((job.endedAt ?? Date.now()) - job.startedAt) / 1000;
 	const header =
 		`bgId: ${job.id}\n` +
@@ -105,10 +119,7 @@ export function renderOrphanedBashBgOutput(
 		mode: options?.mode ?? "tail",
 		maxLines: options?.maxLines ?? 200,
 	});
-	let logSize = 0;
-	try {
-		logSize = statSync(logPath).size;
-	} catch {}
+	const logSize = bashBgLogSize(logPath);
 	const header =
 		`bgId: ${id}\n` +
 		`status: registry-missing (persisted log found; exit status/pid unavailable)\n` +

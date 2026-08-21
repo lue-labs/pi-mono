@@ -82,7 +82,7 @@ jobs:
         # fork: packages/server depends on the published @valkyriweb/pi-coding-agent;
         # build-binaries.sh runs npm ci, which must authenticate to GitHub Packages.
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -293,5 +293,5 @@ jobs:
 
   # NOTE: the upstream `publish-npm` job (trusted publishing to public
   # registry.npmjs.org) was intentionally removed. This is a PRIVATE fork
-  # (valkyriweb/pi-mono); packages publish to GitHub Packages under @valkyriweb
+  # (lue-labs/pi-mono); packages publish to GitHub Packages under @valkyriweb
   # via release.yml. Publishing fork code to public npm would leak it.

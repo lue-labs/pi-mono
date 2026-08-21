@@ -68,7 +68,12 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 		fast: ["gpt-5.6-luna"],
 		medium: ["gpt-5.6-terra"],
 		frontier: ["gpt-5.6-sol"],
-		ultra: ["gpt-5.6"],
+		// No ultra tier: OpenAI ships the 5.6 family as luna/terra/sol only, and a
+		// bare "gpt-5.6" has never existed in the catalog (left behind by 65eb88a7e
+		// when 5.4/5.5 were retired). Empty means "fall back to the parent model",
+		// as with google/xai/bedrock; aliasing ultra to sol would quietly make ultra
+		// a synonym for frontier.
+		ultra: [],
 	},
 	// Direct Codex does not yet advertise GPT-5.6 in its built-in catalog.
 	"openai-codex": {
@@ -81,7 +86,8 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 		fast: ["gpt-5.6-luna"],
 		medium: ["gpt-5.6-terra"],
 		frontier: ["gpt-5.6-sol"],
-		ultra: ["gpt-5.6"],
+		// Same as `openai` above: no bare "gpt-5.6" in the Azure catalog either.
+		ultra: [],
 	},
 	// Copilot likewise needs a catalog-backed, non-retired fallback.
 	"github-copilot": {

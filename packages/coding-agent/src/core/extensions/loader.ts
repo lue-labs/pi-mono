@@ -41,6 +41,7 @@ import type {
 	Extension,
 	ExtensionAPI,
 	ExtensionFactory,
+	ExtensionLoadError,
 	ExtensionLoadRequest,
 	ExtensionRuntime,
 	LoadExtensionsResult,
@@ -682,7 +683,7 @@ async function loadExtensionsInternal(
 ): Promise<LoadExtensionsResult> {
 	const extensions: Extension[] = [];
 	const deferredExtensions: DeferredExtension[] = [];
-	const errors: Array<{ path: string; error: string }> = [];
+	const errors: ExtensionLoadError[] = [];
 	const cacheToken = useCache ? useExtensionCacheCwd(cwd) : undefined;
 	const resolvedCwd = cacheToken?.cwd ?? resolvePath(cwd);
 	const resolvedEventBus = eventBus ?? createEventBus();
@@ -690,7 +691,7 @@ async function loadExtensionsInternal(
 
 	const timing = timingsEnabled();
 	for (const input of inputs) {
-		const { path: extPath, load } = normalizeLoadRequest(input);
+		const { path: extPath, load, discovered } = normalizeLoadRequest(input);
 		if (load === "deferred") {
 			deferredExtensions.push({ path: extPath });
 			continue;
@@ -709,7 +710,9 @@ async function loadExtensionsInternal(
 		}
 
 		if (error) {
-			errors.push({ path: extPath, error });
+			// Carry the discovered flag onto the error so callers can decide whether
+			// this failure is fatal (explicitly requested) or a skip (auto-discovered).
+			errors.push(discovered ? { path: extPath, error, discovered: true } : { path: extPath, error });
 			continue;
 		}
 
@@ -861,26 +864,28 @@ export async function discoverAndLoadExtensions(
 ): Promise<LoadExtensionsResult> {
 	const resolvedCwd = resolvePath(cwd);
 	const resolvedAgentDir = resolvePath(agentDir);
-	const allPaths: string[] = [];
+	const allPaths: ExtensionLoadRequest[] = [];
 	const seen = new Set<string>();
 
-	const addPaths = (paths: string[]) => {
+	// `discovered` marks extensions found by scanning a directory. Their load
+	// failures are non-fatal; explicitly named ones stay fatal.
+	const addPaths = (paths: string[], discovered: boolean) => {
 		for (const p of paths) {
 			const resolved = path.resolve(p);
 			if (!seen.has(resolved)) {
 				seen.add(resolved);
-				allPaths.push(p);
+				allPaths.push(discovered ? { path: p, load: "eager", discovered: true } : { path: p, load: "eager" });
 			}
 		}
 	};
 
 	// 1. Project-local extensions: cwd/${CONFIG_DIR_NAME}/extensions/
 	const localExtDir = path.join(resolvedCwd, CONFIG_DIR_NAME, "extensions");
-	addPaths(discoverExtensionsInDir(localExtDir));
+	addPaths(discoverExtensionsInDir(localExtDir), true);
 
 	// 2. Global extensions: agentDir/extensions/
 	const globalExtDir = path.join(resolvedAgentDir, "extensions");
-	addPaths(discoverExtensionsInDir(globalExtDir));
+	addPaths(discoverExtensionsInDir(globalExtDir), true);
 
 	// 3. Explicitly configured paths
 	for (const p of configuredPaths) {
@@ -889,15 +894,18 @@ export async function discoverAndLoadExtensions(
 			// Check for package.json with pi manifest or index.ts
 			const entries = resolveExtensionEntries(resolved);
 			if (entries) {
-				addPaths(entries);
+				// A directory named explicitly, but its individual entry points were
+				// still found by scanning, so treat them as discovered.
+				addPaths(entries, true);
 				continue;
 			}
 			// No explicit entries - discover individual files in directory
-			addPaths(discoverExtensionsInDir(resolved));
+			addPaths(discoverExtensionsInDir(resolved), true);
 			continue;
 		}
 
-		addPaths([resolved]);
+		// A file named explicitly by the caller: failing to load it stays fatal.
+		addPaths([resolved], false);
 	}
 
 	return loadExtensions(allPaths, resolvedCwd, eventBus);
