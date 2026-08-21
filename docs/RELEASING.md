@@ -11,7 +11,7 @@
 > match all publishable workspaces. Reconcile those surfaces before the next
 > release; do not infer a lockstep package set.
 
-Canonical release runbook for `valkyriweb/pi-mono`. The root `AGENTS.md`
+Canonical release runbook for `lue-labs/pi-mono`. The root `AGENTS.md`
 "Releasing" section is the agent-facing copy; this document is the human-facing
 source of truth. Keep the two in sync, and when a step changes, change it here first.
 

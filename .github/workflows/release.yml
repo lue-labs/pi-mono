@@ -109,7 +109,9 @@ jobs:
         # packages/orchestrator depends on the published @valkyriweb/pi-coding-agent
         # (registry, not workspace), so npm ci must authenticate to GitHub Packages.
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The @valkyriweb packages remain user-owned after this repository
+          # moved to lue-labs, so authenticate with the package-owner PAT.
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build packages
@@ -143,7 +145,8 @@ jobs:
           # Must be the App token, not secrets.GITHUB_TOKEN, so the Version
           # Packages PR triggers required PR checks instead of needing --admin.
           GITHUB_TOKEN: ${{ steps.release_pr_token.outputs.token }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Repository transfer does not move the @valkyriweb package namespace.
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
 
       # Cut a GitHub Release per just-published package, with a small body that
       # points at FORK-CHANGELOG.md (never the 400KB upstream changelog), so a

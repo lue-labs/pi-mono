@@ -37,7 +37,8 @@ jobs:
 
       - name: Install dependencies
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Packages remain under the personal @valkyriweb namespace.
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build workspace declarations
@@ -110,9 +111,10 @@ jobs:
 
       - name: Install dependencies
         # packages/orchestrator depends on the published @valkyriweb/pi-coding-agent
-        # (registry, not workspace); authenticate npm to GitHub Packages.
+        # (registry, not workspace); authenticate as the package owner because
+        # repository transfer does not move the @valkyriweb package namespace.
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build workspace declarations

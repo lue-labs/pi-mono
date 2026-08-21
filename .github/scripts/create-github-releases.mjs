@@ -29,7 +29,7 @@ if (!Array.isArray(published) || published.length === 0) {
 }
 
 const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
-const repo = process.env.GITHUB_REPOSITORY || "valkyriweb/pi-mono";
+const repo = process.env.GITHUB_REPOSITORY || "lue-labs/pi-mono";
 const forkChangelogUrl = `${serverUrl}/${repo}/blob/main/FORK-CHANGELOG.md`;
 
 // Map package name -> directory by scanning tracked package.json files.
@@ -50,7 +50,7 @@ for (const f of pkgFiles) {
 }
 
 // Pin every gh call to the fork repo: this clone has both an `origin`
-// (valkyriweb/pi-mono) and an `upstream` (earendil-works/pi-mono) remote, so
+// (lue-labs/pi-mono) and an `upstream` (earendil-works/pi-mono) remote, so
 // gh's default-repo resolution can pick the wrong one.
 function releaseExists(tag) {
   try {
