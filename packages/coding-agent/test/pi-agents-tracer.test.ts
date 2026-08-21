@@ -102,6 +102,7 @@ describe("pi-agents tracer (issue 07)", () => {
 			throw new Error("forkAgent not implemented in tracer test");
 		},
 		transcriptAppend: () => {},
+		getScopedModels: () => [],
 	};
 
 	const createRunner = (result: LoadExtensionsResult): ExtensionRunner => {

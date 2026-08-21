@@ -1,16 +1,20 @@
 import type { AgentTool, AgentToolResult, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model } from "@valkyriweb/pi-ai";
+import { type Api, type Model, StringEnum } from "@valkyriweb/pi-ai";
 import { Container, Spacer, Text } from "@valkyriweb/pi-tui";
 import { type Static, Type } from "typebox";
+import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { type AgentEngine, getContextAgentEngine } from "../agents/engine.ts";
 import { type AgentToolParentServices, executeAgentTool } from "../agents/executor.ts";
 import {
 	cancelAgentRecentRun,
+	findAgentRecentRun,
 	formatAgentDurationMs,
 	formatAgentStatus,
 	formatAgentTokenCount,
+	injectAgentRecentRun,
 	interruptAgentRecentRun,
 	resumeAgentRecentRun,
+	subscribeAgentRecentRuns,
 } from "../agents/status.ts";
 import type {
 	AgentBackgroundCompletion,
@@ -24,69 +28,39 @@ import type { ToolDefinition } from "../extensions/types.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
-const contextModeSchema = Type.Union(
-	[Type.Literal("default"), Type.Literal("fork"), Type.Literal("slim"), Type.Literal("none")],
-	{
-		description:
-			'"default" starts a fresh named Agent with its profile tools; "fork" is a permissive self-fork that preserves the caller transcript, system prompt, and tools.',
-	},
-);
+const contextModeSchema = StringEnum(["default", "fork", "slim", "none"] as const, {
+	description:
+		'"default" starts a fresh named Agent with its profile tools; "fork" is a permissive self-fork that preserves the caller transcript, system prompt, and tools.',
+});
 
-const thinkingSchema = Type.Union([
-	Type.Literal("off"),
-	Type.Literal("minimal"),
-	Type.Literal("low"),
-	Type.Literal("medium"),
-	Type.Literal("high"),
-	Type.Literal("xhigh"),
-	Type.Literal("max"),
-	Type.Literal("ultra"),
-]);
+const thinkingSchema = StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const);
 
-const outputModeSchema = Type.Union([Type.Literal("inline"), Type.Literal("file"), Type.Literal("both")]);
-const controlActionSchema = Type.Union([
-	Type.Literal("status"),
-	Type.Literal("detail"),
-	Type.Literal("interrupt"),
-	Type.Literal("cancel"),
-	Type.Literal("resume"),
-	Type.Literal("inject"),
-]);
+const outputModeSchema = StringEnum(["inline", "file", "both"] as const);
+const controlActionSchema = StringEnum(["status", "detail", "interrupt", "cancel", "resume", "inject"] as const);
 
-const taskSchema = Type.Object({
-	subagent_type: Type.Optional(
-		Type.String({ description: "Agent id/name to run (preferred; Claude Code-compatible)" }),
-	),
-	agent: Type.Optional(Type.String({ description: "Legacy alias for subagent_type" })),
-	prompt: Type.Optional(Type.String({ description: "Task for the selected Agent profile (preferred)" })),
-	task: Type.Optional(Type.String({ description: "Legacy alias for prompt" })),
-	description: Type.Optional(Type.String({ description: "Short UI label" })),
-	context: Type.Optional(contextModeSchema),
-	extraContext: Type.Optional(
-		Type.String({
-			description:
-				"Additional task-specific context. For explore, prefer a short context packet here instead of inheriting the calling session's transcript/project context.",
-		}),
-	),
+// Bare variant of the enum schemas used inside array-item copies: same const set (identical
+// validation), no `description` payload. Keeps tasks[]/chain[] items byte-light while the
+// single-mode top-level fields (below) keep full descriptions for solo callers.
+const bareContextModeSchema = StringEnum(["default", "fork", "slim", "none"] as const);
+
+// Bare variant of taskSchema for tasks[].items / chain[].items: strips every field description
+// (advisory-only, never validated) while keeping identical field names, types, and optionality.
+// See ~/Projects/personal/my-pi/docs/base-context-overhaul/agent-schema-dedupe.md Option D.
+const bareTaskSchema = Type.Object({
+	subagent_type: Type.Optional(Type.String()),
+	agent: Type.Optional(Type.String()),
+	prompt: Type.Optional(Type.String()),
+	task: Type.Optional(Type.String()),
+	description: Type.Optional(Type.String()),
+	context: Type.Optional(bareContextModeSchema),
+	extraContext: Type.Optional(Type.String()),
 	model: Type.Optional(Type.String()),
-	tools: Type.Optional(Type.Array(Type.String(), { description: "Tool names available to this Agent task" })),
+	tools: Type.Optional(Type.Array(Type.String())),
 	thinking: Type.Optional(thinkingSchema),
-	maxOutputTokens: Type.Optional(
-		Type.Number({
-			minimum: 1,
-			description: "Cap this Agent run's provider output token limit. Can only lower the model's own cap.",
-		}),
-	),
-	output: Type.Optional(
-		Type.String({ description: "Path where the final report should be saved for the calling agent" }),
-	),
+	maxOutputTokens: Type.Optional(Type.Number({ minimum: 1 })),
+	output: Type.Optional(Type.String()),
 	outputMode: Type.Optional(outputModeSchema),
-	cwd: Type.Optional(
-		Type.String({
-			description:
-				"Working directory for this Agent task. Relative tool paths resolve against it. Defaults to the calling session's cwd. Use an absolute path for a different repo/directory.",
-		}),
-	),
+	cwd: Type.Optional(Type.String()),
 });
 
 export const agentToolSchema = Type.Object({
@@ -102,8 +76,8 @@ export const agentToolSchema = Type.Object({
 	prompt: Type.Optional(Type.String({ description: "Task for the selected Agent profile (preferred)" })),
 	task: Type.Optional(Type.String({ description: "Legacy alias for prompt" })),
 	description: Type.Optional(Type.String()),
-	tasks: Type.Optional(Type.Array(taskSchema, { maxItems: 8 })),
-	chain: Type.Optional(Type.Array(taskSchema, { minItems: 1 })),
+	tasks: Type.Optional(Type.Array(bareTaskSchema, { maxItems: 8 })),
+	chain: Type.Optional(Type.Array(bareTaskSchema, { minItems: 1 })),
 	concurrency: Type.Optional(Type.Number({ minimum: 1, maximum: 8, default: 4 })),
 	context: Type.Optional(contextModeSchema),
 	extraContext: Type.Optional(
@@ -137,7 +111,7 @@ export const agentToolSchema = Type.Object({
 		}),
 	),
 	run_in_background: Type.Optional(Type.Boolean({ description: "Claude Code-compatible alias for background" })),
-	agentScope: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")])),
+	agentScope: Type.Optional(StringEnum(["user", "project", "both"] as const)),
 });
 
 export type AgentToolInput = Static<typeof agentToolSchema>;
@@ -181,6 +155,9 @@ type AgentTaskParams = NonNullable<AgentToolInput["tasks"]>[number] & Record<str
 type NormalizedAgentTaskParams = AgentTaskParams & AgentTaskConfig;
 
 const unsupportedFutureFields = ["worktree", "remote", "team_name", "name", "mode"] as const;
+// Process-local provenance for trusted extensions; Symbol properties do not survive
+// ordinary serialized tool-call metadata and are not a security boundary.
+const AUTOMATIC_WORKTREE_CWD = Symbol.for("pi.worktree.autoCwd");
 
 function rejectUnsupportedFutureFields(params: Record<string, unknown>): void {
 	for (const field of unsupportedFutureFields) {
@@ -288,28 +265,154 @@ export function normalizeAgentToolMode(params: AgentToolInput): {
 		);
 	}
 	if (hasSingle) {
+		const task: AgentTaskConfig & Record<PropertyKey, unknown> = {
+			agent: normalized.agent ?? "",
+			task: normalized.task ?? "",
+			description: normalized.description,
+			context: normalized.context,
+			extraContext: normalized.extraContext,
+			model: normalized.model,
+			tools: normalized.tools,
+			thinking: normalized.thinking,
+			maxOutputTokens: normalized.maxOutputTokens,
+			output: normalized.output,
+			outputMode: normalized.outputMode,
+			cwd: normalized.cwd,
+		};
+		const automaticWorktreeCwd = (normalized as AgentToolInput & Record<PropertyKey, unknown>)[
+			AUTOMATIC_WORKTREE_CWD
+		];
+		if (automaticWorktreeCwd === true) task[AUTOMATIC_WORKTREE_CWD] = true;
 		return {
 			mode: "single",
-			tasks: [
-				{
-					agent: normalized.agent ?? "",
-					task: normalized.task ?? "",
-					description: normalized.description,
-					context: normalized.context,
-					extraContext: normalized.extraContext,
-					model: normalized.model,
-					tools: normalized.tools,
-					thinking: normalized.thinking,
-					maxOutputTokens: normalized.maxOutputTokens,
-					output: normalized.output,
-					outputMode: normalized.outputMode,
-					cwd: normalized.cwd,
-				},
-			],
+			tasks: [task],
 		};
 	}
 	if (hasParallel) return { mode: "parallel", tasks: tasks ?? [] };
 	return { mode: "chain", tasks: chain ?? [] };
+}
+
+/**
+ * A single Agent task in a shape safe for rendering partial/streaming calls.
+ * Aliases are resolved with the same precedence as execution normalization
+ * (legacy `agent` over `subagent_type`, legacy `task` over `prompt`), but any
+ * field may be absent while arguments are still streaming.
+ */
+export interface AgentRenderTask {
+	agent?: string;
+	task?: string;
+	description?: string;
+}
+
+/**
+ * Result of {@link normalizeAgentToolModeForRender}. `state` distinguishes a
+ * fully-formed call (`valid`, parity with {@link normalizeAgentToolMode}), a
+ * still-streaming/incomplete call (`partial`), and a malformed complete call
+ * (`invalid` — unparseable task JSON, conflicting aliases, or more than one
+ * execution mode). Rendering stays useful in every state instead of throwing.
+ */
+export interface AgentRenderNormalization {
+	mode: AgentToolMode;
+	tasks: AgentRenderTask[];
+	background: boolean;
+	state: "valid" | "partial" | "invalid";
+}
+
+function lenientResolveString(
+	source: Record<string, unknown>,
+	primary: string,
+	alias: string,
+): { value?: string; conflict: boolean } {
+	const primaryValue = typeof source[primary] === "string" ? (source[primary] as string) : undefined;
+	const aliasValue = typeof source[alias] === "string" ? (source[alias] as string) : undefined;
+	const conflict = primaryValue !== undefined && aliasValue !== undefined && primaryValue !== aliasValue;
+	return { value: primaryValue ?? aliasValue, conflict };
+}
+
+function lenientTaskList(value: unknown): { tasks: unknown[]; parseFailed: boolean } {
+	if (value === undefined || value === null) return { tasks: [], parseFailed: false };
+	let candidate: unknown = value;
+	if (typeof candidate === "string") {
+		try {
+			candidate = JSON.parse(candidate);
+		} catch {
+			return { tasks: [], parseFailed: true };
+		}
+	}
+	if (Array.isArray(candidate)) return { tasks: candidate, parseFailed: false };
+	if (candidate && typeof candidate === "object") return { tasks: [candidate], parseFailed: false };
+	return { tasks: [], parseFailed: true };
+}
+
+function renderTaskFromSource(source: unknown): { task: AgentRenderTask; conflict: boolean; complete: boolean } {
+	if (!source || typeof source !== "object") {
+		return { task: {}, conflict: false, complete: false };
+	}
+	const record = source as Record<string, unknown>;
+	const agent = lenientResolveString(record, "agent", "subagent_type");
+	const childTask = lenientResolveString(record, "task", "prompt");
+	const description = typeof record.description === "string" ? record.description : undefined;
+	const task: AgentRenderTask = {};
+	if (agent.value !== undefined) task.agent = agent.value;
+	if (childTask.value !== undefined) task.task = childTask.value;
+	if (description !== undefined) task.description = description;
+	return {
+		task,
+		conflict: agent.conflict || childTask.conflict,
+		complete: agent.value !== undefined && childTask.value !== undefined,
+	};
+}
+
+/**
+ * Renderer-safe counterpart to {@link normalizeAgentToolMode}. Accepts partial,
+ * stringified, object, or array task inputs and never throws: extensions can
+ * call it while Agent-tool arguments are still streaming. For fully-formed
+ * inputs it reproduces execution mode/alias precedence (`state: "valid"`);
+ * incomplete inputs return `"partial"` and malformed complete inputs return
+ * `"invalid"`, both with best-effort tasks for display. Model/cache neutral —
+ * it reads arguments only and never touches params.system or tools[].
+ */
+export function normalizeAgentToolModeForRender(input: unknown): AgentRenderNormalization {
+	if (!input || typeof input !== "object") {
+		return { mode: "single", tasks: [], background: false, state: input == null ? "partial" : "invalid" };
+	}
+	const source = input as Record<string, unknown>;
+	const background = source.background === true || source.run_in_background === true;
+
+	const parallel = lenientTaskList(source.tasks);
+	const chain = lenientTaskList(source.chain);
+	const single = renderTaskFromSource(source);
+
+	const parallelPresent = parallel.tasks.length > 0;
+	const chainPresent = chain.tasks.length > 0;
+	const singlePresent = single.complete;
+	const modeCount = [singlePresent, parallelPresent, chainPresent].filter(Boolean).length;
+
+	let invalid = parallel.parseFailed || chain.parseFailed || modeCount > 1;
+
+	let mode: AgentToolMode;
+	let rendered: { task: AgentRenderTask; conflict: boolean; complete: boolean }[];
+	if (parallelPresent) {
+		mode = "parallel";
+		rendered = parallel.tasks.map(renderTaskFromSource);
+	} else if (chainPresent) {
+		mode = "chain";
+		rendered = chain.tasks.map(renderTaskFromSource);
+	} else {
+		mode = "single";
+		rendered = [single];
+	}
+
+	if (rendered.some((entry) => entry.conflict)) invalid = true;
+	const allComplete = rendered.every((entry) => entry.complete);
+
+	const state: AgentRenderNormalization["state"] = invalid
+		? "invalid"
+		: modeCount === 1 && allComplete
+			? "valid"
+			: "partial";
+
+	return { mode, tasks: rendered.map((entry) => entry.task), background, state };
 }
 
 function formatUsage(run: AgentRunDetails): string | undefined {
@@ -398,7 +501,7 @@ function summarizeRuns(runs: AgentRunDetails[]): string {
 
 function formatExpandedRun(run: AgentRunDetails, index: number): string {
 	const lines = [
-		`${index + 1}. ${run.agent}: ${run.status}`,
+		`${index + 1}. ${run.description ?? run.task} · ${run.agent}: ${run.status}`,
 		`   model: ${formatModelLabel(run.model) ?? "inherit"} · thinking: ${run.thinking ?? "off"}`,
 		`   tools: ${run.toolCallCount} · messages: ${run.messageCount} · duration: ${formatAgentDurationMs(run.durationMs)}${formatUsage(run) ? ` · ${formatUsage(run)}` : ""}`,
 	];
@@ -426,7 +529,165 @@ function formatExpandedRun(run: AgentRunDetails, index: number): string {
 		for (const snippet of run.recentOutputSnippets.slice(-3)) lines.push(`   > ${snippet}`);
 	}
 	if (run.error) lines.push(`   error: ${run.error}`);
+	if (run.finalOutput) lines.push(`   final output:\n${run.finalOutput}`);
 	return lines.join("\n");
+}
+
+interface AgentRendererState {
+	runId?: string;
+	details?: AgentToolDetails | AgentExecutionProgress;
+	unsubscribe?: () => void;
+	dispose?: () => void;
+}
+
+function detailsFromRecentRun(run: NonNullable<ReturnType<typeof findAgentRecentRun>>): AgentToolDetails {
+	return {
+		mode: run.mode,
+		status: run.status,
+		runs: run.runs,
+		runId: run.id,
+		background: run.execution === "background",
+		resumable: run.resumable,
+		parked: run.parked,
+	};
+}
+
+function updateAgentRendererState(
+	state: AgentRendererState,
+	details: AgentToolDetails | AgentExecutionProgress | undefined,
+	invalidate: () => void,
+): void {
+	if (!details) return;
+	state.dispose ??= () => {
+		state.unsubscribe?.();
+		state.unsubscribe = undefined;
+		state.runId = undefined;
+	};
+	state.details = details;
+	const runId = "runId" in details ? details.runId : undefined;
+	const background = "background" in details && details.background === true;
+	if (!runId || !background) return;
+	if (state.runId === runId) {
+		const run = findAgentRecentRun(runId);
+		if (run) state.details = detailsFromRecentRun(run);
+		return;
+	}
+	state.unsubscribe?.();
+	state.runId = runId;
+	const refresh = (deferInvalidate = false) => {
+		const run = findAgentRecentRun(runId);
+		if (!run) {
+			state.unsubscribe?.();
+			state.unsubscribe = undefined;
+			return;
+		}
+		state.details = detailsFromRecentRun(run);
+		if (deferInvalidate) queueMicrotask(invalidate);
+		else invalidate();
+		if (run.status !== "running") {
+			state.unsubscribe?.();
+			state.unsubscribe = undefined;
+		}
+	};
+	state.unsubscribe = subscribeAgentRecentRuns(() => refresh());
+	refresh(true);
+}
+
+function getPresentedAgentDetails(state: AgentRendererState): AgentToolDetails | AgentExecutionProgress | undefined {
+	if (!state.runId) return state.details;
+	const run = findAgentRecentRun(state.runId);
+	return run ? detailsFromRecentRun(run) : state.details;
+}
+
+function actionMarker(state: "preparing" | "running" | "success" | "error", theme: Theme): string {
+	switch (state) {
+		case "preparing":
+			return theme.fg("dim", "·");
+		case "running":
+			return theme.fg("accent", "•");
+		case "success":
+			return theme.fg("success", "✓");
+		case "error":
+			return theme.fg("error", "✗");
+	}
+}
+
+function callActionState(
+	context: { argsComplete: boolean; executionStarted: boolean; isPartial: boolean; isError: boolean },
+	details: AgentToolDetails | AgentExecutionProgress | undefined,
+): "preparing" | "running" | "success" | "error" {
+	if (
+		context.isError ||
+		details?.status === "failed" ||
+		details?.status === "cancelled" ||
+		(details?.status === "interrupted" && !details.parked)
+	) {
+		return "error";
+	}
+	if (details?.status === "completed" || details?.parked) return "success";
+	if (details?.status === "running") return "running";
+	if (!context.argsComplete || !context.executionStarted) return "preparing";
+	return context.isPartial ? "running" : "success";
+}
+
+function taskDisplayName(task: AgentTaskConfig): string {
+	return task.description ?? task.task;
+}
+
+function findRunForTask(
+	runs: AgentRunDetails[],
+	task: AgentTaskConfig,
+	used: Set<number>,
+): AgentRunDetails | undefined {
+	const index = runs.findIndex(
+		(run, candidate) =>
+			!used.has(candidate) &&
+			run.agent === task.agent &&
+			run.task === task.task &&
+			run.description === task.description,
+	);
+	if (index === -1) return undefined;
+	used.add(index);
+	return runs[index];
+}
+
+function formatAgentActivity(run: AgentRunDetails | undefined, parked: boolean): string {
+	if (!run) return "Initializing";
+	if (run.status === "completed") return `Done · ${formatRunStats(run)}`;
+	if (run.status === "failed") return `Failed${run.error ? ` · ${previewText(run.error)}` : ""}`;
+	if (run.status === "cancelled" || run.status === "interrupted") return parked ? "Idle" : "Interrupted";
+	return formatToolActivity(run);
+}
+
+function formatAgentCallRows(
+	tasks: AgentTaskConfig[],
+	details: AgentToolDetails | AgentExecutionProgress | undefined,
+	parentModel: Model<Api> | undefined,
+	parentThinking: ThinkingLevel,
+	theme: Theme,
+): string[] {
+	const used = new Set<number>();
+	return tasks.map((task, index) => {
+		const run = findRunForTask(details?.runs ?? [], task, used);
+		const branch = index === tasks.length - 1 ? "└" : "├";
+		const model = run ? formatModelLabel(run.model) : formatCallModelLabel(task.model, parentModel);
+		const modelText = run
+			? model
+			: task.model && task.model !== "inherit"
+				? model
+					? `requested ${model}`
+					: "requested model"
+				: model
+					? `inherits ${model}`
+					: "inherits parent model";
+		const thinking = run?.thinking ?? task.thinking ?? parentThinking;
+		const continuation = index === tasks.length - 1 ? "     " : "  │  ";
+		return [
+			`${theme.fg("dim", `  ${branch} `)}${theme.fg("accent", taskDisplayName(task))}${theme.fg("muted", ` · ${task.agent}`)}`,
+			`${theme.fg("dim", continuation)}${theme.fg("muted", `${modelText} · thinking ${thinking}`)}`,
+			`${theme.fg("dim", continuation)}${theme.fg("dim", `⎿ ${formatAgentActivity(run, details?.parked === true)}`)}`,
+		].join("\n");
+	});
 }
 
 function runControlHint(runId?: string): string | undefined {
@@ -495,6 +756,22 @@ async function executeLegacyAgentControlAction(params: AgentToolInput): Promise<
 	if (!params.runId) throw new Error(`agent control action ${params.action} requires runId`);
 	if (params.action === "inject") {
 		if (!params.message) throw new Error("agent control action inject requires message");
+		// Prefer live steering; interrupt+resume is destructive and must never be
+		// used on a run that cannot resume (it would discard all of its work).
+		const injected = await injectAgentRecentRun(params.runId, params.message);
+		// A run only becomes resumable after an interrupt, and only when it is a
+		// single background run with one live child session. Interrupting anything
+		// else (a parallel fan-out) throws its work away with no way back.
+		const unresumable = !injected.ok && !(injected.run?.mode === "single" && injected.run.execution === "background");
+		if (injected.ok || unresumable) {
+			const text = injected.ok
+				? injected.message
+				: `${params.runId} cannot accept an injected message (${injected.message}); the run was left untouched`;
+			return {
+				content: [{ type: "text", text: `${text}\n\n${formatAgentStatus(undefined, params.runId)}` }],
+				details: detailsFromControlResult(injected),
+			};
+		}
 		await interruptAgentRecentRun(params.runId);
 		const resumed = await resumeAgentRecentRun(params.runId, params.message);
 		const detailText = formatAgentStatus(undefined, params.runId);
@@ -631,48 +908,87 @@ export function createAgentToolDefinition(
 		},
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			let detail: string = toolName;
+			const state = (context.state ?? {}) as AgentRendererState;
+			const details = getPresentedAgentDetails(state);
 			try {
 				const normalizedArgs = normalizeAgentToolAliases(args);
 				if (normalizedArgs.action) {
-					detail = `${normalizedArgs.action}${normalizedArgs.runId ? `: ${normalizedArgs.runId}` : ""}`;
-				} else {
-					const mode = normalizeAgentToolMode(normalizedArgs);
-					const parentModel = options?.getParentModel?.();
-					const parentThinking = options?.getParentThinkingLevel?.() ?? "off";
-					const names = mode.tasks.map((task) => task.agent).join(", ");
-					const metadata = formatCompactAgentMetadata(
-						mode.tasks.map((task) => ({
-							model: formatCallModelLabel(task.model ?? normalizedArgs.model, parentModel),
-							thinking: task.thinking ?? normalizedArgs.thinking ?? parentThinking,
-						})),
+					const actionState = callActionState(context, undefined);
+					const action =
+						actionState === "error"
+							? `${normalizedArgs.action} failed`
+							: actionState === "success"
+								? `${normalizedArgs.action} complete`
+								: normalizedArgs.action;
+					text.setText(
+						`${actionMarker(actionState, theme)} ${theme.fg("toolTitle", theme.bold(`Agent ${action}`))}${normalizedArgs.runId ? theme.fg("muted", ` · ${normalizedArgs.runId}`) : ""}`,
 					);
-					detail = `${mode.mode}${normalizedArgs.background ? " background" : ""}: ${names}${metadata ? ` · ${metadata}` : ""}`;
+					return text;
 				}
-			} catch (e) {
-				detail = e instanceof Error ? e.message : "invalid mode";
+				const mode = normalizeAgentToolMode(normalizedArgs);
+				const parentModel = options?.getParentModel?.();
+				const parentThinking = options?.getParentThinkingLevel?.() ?? "off";
+				const actionState = callActionState(context, details);
+				const count = mode.tasks.length;
+				const noun = count === 1 ? "agent" : "agents";
+				const verb =
+					actionState === "preparing"
+						? "Preparing delegation"
+						: actionState === "running"
+							? `Delegating ${count} ${noun}`
+							: actionState === "error"
+								? "Delegation failed"
+								: `Delegated ${count} ${noun}`;
+				const metadata = [
+					mode.mode !== "single" ? mode.mode : undefined,
+					normalizedArgs.background ? "background" : undefined,
+				]
+					.filter((part): part is string => Boolean(part))
+					.join(" · ");
+				const rows = formatAgentCallRows(mode.tasks, details, parentModel, parentThinking, theme);
+				text.setText(
+					`${actionMarker(actionState, theme)} ${theme.fg("toolTitle", theme.bold(verb))}${metadata ? theme.fg("muted", ` · ${metadata}`) : ""}${rows.length > 0 ? `\n${rows.join("\n")}` : ""}`,
+				);
+			} catch (error) {
+				// Streaming tool-call arguments arrive incrementally, so a half-parsed
+				// `tasks`/`chain` entry legitimately misses required fields until the
+				// call is complete. Rendering that as a failure showed phantom "✗ Agent
+				// … require subagent_type and prompt" errors for calls that then ran fine.
+				if (!context.argsComplete) {
+					text.setText(
+						`${actionMarker("preparing", theme)} ${theme.fg("toolTitle", theme.bold(`${label} preparing delegation`))}`,
+					);
+					return text;
+				}
+				const message = error instanceof Error ? error.message : "invalid mode";
+				text.setText(
+					`${theme.fg("error", "✗")} ${theme.fg("toolTitle", theme.bold(label))} ${theme.fg("error", message)}`,
+				);
 			}
-			text.setText(`${theme.fg("toolTitle", theme.bold(label))} ${theme.fg("accent", detail)}`);
 			return text;
 		},
-		renderResult(result, options, _theme, context) {
+		renderResult(result, renderOptions, _theme, context) {
+			const state = (context.state ?? {}) as AgentRendererState;
+			const detailsChanged = state.details !== result.details;
+			updateAgentRendererState(state, result.details, context.invalidate);
+			if (detailsChanged && !state.runId && typeof context.invalidate === "function") context.invalidate();
+			const details = getPresentedAgentDetails(state) ?? result.details;
 			const component = (context.lastComponent as Container | undefined) ?? new Container();
 			component.clear();
-			const text = result.content
-				.filter((part): part is { type: "text"; text: string } => part.type === "text")
-				.map((part) => part.text)
-				.join("\n");
-			component.addChild(new Spacer(1));
-			if (options.expanded && result.details) {
-				const details = result.details;
-				const expandedText = [
-					`Agent ${details.mode}: ${details.status}`,
-					...details.runs.map(formatExpandedRun),
-				].join("\n");
+			if (renderOptions.expanded && details) {
+				const status = details.parked && details.status === "interrupted" ? "idle" : details.status;
+				const expandedText = [`Agent ${details.mode}: ${status}`, ...details.runs.map(formatExpandedRun)].join(
+					"\n",
+				);
+				component.addChild(new Spacer(1));
 				component.addChild(new Text(expandedText, 0, 0));
-			} else {
-				const collapsedText = result.details ? formatFinalResult(result.details) : text;
-				component.addChild(new Text(collapsedText.split("\n").slice(0, 8).join("\n"), 0, 0));
+			} else if (!details) {
+				const text = result.content
+					.filter((part): part is { type: "text"; text: string } => part.type === "text")
+					.map((part) => part.text)
+					.join("\n");
+				component.addChild(new Spacer(1));
+				component.addChild(new Text(text.split("\n").slice(0, 2).join("\n"), 0, 0));
 			}
 			return component;
 		},

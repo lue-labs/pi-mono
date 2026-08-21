@@ -15,6 +15,7 @@ function createUiContext(
 		confirm: async () => false,
 		input: async () => undefined,
 		notify: onNotify,
+		addInputHighlighter: () => {},
 		onTerminalInput: () => () => {},
 		setStatus: () => {},
 		setWorkingMessage: () => {},
@@ -56,6 +57,8 @@ type LoadedResourcesContext = {
 		promptTemplates: [];
 		resourceLoader: {
 			getAgentsFiles: () => LoadedResourcesResult<{ agentsFiles: Array<{ path: string }> }>;
+			getSystemPromptSource: () => { path: string } | undefined;
+			getAppendSystemPromptSources: () => Array<{ path: string }>;
 			getSkills: () => LoadedResourcesResult<{ skills: [] }>;
 			getPrompts: () => LoadedResourcesResult<{ prompts: [] }>;
 			getThemes: () => LoadedResourcesResult<{ themes: [] }>;
@@ -230,6 +233,8 @@ function createLoadedResourcesContext(): LoadedResourcesContext {
 			promptTemplates: [],
 			resourceLoader: {
 				getAgentsFiles: () => ({ agentsFiles: [{ path: "/repo/AGENTS.md" }], diagnostics: [] }),
+				getSystemPromptSource: () => undefined,
+				getAppendSystemPromptSources: () => [],
 				getSkills: () => ({ skills: [], diagnostics: [] }),
 				getPrompts: () => ({ prompts: [], diagnostics: [] }),
 				getThemes: () => ({ themes: [], diagnostics: [] }),
@@ -400,7 +405,11 @@ describe("regression #5943: session_start transient UI", () => {
 			};
 
 			await interactiveModePrototype.rebindCurrentSession.call(context, { renderBeforeBind: true });
-			await harness.session.agent.waitForIdle();
+			// sendUserMessage() is intentionally fire-and-forget from extension hooks;
+			// yield once so its async prompt preflight enters the session busy scope
+			// before waiting for the resulting turn to settle.
+			await Promise.resolve();
+			await harness.session.waitForIdle();
 
 			expect(events.slice(0, 3)).toEqual(["render", "subscribe", "bind"]);
 			expect(events).toContain("message_start:user:user from start");

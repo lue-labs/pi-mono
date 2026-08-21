@@ -17,7 +17,7 @@ describe("agent tool suite: single", () => {
 		clearAgentRecentRunsForTests();
 	});
 
-	it("runs a child session with parent-bounded tools and recursive agent denial", async () => {
+	it("runs a child session with the parent tool prefix and recursive Agent execution denial", async () => {
 		const seenChildContexts: Context[] = [];
 		const harness = await createHarness();
 		harnesses.push(harness);
@@ -46,13 +46,14 @@ describe("agent tool suite: single", () => {
 		);
 
 		expect(seenChildContexts).toHaveLength(1);
-		expect(details.runs[0]?.effectiveTools.sort()).toEqual(["bash", "edit", "read", "write"]);
+		expect(details.runs[0]?.effectiveTools).toEqual(["read", "bash", "edit", "write", "agent"]);
 		expect(details.runs[0]?.deniedTools).toContain("agent");
 		expect(details.runs[0]?.sessionId).toBeTruthy();
 		expect(details.runs[0]?.sessionPath).toContain(".jsonl");
 		expect(details.runs[0]?.messageCount).toBeGreaterThan(0);
 		expect(details.runs[0]?.usage?.totalTokens).toBeGreaterThanOrEqual(0);
-		expect(seenChildContexts[0]?.tools?.map((tool) => tool.name)).not.toContain("agent");
+		expect(seenChildContexts[0]?.tools?.map((tool) => tool.name)).toEqual(["read", "bash", "edit", "write", "agent"]);
+		expect(JSON.stringify(seenChildContexts[0]?.messages)).toContain("`agent` tool is not available in this task");
 	});
 
 	it("surfaces child provider rate-limit retries in Agent progress", async () => {

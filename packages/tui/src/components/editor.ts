@@ -9,7 +9,7 @@ import {
 	getGraphemeSegmenter,
 	getWordSegmenter,
 	isWhitespaceChar,
-	truncateToWidth,
+	sliceByColumn,
 	visibleWidth,
 } from "../utils.ts";
 import { findWordBackward, findWordForward } from "../word-navigation.ts";
@@ -212,11 +212,33 @@ interface EditorState {
 	cursorCol: number;
 }
 
+/** Undo snapshot: editor text state plus the paste registry. */
+interface EditorSnapshot {
+	state: EditorState;
+	pastes: Map<number, string>;
+	pasteCounter: number;
+}
+
 export interface LayoutLine {
 	text: string;
 	hasCursor: boolean;
 	cursorPos?: number;
+	/** Absolute offset of this line's first character in the full document text. */
+	startIndex?: number;
 }
+
+/**
+ * A styled span over the editor's full document text (lines joined with "\n").
+ * Offsets are absolute string indices; `end` is exclusive.
+ */
+export interface EditorHighlightRange {
+	start: number;
+	end: number;
+	style: (text: string) => string;
+}
+
+/** Computes styled spans for the editor's current text. Must be cheap and pure. */
+export type EditorHighlighter = (text: string) => EditorHighlightRange[];
 
 export interface EditorTheme {
 	borderColor: (str: string) => string;
@@ -249,6 +271,17 @@ function buildDebouncePattern(triggerCharacters: string[]): RegExp {
 	return new RegExp(`(?:^|[ \\t])(?:@(?:"[^"]*|[^\\s]*)|[${escapedWithoutAt.join("")}][^\\s]*)$`);
 }
 
+function createScrollBorder(direction: "↑" | "↓", hiddenLineCount: number, width: number): string {
+	const availableWidth = Math.max(0, width);
+	const indicator = `─── ${direction} ${hiddenLineCount} more `;
+	const remaining = availableWidth - visibleWidth(indicator);
+	if (remaining >= 0) return indicator + "─".repeat(remaining);
+
+	const ellipsis = "...".slice(0, availableWidth);
+	const indicatorWidth = availableWidth - visibleWidth(ellipsis);
+	return sliceByColumn(indicator, 0, indicatorWidth, true) + ellipsis;
+}
+
 export class Editor implements Component, Focusable {
 	private state: EditorState = {
 		lines: [""],
@@ -271,6 +304,10 @@ export class Editor implements Component, Focusable {
 
 	// Border color (can be changed dynamically)
 	public borderColor: (str: string) => string;
+
+	// Inline highlighting support
+	private highlighter?: EditorHighlighter;
+	private highlightCache?: { text: string; ranges: EditorHighlightRange[] };
 
 	// Autocomplete support
 	private autocompleteProvider?: AutocompleteProvider;
@@ -318,7 +355,7 @@ export class Editor implements Component, Focusable {
 	private snappedFromCursorCol: number | null = null;
 
 	// Undo support
-	private undoStack = new UndoStack<EditorState>();
+	private undoStack = new UndoStack<EditorSnapshot>();
 
 	public onSubmit?: (text: string) => void;
 	public onChange?: (text: string) => void;
@@ -506,13 +543,8 @@ export class Editor implements Component, Focusable {
 
 		// Render top border (with scroll indicator if scrolled down)
 		if (this.scrollOffset > 0) {
-			const indicator = `─── ↑ ${this.scrollOffset} more `;
-			const remaining = width - visibleWidth(indicator);
-			if (remaining >= 0) {
-				result.push(this.borderColor(indicator + "─".repeat(remaining)));
-			} else {
-				result.push(this.borderColor(truncateToWidth(indicator, width)));
-			}
+			const border = createScrollBorder("↑", this.scrollOffset, width);
+			result.push(this.borderColor(border));
 		} else {
 			result.push(horizontal.repeat(width));
 		}
@@ -568,9 +600,8 @@ export class Editor implements Component, Focusable {
 		// Render bottom border (with scroll indicator if more content below)
 		const linesBelow = layoutLines.length - (this.scrollOffset + visibleLines.length);
 		if (linesBelow > 0) {
-			const indicator = `─── ↓ ${linesBelow} more `;
-			const remaining = width - visibleWidth(indicator);
-			result.push(this.borderColor(indicator + "─".repeat(Math.max(0, remaining))));
+			const border = createScrollBorder("↓", linesBelow, width);
+			result.push(this.borderColor(border));
 		} else {
 			result.push(horizontal.repeat(width));
 		}
@@ -752,6 +783,18 @@ export class Editor implements Component, Focusable {
 			return;
 		}
 
+		// Dedicated history actions always browse entries instead of moving the cursor.
+		if (kb.matches(data, "tui.editor.historyPrevious")) {
+			this.cancelAutocomplete();
+			this.navigateHistory(-1);
+			return;
+		}
+		if (kb.matches(data, "tui.editor.historyNext")) {
+			this.cancelAutocomplete();
+			this.navigateHistory(1);
+			return;
+		}
+
 		// Cursor movement actions
 		if (kb.matches(data, "tui.editor.cursorLineStart")) {
 			this.moveToLineStart();
@@ -888,14 +931,24 @@ export class Editor implements Component, Focusable {
 				text: "",
 				hasCursor: true,
 				cursorPos: 0,
+				startIndex: 0,
 			});
 			logicalIndices.push(0);
-			return this.onLayoutLines(layoutLines, logicalIndices);
+			return this.runLayoutHooks(layoutLines, logicalIndices);
+		}
+
+		// Absolute offset of each logical line within getText() (lines joined by "\n").
+		const lineOffsets: number[] = [];
+		let runningOffset = 0;
+		for (const line of this.state.lines) {
+			lineOffsets.push(runningOffset);
+			runningOffset += line.length + 1;
 		}
 
 		// Process each logical line
 		for (let i = 0; i < this.state.lines.length; i++) {
 			const line = this.state.lines[i] || "";
+			const lineOffset = lineOffsets[i] ?? 0;
 			const isCurrentLine = i === this.state.cursorLine;
 			const lineVisibleWidth = visibleWidth(line);
 
@@ -906,11 +959,13 @@ export class Editor implements Component, Focusable {
 						text: line,
 						hasCursor: true,
 						cursorPos: this.state.cursorCol,
+						startIndex: lineOffset,
 					});
 				} else {
 					layoutLines.push({
 						text: line,
 						hasCursor: false,
+						startIndex: lineOffset,
 					});
 				}
 				logicalIndices.push(i);
@@ -955,11 +1010,13 @@ export class Editor implements Component, Focusable {
 							text: chunk.text,
 							hasCursor: true,
 							cursorPos: adjustedCursorPos,
+							startIndex: lineOffset + chunk.startIndex,
 						});
 					} else {
 						layoutLines.push({
 							text: chunk.text,
 							hasCursor: false,
+							startIndex: lineOffset + chunk.startIndex,
 						});
 					}
 					logicalIndices.push(i);
@@ -967,7 +1024,112 @@ export class Editor implements Component, Focusable {
 			}
 		}
 
-		return this.onLayoutLines(layoutLines, logicalIndices);
+		return this.runLayoutHooks(layoutLines, logicalIndices);
+	}
+
+	/**
+	 * Highlight ranges address the plain document text, so they can only be spliced
+	 * into a line `onLayoutLines` left alone. A subclass that rewrote the line (e.g.
+	 * syntax highlighting) has already shifted every offset past its first escape,
+	 * so that line keeps the subclass's rendering instead.
+	 */
+	private runLayoutHooks(layoutLines: LayoutLine[], logicalIndices: number[]): LayoutLine[] {
+		const plainTexts = layoutLines.map((line) => line.text);
+		return this.applyHighlights(this.onLayoutLines(layoutLines, logicalIndices), plainTexts);
+	}
+
+	/**
+	 * Install a highlighter that styles spans of the editor's text in place.
+	 * Pass `undefined` to remove it.
+	 */
+	setHighlighter(highlighter: EditorHighlighter | undefined): void {
+		this.highlighter = highlighter;
+		this.highlightCache = undefined;
+	}
+
+	private highlightRangesFor(text: string): EditorHighlightRange[] {
+		if (this.highlightCache?.text === text) return this.highlightCache.ranges;
+		const produced = this.highlighter?.(text) ?? [];
+		// First range wins outright: a later one is dropped if it overlaps the last
+		// range actually kept, not merely the previous candidate (which may itself
+		// have been dropped, and whose `end` would then let an overlap slip through).
+		const ranges: EditorHighlightRange[] = [];
+		for (const range of produced
+			.filter((range) => range.end > range.start && range.start >= 0)
+			.sort((a, b) => a.start - b.start)) {
+			const kept = ranges[ranges.length - 1];
+			if (kept === undefined || range.start >= kept.end) ranges.push(range);
+		}
+		this.highlightCache = { text, ranges };
+		return ranges;
+	}
+
+	private applyHighlights(lines: LayoutLine[], plainTexts: string[]): LayoutLine[] {
+		if (!this.highlighter) return lines;
+		const ranges = this.highlightRangesFor(this.getText());
+		if (ranges.length === 0) return lines;
+		return lines.map((line, index) =>
+			line.text === plainTexts[index] ? this.highlightLayoutLine(line, ranges) : line,
+		);
+	}
+
+	private highlightLayoutLine(line: LayoutLine, ranges: EditorHighlightRange[]): LayoutLine {
+		const lineStart = line.startIndex;
+		if (lineStart === undefined || line.text.length === 0) return line;
+
+		// The grapheme under the cursor is rendered in reverse video by the renderer,
+		// so it must stay unstyled: carve it out of any span that covers it.
+		const cursorPos = line.hasCursor ? line.cursorPos : undefined;
+		let cursorGraphemeEnd = cursorPos;
+		if (cursorPos !== undefined && cursorPos < line.text.length) {
+			const rest = line.text.slice(cursorPos);
+			const first = [...this.segment(rest, "grapheme")][0]?.segment ?? "";
+			cursorGraphemeEnd = cursorPos + first.length;
+		}
+
+		let out = "";
+		let shift = 0;
+		let consumed = 0;
+		for (const range of ranges) {
+			const spanStart = Math.max(range.start - lineStart, consumed);
+			const spanEnd = Math.min(range.end - lineStart, line.text.length);
+			if (spanEnd <= spanStart) continue;
+
+			out += line.text.slice(consumed, spanStart);
+			for (const [from, to, styled] of this.splitSpanAroundCursor(
+				spanStart,
+				spanEnd,
+				cursorPos,
+				cursorGraphemeEnd,
+			)) {
+				const plain = line.text.slice(from, to);
+				const rendered = styled ? range.style(plain) : plain;
+				if (cursorPos !== undefined && cursorPos >= to) shift += rendered.length - plain.length;
+				out += rendered;
+			}
+			consumed = spanEnd;
+		}
+		if (consumed === 0) return line;
+		out += line.text.slice(consumed);
+
+		return cursorPos === undefined ? { ...line, text: out } : { ...line, text: out, cursorPos: cursorPos + shift };
+	}
+
+	/** Splits [start,end) into styled/unstyled parts so the cursor grapheme stays unstyled. */
+	private splitSpanAroundCursor(
+		start: number,
+		end: number,
+		cursorPos: number | undefined,
+		cursorEnd: number | undefined,
+	): Array<[number, number, boolean]> {
+		if (cursorPos === undefined || cursorEnd === undefined || cursorEnd <= start || cursorPos >= end) {
+			return [[start, end, true]];
+		}
+		const parts: Array<[number, number, boolean]> = [];
+		if (cursorPos > start) parts.push([start, cursorPos, true]);
+		parts.push([Math.max(cursorPos, start), Math.min(cursorEnd, end), false]);
+		if (cursorEnd < end) parts.push([cursorEnd, end, true]);
+		return parts;
 	}
 
 	/**
@@ -1013,13 +1175,13 @@ export class Editor implements Component, Focusable {
 		this.cancelAutocomplete();
 		this.lastAction = null;
 		this.exitHistoryBrowsing();
-		this.pastes.clear();
-		this.pasteCounter = 0;
 		const normalized = this.normalizeText(text);
 		// Push undo snapshot if content differs (makes programmatic changes undoable)
 		if (this.getText() !== normalized) {
 			this.pushUndoSnapshot();
 		}
+		this.pastes.clear();
+		this.pasteCounter = 0;
 		this.setTextInternal(normalized);
 	}
 
@@ -1298,17 +1460,21 @@ export class Editor implements Component, Focusable {
 				this.pastes.delete(targetId);
 				this.pasteCounter--;
 
-				// We got to update id of markers which are greater than the removed one
+				// Shift registry entries down in ascending id order, independent
+				// of marker order in the text ([paste #3] becomes [paste #2] when
+				// [paste #1] is removed).
+				const higherIds = [...this.pastes.keys()].filter((id) => id > targetId).sort((a, b) => a - b);
+				for (const id of higherIds) {
+					this.pastes.set(id - 1, this.pastes.get(id)!);
+					this.pastes.delete(id);
+				}
+
+				// Renumber markers with ids greater than the removed one.
 				this.state.lines = this.state.lines.map((line) =>
 					line.replace(PASTE_MARKER_REGEX, (fullMatch, idGroup, suffixGroup) => {
 						const x = Number(idGroup);
 						if (x <= targetId) return fullMatch;
-
-						// [paste #3] become [paste #2] if we remove [paste #1]
-						const newText = `[paste #${x - 1}${suffixGroup}]`;
-						this.pastes.set(x - 1, this.pastes.get(x) ?? newText);
-						this.pastes.delete(x);
-						return newText;
+						return `[paste #${x - 1}${suffixGroup}]`;
 					}),
 				);
 			}
@@ -2008,14 +2174,16 @@ export class Editor implements Component, Focusable {
 	}
 
 	private pushUndoSnapshot(): void {
-		this.undoStack.push(this.state);
+		this.undoStack.push({ state: this.state, pastes: this.pastes, pasteCounter: this.pasteCounter });
 	}
 
 	private undo(): void {
 		this.exitHistoryBrowsing();
 		const snapshot = this.undoStack.pop();
 		if (!snapshot) return;
-		Object.assign(this.state, snapshot);
+		Object.assign(this.state, snapshot.state);
+		this.pastes = snapshot.pastes;
+		this.pasteCounter = snapshot.pasteCounter;
 		this.lastAction = null;
 		this.preferredVisualCol = null;
 		if (this.onChange) {

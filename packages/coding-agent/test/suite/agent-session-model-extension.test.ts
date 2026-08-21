@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type Model, type ToolResultMessage } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, type Model, type ToolResultMessage, type Usage } from "@valkyriweb/pi-ai";
 import { registerFauxProvider } from "@valkyriweb/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -289,6 +289,23 @@ describe("AgentSession model and extension characterization", () => {
 	});
 
 	it("allows extension tool_result handlers to modify tool results", async () => {
+		const toolUsage: Usage = {
+			input: 1,
+			output: 2,
+			cacheRead: 3,
+			cacheWrite: 4,
+			totalTokens: 10,
+			cost: { input: 0.1, output: 0.2, cacheRead: 0.3, cacheWrite: 0.4, total: 1 },
+		};
+		const patchedToolUsage: Usage = {
+			input: 5,
+			output: 6,
+			cacheRead: 7,
+			cacheWrite: 8,
+			totalTokens: 26,
+			cost: { input: 0.5, output: 0.6, cacheRead: 0.7, cacheWrite: 0.8, total: 2.6 },
+		};
+		let observedToolUsage: Usage | undefined;
 		const echoTool: AgentTool = {
 			name: "echo",
 			label: "Echo",
@@ -296,17 +313,21 @@ describe("AgentSession model and extension characterization", () => {
 			parameters: Type.Object({ text: Type.String() }),
 			execute: async (_toolCallId, params) => {
 				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
-				return { content: [{ type: "text", text }], details: { text } };
+				return { content: [{ type: "text", text }], details: { text }, usage: toolUsage };
 			},
 		};
 		const harness = await createHarness({
 			tools: [echoTool],
 			extensionFactories: [
 				(pi) => {
-					pi.on("tool_result", async () => ({
-						content: [{ type: "text", text: "patched result" }],
-						details: { patched: true },
-					}));
+					pi.on("tool_result", async (event) => {
+						observedToolUsage = event.usage;
+						return {
+							content: [{ type: "text", text: "patched result" }],
+							details: { patched: true },
+							usage: patchedToolUsage,
+						};
+					});
 				},
 			],
 		});
@@ -329,9 +350,12 @@ describe("AgentSession model and extension characterization", () => {
 		await harness.session.prompt("hi");
 
 		expect(getAssistantTexts(harness)).toContain("patched result");
-		expect(
-			harness.session.messages.find((message) => message.role === "toolResult" && message.details?.patched === true),
-		).toBeDefined();
+		const toolResult = harness.session.messages.find(
+			(message) => message.role === "toolResult" && message.details?.patched === true,
+		);
+		expect(observedToolUsage).toEqual(toolUsage);
+		expect(toolResult).toBeDefined();
+		expect(toolResult?.role === "toolResult" ? toolResult.usage : undefined).toEqual(patchedToolUsage);
 	});
 
 	it("saves unsupported image tool results as artifacts before the next model call", async () => {
@@ -543,7 +567,7 @@ describe("AgentSession model and extension characterization", () => {
 		expect(readFileSync(artifactPath, "utf8")).toBe(`${firstLargeText}\n\n${secondLargeText}`);
 	});
 
-	it("bounds aggregate tool-result images in the provider context without mutating session history", async () => {
+	it("bounds aggregate tool-result images in the provider context and retires out-of-budget images from resident history", async () => {
 		const imageData = "a".repeat(2 * 1024 * 1024);
 		const imageTool: AgentTool = {
 			name: "image",
@@ -585,11 +609,22 @@ describe("AgentSession model and extension characterization", () => {
 
 		expect(providerImageChars).toBeLessThanOrEqual(3 * 1024 * 1024);
 		expect(providerImageToolCallIds).toEqual(["image-4"]);
-		const storedImageCount = harness.session.messages
+		// Out-of-budget images are permanently retired from resident history at
+		// agent_end with the same placeholder the provider view emits (they can
+		// never reach the model again and previously leaked unboundedly —
+		// my-pi#1147). Only the in-budget newest image stays resident.
+		const storedToolResultBlocks = harness.session.messages
 			.filter((message) => message.role === "toolResult")
-			.flatMap((message) => message.content)
-			.filter((block) => block.type === "image").length;
-		expect(storedImageCount).toBe(4);
+			.flatMap((message) => message.content);
+		expect(storedToolResultBlocks.filter((block) => block.type === "image").length).toBe(1);
+		expect(
+			storedToolResultBlocks.filter(
+				(block) => block.type === "text" && block.text.includes("Image omitted from this provider request"),
+			).length,
+		).toBe(3);
+		// Durable JSONL safety is by ordering, not re-serialization: file-backed
+		// sessions persist each message at message_end (appendFileSync), before
+		// agent_end retirement mutates the resident objects.
 	});
 
 	it("strips images from cache-safe compaction requests", async () => {

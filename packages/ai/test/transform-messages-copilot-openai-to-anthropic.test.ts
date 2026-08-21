@@ -189,6 +189,81 @@ describe("OpenAI to Anthropic session migration for Copilot Claude", () => {
 		});
 	});
 
+	it("drops tool results whose aborted/errored assistant message was dropped", () => {
+		// Repro of the pi-memory extraction / context:"fork" 400 (2026-07-30):
+		// an aborted OpenAI-family assistant turn left an unresolved tool call;
+		// the fork context builder synthesized a placeholder tool_result for it;
+		// transformMessages dropped the aborted assistant but kept the result,
+		// producing an orphan tool_result that Anthropic rejects with
+		// "unexpected tool_use_id".
+		const model = makeCopilotClaudeModel();
+		const abortedAssistant = makeAssistantMessage([
+			{
+				type: "toolCall",
+				id: "call_I1v0ScfjTWLZGucGl8ZgJiD7|fc_0a7adda327c58184016a6b124fb",
+				name: "bash",
+				arguments: { command: "ls" },
+			},
+		]);
+		abortedAssistant.stopReason = "aborted";
+		const messages: Message[] = [
+			{ role: "user", content: "run a command", timestamp: Date.now() },
+			abortedAssistant,
+			{
+				role: "toolResult",
+				toolCallId: "call_I1v0ScfjTWLZGucGl8ZgJiD7|fc_0a7adda327c58184016a6b124fb",
+				toolName: "bash",
+				content: [{ type: "text", text: "Another Agent task is in progress." }],
+				isError: false,
+				timestamp: 0,
+			},
+			{ role: "user", content: "extract memories", timestamp: Date.now() },
+		];
+
+		const result = transformMessages(messages, model, anthropicNormalizeToolCallId);
+
+		expect(result.some((m) => m.role === "assistant")).toBe(false);
+		expect(result.some((m) => m.role === "toolResult")).toBe(false);
+		expect(result.filter((m) => m.role === "user")).toHaveLength(2);
+	});
+
+	it("keeps tool results for completed assistants while dropping an aborted sibling's", () => {
+		const model = makeCopilotClaudeModel();
+		const abortedAssistant = makeAssistantMessage([
+			{ type: "toolCall", id: "call_dead|fc_dead", name: "bash", arguments: { command: "ls" } },
+		]);
+		abortedAssistant.stopReason = "aborted";
+		const messages: Message[] = [
+			{ role: "user", content: "run commands", timestamp: Date.now() },
+			makeAssistantMessage([{ type: "toolCall", id: "call_ok|fc_ok", name: "read", arguments: { path: "a" } }]),
+			{
+				role: "toolResult",
+				toolCallId: "call_ok|fc_ok",
+				toolName: "read",
+				content: [{ type: "text", text: "done" }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+			abortedAssistant,
+			{
+				role: "toolResult",
+				toolCallId: "call_dead|fc_dead",
+				toolName: "bash",
+				content: [{ type: "text", text: "Another Agent task is in progress." }],
+				isError: false,
+				timestamp: 0,
+			},
+			{ role: "user", content: "continue", timestamp: Date.now() },
+		];
+
+		const result = transformMessages(messages, model, anthropicNormalizeToolCallId);
+		const toolResults = result.filter((m) => m.role === "toolResult");
+
+		expect(toolResults).toHaveLength(1);
+		expect(toolResults[0]).toMatchObject({ toolCallId: "call_ok_fc_ok" });
+		expect(result.filter((m) => m.role === "assistant")).toHaveLength(1);
+	});
+
 	it("does not let hidden empty user messages synthesize duplicate tool results", () => {
 		const model = makeCopilotClaudeModel();
 		const messages: Message[] = [

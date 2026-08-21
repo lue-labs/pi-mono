@@ -136,11 +136,17 @@ describe("parseModelPattern", () => {
 		});
 	});
 
-	describe("OpenRouter models with colons in IDs", () => {
-		test("qwen3-coder:exacto matches the model with undefined thinking level", () => {
+	describe("models whose ids contain slashes and colons", () => {
+		// Policy: a slash always means `provider/id`. Aggregator-style ids that
+		// embed a vendor (`qwen/qwen3-coder:exacto` under provider `openrouter`,
+		// `mlx-community/...` under `turboquant-local`) must be provider-qualified.
+		// Resolving them bare would let any proxy that happens to expose the id
+		// `openai/gpt-5` answer a request meant for OpenAI — see
+		// agent-model-selection.test.ts "provider-qualified model refs do not
+		// fuzzy-match proxy provider ids".
+		test("a bare vendor-prefixed id does not resolve without its provider", () => {
 			const result = parseModelPattern("qwen/qwen3-coder:exacto", allModels);
-			expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
-			expect(result.thinkingLevel).toBeUndefined();
+			expect(result.model).toBeUndefined();
 			expect(result.warning).toBeUndefined();
 		});
 
@@ -152,11 +158,9 @@ describe("parseModelPattern", () => {
 			expect(result.warning).toBeUndefined();
 		});
 
-		test("qwen3-coder:exacto:high matches model with high thinking level", () => {
+		test("a bare vendor-prefixed id does not resolve even with a valid thinking level", () => {
 			const result = parseModelPattern("qwen/qwen3-coder:exacto:high", allModels);
-			expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
-			expect(result.thinkingLevel).toBe("high");
-			expect(result.warning).toBeUndefined();
+			expect(result.model).toBeUndefined();
 		});
 
 		test("openrouter/qwen/qwen3-coder:exacto:high matches with provider and thinking level", () => {
@@ -167,29 +171,26 @@ describe("parseModelPattern", () => {
 			expect(result.warning).toBeUndefined();
 		});
 
-		test("gpt-4o:extended matches the extended model with undefined thinking level", () => {
+		test("a provider-qualified reference never degrades into a different model", () => {
+			// `openai/gpt-4o:extended` used to shed its unknown `:extended` suffix and
+			// silently return plain `gpt-4o` — a model the caller never asked for.
 			const result = parseModelPattern("openai/gpt-4o:extended", allModels);
-			expect(result.model?.id).toBe("openai/gpt-4o:extended");
-			expect(result.thinkingLevel).toBeUndefined();
-			expect(result.warning).toBeUndefined();
+			expect(result.model).toBeUndefined();
 		});
 	});
 
-	describe("invalid thinking levels with OpenRouter models", () => {
-		test("qwen3-coder:exacto:random returns model with undefined thinking level and warning", () => {
+	describe("invalid thinking levels on provider-qualified references", () => {
+		test("an unknown suffix on a slashed reference resolves nothing rather than guessing", () => {
 			const result = parseModelPattern("qwen/qwen3-coder:exacto:random", allModels);
-			expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
-			expect(result.thinkingLevel).toBeUndefined();
-			expect(result.warning).toContain("Invalid thinking level");
-			expect(result.warning).toContain("random");
+			expect(result.model).toBeUndefined();
+			expect(result.warning).toBeUndefined();
 		});
 
-		test("qwen3-coder:exacto:high:random returns model with undefined thinking level and warning", () => {
-			const result = parseModelPattern("qwen/qwen3-coder:exacto:high:random", allModels);
+		test("provider-qualified reference with a valid level keeps the level", () => {
+			const result = parseModelPattern("openrouter/qwen/qwen3-coder:exacto:high", allModels);
 			expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
-			expect(result.thinkingLevel).toBeUndefined();
-			expect(result.warning).toContain("Invalid thinking level");
-			expect(result.warning).toContain("random");
+			expect(result.model?.provider).toBe("openrouter");
+			expect(result.thinkingLevel).toBe("high");
 		});
 	});
 
@@ -228,11 +229,13 @@ describe("resolveModelScopeWithDiagnostics", () => {
 				{
 					type: "warning",
 					message: 'Invalid thinking level "invalid" in pattern "gpt-4o:invalid". Using default instead.',
+					code: "invalid-thinking-level",
 					pattern: "gpt-4o:invalid",
 				},
 				{
 					type: "warning",
 					message: 'No models match pattern "missing"',
+					code: "no-match",
 					pattern: "missing",
 				},
 			]);
@@ -257,6 +260,53 @@ describe("resolveModelScopeWithDiagnostics", () => {
 		} finally {
 			warn.mockRestore();
 		}
+	});
+
+	test("resolves bracketed model ids as exact references before glob matching", async () => {
+		const bracketedModel: Model<"anthropic-messages"> = {
+			id: "bracketed-model[1m]",
+			name: "Bracketed Model",
+			api: "anthropic-messages",
+			provider: "custom",
+			baseUrl: "https://example.invalid",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1 },
+			contextWindow: 128000,
+			maxTokens: 8192,
+		};
+		const registry = {
+			getAvailable: () => [...allModels, bracketedModel],
+		} as unknown as Parameters<typeof resolveModelScopeWithDiagnostics>[1];
+
+		const result = await resolveModelScopeWithDiagnostics(["custom/bracketed-model[1m]"], registry);
+
+		expect(result.scopedModels.map((scoped) => scoped.model.id)).toEqual(["bracketed-model[1m]"]);
+		expect(result.diagnostics).toEqual([]);
+	});
+
+	test("resolves bracketed model ids with thinking levels as exact references before glob matching", async () => {
+		const bracketedModel: Model<"anthropic-messages"> = {
+			id: "bracketed-model[1m]",
+			name: "Bracketed Model",
+			api: "anthropic-messages",
+			provider: "custom",
+			baseUrl: "https://example.invalid",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1 },
+			contextWindow: 128000,
+			maxTokens: 8192,
+		};
+		const registry = {
+			getAvailable: () => [...allModels, bracketedModel],
+		} as unknown as Parameters<typeof resolveModelScopeWithDiagnostics>[1];
+
+		const result = await resolveModelScopeWithDiagnostics(["custom/bracketed-model[1m]:high"], registry);
+
+		expect(result.scopedModels.map((scoped) => scoped.model.id)).toEqual(["bracketed-model[1m]"]);
+		expect(result.scopedModels[0].thinkingLevel).toBe("high");
+		expect(result.diagnostics).toEqual([]);
 	});
 });
 
@@ -367,6 +417,64 @@ describe("resolveCliModel", () => {
 
 		expect(result.model).toBeUndefined();
 		expect(result.error).toContain("No models available");
+	});
+
+	test("prefers the sole authenticated provider for an ambiguous bare exact model id", () => {
+		const azureModel: Model<"anthropic-messages"> = {
+			...mockModels[1],
+			id: "gpt-5.6-sol",
+			name: "GPT 5.6 Sol",
+			provider: "azure-openai-responses",
+		};
+		const codexModel: Model<"anthropic-messages"> = {
+			...mockModels[1],
+			id: "gpt-5.6-sol",
+			name: "GPT 5.6 Sol",
+			provider: "openai-codex",
+		};
+		const registry = {
+			getModels: () => [azureModel, codexModel],
+			hasConfiguredAuth: (provider: string) => provider === "openai-codex",
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
+
+		const result = resolveCliModel({
+			cliModel: "gpt-5.6-sol",
+			modelRuntime: registry,
+		});
+
+		expect(result.error).toBeUndefined();
+		expect(result.model?.provider).toBe("openai-codex");
+		expect(result.model?.id).toBe("gpt-5.6-sol");
+	});
+
+	test("requires an explicit provider for an ambiguous bare exact model id without a unique authenticated provider", () => {
+		const azureModel: Model<"anthropic-messages"> = {
+			...mockModels[1],
+			id: "gpt-5.6-sol",
+			name: "GPT 5.6 Sol",
+			provider: "azure-openai-responses",
+		};
+		const codexModel: Model<"anthropic-messages"> = {
+			...mockModels[1],
+			id: "gpt-5.6-sol",
+			name: "GPT 5.6 Sol",
+			provider: "openai-codex",
+		};
+		const registry = {
+			getModels: () => [azureModel, codexModel],
+			hasConfiguredAuth: () => false,
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
+
+		const result = resolveCliModel({
+			cliModel: "gpt-5.6-sol",
+			modelRuntime: registry,
+		});
+
+		expect(result.model).toBeUndefined();
+		expect(result.error).toContain('Model "gpt-5.6-sol" is ambiguous across providers');
+		expect(result.error).toContain("azure-openai-responses/gpt-5.6-sol");
+		expect(result.error).toContain("openai-codex/gpt-5.6-sol");
+		expect(result.error).toContain("Use --provider or provider/model");
 	});
 
 	test("prefers provider/model split over gateway model with matching id", () => {
@@ -683,7 +791,7 @@ describe("default model selection", () => {
 		};
 
 		const registry = {
-			getAvailable: async () => [aiGatewayModel],
+			getAvailableSnapshot: () => [aiGatewayModel],
 		} as unknown as Parameters<typeof findInitialModel>[0]["modelRuntime"];
 
 		const result = await findInitialModel({
@@ -720,7 +828,7 @@ describe("default model selection", () => {
 					? savedDeepSeekModel
 					: undefined,
 			hasConfiguredAuth: (provider: string) => provider === "spark-two",
-			getAvailable: async () => [localDeepSeekModel],
+			getAvailableSnapshot: () => [localDeepSeekModel],
 		} as unknown as Parameters<typeof findInitialModel>[0]["modelRuntime"];
 
 		const result = await findInitialModel({

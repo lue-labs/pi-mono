@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { complete } from "../src/compat.ts";
+import { complete, getModel } from "../src/compat.ts";
 import type { Api, Context, Model, StreamOptions, Tool } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 
@@ -199,6 +199,14 @@ describe("Tool Call Without Result Tests", () => {
 		});
 	});
 
+	describe.skipIf(!process.env.BASETEN_API_KEY)("Baseten Provider", () => {
+		const model = getModel("baseten", "zai-org/GLM-5.2");
+
+		it("should filter out tool calls without corresponding tool results", { retry: 3, timeout: 30000 }, async () => {
+			await testToolCallWithoutResult(model, { reasoningEffort: "high" });
+		});
+	});
+
 	describe.skipIf(!process.env.ZAI_API_KEY)("zAI Provider", () => {
 		const model = pickModel("zai");
 
@@ -249,6 +257,22 @@ describe("Tool Call Without Result Tests", () => {
 
 	describe.skipIf(!process.env.XIAOMI_TOKEN_PLAN_SGP_API_KEY)("Xiaomi MiMo Token Plan (SGP) Provider", () => {
 		const model = pickModel("xiaomi-token-plan-sgp");
+
+		it("should filter out tool calls without corresponding tool results", { retry: 3, timeout: 30000 }, async () => {
+			await testToolCallWithoutResult(model);
+		});
+	});
+
+	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_API_KEY)("Qwen Token Plan Provider", () => {
+		const model = getModel("qwen-token-plan", "qwen3.7-max");
+
+		it("should filter out tool calls without corresponding tool results", { retry: 3, timeout: 30000 }, async () => {
+			await testToolCallWithoutResult(model);
+		});
+	});
+
+	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_CN_API_KEY)("Qwen Token Plan (CN) Provider", () => {
+		const model = getModel("qwen-token-plan-cn", "qwen3.7-max");
 
 		it("should filter out tool calls without corresponding tool results", { retry: 3, timeout: 30000 }, async () => {
 			await testToolCallWithoutResult(model);

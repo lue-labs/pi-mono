@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { Agent, type AgentMessage, type ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { clampThinkingLevel, type Message, type Model, modelsAreEqual } from "@valkyriweb/pi-ai/compat";
+import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@valkyriweb/pi-agent-core";
+import { clampThinkingLevel, type Message, type Model, modelsAreEqual, streamSimple } from "@valkyriweb/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { type AgentRunIdentity, AgentSession } from "./agent-session.ts";
@@ -9,7 +9,7 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
-import { applyFilters } from "./extensions/extension-hooks.ts";
+import { applyFilters, extensionHookNames } from "./extensions/extension-hooks.ts";
 import type {
 	ExtensionRunner,
 	InputSource,
@@ -17,7 +17,7 @@ import type {
 	SessionStartEvent,
 	ToolDefinition,
 } from "./extensions/index.ts";
-import { convertToLlm } from "./messages.ts";
+import { convertToLlm, reconcileUnsettledToolCalls } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import { findInitialModel, normalizeAutoAliasString } from "./model-resolver.ts";
 import { ModelRuntime } from "./model-runtime.ts";
@@ -27,7 +27,7 @@ import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, type SessionContext, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
 import { time } from "./timings.ts";
-import { boundModelFacingContextImages } from "./tool-artifacts.ts";
+import { boundModelFacingContextImages, retireOutOfBudgetContextImages } from "./tool-artifacts.ts";
 import {
 	createBashTool,
 	createCodingTools,
@@ -43,6 +43,11 @@ import {
 	createWriteTool,
 	withFileMutationQueue,
 } from "./tools/index.ts";
+
+// Preserve the pre-0.81 fallback for extensions that construct Agent instances
+// or invoke low-level agent loops without supplying streamFn. Agent core remains
+// provider-agnostic and does not import pi-ai/compat itself.
+setDefaultStreamFn(streamSimple);
 
 export interface CreateAgentSessionOptions {
 	/** Working directory for project-local discovery. Default: process.cwd() */
@@ -330,7 +335,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	if (requestedModel && model && !hasExistingSession && !pendingRequestedModel) {
 		const before = model;
 		const resolved = await applyFilters(
-			"model:resolve",
+			extensionHookNames.modelResolve,
 			{
 				requestedModel,
 				model,
@@ -535,8 +540,15 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		sessionId: sessionManager.getSessionId(),
 		cacheAffinityKey: undefined,
 		transformContext: async (messages) => {
+			// Bound images on the raw history BEFORE extension context transforms: this
+			// is byte-for-byte the same walk retireOutOfBudgetContextImages() applies to
+			// stored messages, so persistent retirement can never change provider bytes
+			// even when an extension removes/reorders images (which would otherwise
+			// shift the post-transform budget). The post-transform bound stays as a
+			// backstop for images injected by context handlers.
+			const bounded = boundModelFacingContextImages<AgentMessage>(messages);
 			const runner = extensionRunnerRef.current;
-			const extensionMessages = runner ? await runner.emitContext(messages) : messages;
+			const extensionMessages = runner ? await runner.emitContext(bounded) : bounded;
 			return boundModelFacingContextImages<AgentMessage>(extensionMessages);
 		},
 		steeringMode: settingsManager.getSteeringMode(),
@@ -551,7 +563,16 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	// Restore messages if session has existing data
 	if (hasExistingSession) {
-		agent.state.messages = existingSession.messages;
+		// Retire base64 payloads of images beyond the model-facing budget before
+		// they become resident: the provider view renders them as placeholders
+		// anyway, and a resumed long session can otherwise rehydrate hundreds of
+		// MB of unreachable-to-the-model image data (my-pi#1147).
+		retireOutOfBudgetContextImages(existingSession.messages);
+		// A session that died mid-turn can carry a tool call with no recorded
+		// outcome. Providers reject that history outright (Anthropic 400s on the
+		// unpaired tool_use), which wedges every later request in the resumed
+		// session, so settle the open calls before the first turn can run.
+		agent.state.messages = reconcileUnsettledToolCalls(existingSession.messages);
 		if (model && !sessionModelMatches(existingSession.model, model)) {
 			sessionManager.appendModelChange(model.provider, model.id);
 		}

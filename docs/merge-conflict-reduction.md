@@ -1,6 +1,6 @@
 # Merge Conflict Reduction Plan
 
-Luke's Pi fork currently carries enough local divergence that upstream syncs can explode into large conflict sets. The 2026-05-20 update attempt hit 115 conflicted files, including cache/tool/prompt surfaces. Treat that as a structural smell, not just a one-off merge chore.
+Luke's Pi fork currently carries enough local divergence that upstream syncs can explode into large conflict sets. The 2026-05-20 update attempt hit 115 conflicted files, including cache/tool/prompt surfaces. Treat that as a structural smell rather than a one-off merge chore.
 
 ## Goal
 

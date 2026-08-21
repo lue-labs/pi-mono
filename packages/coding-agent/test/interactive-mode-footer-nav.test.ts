@@ -185,6 +185,8 @@ describe("interactive-mode footer navigation", () => {
 		const fakeMode = {
 			editor: { getText: () => "" },
 			editorContainer: { clear: vi.fn(), addChild: vi.fn() },
+			disposeActiveSelector: vi.fn(),
+			setupInputHighlighter: vi.fn(),
 			ui: { setFocus: vi.fn(), requestRender: vi.fn() },
 			keybindings: {},
 			autocompleteProvider: undefined,

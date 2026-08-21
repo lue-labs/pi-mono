@@ -52,7 +52,7 @@ export function listTasks(): TaskSnapshot[] {
 	if (adapters.has("local_agent")) {
 		for (const run of listAgentRecentRuns()) {
 			const snap = LocalAgentTask.snapshot(run.id);
-			if (snap) out.push(snap);
+			if (snap && !snap.hidden) out.push(snap);
 		}
 	}
 	if (adapters.has("local_bash")) {
@@ -60,6 +60,12 @@ export function listTasks(): TaskSnapshot[] {
 			const snap = LocalBashTask.snapshot(job.id);
 			if (snap) out.push(snap);
 		}
+	}
+	// Generic enumeration for adapters that own their own in-process store
+	// (e.g. extension-registered task types) and expose `list()`. The two
+	// wired-registry adapters above have no `list()` and are not double-counted.
+	for (const task of adapters.values()) {
+		if (task.list) out.push(...task.list());
 	}
 	return out;
 }

@@ -20,7 +20,7 @@ Pi has two summarization mechanisms:
 | Compaction | Context exceeds threshold, or `/compact` | Summarize old messages to free up context |
 | Branch summarization | `/tree` navigation | Preserve context when switching branches |
 
-Both use the same structured summary format and track file operations cumulatively.
+Both use the same structured summary format and track file operations cumulatively. Compaction and branch-summary requests use fresh routing session IDs and, where supported by the provider, disable prompt-cache writes because these one-off prompts are unlikely to be reused.
 
 ## Compaction
 
@@ -43,7 +43,8 @@ You can also trigger manually with `/compact [instructions]`, where optional ins
 3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
 5. **Reload**: Session reloads, using summary + messages from `firstKeptEntryId` onwards
-6. **Optional resident prune**: If `compaction.residentPrune` or `PI_RESIDENT_SESSION_PRUNE=1` is enabled, Pi stubs summarized pre-boundary payloads in process memory after compaction and while loading compacted sessions on open/resume/fork. For current-version session files, Pi plans the compacted path from raw-line metadata and creates resident stubs before parsing summarized candidate payload JSON. The durable JSONL transcript is not rewritten, and tool-use/tool-result pairs are protected from split stubbing.
+6. **Redraw the live TUI**: The interactive view clears the summarized transcript, renders the kept tail, then shows one collapsed compaction summary at the bottom. Use the tool-output expansion key to reveal the full summary. Resumed sessions still render the persisted summary at the head of the kept tail so context chronology remains correct.
+7. **Resident prune**: By default, Pi stubs summarized pre-boundary payloads in process memory after compaction. Set `compaction.residentPrune` to `false` or `PI_RESIDENT_SESSION_PRUNE=0` to disable it; `PI_RESIDENT_SESSION_PRUNE=1` explicitly enables it while loading compacted sessions on open/resume/fork. For current-version session files, Pi plans the compacted path from raw-line metadata and creates resident stubs before parsing summarized candidate payload JSON. The durable JSONL transcript is not rewritten, and tool-use/tool-result pairs are protected from split stubbing.
 
 ```
 Before compaction:
@@ -79,9 +80,9 @@ What the LLM sees:
 
 On repeated compactions, the summarized span starts at the previous compaction's kept boundary (`firstKeptEntryId`), not at the compaction entry itself, falling back to the entry after the previous compaction if that kept entry cannot be found in the path. This preserves messages that survived the earlier compaction by including them in the next summarization pass as well. Pi also recalculates `tokensBefore` from the rebuilt session context before writing the new `CompactionEntry`, so the token count reflects the actual pre-compaction context being replaced.
 
-Resident pruning is separate from transcript compaction. It is default-off and runs only after a successful compaction entry has been appended, or while hydrating an already-compacted session when the same opt-in is enabled. It mutates or loads entries before `firstKeptEntryId` as small placeholders, then rebuilds provider context from the compaction summary plus kept suffix. Pi still keeps the original JSONL complete on disk; opening without the opt-in restores the full resident transcript, while opening with the opt-in keeps summarized pre-boundary payloads stubbed from the first hydrated view. Current-version pruned hydration uses raw-line metadata plus fallback full parsing for protected or ambiguous entries; old-version session migrations rewrite full content first, then reload with resident pruning so migration never persists stubs.
+Resident pruning is separate from transcript compaction. It runs only after a successful compaction entry has been appended, or while hydrating an already-compacted session when enabled. It mutates or loads entries before `firstKeptEntryId` as small placeholders, then rebuilds provider context from the compaction summary plus kept suffix. Pi keeps the original JSONL complete on disk: exporting always reads that durable transcript, and rewinding into a pruned entry rehydrates the durable transcript before rebuilding context. Current-version pruned hydration uses raw-line metadata plus fallback full parsing for protected or ambiguous entries; old-version session migrations rewrite full content first, then reload with resident pruning so migration never persists stubs.
 
-Use `npm run memory:audit -- --pi ./dist/pi` to capture a structural Pi/Claude RSS report plus an isolated Pi core resident-prune probe. The probe uses synthetic JSONL only, records resident payload/heap/RSS before and after prune+GC, and checks JSONL hash/context/continuation invariants.
+Use `npm run memory:audit -- --pi ./dist/pi` to capture a structural Pi/Claude RSS report plus an isolated Pi core resident-prune probe. The probe uses synthetic JSONL only, records resident payload/heap/RSS before and after prune+GC, and checks JSONL hash/context/continuation invariants. For a three-compaction workload with debugger-compatible heap snapshots, run `node --inspect=0 --expose-gc scripts/pi-transcript-memory-inspect.mjs` after `npm run build:ts`.
 
 ### Split Turns
 
@@ -111,6 +112,10 @@ For split turns, pi generates two summaries and merges them:
 1. **History summary**: Previous context (if any)
 2. **Turn prefix summary**: The early part of the split turn
 
+### Continuing Tool Turns
+
+When threshold compaction interrupts a continuing tool turn, Pi must retain that turn's assistant tool call and results so it can resume. To keep this live suffix from bypassing `keepRecentTokens`, retained tool-result text shares a 2,000-character aggregate budget in the resumed model context. Oversized results are replaced with artifact-backed previews; the full result remains in the durable session transcript and is saved under `.pi/tool-results/` for the continuation to inspect. This applies only to the live mid-run continuation; ordinary tool-result handling is unchanged.
+
 ### Cut Point Rules
 
 Valid cut points are:
@@ -134,6 +139,7 @@ interface CompactionEntry<T = unknown> {
   summary: string;
   firstKeptEntryId: string;
   tokensBefore: number;
+  usage?: Usage;       // LLM usage that generated the summary
   fromHook?: boolean;  // true if provided by extension (legacy field name)
   details?: T;         // implementation-specific data
 }
@@ -145,9 +151,9 @@ interface CompactionDetails {
 }
 ```
 
-Extensions can store any JSON-serializable data in `details`. The default compaction tracks file operations, but custom extension implementations can use their own structure.
+Extensions can store any JSON-serializable data in `details`. The default compaction tracks file operations, but custom extension implementations can use their own structure. Generated and extension-provided summaries store their LLM `usage` when available so session totals include summarization work.
 
-See [`prepareCompaction()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) and [`compact()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) for the implementation.
+See [`prepareCompaction()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) and [`compact()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) for the implementation. For direct programmatic summarization, `generateSummary()` returns the summary text and `generateSummaryWithUsage()` returns `{ text, usage }`.
 
 ## Branch Summarization
 
@@ -175,9 +181,9 @@ Entries to summarize: B, C, D
 
 After navigation with summary:
 
-         ┌─ B ─ C ─ D ─ [summary of B,C,D]
+         ┌─ B ─ C ─ D
     A ───┤
-         └─ E ─ F (new leaf)
+         └─ E ─ F ─ [summary of B,C,D] (new leaf)
 ```
 
 ### Cumulative File Tracking
@@ -200,6 +206,7 @@ interface BranchSummaryEntry<T = unknown> {
   timestamp: number;
   summary: string;
   fromId: string;      // Entry we navigated from
+  usage?: Usage;       // LLM usage that generated the summary
   fromHook?: boolean;  // true if provided by extension (legacy field name)
   details?: T;         // implementation-specific data
 }
@@ -305,6 +312,7 @@ pi.on("session_before_compact", async (event, ctx) => {
       summary: "Your summary...",
       firstKeptEntryId: preparation.firstKeptEntryId,
       tokensBefore: preparation.tokensBefore,
+      // usage: summaryResponse.usage, // Optional; included in session totals
       details: { /* custom data */ },
     }
   };
@@ -333,13 +341,14 @@ pi.on("session_before_compact", async (event, ctx) => {
   // [Tool result]: output text
 
   // Now send to your model for summarization
-  const summary = await myModel.summarize(conversationText);
+  const { summary, usage } = await myModel.summarize(conversationText);
   
   return {
     compaction: {
       summary,
       firstKeptEntryId: preparation.firstKeptEntryId,
       tokensBefore: preparation.tokensBefore,
+      usage,
     }
   };
 });
@@ -369,6 +378,7 @@ pi.on("session_before_tree", async (event, ctx) => {
     return {
       summary: {
         summary: "Your summary...",
+        // usage: summaryResponse.usage, // Optional; included in session totals
         details: { /* custom data */ },
       }
     };

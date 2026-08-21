@@ -59,6 +59,8 @@ export interface AgentTaskConfig {
 	agent: string;
 	task: string;
 	description?: string;
+	/** Hide an internal background run from user-facing task surfaces. */
+	hidden?: boolean;
 	context?: ContextMode;
 	extraContext?: string;
 	model?: string;
