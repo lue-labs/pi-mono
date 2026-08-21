@@ -1,12 +1,14 @@
 # Fork Changelog
 
-Fork-specific changes maintained by valkyriweb. Upstream package changelogs stay reserved for upstream release notes and upstreamable changes.
+Fork-specific changes maintained by lue-labs. Upstream package changelogs stay reserved for upstream release notes and upstreamable changes.
 
 Release numbers track the fork's published `@valkyriweb/*` packages (GitHub Packages, versioned in lockstep via Changesets); dates are release-tag creation dates. Entries were back-attributed to releases via git blame → earliest containing release tag.
 
 ## [Unreleased]
 
 ### Changed
+
+- **Repository ownership moved from `valkyriweb/pi-mono` to `lue-labs/pi-mono` without moving the `@valkyriweb/*` package namespace.** Active installers, release helpers, workflows, and canonical documentation now use the organization-owned repository. npm reads and publishes authenticate with the retained package-owner token because GitHub repository transfer removes granular package links rather than moving user-owned packages. Historical GitHub URLs continue through GitHub's repository redirect.
 
 - **An auto-discovered extension that fails to load is now skipped with a warning instead of killing the session.** A repo-local `.pi/extensions/*.ts` that failed to import called `process.exit(1)` during startup, so a single broken file made the whole repository unhostable for every agent until someone ran a nine-package build — and upstream the only symptom was `timed out waiting for agent startup`, which names neither the extension nor the repo. Severity now follows **origin, not error type**: an extension found by directory scan is reported and skipped, while one the user named explicitly — `-e <path>`, a `settings.json` `extensions` entry, or a package-provided extension — stays fatal, because silently dropping an extension somebody asked for by name is worse than exiting. `PI_STRICT_EXTENSIONS=1` restores all-fatal behavior for CI, where a skipped extension could hide a regression. The message text is unchanged and only its severity moves: the path and the original loader error are still printed, and a skipped extension is still listed in the interactive loaded-resources panel, prefixed `Skipped:` rather than omitted. No system-prompt or tool-schema bytes change.
 
