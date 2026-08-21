@@ -21,8 +21,8 @@ import {
 	openAIResponsesApi,
 	type SimpleStreamOptions,
 	type ThinkingLevelMap,
-} from "@valkyriweb/pi-ai/compat";
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+} from "@lue-labs/pi-ai/compat";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
 
 // =============================================================================
 // Constants

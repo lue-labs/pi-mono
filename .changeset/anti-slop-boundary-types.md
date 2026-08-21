@@ -1,6 +1,6 @@
 ---
-"@valkyriweb/pi-ai": patch
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-ai": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 Name the types at three provider boundaries and stop spreading empty objects.

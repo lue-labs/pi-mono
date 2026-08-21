@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { executeAgentTool } from "../../../src/core/agents/executor.ts";
 import { clearAgentRecentRunsForTests } from "../../../src/core/agents/status.ts";

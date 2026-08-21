@@ -1,4 +1,4 @@
-# @valkyriweb/pi-protocol
+# @lue-labs/pi-protocol
 
 Runtime-neutral schemas, types, CBOR encoding, and byte-stream framing for the experimental pi protocol.
 
@@ -21,7 +21,7 @@ import {
   createServerMessageDecoder,
   encodeClientMessage,
   type ClientHello,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 
 const hello: ClientHello = {
   type: "hello",

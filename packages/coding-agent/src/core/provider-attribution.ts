@@ -1,4 +1,4 @@
-import type { Api, Model, ProviderHeaders } from "@valkyriweb/pi-ai";
+import type { Api, Model, ProviderHeaders } from "@lue-labs/pi-ai";
 import type { SettingsManager } from "./settings-manager.ts";
 import { isInstallTelemetryEnabled } from "./telemetry.ts";
 

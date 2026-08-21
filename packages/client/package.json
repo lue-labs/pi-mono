@@ -1,5 +1,5 @@
 {
-	"name": "@valkyriweb/pi-client",
+	"name": "@lue-labs/pi-client",
 	"version": "0.84.4",
 	"description": "Transport-neutral client for remote pi sessions over framed CBOR bytes",
 	"type": "module",
@@ -40,7 +40,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/lue-labs/pi-mono.git",
 		"directory": "packages/client"
 	},
 	"publishConfig": {
@@ -51,7 +51,7 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@valkyriweb/pi-protocol": "0.84.4"
+		"@lue-labs/pi-protocol": "0.84.4"
 	},
 	"devDependencies": {
 		"shx": "0.4.0",

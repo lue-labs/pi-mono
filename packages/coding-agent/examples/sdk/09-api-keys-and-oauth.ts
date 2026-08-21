@@ -4,7 +4,7 @@
  * Configure provider auth through ModelRuntime.
  */
 
-import { createAgentSession, ModelRuntime, SessionManager } from "@valkyriweb/pi-coding-agent";
+import { createAgentSession, ModelRuntime, SessionManager } from "@lue-labs/pi-coding-agent";
 
 const modelRuntime = await ModelRuntime.create();
 const { session: defaultAuthSession } = await createAgentSession({

@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { Text, type TUI, visibleWidth } from "@valkyriweb/pi-tui";
+import { Text, type TUI, visibleWidth } from "@lue-labs/pi-tui";
 import { Type } from "typebox";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { getReadmePath } from "../src/config.ts";

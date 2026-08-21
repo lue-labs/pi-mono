@@ -1,4 +1,4 @@
-import { NOOP_TELEMETRY_CONTEXT, type TelemetryContext } from "@valkyriweb/pi-telemetry";
+import { NOOP_TELEMETRY_CONTEXT, type TelemetryContext } from "@lue-labs/pi-telemetry";
 import { describe, expect, it } from "vitest";
 import { buildBaseOptions } from "../src/api/simple-options.ts";
 import { generateImages } from "../src/images.ts";

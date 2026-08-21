@@ -1,4 +1,4 @@
-import { applyBackgroundToLine, type Component, truncateToWidth } from "@valkyriweb/pi-tui";
+import { applyBackgroundToLine, type Component, truncateToWidth } from "@lue-labs/pi-tui";
 
 const TOOL_PANEL_PADDING_X = 2;
 

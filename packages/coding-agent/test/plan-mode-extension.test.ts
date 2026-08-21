@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import type { AssistantMessage } from "@valkyriweb/pi-ai";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import type { AssistantMessage } from "@lue-labs/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import planModeExtension from "../examples/extensions/plan-mode/index.ts";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/index.ts";

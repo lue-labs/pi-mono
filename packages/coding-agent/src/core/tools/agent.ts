@@ -1,6 +1,6 @@
-import type { AgentTool, AgentToolResult, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { type Api, type Model, StringEnum } from "@valkyriweb/pi-ai";
-import { Container, Spacer, Text } from "@valkyriweb/pi-tui";
+import type { AgentTool, AgentToolResult, ThinkingLevel } from "@lue-labs/pi-agent-core";
+import { type Api, type Model, StringEnum } from "@lue-labs/pi-ai";
+import { Container, Spacer, Text } from "@lue-labs/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { type AgentEngine, getContextAgentEngine } from "../agents/engine.ts";

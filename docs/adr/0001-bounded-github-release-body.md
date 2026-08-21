@@ -6,7 +6,7 @@ Status: Accepted
 
 ## Context
 
-The `Release` workflow publishes the fork's `@valkyriweb/*` packages with
+The `Release` workflow publishes the fork's `@lue-labs/*` packages with
 `changesets/action`. Its default `createGithubReleases: true` builds each
 package's GitHub Release body from that package's `CHANGELOG.md`, by matching a
 heading whose text **equals** the version (`## 0.31.0`).

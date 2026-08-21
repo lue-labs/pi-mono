@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 Run the unit test suite on pull requests, and fix the four regressions it had been hiding.

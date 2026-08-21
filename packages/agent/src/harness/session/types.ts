@@ -1,4 +1,4 @@
-import type { StopReason, Usage } from "@valkyriweb/pi-ai";
+import type { StopReason, Usage } from "@lue-labs/pi-ai";
 import "../messages.ts";
 import type { AgentMessage } from "../../types.ts";
 import type { Session } from "./session.ts";

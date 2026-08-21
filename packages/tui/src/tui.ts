@@ -329,7 +329,7 @@ export interface TUI extends Component {
 	queryTerminalColorScheme(options: { timeoutMs: number }): Promise<TerminalColorScheme | undefined>;
 }
 
-export const VIEWPORT_TUI = Symbol.for("@valkyriweb/pi-tui/viewport");
+export const VIEWPORT_TUI = Symbol.for("@lue-labs/pi-tui/viewport");
 
 export interface ViewportTUI extends TUI {
 	readonly [VIEWPORT_TUI]: true;

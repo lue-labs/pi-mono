@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION } from "@valkyriweb/pi-protocol";
+import { PROTOCOL_VERSION } from "@lue-labs/pi-protocol";
 import { describe, expect, test } from "vitest";
 import { PiClient, PiClientDisposedError } from "../src/index.ts";
 import { attachSession, baseServerSnapshot, connectClient, MemoryByteServer, sessionSnapshot } from "./support.ts";

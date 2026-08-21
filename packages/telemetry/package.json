@@ -1,5 +1,5 @@
 {
-	"name": "@valkyriweb/pi-telemetry",
+	"name": "@lue-labs/pi-telemetry",
 	"version": "0.84.4",
 	"description": "Vendor-neutral telemetry contracts and typed schema utilities for pi",
 	"type": "module",
@@ -34,7 +34,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/lue-labs/pi-mono.git",
 		"directory": "packages/telemetry"
 	},
 	"publishConfig": {

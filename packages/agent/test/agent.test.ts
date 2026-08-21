@@ -1,4 +1,4 @@
-import { type AssistantMessage, type AssistantMessageEvent, EventStream } from "@valkyriweb/pi-ai";
+import { type AssistantMessage, type AssistantMessageEvent, EventStream } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import {

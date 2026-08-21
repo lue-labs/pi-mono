@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { createInterface } from "node:readline";
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
-import { Text } from "@valkyriweb/pi-tui";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
+import { Text } from "@lue-labs/pi-tui";
 import { spawn } from "child_process";
 import { minimatch } from "minimatch";
 import path from "path";

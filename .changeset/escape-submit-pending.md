@@ -1,6 +1,6 @@
 ---
-"@valkyriweb/pi-agent-core": patch
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-agent-core": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 continue pending input after interrupting an active turn

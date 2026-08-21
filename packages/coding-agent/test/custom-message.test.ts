@@ -1,4 +1,4 @@
-import { Text } from "@valkyriweb/pi-tui";
+import { Text } from "@lue-labs/pi-tui";
 import { describe, expect, test } from "vitest";
 import type { MessageRenderer, MessageRenderOptions } from "../src/core/extensions/types.ts";
 import type { CustomMessage } from "../src/core/messages.ts";

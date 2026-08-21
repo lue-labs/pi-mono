@@ -5,7 +5,7 @@ import {
 	type KeyId,
 	TUI_KEYBINDINGS,
 	KeybindingsManager as TuiKeybindingsManager,
-} from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { getAgentDir } from "../config.ts";
@@ -61,7 +61,7 @@ export interface AppKeybindings {
 
 export type AppKeybinding = keyof AppKeybindings;
 
-declare module "@valkyriweb/pi-tui" {
+declare module "@lue-labs/pi-tui" {
 	interface Keybindings extends AppKeybindings {}
 }
 

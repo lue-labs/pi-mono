@@ -1,7 +1,7 @@
 # Releasing
 
 > **Current automation:** releases run through `.github/workflows/release.yml`
-> and Changesets on `main`, publishing the restricted `@valkyriweb/*` scope to
+> and Changesets on `main`, publishing the restricted `@lue-labs/*` scope to
 > GitHub Packages. The older local tag, public-npm OIDC, and WebAuthn paths below
 > are not canonical. Do not run them unless a maintainer explicitly selects the
 > legacy fallback after reviewing it.
@@ -20,10 +20,10 @@ source of truth. Keep the two in sync, and when a step changes, change it here f
 **Lockstep versioning.** All four publishable packages share one version and are
 released together:
 
-- `@valkyriweb/pi-ai`
-- `@valkyriweb/pi-agent-core`
-- `@valkyriweb/pi-tui`
-- `@valkyriweb/pi-coding-agent`
+- `@lue-labs/pi-ai`
+- `@lue-labs/pi-agent-core`
+- `@lue-labs/pi-tui`
+- `@lue-labs/pi-coding-agent`
 
 `patch` = fixes + additions. `minor` = breaking changes. There are no major
 releases.

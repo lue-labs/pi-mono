@@ -1,4 +1,4 @@
-import type { Api, Model } from "@valkyriweb/pi-ai";
+import type { Api, Model } from "@lue-labs/pi-ai";
 
 export interface DeferredToolCapabilities {
 	nativeDeferredTools: boolean;

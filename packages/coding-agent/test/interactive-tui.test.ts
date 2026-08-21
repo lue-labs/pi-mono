@@ -1,5 +1,5 @@
-import type { Component, Terminal, TUI } from "@valkyriweb/pi-tui";
-import { Container, isViewportTUI, Text } from "@valkyriweb/pi-tui";
+import type { Component, Terminal, TUI } from "@lue-labs/pi-tui";
+import { Container, isViewportTUI, Text } from "@lue-labs/pi-tui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import type { TuiMode } from "../src/core/settings-manager.ts";

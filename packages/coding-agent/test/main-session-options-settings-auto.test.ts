@@ -1,4 +1,4 @@
-import type { Model } from "@valkyriweb/pi-ai";
+import type { Model } from "@lue-labs/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { Args } from "../src/cli/args.ts";
 import type { ScopedModel } from "../src/core/model-resolver.ts";

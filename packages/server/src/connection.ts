@@ -1,4 +1,4 @@
-import type { ClientMessageDecoder } from "@valkyriweb/pi-protocol";
+import type { ClientMessageDecoder } from "@lue-labs/pi-protocol";
 
 import type { MaybePromise } from "./types.ts";
 

@@ -1,8 +1,8 @@
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { createInterface } from "node:readline";
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
-import { StringEnum } from "@valkyriweb/pi-ai";
-import { Text } from "@valkyriweb/pi-tui";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
+import { StringEnum } from "@lue-labs/pi-ai";
+import { Text } from "@lue-labs/pi-tui";
 import { spawn } from "child_process";
 import path from "path";
 import { type Static, Type } from "typebox";

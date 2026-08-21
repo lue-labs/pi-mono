@@ -1,4 +1,4 @@
-import { Container, getKeybindings, Spacer, Text } from "@valkyriweb/pi-tui";
+import { Container, getKeybindings, Spacer, Text } from "@lue-labs/pi-tui";
 import { APP_NAME } from "../../../config.ts";
 import { type TerminalTheme, theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";

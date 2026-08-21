@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "@valkyriweb/pi-agent-core";
-import { type AssistantMessage, type AssistantMessageEvent, EventStream, type Model } from "@valkyriweb/pi-ai";
+import { Agent } from "@lue-labs/pi-agent-core";
+import { type AssistantMessage, type AssistantMessageEvent, EventStream, type Model } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";

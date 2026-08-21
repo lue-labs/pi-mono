@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 Fix the `context file @ imports` home-relative test on macOS.

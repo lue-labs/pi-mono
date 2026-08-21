@@ -3,9 +3,9 @@
 	"compilerOptions": {
 		"outDir": "./dist",
 		"paths": {
-			"@valkyriweb/pi-telemetry": ["../telemetry/dist/index.d.ts"],
-			"@valkyriweb/pi-ai": ["../ai/dist/index.d.ts"],
-			"@valkyriweb/pi-ai/*": ["../ai/dist/*.d.ts", "../ai/dist/providers/*.d.ts"]
+			"@lue-labs/pi-telemetry": ["../telemetry/dist/index.d.ts"],
+			"@lue-labs/pi-ai": ["../ai/dist/index.d.ts"],
+			"@lue-labs/pi-ai/*": ["../ai/dist/*.d.ts", "../ai/dist/providers/*.d.ts"]
 		},
 		"rootDir": "./src"
 	},

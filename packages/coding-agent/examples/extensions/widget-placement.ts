@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
 
 export default function widgetPlacementExtension(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {

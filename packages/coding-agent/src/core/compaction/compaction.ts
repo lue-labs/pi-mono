@@ -5,8 +5,8 @@
  * and after compaction the session is reloaded.
  */
 
-import type { AgentMessage, StreamFn, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { contentText, type RetryCallbacks, type RetryPolicy, retryAssistantCall, uuidv7 } from "@valkyriweb/pi-ai";
+import type { AgentMessage, StreamFn, ThinkingLevel } from "@lue-labs/pi-agent-core";
+import { contentText, type RetryCallbacks, type RetryPolicy, retryAssistantCall, uuidv7 } from "@lue-labs/pi-ai";
 import type {
 	AssistantMessage,
 	Context,
@@ -15,8 +15,8 @@ import type {
 	SimpleStreamOptions,
 	Tool,
 	Usage,
-} from "@valkyriweb/pi-ai/compat";
-import { completeSimple } from "@valkyriweb/pi-ai/compat";
+} from "@lue-labs/pi-ai/compat";
+import { completeSimple } from "@lue-labs/pi-ai/compat";
 import { convertToLlm } from "../messages.ts";
 import {
 	buildSessionContext,

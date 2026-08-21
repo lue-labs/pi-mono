@@ -7,7 +7,7 @@ import {
 	encodeServerMessage,
 	PROTOCOL_VERSION,
 	type ServerSnapshot,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import { describe, expect, test } from "vitest";
 import { PiClient } from "../src/index.ts";
 import { createUnixTransportFactory } from "../src/unix.ts";

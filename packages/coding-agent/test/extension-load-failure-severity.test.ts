@@ -143,7 +143,7 @@ describe("extension load failure severity", () => {
 			const diagnostic = extensionLoadDiagnostic(
 				{
 					path: "/repo/.pi/extensions/redraws.ts",
-					error: "Cannot find module '@valkyriweb/pi-tui'",
+					error: "Cannot find module '@lue-labs/pi-tui'",
 					discovered: true,
 				},
 				env,
@@ -152,7 +152,7 @@ describe("extension load failure severity", () => {
 			expect(diagnostic.type).toBe("warning");
 			// Non-fatal must not mean invisible: path and cause both survive.
 			expect(diagnostic.message).toContain("/repo/.pi/extensions/redraws.ts");
-			expect(diagnostic.message).toContain("Cannot find module '@valkyriweb/pi-tui'");
+			expect(diagnostic.message).toContain("Cannot find module '@lue-labs/pi-tui'");
 			expect(diagnostic.message).toContain("Skipped extension");
 		});
 

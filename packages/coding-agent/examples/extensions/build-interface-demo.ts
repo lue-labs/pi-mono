@@ -24,7 +24,7 @@ import {
 	type ExtensionAPI,
 	exampleQuestionsHarness,
 	executeBuildInterface,
-} from "@valkyriweb/pi-coding-agent";
+} from "@lue-labs/pi-coding-agent";
 
 const SINGLE_QUESTION_INPUT: BuildInterfaceInput = {
 	intent: "ask the user which retry strategy to use for the failing job",

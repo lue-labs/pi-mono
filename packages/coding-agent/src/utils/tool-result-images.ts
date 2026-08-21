@@ -1,4 +1,4 @@
-import type { ImageContent, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
+import type { ImageContent, TextContent, ToolReferenceContent } from "@lue-labs/pi-ai";
 import { processImage } from "./image-process.ts";
 
 export type ToolResultContent = TextContent | ImageContent | ToolReferenceContent;

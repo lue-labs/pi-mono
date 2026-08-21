@@ -9,9 +9,9 @@
  * 2. Use /tools to open the tool selector
  */
 
-import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@valkyriweb/pi-coding-agent";
-import { getSettingsListTheme } from "@valkyriweb/pi-coding-agent";
-import { Container, type SettingItem, SettingsList } from "@valkyriweb/pi-tui";
+import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@lue-labs/pi-coding-agent";
+import { getSettingsListTheme } from "@lue-labs/pi-coding-agent";
+import { Container, type SettingItem, SettingsList } from "@lue-labs/pi-tui";
 
 // State persisted to session
 interface ToolsState {

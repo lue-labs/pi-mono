@@ -10,7 +10,7 @@ import { getExtensionModuleSpecifiersForTests } from "../src/core/extensions/loa
 //
 // Regression guard: the 0.80.x model-runtime migration split the deprecated
 // global-dispatch surface into a `/compat` subpath and registered it for the
-// upstream scopes, but omitted `@valkyriweb/pi-ai/compat` from the fork scope in
+// upstream scopes, but omitted `@lue-labs/pi-ai/compat` from the fork scope in
 // BOTH maps. That broke advisor / session-title / idle-return /
 // native-tool-overrides in the compiled daily-driver binary (twice) while every
 // static check (tsgo, build-gate) stayed green — only a compiled-binary boot
@@ -18,9 +18,9 @@ import { getExtensionModuleSpecifiersForTests } from "../src/core/extensions/loa
 
 const { virtualModules, aliases } = getExtensionModuleSpecifiersForTests();
 
-// Fork scope + the two upstream scopes the loader bridges for third-party
-// extensions (@earendil-works current, @mariozechner legacy).
-const SCOPES = ["@valkyriweb", "@earendil-works", "@mariozechner"] as const;
+// Current fork scope, legacy fork scope, and the two upstream scopes bridged
+// for third-party extensions.
+const SCOPES = ["@lue-labs", "@valkyriweb", "@earendil-works", "@mariozechner"] as const;
 
 // Every scope must expose the pi-ai root, its /compat + /oauth subpaths, and the
 // sibling fork packages.
@@ -59,7 +59,7 @@ describe("extension module resolver alias symmetry", () => {
 
 	it("guards the fork-scope /compat subpath that broke the 0.80.x binary", () => {
 		// The exact specifier whose absence from VIRTUAL_MODULES broke the daily driver.
-		expect(binarySpecs.has("@valkyriweb/pi-ai/compat")).toBe(true);
-		expect(nodeSpecs.has("@valkyriweb/pi-ai/compat")).toBe(true);
+		expect(binarySpecs.has("@lue-labs/pi-ai/compat")).toBe(true);
+		expect(nodeSpecs.has("@lue-labs/pi-ai/compat")).toBe(true);
 	});
 });

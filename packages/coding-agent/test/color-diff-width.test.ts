@@ -1,4 +1,4 @@
-import { visibleWidth } from "@valkyriweb/pi-tui";
+import { visibleWidth } from "@lue-labs/pi-tui";
 import { describe, expect, it } from "vitest";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import { renderHunk } from "../src/utils/color-diff.ts";

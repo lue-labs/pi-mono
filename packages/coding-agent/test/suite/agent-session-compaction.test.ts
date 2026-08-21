@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentMessage, AgentTool } from "@valkyriweb/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@lue-labs/pi-agent-core";
 import {
 	type AssistantMessage,
 	type Context,
@@ -10,7 +10,7 @@ import {
 	fauxToolCall,
 	type Model,
 	type ToolResultMessage,
-} from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens, prepareCompaction } from "../../src/core/compaction/index.ts";

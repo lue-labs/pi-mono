@@ -6,10 +6,10 @@ import { createInMemoryModelRegistry, createModelRegistry, getModelRuntime } fro
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentMessage, AgentTool } from "@valkyriweb/pi-agent-core";
-import { Agent } from "@valkyriweb/pi-agent-core";
-import type { FauxModelDefinition, FauxProviderRegistration, FauxResponseStep, Model } from "@valkyriweb/pi-ai/compat";
-import { registerFauxProvider, streamSimple } from "@valkyriweb/pi-ai/compat";
+import type { AgentMessage, AgentTool } from "@lue-labs/pi-agent-core";
+import { Agent } from "@lue-labs/pi-agent-core";
+import type { FauxModelDefinition, FauxProviderRegistration, FauxResponseStep, Model } from "@lue-labs/pi-ai/compat";
+import { registerFauxProvider, streamSimple } from "@lue-labs/pi-ai/compat";
 import { type AgentRunIdentity, AgentSession, type AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import type { ExtensionRunner } from "../../src/core/extensions/index.ts";

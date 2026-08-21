@@ -1,4 +1,4 @@
-import type { Component } from "@valkyriweb/pi-tui";
+import type { Component } from "@lue-labs/pi-tui";
 import { Check } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import type { ExtensionContext } from "../../src/core/extensions/types.ts";

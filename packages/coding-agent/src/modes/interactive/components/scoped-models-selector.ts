@@ -1,4 +1,4 @@
-import type { Model } from "@valkyriweb/pi-ai";
+import type { Model } from "@lue-labs/pi-ai";
 import {
 	Container,
 	type Focusable,
@@ -9,7 +9,7 @@ import {
 	matchesKey,
 	Spacer,
 	Text,
-} from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
 import { getModelSearchText } from "../model-search.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";

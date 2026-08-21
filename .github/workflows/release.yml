@@ -106,12 +106,10 @@ jobs:
 
       - name: Install pi-mono dependencies
         working-directory: pi-mono-fork
-        # Some fork-scoped dependencies resolve from the published @valkyriweb
-        # namespace, so npm ci must authenticate to GitHub Packages.
+        # Fork-scoped dependencies resolve from the organization-owned @lue-labs
+        # namespace, so npm ci authenticates with this repository's token.
         env:
-          # The @valkyriweb packages remain user-owned after this repository
-          # moved to lue-labs, so authenticate with the package-owner PAT.
-          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build packages
@@ -149,8 +147,8 @@ jobs:
           # Must be the App token, not secrets.GITHUB_TOKEN, so the Version
           # Packages PR triggers required PR checks instead of needing --admin.
           GITHUB_TOKEN: ${{ steps.release_pr_token.outputs.token }}
-          # Repository transfer does not move the @valkyriweb package namespace.
-          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+          # Organization-owned packages publish natively with this repository's token.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Cut a GitHub Release per just-published package, with a small body that
       # points at FORK-CHANGELOG.md (never the 400KB upstream changelog), so a
@@ -171,7 +169,7 @@ jobs:
         env:
           PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}
         run: |
-          v=$(node -p "(JSON.parse(process.env.PUBLISHED)||[]).find(p=>p.name==='@valkyriweb/pi-coding-agent')?.version || ''")
+          v=$(node -p "(JSON.parse(process.env.PUBLISHED)||[]).find(p=>p.name==='@lue-labs/pi-coding-agent')?.version || ''")
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
   # Build the 6-platform compiled binaries + a v<version> GitHub Release in the
@@ -184,7 +182,7 @@ jobs:
       contents: write
       packages: read
       # The reusable build-binaries.yml `build` job requests `packages: read`
-      # to install private @valkyriweb packages; caller-job permissions must
+      # to install private @lue-labs packages; caller-job permissions must
       # include every permission any called job requests.
       #
       # The reusable build-binaries.yml `stage-github-release` job requests

@@ -1,4 +1,4 @@
-import { CancellableLoader, Container, Loader, Spacer, Text, type TUI } from "@valkyriweb/pi-tui";
+import { CancellableLoader, Container, Loader, Spacer, Text, type TUI } from "@lue-labs/pi-tui";
 import type { Theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint } from "./keybinding-hints.ts";

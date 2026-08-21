@@ -116,7 +116,7 @@ else
 	log "Step 1/3: npm install ${install_flags[*]:-}"
 	npm install "${install_flags[@]}" || \
 		die "npm install failed" \
-			"If it failed authenticating @valkyriweb/*, check .npmrc and your" \
+			"If it failed authenticating @lue-labs/* or @valkyriweb/*, check .npmrc and your" \
 			"GitHub Packages token (npm config get //npm.pkg.github.com/:_authToken)."
 fi
 
@@ -212,7 +212,7 @@ fi
 # Step 3 — build the workspace packages
 # ---------------------------------------------------------------------------
 # npm links workspace packages but does not build them. Extensions import
-# @valkyriweb/pi-tui/dist etc., so an unbuilt worktree fails at import time.
+# @lue-labs/pi-tui/dist etc., so an unbuilt worktree fails at import time.
 log "Step 3/3: npm run build:offline"
 npm run build:offline || \
 	die "npm run build:offline failed" \

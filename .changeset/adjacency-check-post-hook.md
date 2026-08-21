@@ -1,6 +1,6 @@
 ---
-"@valkyriweb/pi-ai": patch
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-ai": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 Inspect the payload the provider actually receives, and persist bash records the busy-state guard defers.

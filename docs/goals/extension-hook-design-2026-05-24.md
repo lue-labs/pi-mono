@@ -295,7 +295,7 @@ Deferred-tools extraction implemented in this working tree:
 
 Bash bg-job companion extraction implemented in this working tree:
 
-- `BashBgJobStore` / `createBashBgJobStore()` live with the bash tool module and are re-exported from `@valkyriweb/pi-coding-agent`.
+- `BashBgJobStore` / `createBashBgJobStore()` live with the bash tool module and are re-exported from `@lue-labs/pi-coding-agent`.
 - `BASH_BG_JOBS_SERVICE_ID` is exported so extensions can read `pi.getService<BashBgJobStore>(BASH_BG_JOBS_SERVICE_ID)` without string literals.
 - `BashOutput` and `KillShell` are registered by `packages/coding-agent/src/core/extensions/bash-bg-jobs.ts` through `pi.registerTool()`.
 - The bash bg-job store is process-scoped and intentionally survives `/reload`; the built-in extension reaps jobs on session dispose.

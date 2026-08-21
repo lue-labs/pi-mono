@@ -75,9 +75,9 @@ async function importAgentViewModule(specifier: string): Promise<AgentViewModule
 		// Reuse the exact same virtualModules/alias config the main extension
 		// loader uses (getExtensionJitiResolutionOptions()) — without it, this
 		// jiti instance can resolve the entrypoint file itself but not that
-		// file's own `@valkyriweb/pi-coding-agent` / `@valkyriweb/pi-tui` etc.
+		// file's own `@lue-labs/pi-coding-agent` / `@lue-labs/pi-tui` etc.
 		// imports (plain Node resolution has no guarantee a package literally
-		// named e.g. `@valkyriweb/pi-coding-agent` sits in `node_modules` — npm
+		// named e.g. `@lue-labs/pi-coding-agent` sits in `node_modules` — npm
 		// peer-conflict dedup can rename it), so `pi agents` found the package
 		// but then silently failed to actually load its module graph and fell
 		// all the way through to the "requires the pi-agent-view package" error.

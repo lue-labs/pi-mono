@@ -1,4 +1,4 @@
-import { type ByteTransport, type ByteTransportHandlers, PiClient } from "@valkyriweb/pi-client";
+import { type ByteTransport, type ByteTransportHandlers, PiClient } from "@lue-labs/pi-client";
 import {
 	type ClientMessage,
 	ClientMessageDecoder,
@@ -8,7 +8,7 @@ import {
 	type ServerMessage,
 	type ServerSnapshot,
 	type SessionSnapshot,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import { RemoteSession, type RemoteSessionOptions } from "../../src/client/remote-session.ts";
 
 export class MemoryServer {

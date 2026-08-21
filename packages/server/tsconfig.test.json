@@ -6,7 +6,7 @@
 		"moduleResolution": "NodeNext",
 		"types": ["node", "vitest"],
 		"paths": {
-			"@valkyriweb/pi-protocol": ["../protocol/src/index.ts"]
+			"@lue-labs/pi-protocol": ["../protocol/src/index.ts"]
 		}
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts"]

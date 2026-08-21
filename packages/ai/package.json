@@ -1,5 +1,5 @@
 {
-	"name": "@valkyriweb/pi-ai",
+	"name": "@lue-labs/pi-ai",
 	"version": "0.84.4",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
@@ -64,7 +64,7 @@
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.91.1",
 		"@aws-sdk/client-bedrock-runtime": "3.1048.0",
-		"@valkyriweb/pi-telemetry": "^0.84.0",
+		"@lue-labs/pi-telemetry": "^0.84.0",
 		"@google/genai": "1.52.0",
 		"@mistralai/mistralai": "2.2.6",
 		"@opentelemetry/api": "1.9.0",
@@ -89,7 +89,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/lue-labs/pi-mono.git",
 		"directory": "packages/ai"
 	},
 	"engines": {

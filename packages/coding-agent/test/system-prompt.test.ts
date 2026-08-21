@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@valkyriweb/pi-ai";
+import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@lue-labs/pi-ai";
 import { describe, expect, test } from "vitest";
 import { buildSystemPrompt } from "../src/core/system-prompt.ts";
 

@@ -42,7 +42,7 @@ export function strictExtensionsEnabled(env: NodeJS.ProcessEnv = process.env): b
  * Map one extension load failure onto a startup diagnostic.
  *
  * The message text is deliberately unchanged from the underlying loader error
- * (e.g. `Cannot find module '@valkyriweb/pi-tui'`): only the severity differs, so
+ * (e.g. `Cannot find module '@lue-labs/pi-tui'`): only the severity differs, so
  * a skipped extension stays just as visible as a fatal one.
  */
 export function extensionLoadDiagnostic(

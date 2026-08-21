@@ -13,7 +13,7 @@ import type {
 	ToolReferenceContent,
 	ToolResultMessage,
 	Usage,
-} from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
 import type { Static, TSchema } from "typebox";
 
 /**
@@ -313,7 +313,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
  * - "adaptive" is Claude-4.6+ / Sonnet-4.6 only: model self-regulates thinking budget per turn.
  * - "xhigh" is reserved for native xhigh-effort models (Opus 4.7, GPT-5, etc.).
  * - "ultra" is a client orchestration mode mapped to the model's maximum native effort.
- * Use model thinking-level metadata from @valkyriweb/pi-ai to detect support for a concrete model.
+ * Use model thinking-level metadata from @lue-labs/pi-ai to detect support for a concrete model.
  */
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "adaptive";
 

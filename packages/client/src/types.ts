@@ -1,4 +1,4 @@
-import type { ModelRef, ThinkingLevel } from "@valkyriweb/pi-protocol";
+import type { ModelRef, ThinkingLevel } from "@lue-labs/pi-protocol";
 import type { ByteTransportFactory } from "./transport.ts";
 
 export type ConnectionState = "disconnected" | "connecting" | "connected";

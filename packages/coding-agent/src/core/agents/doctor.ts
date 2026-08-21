@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model } from "@valkyriweb/pi-ai";
+import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Api, Model } from "@lue-labs/pi-ai";
 import type { ModelRegistry } from "../model-registry.ts";
 import { parseModelPattern } from "../model-resolver.ts";
 import { loadAgentChainRegistry } from "./chains.ts";

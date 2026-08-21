@@ -23,11 +23,11 @@ export default mergeConfig(
 		resolve: {
 			alias: [
 				{
-					find: /^@valkyriweb\/pi-client$/,
+					find: /^@lue-labs\/pi-client$/,
 					replacement: fileURLToPath(new URL("../client/src/index.ts", import.meta.url)),
 				},
 				{
-					find: /^@valkyriweb\/pi-protocol$/,
+					find: /^@lue-labs\/pi-protocol$/,
 					replacement: fileURLToPath(new URL("../protocol/src/index.ts", import.meta.url)),
 				},
 				{

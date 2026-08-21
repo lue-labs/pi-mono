@@ -1,4 +1,4 @@
-import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionStartEvent } from "../../../src/core/extensions/types.ts";

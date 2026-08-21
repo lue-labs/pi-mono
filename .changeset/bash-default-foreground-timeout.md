@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-coding-agent": patch
+"@lue-labs/pi-coding-agent": patch
 ---
 
 enforce a configurable default foreground timeout for the bash tool

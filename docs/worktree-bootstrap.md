@@ -19,7 +19,7 @@ next. Fixing one only revealed the following one:
 2. A bug in the launcher's install step swallowed the install output, so failure 1
    was invisible. (Fixed on the launcher's side.)
 3. Dependencies installed, but the workspace packages were **unbuilt**. The repo's
-   own dev extensions import `@valkyriweb/pi-tui/dist`, which npm links but never
+   own dev extensions import `@lue-labs/pi-tui/dist`, which npm links but never
    builds.
 4. The build then failed: `packages/ai/src/providers/data/*.json` is generated and
    gitignored, and the manifest it needs is `.manifest.json` — a **dotfile**. A
@@ -51,7 +51,7 @@ Non-fatal does not mean quiet. A skipped extension prints its path and the
 original underlying error:
 
 ```
-Warning: Skipped extension "/repo/.pi/extensions/redraws.ts": Failed to load extension: Cannot find module '@valkyriweb/pi-tui'
+Warning: Skipped extension "/repo/.pi/extensions/redraws.ts": Failed to load extension: Cannot find module '@lue-labs/pi-tui'
 Hint: those extensions were auto-discovered and were skipped, not loaded. Set PI_STRICT_EXTENSIONS=1 to make this fatal.
 ```
 

@@ -1,5 +1,5 @@
-import type { SessionSearch, SessionSearchHit, SessionSearchOptions } from "@valkyriweb/pi-agent-core";
-import { getFileSystemResultOrThrow } from "@valkyriweb/pi-agent-core";
+import type { SessionSearch, SessionSearchHit, SessionSearchOptions } from "@lue-labs/pi-agent-core";
+import { getFileSystemResultOrThrow } from "@lue-labs/pi-agent-core";
 import { applyMigrations } from "./migrations.ts";
 import { decodeSessionMetadata, type SessionRow } from "./storage/sessions.ts";
 import type {

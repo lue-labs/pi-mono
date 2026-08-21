@@ -11,7 +11,7 @@ import {
 	getAgentDir,
 	type PromptTemplate,
 	SessionManager,
-} from "@valkyriweb/pi-coding-agent";
+} from "@lue-labs/pi-coding-agent";
 
 // Define custom templates
 const deployTemplate: PromptTemplate = {

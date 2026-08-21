@@ -11,7 +11,7 @@
  *   /followup And then?   - Sends while Pi is busy with followUp delivery
  */
 
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	// Simple command that sends a user message

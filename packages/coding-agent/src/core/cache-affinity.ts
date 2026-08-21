@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Context, Model } from "@valkyriweb/pi-ai";
+import type { Context, Model } from "@lue-labs/pi-ai";
 
 function hashStableJson(value: unknown): string {
 	return createHash("sha256").update(JSON.stringify(value)).digest("base64url").slice(0, 24);

@@ -2,8 +2,8 @@
  * List available models with optional fuzzy search
  */
 
-import type { Api, Model } from "@valkyriweb/pi-ai";
-import { fuzzyFilter } from "@valkyriweb/pi-tui";
+import type { Api, Model } from "@lue-labs/pi-ai";
+import { fuzzyFilter } from "@lue-labs/pi-tui";
 import chalk from "chalk";
 import { formatNoModelsAvailableMessage } from "../core/auth-guidance.ts";
 import type { ModelRuntime } from "../core/model-runtime.ts";

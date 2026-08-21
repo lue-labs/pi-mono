@@ -50,18 +50,18 @@ function isLockfile(path) {
 }
 
 function isVersionLine(content) {
-	// A package's own version bump or an internal @valkyriweb/* dependency pin bump, e.g.
+	// A package's own version bump or an internal @lue-labs/* dependency pin bump, e.g.
 	//   "version": "0.80.3",
-	//   "@valkyriweb/pi-ai": "0.80.3",
+	//   "@lue-labs/pi-ai": "0.80.3",
 	const semver = String.raw`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?`;
 	return (
 		new RegExp(String.raw`^"version":\s*"${semver}",?$`).test(content) ||
-		new RegExp(String.raw`^"@valkyriweb/[^"]+":\s*"${semver}",?$`).test(content)
+		new RegExp(String.raw`^"@lue-labs/[^"]+":\s*"${semver}",?$`).test(content)
 	);
 }
 
 // A package.json whose diff only bumps the package's own version and/or internal
-// @valkyriweb/* dependency pins is a release-mechanical change (like a lockfile), not a
+// @lue-labs/* dependency pins is a release-mechanical change (like a lockfile), not a
 // documentable surface change — the changesets "version packages" PR (config changelog:
 // false) lands here. Any other changed line (new dep, script, config) still requires a
 // changelog entry.

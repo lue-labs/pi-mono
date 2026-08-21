@@ -1,4 +1,4 @@
-import { visibleWidth } from "@valkyriweb/pi-tui";
+import { visibleWidth } from "@lue-labs/pi-tui";
 
 const RESET = "\x1b[0m";
 const INVERSE = "\x1b[7m";

@@ -1,4 +1,4 @@
-import type { Usage } from "@valkyriweb/pi-ai";
+import type { Usage } from "@lue-labs/pi-ai";
 import { type Static, Type } from "typebox";
 import type { AgentTool, AgentToolResult } from "../../src/types.ts";
 

@@ -8,14 +8,14 @@ The canonical automation is [`.github/workflows/release.yml`](../../.github/work
 
 1. A publishable change includes a Changeset.
 2. A push to `main` lets `changesets/action` create or update the version-packages PR.
-3. Merging that PR publishes restricted `@valkyriweb/*` packages to GitHub Packages through `npm run publish:changesets`.
-4. When `@valkyriweb/pi-coding-agent` is published, the workflow invokes `build-binaries.yml` to build release binaries.
+3. Merging that PR publishes restricted `@lue-labs/pi-*` packages to GitHub Packages through `npm run publish:changesets`.
+4. When `@lue-labs/pi-coding-agent` is published, the workflow invokes `build-binaries.yml` to build release binaries.
 
 Do not follow the legacy local tag/WebAuthn/public-npm flow in `scripts/release.mjs`. Do not run `release:patch`, `release:minor`, `release:major`, or `npm publish` unless the maintainer explicitly chooses the legacy path after reviewing it.
 
-## Known release blocker
+## Current package set
 
-The current release workflow and `.changeset/config.json` still reference the removed `packages/orchestrator` / `@valkyriweb/pi-orchestrator`, while the repository contains additional publishable `@valkyriweb/*` workspaces outside the fixed Changesets group. Treat release preparation as blocked until the workflow, Changesets fixed group, and publishable package manifests are reconciled. Do not guess a package set or version policy.
+The Changesets fixed group must exactly match the nine publishable workspaces: AI, agent core, TUI, telemetry, protocol, client, server, SQLite session backend, and coding agent. Their package identities use the `@lue-labs` organization scope and publish in lockstep. The removed orchestrator workspace is historical and must not be reintroduced.
 
 ## Change records
 

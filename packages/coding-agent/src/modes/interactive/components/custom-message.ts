@@ -1,6 +1,6 @@
-import type { TextContent } from "@valkyriweb/pi-ai";
-import type { Component } from "@valkyriweb/pi-tui";
-import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@valkyriweb/pi-tui";
+import type { TextContent } from "@lue-labs/pi-ai";
+import type { Component } from "@lue-labs/pi-tui";
+import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@lue-labs/pi-tui";
 import type { MessageRenderer } from "../../../core/extensions/types.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";

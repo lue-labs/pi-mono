@@ -1,5 +1,5 @@
 {
-	"name": "@valkyriweb/pi-tui",
+	"name": "@lue-labs/pi-tui",
 	"version": "0.84.4",
 	"description": "Terminal User Interface library with differential rendering for efficient text-based applications",
 	"type": "module",
@@ -37,7 +37,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/lue-labs/pi-mono.git",
 		"directory": "packages/tui"
 	},
 	"engines": {

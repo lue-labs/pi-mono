@@ -1,7 +1,7 @@
 import { join } from "node:path";
-import type { SessionMetadata, SessionRepo } from "@valkyriweb/pi-agent-core";
-import { NodeExecutionEnv } from "@valkyriweb/pi-agent-core/node";
-import { createSessionBackendConformance, type SessionBackendFixture } from "@valkyriweb/pi-agent-core/session/testing";
+import type { SessionMetadata, SessionRepo } from "@lue-labs/pi-agent-core";
+import { NodeExecutionEnv } from "@lue-labs/pi-agent-core/node";
+import { createSessionBackendConformance, type SessionBackendFixture } from "@lue-labs/pi-agent-core/session/testing";
 import { describe, it } from "vitest";
 import { createNodeSqliteFactory, type SqliteSessionMetadata, SqliteSessionRepository } from "../src/index.ts";
 import { createTempDir } from "./test-utils.ts";

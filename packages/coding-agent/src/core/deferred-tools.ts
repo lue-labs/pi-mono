@@ -1,4 +1,4 @@
-import type { ToolReferenceContent } from "@valkyriweb/pi-ai";
+import type { ToolReferenceContent } from "@lue-labs/pi-ai";
 import type { ToolDefinition } from "./extensions/types.ts";
 
 export type DeferredToolReferenceBlock = ToolReferenceContent;

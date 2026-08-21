@@ -1,4 +1,4 @@
-import type { AssistantMessage, ToolResultMessage, Usage, UserMessage } from "@valkyriweb/pi-ai";
+import type { AssistantMessage, ToolResultMessage, Usage, UserMessage } from "@lue-labs/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
 	type EffectiveLaneConfiguration,

@@ -1,4 +1,4 @@
-import { assertJsonSerializable, SessionError } from "@valkyriweb/pi-agent-core";
+import { assertJsonSerializable, SessionError } from "@lue-labs/pi-agent-core";
 import type { SqliteDatabase, SqliteSessionMetadata } from "../types.ts";
 
 export interface SessionRow {

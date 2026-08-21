@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@valkyriweb/pi-coding-agent";
+import type { ExtensionAPI } from "@lue-labs/pi-coding-agent";
 import { Type } from "typebox";
 
 /**

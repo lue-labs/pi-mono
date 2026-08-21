@@ -1,4 +1,4 @@
-import { uuidv7 } from "@valkyriweb/pi-ai";
+import { uuidv7 } from "@lue-labs/pi-ai";
 import { Session } from "./session.ts";
 import { SessionState } from "./state.ts";
 import {

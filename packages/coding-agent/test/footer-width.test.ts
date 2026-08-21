@@ -1,4 +1,4 @@
-import { visibleWidth } from "@valkyriweb/pi-tui";
+import { visibleWidth } from "@lue-labs/pi-tui";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import {

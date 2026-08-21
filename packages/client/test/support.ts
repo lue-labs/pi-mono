@@ -7,7 +7,7 @@ import {
 	type ServerMessage,
 	type ServerSnapshot,
 	type SessionSnapshot,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import type { ByteTransport, ByteTransportHandlers, PiSessionHandle } from "../src/index.ts";
 import { PiClient } from "../src/index.ts";
 

@@ -1,5 +1,5 @@
 ---
-"@valkyriweb/pi-ai": patch
+"@lue-labs/pi-ai": patch
 ---
 
 Stop `cacheRetention: "none"` leaking Codex session affinity to the provider.

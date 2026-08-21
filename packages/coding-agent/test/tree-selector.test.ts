@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import { setKeybindings, visibleWidth } from "@valkyriweb/pi-tui";
+import { setKeybindings, visibleWidth } from "@lue-labs/pi-tui";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type {

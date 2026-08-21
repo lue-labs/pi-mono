@@ -5,8 +5,8 @@
 // wake; a turn starting inside the debounce window cancels the pending wake.
 
 import { appendFileSync } from "node:fs";
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { clearAgentRecentRunsForTests, waitForAgentRecentRun } from "../../src/core/agents/status.ts";

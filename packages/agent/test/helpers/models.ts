@@ -9,8 +9,8 @@
  * self-heals across provider drift and throws a descriptive error if nothing matches.
  */
 
-import { type Api, getSupportedThinkingLevels, type Model, type ModelThinkingLevel } from "@valkyriweb/pi-ai";
-import { type BuiltinProvider, getModels } from "@valkyriweb/pi-ai/compat";
+import { type Api, getSupportedThinkingLevels, type Model, type ModelThinkingLevel } from "@lue-labs/pi-ai";
+import { type BuiltinProvider, getModels } from "@lue-labs/pi-ai/compat";
 
 type ProviderModel<TProvider extends BuiltinProvider> = ReturnType<typeof getModels<TProvider>>[number];
 

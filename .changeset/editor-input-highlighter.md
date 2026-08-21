@@ -1,6 +1,6 @@
 ---
-"@valkyriweb/pi-coding-agent": patch
-"@valkyriweb/pi-tui": patch
+"@lue-labs/pi-coding-agent": patch
+"@lue-labs/pi-tui": patch
 ---
 
 editor: let extensions highlight ranges of the text input

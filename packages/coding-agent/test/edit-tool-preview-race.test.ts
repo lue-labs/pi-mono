@@ -1,4 +1,4 @@
-import type { TUI } from "@valkyriweb/pi-tui";
+import type { TUI } from "@lue-labs/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";

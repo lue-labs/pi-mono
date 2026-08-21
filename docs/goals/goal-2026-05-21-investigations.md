@@ -80,7 +80,7 @@ When OpenClaw spawns a Pi turn and both emitters are active, they write to the *
 
 ### Critical finding: pi is **not** spawned as a subprocess by OpenClaw
 
-OpenClaw integrates pi by **embedding `createAgentSession()`** from `@valkyriweb/pi-coding-agent` directly in-process. There is no `child_process.spawn("pi", …)` from pi-harness.
+OpenClaw integrates pi by **embedding `createAgentSession()`** from `@lue-labs/pi-coding-agent` directly in-process. There is no `child_process.spawn("pi", …)` from pi-harness.
 
 - Integration entry: `~/openclaw/src/agents/pi-embedded-runner/run/attempt.ts:1` (`createAgentSession` import)
 - Auto-discovery disabled: `DefaultResourceLoader` is constructed with `noExtensions: true`. `resource-loader.ts:11`

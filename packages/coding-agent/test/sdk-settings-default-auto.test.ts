@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model } from "@valkyriweb/pi-ai";
+import type { Model } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelRuntime } from "../src/core/model-runtime.ts";
 import { createAgentSession } from "../src/core/sdk.ts";

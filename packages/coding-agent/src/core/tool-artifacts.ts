@@ -26,7 +26,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { ImageContent, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
+import type { ImageContent, TextContent, ToolReferenceContent } from "@lue-labs/pi-ai";
 
 const SUPPORTED_INLINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const TOOL_ARTIFACTS_DIR = ".pi/tool-artifacts";
