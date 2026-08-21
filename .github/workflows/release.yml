@@ -106,8 +106,8 @@ jobs:
 
       - name: Install pi-mono dependencies
         working-directory: pi-mono-fork
-        # packages/orchestrator depends on the published @valkyriweb/pi-coding-agent
-        # (registry, not workspace), so npm ci must authenticate to GitHub Packages.
+        # Some fork-scoped dependencies resolve from the published @valkyriweb
+        # namespace, so npm ci must authenticate to GitHub Packages.
         env:
           # The @valkyriweb packages remain user-owned after this repository
           # moved to lue-labs, so authenticate with the package-owner PAT.
@@ -116,7 +116,11 @@ jobs:
 
       - name: Build packages
         working-directory: pi-mono-fork
-        run: npm --prefix packages/tui run build && npm --prefix packages/ai run build && npm --prefix packages/agent run build && npm --prefix packages/coding-agent run build:ts && npm --prefix packages/orchestrator run build
+        # Keep release ordering aligned with the canonical workspace build. The
+        # hand-maintained list missed telemetry, session-backends, protocol,
+        # client, and server after the upstream workspace expansion, while still
+        # referencing the removed orchestrator package.
+        run: npm run build
 
       - name: Release gate
         working-directory: pi-mono-fork
