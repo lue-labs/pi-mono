@@ -4,6 +4,7 @@ import { getBuiltinAgentDefinitions } from "../src/core/agents/definitions.ts";
 import { resolveAgentDefaults, resolveAgentModel, resolveAgentThinking } from "../src/core/agents/executor.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import type { ModelRegistry } from "../src/core/model-registry.ts";
+import { tierModelCandidatesForParent } from "../src/core/model-resolver.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createInMemoryModelRegistry } from "./model-runtime-test-utils.ts";
 
@@ -310,6 +311,19 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("claude-sonnet-4-6");
 	});
 
+	test('"frontier" alias no longer includes Opus 4.8 fallbacks', () => {
+		expect(tierModelCandidatesForParent({ reference: "frontier", parentProvider: "anthropic" })).toEqual([
+			"claude-opus-5",
+		]);
+		expect(
+			tierModelCandidatesForParent({
+				reference: "frontier",
+				parentProvider: "clawrouter",
+				parentModelId: "claude-sonnet-5",
+			}),
+		).toEqual(["claude-opus-5-200k", "claude-opus-5", "gpt-5.6-sol"]);
+	});
+
 	test('"frontier" alias keeps clawrouter GPT parents on gpt-5.6-sol', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
@@ -322,16 +336,18 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.6-sol");
 	});
 
-	test('"frontier" alias keeps clawrouter Claude parents on claude-opus-4-8-200k', () => {
+	test('"frontier" alias keeps clawrouter Claude parents on claude-opus-5-200k', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
 			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
-			{ id: "claude-opus-4-8-200k", name: "Claude Opus 200k", reasoning: true },
+			{ id: "claude-opus-4-8-200k", name: "Claude Opus 4.8 200k", reasoning: true },
+			{ id: "claude-opus-5", name: "Claude Opus 5", reasoning: true },
+			{ id: "claude-opus-5-200k", name: "Claude Opus 5 200k", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "frontier" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("clawrouter");
-		expect(selected?.id).toBe("claude-opus-4-8-200k");
+		expect(selected?.id).toBe("claude-opus-5-200k");
 	});
 
 	test('"ultra" alias uses fable now and GPT-5.6 for GPT parents when available', () => {

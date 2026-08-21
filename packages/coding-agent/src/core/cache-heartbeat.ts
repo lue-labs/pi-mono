@@ -63,6 +63,7 @@ export interface CacheHeartbeatHost {
 	readonly settingsManager: SettingsManager;
 	readonly agent: Agent;
 	findLastAssistantMessage(): AssistantMessage | undefined;
+	loadDeferredExtensions(): Promise<void>;
 	emit(event: AgentSessionEvent): void;
 }
 
@@ -243,6 +244,7 @@ export class CacheHeartbeatManager {
 		scope: "base" | "session",
 	): Promise<void> {
 		if (this.host.disposed || !this.host.model) return;
+		await this.host.loadDeferredExtensions();
 		this._cacheHeartbeatAbortController?.abort();
 		const abortController = new AbortController();
 		this._cacheHeartbeatAbortController = abortController;
@@ -259,7 +261,7 @@ export class CacheHeartbeatManager {
 		const providerRetrySettings = this.host.settingsManager.getProviderRetrySettings();
 		try {
 			const model = this.host.model;
-			const stream = await this.host.agent.streamFn(model, heartbeatContext, {
+			const stream = await this.host.agent.streamFunction(model, heartbeatContext, {
 				cacheRetention: "long",
 				maxTokens: settings.maxTokens,
 				maxRetries: 0,

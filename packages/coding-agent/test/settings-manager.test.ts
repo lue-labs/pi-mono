@@ -333,25 +333,39 @@ describe("SettingsManager", () => {
 	});
 
 	describe("compaction residentPrune", () => {
-		it("defaults to disabled", () => {
+		it("defaults to enabled", () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings().residentPrune).toBe(true);
+		});
+
+		it("can be disabled with an explicit false setting", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { residentPrune: false } }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			expect(manager.getCompactionSettings().residentPrune).toBe(false);
 		});
 
-		it("can be enabled from settings", () => {
+		it("can be explicitly enabled from settings", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { residentPrune: true } }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			expect(manager.getCompactionSettings().residentPrune).toBe(true);
 		});
 
-		it("can be force-enabled with PI_RESIDENT_SESSION_PRUNE", () => {
+		it("can be force-enabled with PI_RESIDENT_SESSION_PRUNE=1 over an explicit false", () => {
 			vi.stubEnv("PI_RESIDENT_SESSION_PRUNE", "1");
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { residentPrune: false } }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			expect(manager.getCompactionSettings().residentPrune).toBe(true);
+		});
+
+		it("can be force-disabled with PI_RESIDENT_SESSION_PRUNE=0 over the default", () => {
+			vi.stubEnv("PI_RESIDENT_SESSION_PRUNE", "0");
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings().residentPrune).toBe(false);
 		});
 	});
 
@@ -421,6 +435,49 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("TUI mode", () => {
+		it("defaults to regular and persists fullscreen mode", async () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getTuiMode()).toBe("regular");
+
+			manager.setTuiMode("fullscreen");
+			await manager.flush();
+
+			expect(manager.getTuiMode()).toBe("fullscreen");
+			const savedSettings = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8"));
+			expect(savedSettings.tuiMode).toBe("fullscreen");
+		});
+
+		it("falls back to regular for unsupported values", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ tuiMode: "other" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getTuiMode()).toBe("regular");
+		});
+
+		it("does not recognize the old uiMode setting", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ uiMode: "fullscreen" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getTuiMode()).toBe("regular");
+		});
+	});
+
+	it("validates and persists the fullscreen scrollbar mode", async () => {
+		const manager = SettingsManager.create(projectDir, agentDir);
+		expect(manager.getFullscreenScrollbar()).toBe("auto");
+
+		manager.setFullscreenScrollbar("hidden");
+		await manager.flush();
+		expect(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8")).fullscreenScrollbar).toBe("hidden");
+
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ fullscreenScrollbar: "sometimes" }));
+		expect(SettingsManager.create(projectDir, agentDir).getFullscreenScrollbar()).toBe("auto");
+	});
+
 	describe("outputPad", () => {
 		it("should default to 1 and persist binary values", async () => {
 			const manager = SettingsManager.create(projectDir, agentDir);
@@ -441,6 +498,27 @@ describe("SettingsManager", () => {
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			expect(manager.getOutputPad()).toBe(1);
+		});
+	});
+
+	describe("markdown.mermaid", () => {
+		it("defaults to streaming and persists rendering modes", async () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getMermaidRenderingMode()).toBe("streaming");
+
+			manager.setMermaidRenderingMode("final");
+			await manager.flush();
+
+			expect(manager.getMermaidRenderingMode()).toBe("final");
+			const savedSettings = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8"));
+			expect(savedSettings.markdown.mermaid).toBe("final");
+		});
+
+		it("falls back to streaming for unsupported values", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ markdown: { mermaid: "sometimes" } }));
+
+			expect(SettingsManager.create(projectDir, agentDir).getMermaidRenderingMode()).toBe("streaming");
 		});
 	});
 
@@ -501,6 +579,45 @@ describe("SettingsManager", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "~/sessions" }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 			expect(manager.getSessionDir()).toBe(join(homedir(), "sessions"));
+		});
+	});
+
+	describe("getBashTimeoutSeconds", () => {
+		it("should return undefined when not set, leaving the built-in default in place", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getBashTimeoutSeconds()).toBeUndefined();
+		});
+
+		it("should return a configured timeout", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ bashTimeoutSeconds: 900 }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getBashTimeoutSeconds()).toBe(900);
+		});
+
+		it("should return 0 so callers can disable the default timeout", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ bashTimeoutSeconds: 0 }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getBashTimeoutSeconds()).toBe(0);
+		});
+
+		it.each([[-5], ["600"], [Number.NaN]])("should ignore the unusable value %p", (value) => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ bashTimeoutSeconds: value }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getBashTimeoutSeconds()).toBeUndefined();
+		});
+
+		it("should round-trip through the setter", async () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setBashTimeoutSeconds(240);
+			await manager.flush();
+			expect(manager.getBashTimeoutSeconds()).toBe(240);
+			expect(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8")).bashTimeoutSeconds).toBe(240);
+
+			manager.setBashTimeoutSeconds(undefined);
+			expect(manager.getBashTimeoutSeconds()).toBeUndefined();
+			expect(() => manager.setBashTimeoutSeconds(-1)).toThrow(/Invalid bashTimeoutSeconds setting/);
 		});
 	});
 

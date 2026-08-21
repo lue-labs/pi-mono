@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -77,7 +77,11 @@ describe("context file @ imports", () => {
 
 		const result = expand(`@~/${homeImport.slice(homedir().length + 1)}`);
 
-		expect(result.contextFiles[1].path).toBe(homeImport);
+		// The importer reports paths resolved with realpathSync.native (it dedups
+		// imports across roots by real path), so compare the same way: on macOS the
+		// temp HOME lives under /var, a symlink to /private/var. The other cases in
+		// this file build paths under cwd, so only the home-relative one is exposed.
+		expect(result.contextFiles[1].path).toBe(realpathSync.native(homeImport));
 		expect(result.contextFiles[1].content).toBe("home import");
 	});
 

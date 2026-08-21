@@ -35,7 +35,7 @@ gets upstream's `/compat` imports + symbol moves via per-file 3-way too.
   `tool_reference` content block, `TOOL_SEARCH_BETA`/`shouldUseToolSearchBeta`,
   `convertOneTool`/`convertedToolCache`, `modelSupportsDeferredTools`.
 - **Server tools**: `ServerToolSource`, `serverToolUses`, `summarizeServerToolResult`.
-- **Thinking**: `"adaptive"` thinking level (all providers), `stripThinkingFromMessageParams`,
+- **Thinking**: `"adaptive"` thinking level (all providers), `stripThinkingFromLatestAssistantTurn`,
   `isLatestThinkingModifiedError`, small-output thinking-budget guard (#115).
 - **Pause-turn resume**: `MAX_PAUSE_TURN_RESUMES`, `continuationContext`.
 - **Misc**: `advisorModel`, `ANTHROPIC_SUPPORTED_IMAGE_MIME_TYPES`,

@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import { convertMessages } from "../src/api/openai-completions.ts";
 import { getModel, streamSimple } from "../src/compat.ts";
 import type { Api, AssistantMessage, Context, Model, Tool, ToolResultMessage, UserMessage } from "../src/types.ts";
 import { estimateContextTokens } from "../src/utils/estimate.ts";
@@ -13,6 +14,7 @@ interface AnthropicToolPayload {
 interface AnthropicContentBlock {
 	type: string;
 	text?: string;
+	tool_name?: string;
 	tool_use_id?: string;
 	content?: string | Array<{ type: string; tool_name?: string }>;
 	source?: {
@@ -47,6 +49,26 @@ interface OpenAIToolSearchOutput {
 interface OpenAIPayload {
 	tools?: Array<{ name?: string; function?: { name: string } }>;
 	input?: Array<OpenAIToolSearchCall | OpenAIToolSearchOutput | { type?: string }>;
+}
+
+interface KimiTool {
+	type: "function";
+	function: {
+		name: string;
+		description?: string;
+		parameters?: Record<string, unknown>;
+	};
+}
+
+interface KimiMessage {
+	role: string;
+	content?: unknown;
+	tools?: KimiTool[];
+}
+
+interface KimiPayload {
+	tools?: KimiTool[];
+	messages: KimiMessage[];
 }
 
 class PayloadCaptured extends Error {}
@@ -99,6 +121,22 @@ function makeContext(tools: Tool[], addedToolNames = ["late_tool"]): Context {
 	return {
 		messages: [makeUserMessage(1), makeAssistantToolCall(), makeToolResult(addedToolNames), makeUserMessage(4)],
 		tools,
+	};
+}
+
+function makeKimiModel(deferredToolsMode?: "kimi"): Model<"openai-completions"> {
+	return {
+		id: "deferred-tools-model",
+		name: "Deferred Tools Model",
+		api: "openai-completions",
+		provider: "moonshotai",
+		baseUrl: "http://127.0.0.1:9/v1",
+		reasoning: false,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 4096,
+		compat: deferredToolsMode ? { deferredToolsMode } : undefined,
 	};
 }
 
@@ -205,6 +243,81 @@ describe("deferred tools", () => {
 		expect(Array.isArray(content) && content.some((block) => block.type === "tool_reference")).toBe(false);
 	});
 
+	it("drops a transcript assistant tool_reference to a tool missing from this request", async () => {
+		const context = makeContext([makeTool("base_tool")], []);
+		context.messages.push(
+			{
+				...makeAssistantToolCall(),
+				content: [
+					{ type: "text", text: "using tools" },
+					{ type: "tool_reference", name: "ghost_tool" },
+					{ type: "tool_reference", name: "base_tool" },
+				],
+				stopReason: "stop",
+				timestamp: 5,
+			},
+			makeUserMessage(6),
+		);
+
+		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
+
+		const referenced = payload.messages
+			.flatMap((message) => (typeof message.content === "string" ? [] : message.content))
+			.filter((block) => block.type === "tool_reference")
+			.map((block) => block.tool_name);
+		expect(referenced).toEqual(["base_tool"]);
+	});
+
+	it("drops tool-result tool_reference content for tools missing from this request", async () => {
+		const context = makeContext([makeTool("base_tool")], []);
+		const result = context.messages[2] as ToolResultMessage;
+		result.content = [
+			{ type: "text", text: "fetched docs" },
+			{ type: "tool_reference", name: "ghost_tool" },
+		];
+
+		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
+
+		expect(findAnthropicToolResult(payload).content).toBe("fetched docs");
+	});
+
+	it("keeps tool-result tool_reference content for tools present in this request", async () => {
+		const context = makeContext([makeTool("base_tool")], []);
+		const result = context.messages[2] as ToolResultMessage;
+		result.content = [{ type: "tool_reference", name: "base_tool" }];
+
+		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
+
+		expect(findAnthropicToolResult(payload).content).toEqual([{ type: "tool_reference", tool_name: "base_tool" }]);
+	});
+
+	it("keeps OAuth tool references after canonicalizing their serialized names", async () => {
+		const context = makeContext([makeTool("base_tool"), makeTool("read")], []);
+		const result = context.messages[2] as ToolResultMessage;
+		result.content = [{ type: "tool_reference", name: "read" }];
+
+		const payload = await capturePayload<AnthropicPayload>(
+			getModel("anthropic", "claude-opus-4-6"),
+			context,
+			"sk-ant-oat-fake",
+		);
+
+		expect(payload.tools?.map((tool) => tool.name)).toEqual(["base_tool", "Read"]);
+		expect(findAnthropicToolResult(payload).content).toEqual([{ type: "tool_reference", tool_name: "Read" }]);
+	});
+
+	it("replaces a tool result whose content is only unavailable tool references", async () => {
+		const context = makeContext([makeTool("base_tool")], []);
+		const result = context.messages[2] as ToolResultMessage;
+		result.content = [{ type: "tool_reference", name: "ghost_tool" }];
+
+		const payload = await capturePayload<AnthropicPayload>(getModel("anthropic", "claude-opus-4-6"), context);
+
+		expect(findAnthropicToolResult(payload).content).toBe(
+			"[Tool reference removed - tool not available in this request]",
+		);
+	});
+
 	it("keeps a tool immediate when it was used before its marker", async () => {
 		const context = makeContext([makeTool("base_tool"), makeTool("late_tool")]);
 		const assistant = context.messages[1] as AssistantMessage;
@@ -295,6 +408,66 @@ describe("deferred tools", () => {
 		const payload = await capturePayload<AnthropicPayload>(model, context);
 
 		expect(payload.tools?.find((tool) => tool.name === "late_tool")?.defer_loading).toBe(true);
+	});
+
+	it("serializes Kimi deferred tools as system tool definitions", async () => {
+		const context = makeContext([makeTool("base_tool"), makeTool("late_tool")]);
+		const payload = await capturePayload<KimiPayload>(makeKimiModel("kimi"), context);
+
+		expect(payload.tools?.map((tool) => tool.function.name)).toEqual(["base_tool"]);
+		const toolResultIndex = payload.messages.findIndex((message) => message.role === "tool");
+		const systemToolIndex = payload.messages.findIndex((message) => message.tools !== undefined);
+		expect(toolResultIndex).toBeGreaterThanOrEqual(0);
+		expect(systemToolIndex).toBeGreaterThan(toolResultIndex);
+		expect(payload.messages[systemToolIndex]?.tools?.map((tool) => tool.function.name)).toEqual(["late_tool"]);
+	});
+
+	it("emits Kimi deferred schemas after all tool results in a batch", () => {
+		const context = makeContext([makeTool("base_tool"), makeTool("late_tool"), makeTool("later_tool")]);
+		context.messages.splice(3, 0, {
+			...makeToolResult(["later_tool"]),
+			toolCallId: "call_2",
+		});
+
+		const messages = convertMessages(makeKimiModel("kimi"), context, {
+			supportsStore: false,
+			supportsDeveloperRole: false,
+			supportsReasoningEffort: false,
+			supportsUsageInStreaming: true,
+			supportsFinishReason: true,
+			maxTokensField: "max_tokens",
+			requiresToolResultName: false,
+			requiresAssistantAfterToolResult: false,
+			requiresThinkingAsText: false,
+			requiresReasoningContentOnAssistantMessages: false,
+			thinkingFormat: "openai",
+			openRouterRouting: {},
+			vercelGatewayRouting: {},
+			chatTemplateKwargs: {},
+			chatTemplateArgs: {},
+			zaiToolStream: false,
+			supportsStrictMode: false,
+			supportsOpenAIGrammarTools: false,
+			cacheControlFormat: undefined,
+			sendSessionAffinityHeaders: false,
+			deferredToolsMode: "kimi",
+			sessionAffinityFormat: "openai",
+			supportsLongCacheRetention: false,
+		});
+
+		expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "tool", "tool", "system", "user"]);
+		expect((messages[4] as { tools?: KimiTool[] }).tools?.map((tool) => tool.function.name)).toEqual([
+			"late_tool",
+			"later_tool",
+		]);
+	});
+
+	it("leaves OpenAI Completions tools unchanged without Kimi mode", async () => {
+		const context = makeContext([makeTool("base_tool"), makeTool("late_tool")]);
+		const payload = await capturePayload<KimiPayload>(makeKimiModel(), context);
+
+		expect(payload.tools?.map((tool) => tool.function.name)).toEqual(["base_tool", "late_tool"]);
+		expect(payload.messages.some((message) => message.tools !== undefined)).toBe(false);
 	});
 
 	it("loads an OpenAI Responses tool through client tool search", async () => {

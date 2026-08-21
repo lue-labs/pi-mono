@@ -380,6 +380,49 @@ describe("SessionManager resident compaction pruning", () => {
 		expect(treeJson).toContain(branchId);
 	});
 
+	it("rehydrates durable payloads before rewinding into a pruned branch", () => {
+		const tempDir = makeTempDir("resident-prune-rewind");
+		const session = SessionManager.create(tempDir, tempDir);
+		session.appendMessage(userMsg(largeText("rewind user")));
+		const oldAssistantId = session.appendMessage(assistantMsg(largeText("rewind assistant")));
+		const firstKeptId = session.appendMessage(userMsg("kept after rewind point"));
+		session.appendMessage(assistantMsg("kept response"));
+		const compactionId = session.appendCompaction("summary", firstKeptId, 100_000);
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("expected persisted session file");
+		const fileHashBefore = sha256File(sessionFile);
+
+		session.pruneResidentHistoryAfterCompaction(compactionId);
+		expect(entryJson(session, oldAssistantId)).toContain("Resident session payload pruned");
+
+		session.branch(oldAssistantId);
+		expect(JSON.stringify(session.buildSessionContext())).toContain("rewind assistant");
+		expect(entryJson(session, oldAssistantId)).toContain("rewind assistant");
+		expect(sha256File(sessionFile)).toBe(fileHashBefore);
+	});
+
+	it("rehydrates a pruned ancestor when rewinding to a retained entry", () => {
+		const tempDir = makeTempDir("resident-prune-retained-rewind");
+		const session = SessionManager.create(tempDir, tempDir);
+		session.appendMessage(userMsg(largeText("retained rewind user")));
+		session.appendMessage(assistantMsg(largeText("retained rewind assistant")));
+		const firstKeptId = session.appendMessage(userMsg("retained rewind target"));
+		session.appendMessage(assistantMsg("kept response"));
+		const compactionId = session.appendCompaction("summary", firstKeptId, 100_000);
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("expected persisted session file");
+		const fileHashBefore = sha256File(sessionFile);
+
+		session.pruneResidentHistoryAfterCompaction(compactionId);
+		expect(JSON.stringify(session.getBranch(firstKeptId))).toContain("Resident session payload pruned");
+
+		session.branch(firstKeptId);
+		const context = JSON.stringify(session.buildSessionContext());
+		expect(context).toContain("retained rewind assistant");
+		expect(context).not.toContain("Resident session payload pruned");
+		expect(sha256File(sessionFile)).toBe(fileHashBefore);
+	});
+
 	it("handles repeated compaction by stubbing only entries summarized by the latest boundary", () => {
 		const session = SessionManager.inMemory();
 		session.appendMessage(userMsg(largeText("first old user")));

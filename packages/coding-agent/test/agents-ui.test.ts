@@ -10,7 +10,15 @@ import type { AgentRunDetails } from "../src/core/agents/types.ts";
 import { hookAgents, hookAgentsTools, hookAgentsUI } from "../src/core/extensions/agents.ts";
 import { addAction, getActions, load, removeAction } from "../src/core/extensions/extension-hooks.ts";
 import type { ExtensionFooterSpec, ExtensionMainPaneFactory } from "../src/core/extensions/types.ts";
+import { killAllBashBgJobs, spawnBashBackground } from "../src/core/tools/bash.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+
+function spawnPromptStalledBashJob() {
+	const job = spawnBashBackground("sleep 5", process.cwd());
+	if (!job.lifecycle) throw new Error("expected lifecycle state on spawned job");
+	job.lifecycle.promptStalledAt = Date.now();
+	return job;
+}
 
 function createFakePi(options?: { hasMainPane?: (id: string) => boolean; cwd?: string }) {
 	const tools: string[] = [];
@@ -194,7 +202,7 @@ describe("agents UI", () => {
 		expect(pane.render(120).join("\n")).toContain("single");
 	});
 
-	test("footer pill uses a distinct color for needs-attention vs plain running", () => {
+	test("footer pill stays quiet for needs-attention agents; only a real user wait goes loud", () => {
 		const fake = createFakePi();
 		hookAgents(fake.pi as never);
 		const run = startAgentRecentRun("single", [{ agent: "explore", task: "Map files" }], { background: true });
@@ -205,10 +213,22 @@ describe("agents UI", () => {
 		const running = footer?.render({ width: 120, theme: theme as never, selected: false });
 		expect(running).toContain("[dim]");
 
-		markAgentRecentRunNeedsAttention(run, "Should I proceed?");
+		// Needs-attention on a running agent is informational only — Pi agents
+		// have no blocking path, so the pill must not cry wolf.
+		markAgentRecentRunNeedsAttention(run, "No child progress for 10m");
 		const attention = footer?.render({ width: 120, theme: theme as never, selected: false });
-		expect(attention).toContain("[warning]");
-		expect(attention).not.toContain("[dim]");
+		expect(attention).toContain("[dim]");
+		expect(attention).not.toContain("[warning]");
+
+		// A bash job stalled on an interactive prompt is a genuine user wait.
+		try {
+			spawnPromptStalledBashJob();
+			const stalled = footer?.render({ width: 120, theme: theme as never, selected: false });
+			expect(stalled).toContain("[warning]");
+			expect(stalled).not.toContain("[dim]");
+		} finally {
+			killAllBashBgJobs();
+		}
 	});
 
 	test("pane ticks a live elapsed counter while a run is in progress and stops on dispose", () => {
@@ -298,17 +318,22 @@ describe("agents UI", () => {
 			});
 			updateAgentRecentRunProgress(workingRun, { mode: "single", status: "running", runs: [runDetail("running")] });
 
-			const blockedRun = startAgentRecentRun("single", [{ agent: "explore", task: "Blocked task" }], {
-				background: true,
-			});
-			updateAgentRecentRunProgress(blockedRun, { mode: "single", status: "running", runs: [runDetail("running")] });
-			markAgentRecentRunNeedsAttention(blockedRun, "Should I proceed?");
+			// The one real needs-input source: a bash job stalled on a prompt.
+			// Agents (even flagged needs-attention) stay in Working — they have
+			// no blocking path.
+			markAgentRecentRunNeedsAttention(workingRun, "No child progress for 10m");
+			try {
+				spawnPromptStalledBashJob();
 
-			const rendered = renderPane(fake);
-			const needsInputIndex = rendered.indexOf("Needs input");
-			const workingIndex = rendered.indexOf("Working");
-			expect(needsInputIndex).toBeGreaterThan(-1);
-			expect(workingIndex).toBeGreaterThan(needsInputIndex);
+				const rendered = renderPane(fake);
+				const needsInputIndex = rendered.indexOf("Needs input");
+				const workingIndex = rendered.indexOf("Working");
+				expect(needsInputIndex).toBeGreaterThan(-1);
+				expect(workingIndex).toBeGreaterThan(needsInputIndex);
+				expect(rendered.slice(workingIndex).indexOf("Live task")).toBeGreaterThan(-1);
+			} finally {
+				killAllBashBgJobs();
+			}
 		});
 
 		test("bounds the Completed section to at most 6 rows", () => {

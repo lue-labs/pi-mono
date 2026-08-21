@@ -60,6 +60,7 @@ export {
 	type GenerateBranchSummaryOptions,
 	generateBranchSummary,
 	generateSummary,
+	generateSummaryWithUsage,
 	getLastAssistantUsage,
 	prepareBranchEntries,
 	serializeConversation,
@@ -109,6 +110,7 @@ export type {
 	ExtensionFlag,
 	ExtensionFooterSpec,
 	ExtensionHandler,
+	ExtensionLoadError,
 	ExtensionMainPaneAPI,
 	ExtensionMainPaneFactory,
 	ExtensionOverlayAPI,
@@ -129,8 +131,13 @@ export type {
 	KeybindingsManager,
 	LoadExtensionsResult,
 	LsToolCallEvent,
+	MarkdownTransformContext,
+	MarkdownTransformer,
+	MessageEndEvent,
 	MessageRenderer,
 	MessageRenderOptions,
+	MessageStartEvent,
+	MessageUpdateEvent,
 	ProjectTrustContext,
 	ProjectTrustEvent,
 	ProjectTrustEventDecision,
@@ -159,7 +166,10 @@ export type {
 	ToolCallEvent,
 	ToolCallEventResult,
 	ToolDefinition,
+	ToolExecutionEndEvent,
 	ToolExecutionMode,
+	ToolExecutionStartEvent,
+	ToolExecutionUpdateEvent,
 	ToolInfo,
 	ToolRenderResultOptions,
 	ToolResultEvent,
@@ -205,6 +215,8 @@ export {
 } from "./core/model-resolver.ts";
 export {
 	type CreateModelRuntimeOptions,
+	CredentialSynchronizationError,
+	type CredentialSynchronizationOperation,
 	ModelRuntime,
 	type ModelRuntimeAuthOverrides,
 } from "./core/model-runtime.ts";
@@ -287,6 +299,7 @@ export {
 	type RetrySettings,
 	SettingsManager,
 	type SettingsManagerCreateOptions,
+	type TuiMode,
 } from "./core/settings-manager.ts";
 // Skills
 export {
@@ -331,8 +344,17 @@ export {
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools
 export {
+	BASH_BG_DEFAULT_MAX_OUTPUT_BYTES,
+	BASH_BG_MAX_LOG_READ_BYTES,
+	BASH_BG_STALL_TAIL_BYTES,
+	BASH_BG_STALL_THRESHOLD_MS,
+	BASH_BG_WATCHDOG_INTERVAL_MS,
 	type BashBgJob,
+	type BashBgJobKind,
+	type BashBgJobOptions,
 	type BashBgJobStore,
+	type BashBgLifecycleState,
+	type BashBgTerminalReason,
 	type BashOperations,
 	type BashSpawnContext,
 	type BashSpawnHook,
@@ -344,6 +366,7 @@ export {
 	type BuildInterfaceDetails,
 	type BuildInterfaceInput,
 	buildInterfaceSchema,
+	checkBashBgLifecycle,
 	createBashBgJobStore,
 	createBashOutputNativeToolDefinition,
 	createBashToolDefinition,
@@ -390,6 +413,7 @@ export {
 	type LsToolInput,
 	type LsToolOptions,
 	layoutGraphSchema,
+	looksLikeBashBgPrompt,
 	type ModelCaller,
 	nodeSchema,
 	onBashTimeout,
@@ -400,6 +424,7 @@ export {
 	type ReadToolOptions,
 	staticHarness,
 	subscribeBashBgJobs,
+	subscribeBashBgStall,
 	subscribeBashBgTerminal,
 	type ToolsOptions,
 	type TruncationOptions,
@@ -427,6 +452,7 @@ export { type MainOptions, main } from "./main.ts";
 export {
 	InteractiveMode,
 	type InteractiveModeOptions,
+	type JsonAgentSessionEvent,
 	type ModelInfo,
 	type PrintModeOptions,
 	RpcClient,

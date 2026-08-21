@@ -9,11 +9,26 @@ function git(args) {
 	return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
-function changedFiles() {
-	return git(["diff", "--name-only", diffRange])
+function parseNames(output) {
+	return output
 		.split("\n")
 		.map((line) => line.trim())
 		.filter(Boolean);
+}
+
+// Committed range plus anything staged. The staged half matters when this runs from the
+// pre-commit hook: the commit being created is not in HEAD yet, so a range-only view is
+// always one commit behind and the very commit that adds the required changelog entry
+// would be rejected for not having it.
+function changedFiles() {
+	const committed = parseNames(git(["diff", "--name-only", diffRange]));
+	let staged = [];
+	try {
+		staged = parseNames(git(["diff", "--name-only", "--cached"]));
+	} catch {
+		staged = [];
+	}
+	return [...new Set([...committed, ...staged])];
 }
 
 function isChangelog(path) {
@@ -55,6 +70,8 @@ function isVersionOnlyPackageJson(path) {
 	let diff;
 	try {
 		diff = git(["diff", "--unified=0", diffRange, "--", path]);
+		// Staged-only edits are invisible to the range diff (see changedFiles).
+		if (diff.trim() === "") diff = git(["diff", "--unified=0", "--cached", "--", path]);
 	} catch {
 		return false;
 	}
