@@ -1,6 +1,6 @@
 {
 	"name": "@valkyriweb/pi-server",
-	"version": "0.84.4",
+	"version": "0.84.5",
 	"description": "experimental server package for pi",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -50,8 +50,8 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@valkyriweb/pi-ai": "0.84.4",
-		"@valkyriweb/pi-protocol": "0.84.4"
+		"@valkyriweb/pi-ai": "0.84.5",
+		"@valkyriweb/pi-protocol": "0.84.5"
 	},
 	"devDependencies": {
 		"shx": "0.4.0",

@@ -1,6 +1,6 @@
 {
 	"name": "@valkyriweb/pi-session-backend-sqlite-node",
-	"version": "0.84.4",
+	"version": "0.84.5",
 	"description": "Node sqlite session backend for @valkyriweb/pi-agent-core sessions",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -34,8 +34,8 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@valkyriweb/pi-ai": "0.84.4",
-		"@valkyriweb/pi-agent-core": "0.84.4"
+		"@valkyriweb/pi-ai": "0.84.5",
+		"@valkyriweb/pi-agent-core": "0.84.5"
 	},
 	"devDependencies": {
 		"@vitest/coverage-v8": "4.1.9",
