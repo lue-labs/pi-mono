@@ -106,11 +106,17 @@ export const agentToolSchema = Type.Object({
 	chainDir: Type.Optional(Type.String({ description: "Base directory for relative chain outputs" })),
 	background: Type.Optional(
 		Type.Boolean({
+			default: true,
 			description:
-				"Run in the background and return immediately with a run id. Defaults to false (synchronous) — set true for long-running work you don't need the result from immediately.",
+				"Run in the background and return immediately with a run id. Defaults to true; pass false for a synchronous result in this turn.",
 		}),
 	),
-	run_in_background: Type.Optional(Type.Boolean({ description: "Claude Code-compatible alias for background" })),
+	run_in_background: Type.Optional(
+		Type.Boolean({
+			description:
+				"Claude Code-compatible alias for background. Uses the same default and must match background when both are provided.",
+		}),
+	),
 	agentScope: Type.Optional(StringEnum(["user", "project", "both"] as const)),
 });
 
@@ -239,11 +245,12 @@ export function normalizeAgentToolAliases(params: AgentToolInput): AgentToolInpu
 	rejectUnsupportedFutureFields(input);
 	const tasks = coerceTaskList(params.tasks, "tasks");
 	const chain = coerceTaskList(params.chain, "chain");
+	const background = resolveBooleanAlias(input, "background", "run_in_background");
 	return {
 		...params,
 		agent: resolveStringAlias(input, "agent", "subagent_type") ?? params.agent,
 		task: resolveStringAlias(input, "task", "prompt") ?? params.task,
-		background: resolveBooleanAlias(input, "background", "run_in_background") ?? params.background,
+		background: input.action ? background : (background ?? true),
 		tasks: tasks?.map((task) => normalizeAgentTaskAliases(task as AgentTaskParams, "tasks")),
 		chain: chain?.map((task) => normalizeAgentTaskAliases(task as AgentTaskParams, "chain")),
 	};
@@ -847,7 +854,7 @@ export function createAgentToolDefinition(
 		label,
 		description:
 			options?.description ??
-			"Run a Pi Agent task with a selected profile, optionally in parallel, sequentially, or in the background.",
+			"Run a Pi Agent task in the background by default; pass background:false or run_in_background:false for a synchronous result.",
 
 		promptSnippet: "Run an Agent task with bounded tools",
 		promptGuidelines: [
@@ -1007,7 +1014,8 @@ export function createUppercaseAgentToolDefinition(
 		...options,
 		toolName: "Agent",
 		label: "Agent",
-		description: "Run a Pi Agent task through the Claude Code-compatible Agent tool.",
+		description:
+			"Run a Pi Agent task through the Claude Code-compatible Agent tool. Runs in the background by default; pass background:false for a synchronous result in this turn.",
 	});
 }
 
@@ -1023,7 +1031,8 @@ export function createTaskToolDefinition(
 		...options,
 		toolName: "Task",
 		label: "Task",
-		description: "Run a Pi Agent task through the legacy Task alias.",
+		description:
+			"Run a Pi Agent task through the legacy Task alias. Runs in the background by default; pass background:false for a synchronous result in this turn.",
 	});
 }
 
