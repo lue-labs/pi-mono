@@ -1,14 +1,14 @@
-import {
-	type ImageContent,
-	type Message,
-	type Model,
-	type SimpleStreamOptions,
-	streamSimple,
-	type TextContent,
-	type ThinkingBudgets,
-	type Transport,
-} from "@valkyriweb/pi-ai/compat";
+import type {
+	ImageContent,
+	Message,
+	Model,
+	SimpleStreamOptions,
+	TextContent,
+	ThinkingBudgets,
+	Transport,
+} from "@valkyriweb/pi-ai";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
+import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
 	AfterToolCallContext,
 	AfterToolCallResult,
@@ -99,12 +99,13 @@ export interface AgentOptions {
 	initialState?: Partial<Omit<AgentState, "pendingToolCalls" | "isStreaming" | "streamingMessage" | "errorMessage">>;
 	convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
-	streamFn?: StreamFn;
+	streamFn: StreamFn;
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	onPayload?: SimpleStreamOptions["onPayload"];
 	onResponse?: SimpleStreamOptions["onResponse"];
 	beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
+	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext, signal?: AbortSignal) => boolean | Promise<boolean>;
 	prepareNextTurn?: (
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
@@ -112,7 +113,6 @@ export interface AgentOptions {
 		context: PrepareNextTurnContext,
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
-	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
 	steeringMode?: QueueMode;
 	followUpMode?: QueueMode;
 	sessionId?: string;
@@ -161,6 +161,10 @@ class PendingMessageQueue {
 		return [first];
 	}
 
+	prepend(messages: AgentMessage[]): void {
+		this.messages = [...messages, ...this.messages];
+	}
+
 	clear(): void {
 		this.messages = [];
 	}
@@ -186,7 +190,7 @@ export class Agent {
 
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
-	public streamFn: StreamFn;
+	public streamFunction: StreamFn;
 	public getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	public onPayload?: SimpleStreamOptions["onPayload"];
 	public onResponse?: SimpleStreamOptions["onResponse"];
@@ -198,6 +202,11 @@ export class Agent {
 		context: AfterToolCallContext,
 		signal?: AbortSignal,
 	) => Promise<AfterToolCallResult | undefined>;
+	/** Graceful stop hook checked after each turn. See {@link AgentLoopConfig.shouldStopAfterTurn}. */
+	public shouldStopAfterTurn?: (
+		context: ShouldStopAfterTurnContext,
+		signal?: AbortSignal,
+	) => boolean | Promise<boolean>;
 	public prepareNextTurn?: (
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
@@ -205,8 +214,6 @@ export class Agent {
 		context: PrepareNextTurnContext,
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
-	/** Graceful stop hook checked after each turn. See {@link AgentLoopConfig.shouldStopAfterTurn}. */
-	public shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
 	private activeRun?: ActiveRun;
 	/** Session identifier forwarded to providers for cache-aware backends. */
 	public sessionId?: string;
@@ -223,28 +230,30 @@ export class Agent {
 	/** Hard cap on assistant turns per run; undefined = unbounded. See {@link AgentLoopConfig.maxTurns}. */
 	public maxTurns?: number;
 
-	constructor(options: AgentOptions = {}) {
-		this._state = createMutableAgentState(options.initialState);
-		this.convertToLlm = options.convertToLlm ?? defaultConvertToLlm;
-		this.transformContext = options.transformContext;
-		this.streamFn = options.streamFn ?? streamSimple;
-		this.getApiKey = options.getApiKey;
-		this.onPayload = options.onPayload;
-		this.onResponse = options.onResponse;
-		this.beforeToolCall = options.beforeToolCall;
-		this.afterToolCall = options.afterToolCall;
-		this.prepareNextTurn = options.prepareNextTurn;
-		this.prepareNextTurnWithContext = options.prepareNextTurnWithContext;
-		this.shouldStopAfterTurn = options.shouldStopAfterTurn;
-		this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? "one-at-a-time");
-		this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? "one-at-a-time");
-		this.sessionId = options.sessionId;
-		this.cacheAffinityKey = options.cacheAffinityKey;
-		this.thinkingBudgets = options.thinkingBudgets;
-		this.transport = options.transport ?? "auto";
-		this.maxRetryDelayMs = options.maxRetryDelayMs;
-		this.toolExecution = options.toolExecution ?? "parallel";
-		this.maxTurns = options.maxTurns;
+	constructor(options: AgentOptions) {
+		// Older compiled consumers may omit options or streamFn even though the current API requires them.
+		const runtimeOptions: Partial<AgentOptions> = options ?? {};
+		this._state = createMutableAgentState(runtimeOptions.initialState);
+		this.convertToLlm = runtimeOptions.convertToLlm ?? defaultConvertToLlm;
+		this.transformContext = runtimeOptions.transformContext;
+		this.streamFunction = runtimeOptions.streamFn ?? getDefaultStreamFn();
+		this.getApiKey = runtimeOptions.getApiKey;
+		this.onPayload = runtimeOptions.onPayload;
+		this.onResponse = runtimeOptions.onResponse;
+		this.beforeToolCall = runtimeOptions.beforeToolCall;
+		this.afterToolCall = runtimeOptions.afterToolCall;
+		this.shouldStopAfterTurn = runtimeOptions.shouldStopAfterTurn;
+		this.prepareNextTurn = runtimeOptions.prepareNextTurn;
+		this.prepareNextTurnWithContext = runtimeOptions.prepareNextTurnWithContext;
+		this.steeringQueue = new PendingMessageQueue(runtimeOptions.steeringMode ?? "one-at-a-time");
+		this.followUpQueue = new PendingMessageQueue(runtimeOptions.followUpMode ?? "one-at-a-time");
+		this.sessionId = runtimeOptions.sessionId;
+		this.cacheAffinityKey = runtimeOptions.cacheAffinityKey;
+		this.thinkingBudgets = runtimeOptions.thinkingBudgets;
+		this.transport = runtimeOptions.transport ?? "auto";
+		this.maxRetryDelayMs = runtimeOptions.maxRetryDelayMs;
+		this.toolExecution = runtimeOptions.toolExecution ?? "parallel";
+		this.maxTurns = runtimeOptions.maxTurns;
 	}
 
 	/**
@@ -330,6 +339,37 @@ export class Agent {
 		return this.steeringQueue.hasItems() || this.followUpQueue.hasItems();
 	}
 
+	/** Deliver one configured queue unit, preferring steering over follow-up. */
+	async continueQueuedMessage(): Promise<void> {
+		if (this.activeRun) {
+			throw new Error("Agent is already processing. Wait for completion before continuing.");
+		}
+		if (this._state.messages.length === 0) {
+			throw new Error("No messages to continue from");
+		}
+
+		const queuedSteering = this.steeringQueue.drain();
+		if (queuedSteering.length > 0) {
+			try {
+				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
+			} catch (error) {
+				this.steeringQueue.prepend(queuedSteering);
+				throw error;
+			}
+			return;
+		}
+
+		const queuedFollowUps = this.followUpQueue.drain();
+		if (queuedFollowUps.length > 0) {
+			try {
+				await this.runPromptMessages(queuedFollowUps);
+			} catch (error) {
+				this.followUpQueue.prepend(queuedFollowUps);
+				throw error;
+			}
+		}
+	}
+
 	/** Active abort signal for the current run, if any. */
 	get signal(): AbortSignal | undefined {
 		return this.activeRun?.abortController.signal;
@@ -396,15 +436,8 @@ export class Agent {
 		}
 
 		if (lastMessage.role === "assistant") {
-			const queuedSteering = this.steeringQueue.drain();
-			if (queuedSteering.length > 0) {
-				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
-				return;
-			}
-
-			const queuedFollowUps = this.followUpQueue.drain();
-			if (queuedFollowUps.length > 0) {
-				await this.runPromptMessages(queuedFollowUps);
+			if (this.hasQueuedMessages()) {
+				await this.continueQueuedMessage();
 				return;
 			}
 
@@ -453,7 +486,7 @@ export class Agent {
 				this.createLoopConfig(options),
 				(event) => this.processEvents(event),
 				signal,
-				this.streamFn,
+				this.streamFunction,
 			);
 		});
 	}
@@ -465,7 +498,7 @@ export class Agent {
 				this.createLoopConfig(),
 				(event) => this.processEvents(event),
 				signal,
-				this.streamFn,
+				this.streamFunction,
 			);
 		});
 	}
@@ -480,6 +513,7 @@ export class Agent {
 
 	private createLoopConfig(options: { skipInitialSteeringPoll?: boolean } = {}): AgentLoopConfig {
 		let skipInitialSteeringPoll = options.skipInitialSteeringPoll === true;
+		const shouldStopAfterTurn = this.shouldStopAfterTurn;
 		return {
 			model: this._state.model,
 			reasoning: this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel,
@@ -498,6 +532,9 @@ export class Agent {
 			maxTurns: this.maxTurns,
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
+			shouldStopAfterTurn: shouldStopAfterTurn
+				? async (context) => await shouldStopAfterTurn(context, this.signal)
+				: undefined,
 			prepareNextTurn:
 				this.prepareNextTurnWithContext || this.prepareNextTurn
 					? async (context) => {
@@ -507,9 +544,6 @@ export class Agent {
 							return await this.prepareNextTurn?.(this.signal);
 						}
 					: undefined,
-			shouldStopAfterTurn: this.shouldStopAfterTurn
-				? async (context) => (await this.shouldStopAfterTurn?.(context)) ?? false
-				: undefined,
 			convertToLlm: this.convertToLlm,
 			transformContext: this.transformContext,
 			getApiKey: this.getApiKey,

@@ -1,6 +1,7 @@
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stream as streamAzureOpenAIResponses } from "../src/api/azure-openai-responses.ts";
-import type { Context } from "../src/types.ts";
+import type { Context, Model } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 
 interface CapturedAzureClientOptions {
@@ -15,6 +16,7 @@ interface CapturedAzureResponsesPayload {
 	prompt_cache_key?: string;
 	reasoning?: { effort?: string };
 	store?: boolean;
+	tools?: Array<{ strict?: boolean }>;
 }
 
 const azureMock = vi.hoisted(() => ({
@@ -179,6 +181,32 @@ describe("azure-openai-responses base URL normalization", () => {
 		).result();
 
 		expect(azureMock.lastParams?.reasoning?.effort).toBe("max");
+	});
+
+	it("honors supportsStrictMode: false", async () => {
+		const baseModel = pickModel("azure-openai-responses");
+		const model: Model<"azure-openai-responses"> = {
+			...baseModel,
+			compat: { ...baseModel.compat, supportsStrictMode: false },
+		};
+
+		await streamAzureOpenAIResponses(
+			model,
+			{
+				...context,
+				tools: [
+					{
+						name: "preferred",
+						description: "Preferred constrained tool",
+						parameters: Type.Object({ value: Type.String() }),
+						constrainedSampling: { type: "json_schema", strict: "prefer" },
+					},
+				],
+			},
+			{ apiKey: "test-api-key", azureBaseUrl: "https://my-resource.openai.azure.com" },
+		).result();
+
+		expect(azureMock.lastParams?.tools?.[0]).not.toHaveProperty("strict");
 	});
 
 	it("builds correct default URL from AZURE_OPENAI_RESOURCE_NAME", async () => {

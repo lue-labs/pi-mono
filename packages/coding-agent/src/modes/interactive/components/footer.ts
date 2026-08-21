@@ -71,6 +71,8 @@ export class FooterComponent implements Component {
 	private selectedExtensionFooterId: string | undefined = undefined;
 	private renderCacheKey = "";
 	private renderCache: string[] = [];
+	/** Footer pill ids whose callback already reported an error, to report once per id. */
+	private reportedFooterErrors = new Set<string>();
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -111,21 +113,51 @@ export class FooterComponent implements Component {
 		// Git watcher cleanup handled by provider
 	}
 
+	/**
+	 * Report a footer pill callback failure through the extension error stream,
+	 * at most once per pill id, and skip that pill for this render pass. One
+	 * throwing or misbehaving third-party pill must not break the other pills or
+	 * the core footer render loop. Also used by footer-nav visibility probes so
+	 * every caller shares the same once-per-pill dedup.
+	 */
+	reportFooterPillError(id: string, extensionPath: string, err: unknown): void {
+		if (this.reportedFooterErrors.has(id)) return;
+		this.reportedFooterErrors.add(id);
+		this.session.extensionRunner.emitError({
+			extensionPath,
+			event: `footer:${id}`,
+			error: err instanceof Error ? err.message : String(err),
+			stack: err instanceof Error ? err.stack : undefined,
+		});
+	}
+
 	/** Render extension-contributed footer pills at the bottom of the footer. */
 	private renderBackgroundStatusLine(width: number): string | undefined {
 		const parts = this.session.extensionRunner
 			.getRegisteredFooters()
-			.filter(({ spec }) => spec.visible?.() ?? true)
+			.filter(({ id, spec, extensionPath }) => {
+				try {
+					return spec.visible?.() ?? true;
+				} catch (err) {
+					this.reportFooterPillError(id, extensionPath, err);
+					return false;
+				}
+			})
 			.sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0))
-			.map(({ id, spec }) => {
+			.map(({ id, spec, extensionPath }) => {
 				const selected = id === this.selectedExtensionFooterId;
-				const text = sanitizeStatusText(
-					spec.render({
+				let rendered: string;
+				try {
+					rendered = spec.render({
 						width,
 						theme,
 						selected,
-					}),
-				);
+					});
+				} catch (err) {
+					this.reportFooterPillError(id, extensionPath, err);
+					return "";
+				}
+				const text = sanitizeStatusText(rendered);
 				if (!text) return "";
 				return selected ? theme.bg("selectedBg", theme.fg("text", ` ${text} `)) : theme.fg("dim", text);
 			})
@@ -225,7 +257,10 @@ export class FooterComponent implements Component {
 		const pendingAutoModelAlias = this.session.pendingAutoModelAlias;
 		const thinkingLevel = state.thinkingLevel || "off";
 		const providerCount = this.footerData.getAvailableProviderCount();
-		const usingSubscription = state.model ? this.session.modelRegistry.isUsingOAuth(state.model) : false;
+		// Kimi Coding is subscription-backed despite using API-key authentication.
+		const usingSubscription = state.model
+			? state.model.provider === "kimi-coding" || this.session.modelRuntime.isUsingSubscription(state.model.provider)
+			: false;
 		const renderKey = [
 			width,
 			basePwd,

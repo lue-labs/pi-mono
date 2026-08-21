@@ -106,15 +106,21 @@ jobs:
 
       - name: Install pi-mono dependencies
         working-directory: pi-mono-fork
-        # packages/orchestrator depends on the published @valkyriweb/pi-coding-agent
-        # (registry, not workspace), so npm ci must authenticate to GitHub Packages.
+        # Some fork-scoped dependencies resolve from the published @valkyriweb
+        # namespace, so npm ci must authenticate to GitHub Packages.
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The @valkyriweb packages remain user-owned after this repository
+          # moved to lue-labs, so authenticate with the package-owner PAT.
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
         run: npm ci --ignore-scripts
 
       - name: Build packages
         working-directory: pi-mono-fork
-        run: npm --prefix packages/tui run build && npm --prefix packages/ai run build && npm --prefix packages/agent run build && npm --prefix packages/coding-agent run build:ts
+        # Keep release ordering aligned with the canonical workspace build. The
+        # hand-maintained list missed telemetry, session-backends, protocol,
+        # client, and server after the upstream workspace expansion, while still
+        # referencing the removed orchestrator package.
+        run: npm run build
 
       - name: Release gate
         working-directory: pi-mono-fork
@@ -143,7 +149,8 @@ jobs:
           # Must be the App token, not secrets.GITHUB_TOKEN, so the Version
           # Packages PR triggers required PR checks instead of needing --admin.
           GITHUB_TOKEN: ${{ steps.release_pr_token.outputs.token }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Repository transfer does not move the @valkyriweb package namespace.
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
 
       # Cut a GitHub Release per just-published package, with a small body that
       # points at FORK-CHANGELOG.md (never the 400KB upstream changelog), so a

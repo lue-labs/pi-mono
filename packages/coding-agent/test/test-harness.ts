@@ -1,4 +1,4 @@
-import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
+import { createInMemoryModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 /**
  * Test harness for AgentSession runtime testing.
  *
@@ -184,10 +184,8 @@ function chunkString(text: string): string[] {
  * intermediate delta events for each content block.
  */
 function streamWithDeltas(stream: AssistantMessageEventStream, message: AssistantMessage): void {
-	const isError = message.stopReason === "error" || message.stopReason === "aborted";
-
 	// Build partial progressively as we stream content blocks
-	const partial: AssistantMessage = { ...message, content: [] };
+	const partial: AssistantMessage = { ...message, content: [], stopReason: "pending" };
 	stream.push({ type: "start", partial: { ...partial } });
 
 	for (let i = 0; i < message.content.length; i++) {
@@ -243,11 +241,20 @@ function streamWithDeltas(stream: AssistantMessageEventStream, message: Assistan
 		}
 	}
 
-	if (isError) {
-		stream.push({ type: "error", reason: message.stopReason as "error" | "aborted", error: message });
-	} else {
-		stream.push({ type: "done", reason: message.stopReason as "stop" | "length" | "toolUse", message });
+	if (message.stopReason === "pending") {
+		const error: AssistantMessage = {
+			...message,
+			stopReason: "error",
+			errorMessage: "Faux response ended without a stop reason",
+		};
+		stream.push({ type: "error", reason: "error", error });
+		return;
 	}
+	if (message.stopReason === "error" || message.stopReason === "aborted") {
+		stream.push({ type: "error", reason: message.stopReason, error: message });
+		return;
+	}
+	stream.push({ type: "done", reason: message.stopReason, message });
 }
 
 function makeEvent(
@@ -378,7 +385,7 @@ async function createHarnessWithResourceLoader(
 			systemPrompt: options.systemPrompt ?? "You are a test assistant.",
 			tools: options.tools ?? [],
 		},
-		streamFn,
+		streamFn: streamFn,
 	});
 
 	const sessionManager = SessionManager.inMemory();
@@ -388,9 +395,10 @@ async function createHarnessWithResourceLoader(
 		settingsManager.applyOverrides(options.settings);
 	}
 
-	const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-	await authStorage.modify(model.provider, async () => ({ type: "api_key", key: "faux-key" }));
-	const modelRegistry = await createModelRegistry(authStorage, tempDir);
+	const authStorage = AuthStorage.inMemory({
+		[model.provider]: { type: "api_key", key: "faux-key" },
+	});
+	const modelRegistry = await createInMemoryModelRegistry(authStorage);
 	modelRegistry.registerProvider(model.provider, {
 		baseUrl: model.baseUrl,
 		api: model.api,

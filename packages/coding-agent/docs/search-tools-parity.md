@@ -126,6 +126,7 @@ Copy the architecture, not every Claude quirk:
 - `rg` keeps the previous JSON-output argv and remains the portable fallback.
 - `Glob` has shared backend argv builders and now prefers `rg --files --sort=modified`, then controlled/system `bfs`, then `fd`.
 - `bfs` execution intentionally does not add `.gitignore` wrapper filtering, matching observed Claude Code `Glob` behavior. The `fd` fallback remains available and keeps Pi's previous ignore-aware behavior.
+- `Glob` supports `outputMode`/`output_mode` (`paths` default, `count`), `offset`, and `sort` (`name`, `modified`, backend-native `none` default) for token-efficient broad searches and result paging, ported from the `lue/search-tools-improvements` snapshot (originally written against the pre-rename `find.ts`) onto the current rg/bfs/fd `glob.ts` architecture. `grep`'s `outputMode`/`headLimit`/`offset` parity already landed separately; the WIP snapshot's backend-native `-l`/`-c` flag optimization and rg resource-error retry were not ported in this pass — tracked as a follow-up, not required for output-shape parity.
 
 ## Implementation prompt
 

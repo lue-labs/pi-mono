@@ -4,11 +4,19 @@ type ToolNameNormalizer = (name: string) => string;
 
 const identityToolName: ToolNameNormalizer = (name) => name;
 
-/** Split current tools into prefix and transcript-loaded definitions. */
+/**
+ * Split current tools into prefix and transcript-loaded definitions.
+ *
+ * `retainUsed` keeps a transcript-loaded tool in the deferred set even after
+ * the model has called it. Message-anchored inline-schema lanes need this:
+ * the schema already lives in the transcript, and promoting the tool into the
+ * wire `tools[]` on first call would mutate the cached prefix.
+ */
 export function splitDeferredTools(
 	context: Context,
 	enabled: boolean,
 	normalizeName: ToolNameNormalizer = identityToolName,
+	retainUsed = false,
 ): { immediate: Tool[]; deferred: Map<string, Tool> } {
 	const uniqueTools = new Map<string, Tool>();
 	for (const tool of context.tools ?? []) uniqueTools.set(normalizeName(tool.name), tool);
@@ -24,7 +32,7 @@ export function splitDeferredTools(
 		} else if (message.role === "toolResult") {
 			for (const name of message.addedToolNames ?? []) {
 				const normalizedName = normalizeName(name);
-				if (!usedNames.has(normalizedName)) deferredNames.add(normalizedName);
+				if (retainUsed || !usedNames.has(normalizedName)) deferredNames.add(normalizedName);
 			}
 		}
 	}

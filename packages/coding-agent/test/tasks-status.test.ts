@@ -61,7 +61,7 @@ describe("background task status formatting", () => {
 		expect(formatTaskFooterStatus()).toBe("← for agents");
 	});
 
-	test("interrupted and failed tasks need input unless an adapter explicitly overrides them", () => {
+	test("needs-input is an explicit provider claim, never derived from status", () => {
 		const task = {
 			id: "external-1",
 			type: "monitor" as const,
@@ -70,9 +70,10 @@ describe("background task status formatting", () => {
 			startedAt: Date.now(),
 			resumable: true,
 		};
-		expect(taskNeedsInput(task)).toBe(true);
-		expect(taskNeedsInput({ ...task, status: "failed" })).toBe(true);
-		expect(taskNeedsInput({ ...task, needsInput: false })).toBe(false);
+		// Interrupted/failed are settled state, not a user wait.
+		expect(taskNeedsInput(task)).toBe(false);
+		expect(taskNeedsInput({ ...task, status: "failed" as const })).toBe(false);
+		expect(taskNeedsInput({ ...task, needsInput: true })).toBe(true);
 	});
 
 	test("idle state: a fully completed run still keeps the hint visible, with no counts", () => {
@@ -98,27 +99,48 @@ describe("background task status formatting", () => {
 		expect(footer).not.toContain("sleep 5");
 	});
 
-	test("needs-input state: an ordinary interrupted agent reports needs input, not idle", async () => {
+	test("an interrupted agent never reports needs input — Pi agents have no blocking path", async () => {
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runningRunDetail()] });
 		attachAgentRecentRunController(run.id, { interrupt: async () => {} });
 		await interruptAgentRecentRun(run.id);
 
 		const footer = formatTaskFooterStatus();
-		expect(footer).toBe("1 needs input · ← for agents");
-		expect(footer).not.toContain(run.id);
-		expect(footer).not.toContain("scout");
+		expect(footer).not.toContain("needs input");
+		expect(footer).toBe("← for agents");
 	});
 
-	test("attention wins: needs-input takes priority over a simultaneous working count", async () => {
+	test("a failed agent run never reports needs input", () => {
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runningRunDetail()] });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "failed",
+			runs: [{ ...runningRunDetail(), status: "failed", error: "boom" }],
+		});
+
+		expect(LocalAgentTask.snapshot(run.id)?.needsInput).toBe(false);
+		expect(formatTaskFooterStatus()).toBe("← for agents");
+	});
+
+	test("needs-attention on a running agent stays informational — footer keeps the working count", () => {
 		spawnBashBackground("sleep 5", bashTempDir);
 		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
 		updateAgentRecentRunProgress(run, { mode: "single", status: "running", runs: [runningRunDetail()] });
-		markAgentRecentRunNeedsAttention(run, "Should I proceed?");
+		markAgentRecentRunNeedsAttention(run, "No child progress for 10m");
+
+		const footer = formatTaskFooterStatus();
+		expect(footer).toBe("2 working · ← for agents");
+		expect(footer).not.toContain("needs input");
+	});
+
+	test("a bash job stalled on an interactive prompt is the one real needs-input", () => {
+		const job = spawnBashBackground("sleep 5", bashTempDir);
+		if (!job.lifecycle) throw new Error("expected lifecycle state on spawned job");
+		job.lifecycle.promptStalledAt = Date.now();
 
 		const footer = formatTaskFooterStatus();
 		expect(footer).toBe("1 needs input · ← for agents");
-		expect(footer).not.toContain("working");
 	});
 
 	test("persistent parked forks surface as idle, not needs-input", () => {

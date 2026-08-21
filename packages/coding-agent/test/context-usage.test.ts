@@ -7,7 +7,6 @@ import {
 	estimateContextUsageSnapshot,
 	estimateToolSchemaTokens,
 } from "../src/core/context-usage.ts";
-import { createDeferredToolStateEntryData, DEFERRED_TOOL_STATE_CUSTOM_TYPE } from "../src/core/deferred-tools.ts";
 import { hookContextUsage } from "../src/core/extensions/context-usage.ts";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
@@ -425,8 +424,8 @@ describe("AgentSession context usage", () => {
 			id: "state",
 			parentId: null,
 			timestamp: "2026-05-28T00:00:00.000Z",
-			customType: DEFERRED_TOOL_STATE_CUSTOM_TYPE,
-			data: createDeferredToolStateEntryData([stateOnlyTool.name]),
+			customType: "pi.deferred_tools.state",
+			data: { discoveredToolNames: [stateOnlyTool.name] },
 		} as unknown as SessionEntry;
 		const toolReferenceEntry = {
 			...messageEntry(

@@ -42,7 +42,7 @@ function fakeModelRuntime(): ModelRuntime {
 		getModel(provider: string, id: string) {
 			return models.find((model) => model.provider === provider && model.id === id);
 		},
-		getAvailable() {
+		getAvailableSnapshot() {
 			return [sparkModel, codexModel, bridgeModel];
 		},
 		hasConfiguredAuth() {

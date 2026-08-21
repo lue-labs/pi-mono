@@ -1,10 +1,13 @@
 /**
  * Model-facing tool-result hygiene (fork-owned).
  *
- * Two pure boundary filters applied in AgentSession's `afterToolCall` hook:
+ * Two pure boundary filters applied in AgentSession's tool-result lifecycle:
  * - {@link capModelFacingToolResultText}: caps aggregate tool-result text at
  *   100k chars for the model, persisting the full text to
  *   `.pi/tool-results/<toolCallId>-<tool>.txt` and appending a truncation hint.
+ * - {@link capMidRunCompactionToolResultText}: uses a 2k-char preview only
+ *   when a continuing turn is stopped for compaction, so its live tool result
+ *   does not bypass the configured recent-context budget.
  * - {@link replaceUnsupportedToolResultImages}: replaces image blocks whose
  *   MIME type Anthropic cannot inline with a text pointer to a saved artifact
  *   under `.pi/tool-artifacts/`.
@@ -22,13 +25,21 @@
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ImageContent, TextContent, ToolReferenceContent } from "@valkyriweb/pi-ai";
 
 const SUPPORTED_INLINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const TOOL_ARTIFACTS_DIR = ".pi/tool-artifacts";
 const TOOL_RESULT_TEXT_ARTIFACTS_DIR = ".pi/tool-results";
 const MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS = 100_000;
+/** Aggregate text budget for the whole retained parallel tool-result batch. */
+export const MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS = 2_000;
+
+// The ordinary 100k cap and the later mid-run cap see the same content-array
+// identity during an active turn. Retain the artifact selected by the first cap
+// so the latter can safely reuse it; an unknown pre-existing pathname is never
+// assumed to belong to this result.
+const cappedToolResultArtifactPaths = new WeakMap<ToolResultContentBlock[], string>();
 export const MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS = 3 * 1024 * 1024;
 const TOOL_RESULT_IMAGE_OMITTED =
 	"[Image omitted because it exceeds the model-facing image limit. Refer to the saved artifact.]";
@@ -44,39 +55,64 @@ export function capModelFacingToolResultText(
 	toolCallId: string,
 	toolName: string,
 ): ToolResultContentBlock[] | undefined {
+	return capToolResultText(content, cwd, toolCallId, toolName, MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS);
+}
+
+/**
+ * Bound a tool result retained only because a mid-run compaction must resume
+ * from it. The full result remains durable in the session transcript and is
+ * saved as an artifact for the immediate continuation to inspect.
+ */
+export function capMidRunCompactionToolResultText(
+	content: ToolResultContentBlock[],
+	cwd: string,
+	toolCallId: string,
+	toolName: string,
+	maxTextChars = MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS,
+): ToolResultContentBlock[] | undefined {
+	return capToolResultText(content, cwd, toolCallId, toolName, maxTextChars);
+}
+
+function capToolResultText(
+	content: ToolResultContentBlock[],
+	cwd: string,
+	toolCallId: string,
+	toolName: string,
+	maxTextChars: number,
+): ToolResultContentBlock[] | undefined {
 	const totalTextChars = content.reduce((sum, block) => sum + (block.type === "text" ? block.text.length : 0), 0);
-	if (totalTextChars <= MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS) {
+	if (totalTextChars <= maxTextChars) {
 		return undefined;
 	}
 
-	const relativePath = `${TOOL_RESULT_TEXT_ARTIFACTS_DIR}/${sanitizeArtifactName(toolCallId)}-${sanitizeArtifactName(toolName)}.txt`;
-	let saveError: string | undefined;
-	try {
-		const absolutePath = resolve(cwd, relativePath);
-		mkdirSync(dirname(absolutePath), { recursive: true });
-		writeFileSync(
-			absolutePath,
-			content
-				.filter((block): block is TextContent => block.type === "text")
-				.map((block) => block.text)
-				.join("\n\n"),
-			"utf8",
-		);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		saveError = message.slice(0, 500);
-	}
+	const previousArtifactPath = cappedToolResultArtifactPaths.get(content);
+	const artifact = previousArtifactPath
+		? { relativePath: previousArtifactPath }
+		: saveToolResultTextArtifact(
+				content
+					.filter((block): block is TextContent => block.type === "text")
+					.map((block) => block.text)
+					.join("\n\n"),
+				cwd,
+				toolCallId,
+				toolName,
+			);
 
 	const makeHint = (omittedChars: number) =>
-		saveError
-			? `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full-text artifact save failed: ${saveError}.]`
-			: `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full text saved to ${relativePath}.]`;
+		artifact.error
+			? `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full-text artifact save failed: ${artifact.error}.]`
+			: `\n\n[Tool result truncated: ${omittedChars} text chars omitted. Full text saved to ${artifact.relativePath}.]`;
 
 	let omittedChars = 0;
-	let previewBudget = MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS;
+	let previewBudget = maxTextChars;
 	for (let i = 0; i < 3; i++) {
 		const hint = makeHint(omittedChars);
-		previewBudget = Math.max(0, MAX_MODEL_FACING_TOOL_RESULT_TEXT_CHARS - hint.length);
+		if (hint.length > maxTextChars) {
+			// The aggregate budget may be exhausted by earlier parallel results.
+			// Do not leak past it or emit a cut-off artifact claim.
+			return content.filter((block) => block.type !== "text");
+		}
+		previewBudget = maxTextChars - hint.length;
 		const nextOmittedChars = Math.max(0, totalTextChars - previewBudget);
 		if (nextOmittedChars === omittedChars) break;
 		omittedChars = nextOmittedChars;
@@ -105,7 +141,40 @@ export function capModelFacingToolResultText(
 	}
 
 	nextContent.push({ type: "text", text: makeHint(omittedChars) });
+	if (artifact.relativePath) {
+		cappedToolResultArtifactPaths.set(nextContent, artifact.relativePath);
+	}
 	return nextContent;
+}
+
+function saveToolResultTextArtifact(
+	text: string,
+	cwd: string,
+	toolCallId: string,
+	toolName: string,
+): { relativePath?: string; error?: string } {
+	const baseName = `${sanitizeArtifactName(toolCallId)}-${sanitizeArtifactName(toolName)}`;
+	try {
+		const artifactDirectory = resolve(cwd, TOOL_RESULT_TEXT_ARTIFACTS_DIR);
+		mkdirSync(artifactDirectory, { recursive: true });
+		let collisionSuffix: string | undefined;
+		while (true) {
+			const fileName = collisionSuffix ? `${baseName}-${collisionSuffix}.txt` : `${baseName}.txt`;
+			const relativePath = `${TOOL_RESULT_TEXT_ARTIFACTS_DIR}/${fileName}`;
+			try {
+				writeFileSync(resolve(artifactDirectory, fileName), text, { encoding: "utf8", flag: "wx" });
+				return { relativePath };
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+					collisionSuffix = randomUUID();
+					continue;
+				}
+				return { error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) };
+			}
+		}
+	} catch (error) {
+		return { error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) };
+	}
 }
 
 export function replaceOversizedToolResultImages(
@@ -154,16 +223,57 @@ export function stripModelFacingContextImages<T extends object>(messages: T[]): 
 	return replaceContextImages(messages, 0, COMPACTION_IMAGE_OMITTED);
 }
 
-function replaceContextImages<T extends object>(messages: T[], imageBudget: number, placeholder: string): T[] {
+/**
+ * Permanently retires out-of-budget images from STORED session messages.
+ *
+ * The transient provider view ({@link boundModelFacingContextImages}) already
+ * replaces images beyond the newest-first budget with placeholder text on every
+ * request, so those base64 payloads can never reach the model again — but they
+ * stayed resident in `agent.state.messages`/session entries for the process
+ * lifetime (my-pi#1147: multi-GB JS heaps). Because out-of-budget images cost
+ * zero context tokens, they never trigger compaction and accumulate without
+ * bound in long sessions.
+ *
+ * Mutates message content arrays in place with the exact placeholder block the
+ * transient view emits, so provider request bytes are unchanged (cache-neutral:
+ * both this function and the pre-extension-transform provider bound share
+ * {@link collectOverBudgetImageLocations}, so they select the identical block
+ * set) and every holder of the message object observes the same stub. Durable JSONL
+ * is not rewritten: entries are serialized at append time. Branch/copy
+ * operations that re-serialize in-memory entries carry the placeholder,
+ * matching the resident-prune precedent; the original transcript keeps the
+ * full payload.
+ *
+ * @returns number of image blocks retired.
+ */
+export function retireOutOfBudgetContextImages(messages: readonly object[]): number {
+	const locations = collectOverBudgetImageLocations(messages, MAX_MODEL_FACING_CONTEXT_IMAGE_BASE64_CHARS);
+	for (const { messageIndex, blockIndex } of locations) {
+		const content = (messages[messageIndex] as { content: unknown[] }).content;
+		content[blockIndex] = { type: "text", text: CONTEXT_IMAGE_OMITTED };
+	}
+	return locations.length;
+}
+
+/**
+ * The single newest-first image-budget walk. Both the transient provider bound
+ * ({@link replaceContextImages}) and persistent retirement
+ * ({@link retireOutOfBudgetContextImages}) select blocks through this function,
+ * so their replaced sets cannot drift — that identity is what makes persistent
+ * retirement cache-neutral.
+ */
+function collectOverBudgetImageLocations(
+	messages: readonly object[],
+	imageBudget: number,
+): Array<{ messageIndex: number; blockIndex: number }> {
 	let remainingImageChars = imageBudget;
-	let nextMessages: T[] | undefined;
+	const locations: Array<{ messageIndex: number; blockIndex: number }> = [];
 
 	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
 		const message = messages[messageIndex];
-		const content = "content" in message ? message.content : undefined;
+		const content = "content" in message ? (message as { content?: unknown }).content : undefined;
 		if (!Array.isArray(content)) continue;
 
-		let nextContent: unknown[] | undefined;
 		for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
 			const block = content[blockIndex];
 			if (!isImageContent(block)) continue;
@@ -171,18 +281,29 @@ function replaceContextImages<T extends object>(messages: T[], imageBudget: numb
 				remainingImageChars -= block.data.length;
 				continue;
 			}
-
-			nextContent ??= [...content];
-			nextContent[blockIndex] = { type: "text", text: placeholder };
-		}
-
-		if (nextContent) {
-			nextMessages ??= messages.slice();
-			nextMessages[messageIndex] = { ...message, content: nextContent } as T;
+			locations.push({ messageIndex, blockIndex });
 		}
 	}
 
-	return nextMessages ?? messages;
+	return locations;
+}
+
+function replaceContextImages<T extends object>(messages: T[], imageBudget: number, placeholder: string): T[] {
+	const locations = collectOverBudgetImageLocations(messages, imageBudget);
+	if (locations.length === 0) return messages;
+
+	const nextMessages = messages.slice();
+	const copiedContent = new Map<number, unknown[]>();
+	for (const { messageIndex, blockIndex } of locations) {
+		let content = copiedContent.get(messageIndex);
+		if (!content) {
+			content = [...(nextMessages[messageIndex] as unknown as { content: unknown[] }).content];
+			nextMessages[messageIndex] = { ...nextMessages[messageIndex], content } as T;
+			copiedContent.set(messageIndex, content);
+		}
+		content[blockIndex] = { type: "text", text: placeholder };
+	}
+	return nextMessages;
 }
 
 function isImageContent(block: unknown): block is ImageContent {

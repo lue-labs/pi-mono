@@ -4,6 +4,7 @@
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool } from "@valkyriweb/pi-agent-core";
+import { StringEnum } from "@valkyriweb/pi-ai";
 import { type Static, Type } from "typebox";
 import {
 	BASH_MAX_OUTPUT_BYTES,
@@ -22,6 +23,23 @@ export interface BashOutputToolDetails extends BashBgJob {
 }
 
 /**
+ * Size of a background job's log file, or 0 when it cannot be stat'd.
+ *
+ * The log is written by a detached child and reaped independently, so it can be
+ * absent, rotated, or replaced between the read and this call. The size is only
+ * ever rendered into a status header, and every caller already prints the log
+ * path beside it, so a missing file reads as "0.0 KB" rather than failing a
+ * report the caller asked for.
+ */
+function bashBgLogSize(logPath: string): number {
+	try {
+		return statSync(logPath).size;
+	} catch {
+		return 0;
+	}
+}
+
+/**
  * Render a background bash job's status header + bounded log slice — the body
  * of BashOutput, extracted so the task-registry seam (`core/tasks`) can reuse
  * the exact same bash rendering (tail/head/all
@@ -31,14 +49,11 @@ export function renderBashBgOutput(
 	job: BashBgJob,
 	options?: { mode?: "tail" | "head" | "all"; maxLines?: number },
 ): { text: string; fullOutputPath: string } {
-	const { text, shownLines, totalLines, truncated } = readBashBgLog(job, {
+	const { text, shownLines, totalLines, lineCountExact, truncated } = readBashBgLog(job, {
 		mode: options?.mode ?? "tail",
 		maxLines: options?.maxLines ?? 200,
 	});
-	let logSize = 0;
-	try {
-		logSize = statSync(job.logPath).size;
-	} catch {}
+	const logSize = bashBgLogSize(job.logPath);
 	const elapsed = ((job.endedAt ?? Date.now()) - job.startedAt) / 1000;
 	const header =
 		`bgId: ${job.id}\n` +
@@ -46,10 +61,11 @@ export function renderBashBgOutput(
 		(job.status === "exited" ? ` (exit ${job.exitCode})` : "") +
 		(job.status === "killed" && job.signal ? ` (${job.signal})` : "") +
 		(job.status === "failed" && job.error ? ` (${job.error})` : "") +
+		(job.lifecycle?.terminalReason ? `\nreason: ${job.lifecycle.terminalReason}` : "") +
 		`\nelapsed: ${elapsed.toFixed(1)}s\n` +
-		`log: ${job.logPath} (${(logSize / 1024).toFixed(1)} KB, ${totalLines} lines)` +
+		`log: ${job.logPath} (${(logSize / 1024).toFixed(1)} KB, ${lineCountExact ? totalLines : `at least ${totalLines}`} lines)` +
 		(truncated
-			? ` \u2014 showing ${shownLines} of ${totalLines}, capped at ${formatSize(BASH_MAX_OUTPUT_BYTES)}`
+			? ` \u2014 showing ${shownLines}${lineCountExact ? ` of ${totalLines}` : "+"}, capped at ${formatSize(BASH_MAX_OUTPUT_BYTES)}`
 			: "");
 	const body = text || "(no output yet)";
 	return { text: `${header}\n\n${body}`, fullOutputPath: job.logPath };
@@ -90,20 +106,27 @@ export function renderOrphanedBashBgOutput(
 		logPath,
 		endedAt: undefined,
 		error: "registry entry missing; process may have exited or pi may have restarted",
+		lifecycle: {
+			kind: "bash",
+			outputBytes: 0,
+			outputLimitBytes: 0,
+			terminalReason: undefined,
+			promptStalledAt: undefined,
+			promptStallTail: undefined,
+		},
 	};
-	const { text, shownLines, totalLines, truncated } = readBashBgLog(job, {
+	const { text, shownLines, totalLines, lineCountExact, truncated } = readBashBgLog(job, {
 		mode: options?.mode ?? "tail",
 		maxLines: options?.maxLines ?? 200,
 	});
-	let logSize = 0;
-	try {
-		logSize = statSync(logPath).size;
-	} catch {}
+	const logSize = bashBgLogSize(logPath);
 	const header =
 		`bgId: ${id}\n` +
 		`status: registry-missing (persisted log found; exit status/pid unavailable)\n` +
-		`log: ${logPath} (${(logSize / 1024).toFixed(1)} KB, ${totalLines} lines)` +
-		(truncated ? ` — showing ${shownLines} of ${totalLines}, capped at ${formatSize(BASH_MAX_OUTPUT_BYTES)}` : "") +
+		`log: ${logPath} (${(logSize / 1024).toFixed(1)} KB, ${lineCountExact ? totalLines : `at least ${totalLines}`} lines)` +
+		(truncated
+			? ` — showing ${shownLines}${lineCountExact ? ` of ${totalLines}` : "+"}, capped at ${formatSize(BASH_MAX_OUTPUT_BYTES)}`
+			: "") +
 		`\nnext: inspect the log above; if the command may still be running, verify externally (for example with ps) before restarting it.`;
 	const body = text || "(log exists but has no output yet)";
 	return { text: `${header}\n\n${body}`, fullOutputPath: logPath };
@@ -112,7 +135,7 @@ export function renderOrphanedBashBgOutput(
 const bashOutputSchema = Type.Object({
 	bgId: Type.String({ description: "Background job id returned by bash(run_in_background:true)." }),
 	mode: Type.Optional(
-		Type.Union([Type.Literal("tail"), Type.Literal("head"), Type.Literal("all")], {
+		StringEnum(["tail", "head", "all"] as const, {
 			description: "Which slice of the log to return. Default: tail.",
 		}),
 	),

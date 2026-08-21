@@ -7,27 +7,20 @@
 // files the fork actually touched, and filter both tools' findings down to that set.
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const STRICT = process.argv.includes("--strict");
 const UPSTREAM_URL = "https://github.com/earendil-works/pi-mono.git";
+// depcruise hard-errors on a path that isn't on disk, so a package this fork
+// doesn't carry must be dropped rather than break the whole gate.
 const DELTA_GLOBS = [
 	"packages/agent/src",
 	"packages/ai/src",
 	"packages/coding-agent/src",
 	"packages/orchestrator/src",
 	"packages/tui/src",
-];
-const DEPCRUISE_ARGS = [
-	"packages/agent/src",
-	"packages/ai/src",
-	"packages/coding-agent/src",
-	"packages/orchestrator/src",
-	"packages/tui/src",
-	"--config",
-	".dependency-cruiser.cjs",
-	"--output-type",
-	"json",
-];
+].filter((dir) => existsSync(new URL(`../${dir}/`, import.meta.url)));
+const DEPCRUISE_ARGS = [...DELTA_GLOBS, "--config", ".dependency-cruiser.cjs", "--output-type", "json"];
 
 function git(args) {
 	return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });

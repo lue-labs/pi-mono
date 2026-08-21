@@ -3,7 +3,7 @@
  */
 
 import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { type Api, type KnownProvider, type Model, modelsAreEqual } from "@valkyriweb/pi-ai";
+import { type Api, type AuthOperationOptions, type KnownProvider, type Model, modelsAreEqual } from "@valkyriweb/pi-ai";
 import chalk from "chalk";
 import { minimatch } from "minimatch";
 import { isValidThinkingLevel } from "../cli/args.ts";
@@ -55,7 +55,7 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 	anthropic: {
 		fast: ["claude-haiku-4-5"],
 		medium: ["claude-sonnet-4-6"],
-		frontier: ["claude-opus-4-8"],
+		frontier: ["claude-opus-5"],
 		ultra: ["claude-fable-5-200k", "claude-fable-5"],
 	},
 	"amazon-bedrock": {
@@ -68,7 +68,12 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 		fast: ["gpt-5.6-luna"],
 		medium: ["gpt-5.6-terra"],
 		frontier: ["gpt-5.6-sol"],
-		ultra: ["gpt-5.6"],
+		// No ultra tier: OpenAI ships the 5.6 family as luna/terra/sol only, and a
+		// bare "gpt-5.6" has never existed in the catalog (left behind by 65eb88a7e
+		// when 5.4/5.5 were retired). Empty means "fall back to the parent model",
+		// as with google/xai/bedrock; aliasing ultra to sol would quietly make ultra
+		// a synonym for frontier.
+		ultra: [],
 	},
 	// Direct Codex does not yet advertise GPT-5.6 in its built-in catalog.
 	"openai-codex": {
@@ -81,7 +86,8 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 		fast: ["gpt-5.6-luna"],
 		medium: ["gpt-5.6-terra"],
 		frontier: ["gpt-5.6-sol"],
-		ultra: ["gpt-5.6"],
+		// Same as `openai` above: no bare "gpt-5.6" in the Azure catalog either.
+		ultra: [],
 	},
 	// Copilot likewise needs a catalog-backed, non-retired fallback.
 	"github-copilot": {
@@ -120,13 +126,13 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 	"claude-bridge": {
 		fast: ["claude-haiku-4-5"],
 		medium: ["claude-sonnet-5", "claude-sonnet-4-6"],
-		frontier: ["claude-opus-4-8-200k", "claude-opus-4-8"],
+		frontier: ["claude-opus-5-200k", "claude-opus-5"],
 		ultra: ["claude-fable-5-200k", "claude-fable-5"],
 	},
 	clawrouter: {
 		fast: ["gpt-5.6-luna", "claude-haiku-4-5"],
 		medium: ["gpt-5.6-terra", "gpt-5.3-codex-spark", "claude-sonnet-5", "claude-sonnet-4-6"],
-		frontier: ["gpt-5.6-sol", "claude-opus-4-8-200k", "claude-opus-4-8"],
+		frontier: ["gpt-5.6-sol", "claude-opus-5-200k", "claude-opus-5"],
 		ultra: ["gpt-5.6", "claude-fable-5-200k", "claude-fable-5"],
 	},
 };
@@ -150,7 +156,7 @@ const modelFamilyTierCandidatesByProvider: Record<
 			candidates: {
 				fast: ["claude-haiku-4-5"],
 				medium: ["claude-sonnet-5", "claude-sonnet-4-6"],
-				frontier: ["claude-opus-4-8-200k", "claude-opus-4-8"],
+				frontier: ["claude-opus-5-200k", "claude-opus-5"],
 				ultra: ["claude-fable-5-200k", "claude-fable-5"],
 			},
 		},
@@ -186,7 +192,7 @@ export const mediumModelPerProvider: Record<string, string> = firstCandidatePerP
 export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	"amazon-bedrock": "us.anthropic.claude-opus-4-6-v1",
 	"ant-ling": "Ring-2.6-1T",
-	anthropic: "claude-opus-4-8",
+	anthropic: "claude-opus-5",
 	openai: "gpt-5.6-sol",
 	"azure-openai-responses": "gpt-5.6-sol",
 	"openai-codex": "gpt-5.3-codex-spark",
@@ -198,7 +204,7 @@ export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	"github-copilot": "gpt-5.3-codex",
 	openrouter: "moonshotai/kimi-k2.6",
 	"vercel-ai-gateway": "zai/glm-5.1",
-	xai: "grok-4.20-0309-reasoning",
+	xai: "grok-4.5",
 	groq: "openai/gpt-oss-120b",
 	cerebras: "zai-glm-4.7",
 	zai: "glm-5.1",
@@ -211,11 +217,14 @@ export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	huggingface: "moonshotai/Kimi-K2.6",
 	fireworks: "accounts/fireworks/models/kimi-k2p6",
 	together: "moonshotai/Kimi-K2.6",
+	baseten: "zai-org/GLM-5.2",
 	opencode: "kimi-k2.6",
 	"opencode-go": "kimi-k2.6",
 	"kimi-coding": "kimi-for-coding",
 	"cloudflare-workers-ai": "@cf/moonshotai/kimi-k2.6",
 	"cloudflare-ai-gateway": "workers-ai/@cf/moonshotai/kimi-k2.6",
+	"qwen-token-plan": "qwen3.7-max",
+	"qwen-token-plan-cn": "qwen3.7-max",
 	xiaomi: "mimo-v2.5-pro",
 	"xiaomi-token-plan-cn": "mimo-v2.5-pro",
 	"xiaomi-token-plan-ams": "mimo-v2.5-pro",
@@ -410,6 +419,12 @@ export function parseModelPattern(
 		return result;
 	} else {
 		// Invalid suffix
+		// A provider-qualified reference must never degrade into a *different*
+		// model by shedding its suffix: `openai/gpt-4o:extended` resolving to
+		// `gpt-4o` silently answers with a model the caller did not ask for.
+		if (pattern.includes("/")) {
+			return { model: undefined, thinkingLevel: undefined, warning: undefined };
+		}
 		const allowFallback = options?.allowInvalidThinkingLevelFallback ?? true;
 		if (!allowFallback) {
 			// In strict mode (CLI --model parsing), treat it as part of the model id and fail.
@@ -443,6 +458,7 @@ export function parseModelPattern(
  */
 export interface ModelScopeDiagnostic {
 	type: "warning";
+	code: "no-match" | "invalid-thinking-level";
 	message: string;
 	pattern: string;
 }
@@ -452,11 +468,11 @@ export interface ResolveModelScopeResult {
 	diagnostics: ModelScopeDiagnostic[];
 }
 
-export async function resolveModelScopeWithDiagnostics(
+export function resolveModelScopeFromModels(
 	patterns: string[],
-	modelRuntime: ModelRuntime,
-): Promise<ResolveModelScopeResult> {
-	const availableModels = [...(await modelRuntime.getAvailable())];
+	models: readonly Model<Api>[],
+): ResolveModelScopeResult {
+	const availableModels = [...models];
 	const scopedModels: ScopedModel[] = [];
 	const diagnostics: ModelScopeDiagnostic[] = [];
 
@@ -476,6 +492,14 @@ export async function resolveModelScopeWithDiagnostics(
 				}
 			}
 
+			const exactMatch = findExactModelReferenceMatch(globPattern, availableModels);
+			if (exactMatch) {
+				if (!scopedModels.find((sm) => modelsAreEqual(sm.model, exactMatch))) {
+					scopedModels.push({ model: exactMatch, thinkingLevel });
+				}
+				continue;
+			}
+
 			// Match against "provider/modelId" format OR just model ID
 			// This allows "*sonnet*" to match without requiring "anthropic/*sonnet*"
 			const matchingModels = availableModels.filter((m) => {
@@ -484,7 +508,12 @@ export async function resolveModelScopeWithDiagnostics(
 			});
 
 			if (matchingModels.length === 0) {
-				diagnostics.push({ type: "warning", message: `No models match pattern "${pattern}"`, pattern });
+				diagnostics.push({
+					type: "warning",
+					code: "no-match",
+					message: `No models match pattern "${pattern}"`,
+					pattern,
+				});
 				continue;
 			}
 
@@ -499,11 +528,16 @@ export async function resolveModelScopeWithDiagnostics(
 		const { model, thinkingLevel, warning } = parseModelPattern(pattern, availableModels);
 
 		if (warning) {
-			diagnostics.push({ type: "warning", message: warning, pattern });
+			diagnostics.push({ type: "warning", code: "invalid-thinking-level", message: warning, pattern });
 		}
 
 		if (!model) {
-			diagnostics.push({ type: "warning", message: `No models match pattern "${pattern}"`, pattern });
+			diagnostics.push({
+				type: "warning",
+				code: "no-match",
+				message: `No models match pattern "${pattern}"`,
+				pattern,
+			});
 			continue;
 		}
 
@@ -516,8 +550,20 @@ export async function resolveModelScopeWithDiagnostics(
 	return { scopedModels, diagnostics };
 }
 
-export async function resolveModelScope(patterns: string[], modelRuntime: ModelRuntime): Promise<ScopedModel[]> {
-	const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(patterns, modelRuntime);
+export async function resolveModelScopeWithDiagnostics(
+	patterns: string[],
+	modelRuntime: ModelRuntime,
+	options?: AuthOperationOptions,
+): Promise<ResolveModelScopeResult> {
+	return resolveModelScopeFromModels(patterns, await modelRuntime.getAvailable(undefined, options));
+}
+
+export async function resolveModelScope(
+	patterns: string[],
+	modelRuntime: ModelRuntime,
+	options?: AuthOperationOptions,
+): Promise<ScopedModel[]> {
+	const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(patterns, modelRuntime, options);
 	for (const diagnostic of diagnostics) {
 		console.warn(chalk.yellow(`Warning: ${diagnostic.message}`));
 	}
@@ -607,13 +653,42 @@ export function resolveCliModel(options: {
 
 	// If no provider was inferred from the slash, try exact matches without provider inference.
 	// This handles models whose IDs naturally contain slashes (e.g. OpenRouter-style IDs).
+	// Bare exact IDs can exist in multiple providers, so do not choose by catalog order.
+	// Prefer the sole authenticated provider when there is one; otherwise require an
+	// explicit provider to avoid silently selecting an unusable provider.
 	if (!provider) {
 		const lower = cliModel.toLowerCase();
-		const exact = availableModels.find(
+		const exactMatches = availableModels.filter(
 			(m) => m.id.toLowerCase() === lower || `${m.provider}/${m.id}`.toLowerCase() === lower,
 		);
-		if (exact) {
-			return { model: exact, warning: undefined, thinkingLevel: undefined, error: undefined };
+		if (exactMatches.length === 1) {
+			return { model: exactMatches[0], warning: undefined, thinkingLevel: undefined, error: undefined };
+		}
+		if (exactMatches.length > 1) {
+			const authenticatedExactMatches = exactMatches.filter((m) => modelRuntime.hasConfiguredAuth(m.provider));
+			if (authenticatedExactMatches.length === 1) {
+				return {
+					model: authenticatedExactMatches[0],
+					warning: undefined,
+					thinkingLevel: undefined,
+					error: undefined,
+				};
+			}
+
+			const matches = exactMatches
+				.map((m) => `${m.provider}/${m.id}`)
+				.sort((a, b) => a.localeCompare(b))
+				.join(", ");
+			const authHint =
+				authenticatedExactMatches.length === 0
+					? "No matching provider is authenticated."
+					: "More than one matching provider is authenticated.";
+			return {
+				model: undefined,
+				warning: undefined,
+				thinkingLevel: undefined,
+				error: `Model "${cliModel}" is ambiguous across providers: ${matches}. ${authHint} Use --provider or provider/model.`,
+			};
 		}
 	}
 
@@ -796,7 +871,7 @@ export async function findInitialModel(options: {
 	}
 
 	// 4. Try first available model with valid API key
-	const availableModels = [...(await modelRuntime.getAvailable())];
+	const availableModels = [...modelRuntime.getAvailableSnapshot()];
 
 	if (availableModels.length > 0) {
 		// Try to find a default model from known providers
@@ -857,7 +932,7 @@ export async function restoreModelFromSession(
 	}
 
 	// Try to find any available model
-	const availableModels = [...(await modelRuntime.getAvailable())];
+	const availableModels = [...modelRuntime.getAvailableSnapshot()];
 
 	if (availableModels.length > 0) {
 		// Try to find a default model from known providers

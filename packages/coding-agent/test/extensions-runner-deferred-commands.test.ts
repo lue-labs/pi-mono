@@ -81,6 +81,7 @@ describe("ExtensionRunner deferred extension commands", () => {
 			throw new Error("forkAgent not implemented in test runner");
 		},
 		transcriptAppend: () => {},
+		getScopedModels: () => [],
 	};
 
 	const createRunner = (result: LoadExtensionsResult): ExtensionRunner => {
