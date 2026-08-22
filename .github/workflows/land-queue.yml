@@ -5,20 +5,26 @@ name: Land Queue
 #
 # Processes the oldest labeled PR at a time:
 #   conflict            → eject: swap label to `needs-rebase`, comment
-#   behind main         → update-branch via CRAFT_PUSH_PAT (re-triggers checks), wait
+#   behind main         → update-branch via App-minted write token (re-triggers checks), wait
 #   required check fail → one auto-rerun (`land-retried` applied only after the rerun
 #                         is verified to exist — #850 defect C), then eject `land-failed`
 #   checks pending      → wait for the next wake
 #   checks DEAD (none runnable ≥ grace period after a head change — e.g. a bot-
-#   credential push left them action_required) → one PAT empty-commit self-heal
-#   (`ci-retrigger [land-queue]` marker), then eject `needs-attention` (#850 defect B)
+#   credential push left them action_required) → one empty-commit self-heal via the
+#   App-minted write token (`ci-retrigger [land-queue]` marker), then eject `needs-attention` (#850 defect B)
 #   green + up to date  → refresh head/base/enrollment/checks, expected-head
 #                         merge, then advance to the next queued PR
 #
 # Stateless/idempotent: every wake re-derives queue state from labels + API.
 # Serialization: `concurrency` group + head-of-queue-only processing.
-# Credential: CRAFT_PUSH_PAT (user PAT) so update-branch merge commits re-run
-# checks with auto-approval — GITHUB_TOKEN pushes would suppress them.
+# Credential: a short-lived GitHub App installation token (valkyriweb-clawsweeper
+# App, scoped down to contents:write + pull-requests:write on this repo only via
+# create-github-app-token's permission-* inputs) so update-branch merge commits
+# re-run checks with auto-approval — GITHUB_TOKEN pushes would suppress them.
+# Minted fresh every run — replaces the fine-grained CRAFT_PUSH_PAT user PAT,
+# which the lue-labs org's 366-day PAT lifetime policy rejected after the
+# valkyriweb -> lue-labs transfer (#498). App installation tokens are exempt
+# from that policy and expire in ~1h regardless, so this never needs rotation.
 # Docs: docs/land-queue.md
 
 on:
@@ -35,6 +41,10 @@ on:
 
 permissions: {}
 
+env:
+  HAS_CLAWSWEEPER_APP_PRIVATE_KEY: ${{ secrets.CLAWSWEEPER_APP_PRIVATE_KEY != '' }}
+  CLAWSWEEPER_APP_CLIENT_ID: Iv23lirdjmVqYd1gwY26
+
 concurrency:
   group: land-queue
   cancel-in-progress: false
@@ -47,21 +57,21 @@ jobs:
     timeout-minutes: 10
     permissions:
       # Split-token: GITHUB_TOKEN does the READS (it can see check/status state;
-      # the fine-grained CRAFT_PUSH_PAT cannot — it lacks checks/statuses/contents
-      # read, only pull-requests:write). PAT does the WRITES (update-branch, merge,
-      # labels) because GITHUB_TOKEN pushes are suppressed by loop-prevention.
+      # the App-minted write token deliberately cannot — it's scoped to only
+      # contents:write + pull-requests:write). The App token does the WRITES
+      # (update-branch, merge, labels) because GITHUB_TOKEN pushes are
+      # suppressed by loop-prevention.
       contents: read
       pull-requests: read
       checks: read
       statuses: read
-      # write: flake reruns (`gh run rerun`) use GITHUB_TOKEN — the fine-grained
-      # PAT has no actions scope, so PAT reruns 403'd silently forever (#850 C).
-      # Reruns re-execute an existing run (no new event), so loop-prevention
-      # does not suppress them.
+      # write: flake reruns (`gh run rerun`) use GITHUB_TOKEN — the App-minted
+      # write token has no actions scope by design, so PAT-equivalent reruns
+      # would 403 silently forever (#850 C). Reruns re-execute an existing run
+      # (no new event), so loop-prevention does not suppress them.
       actions: write
     env:
       GH_TOKEN: ${{ github.token }}   # default: reads + run reruns
-      PAT: ${{ secrets.CRAFT_PUSH_PAT }} # writes, via GH_TOKEN="$PAT" prefix
       GH_REPO: ${{ github.repository }}
       REQUIRED_CHECKS: "check fork-safety-check gate review"
       # Dead-checks watchdog (#850 B): if a queued head has had NO runnable
@@ -71,7 +81,26 @@ jobs:
       DEAD_CHECKS_GRACE_MINS: "10"
       RETRIGGER_MARKER: "ci-retrigger [land-queue]"
     steps:
+      - name: Require Land Queue write-token GitHub App secret
+        if: env.HAS_CLAWSWEEPER_APP_PRIVATE_KEY != 'true'
+        run: |
+          echo "::error::CLAWSWEEPER_APP_PRIVATE_KEY is required to mint the Land Queue's write token (contents+pull-requests, scoped to this repo). See lue-labs/pi-mono#498."
+          exit 1
+
+      - name: Mint Land Queue write token (GitHub App)
+        id: land_queue_app_token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          client-id: ${{ env.CLAWSWEEPER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CLAWSWEEPER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Process queue head
+        env:
+          PAT: ${{ steps.land_queue_app_token.outputs.token }} # writes, via GH_TOKEN="$PAT" prefix — short-lived App installation token, minted above (#498)
         run: |
           set -euo pipefail
 
