@@ -11,5 +11,6 @@ and merges (merge commit) in queue order. Ejects come back as
 `needs-rebase` / `land-failed` labels.
 
 Canonical docs + smoke harness: `my-pi/docs/land-queue.md`
-(template repo: `valkyriweb/my-pi`). Push credential: `CRAFT_PUSH_PAT`
-(fine-grained PAT, pull-requests/contents/workflows write on this repo).
+(template repo: `valkyriweb/my-pi`). Push credential: a short-lived GitHub
+App installation token (valkyriweb-clawsweeper App), minted per run and
+scoped to contents/pull-requests write on this repo only (see #498).
