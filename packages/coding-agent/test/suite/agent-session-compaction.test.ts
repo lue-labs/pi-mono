@@ -1668,6 +1668,64 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.session.messages.at(-1)?.role).toBe("toolResult");
 	});
 
+	it("compacts before continuing queued work after a terminal tool batch crosses the threshold", async () => {
+		let harness: Harness;
+		const finishAndQueueTool: AgentTool = {
+			name: "goal_finish_and_queue",
+			label: "Goal finish and queue",
+			description: "Finish the goal while queuing follow-up work",
+			parameters: Type.Object({ note: Type.Optional(Type.String()) }),
+			execute: async () => {
+				harness.session.agent.followUp({
+					role: "user",
+					content: [{ type: "text", text: "queued follow-up" }],
+					timestamp: Date.now(),
+				});
+				return {
+					content: [{ type: "text", text: "goal finished" }],
+					details: {},
+					terminate: true,
+				};
+			},
+		};
+		harness = await createHarness({
+			tools: [finishAndQueueTool],
+			models: [{ id: "faux-1", contextWindow: 200_000 }],
+			settings: { compaction: { reserveTokens: 199_000, keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "queued continuation summary",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("goal_finish_and_queue", { note: "done ".repeat(2_000) }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("done after queued continuation"),
+		]);
+
+		await harness.session.prompt("finish the goal");
+
+		const compactionEntries = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
+		expect(compactionEntries).toHaveLength(1);
+		expect(harness.getPendingResponseCount()).toBe(0);
+		expect(getUserTexts(harness)).toContain("queued follow-up");
+		const assistantTexts = harness.session.messages
+			.filter((message) => message.role === "assistant")
+			.map((message) => getMessageText(message));
+		expect(assistantTexts).toContain("done after queued continuation");
+	});
+
 	it("keeps defer semantics when an over-threshold run ends naturally", async () => {
 		const harness = await createHarness({
 			models: [{ id: "faux-1", contextWindow: 200_000 }],

@@ -131,7 +131,7 @@ export interface ShouldStopAfterTurnContext {
 	/**
 	 * Whether this turn's tool batch leaves the run with more model work: the assistant
 	 * made tool calls and no terminal tool (`result.terminate`) ended the batch, so the
-	 * loop will start another provider request. Independent of queued steering/follow-up
+	 * loop would otherwise start another provider request. Independent of queued steering/follow-up
 	 * messages, which can still continue the run when this is false.
 	 */
 	hasMoreToolCalls: boolean;
