@@ -1199,6 +1199,82 @@ describe("agentLoop with AgentMessage", () => {
 		]);
 	});
 
+	it("reports hasMoreToolCalls to shouldStopAfterTurn, false for a terminal tool batch", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				return {
+					content: [{ type: "text", text: `echoed: ${params.value}` }],
+					details: { value: params.value },
+				};
+			},
+		};
+		const finishTool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "finish",
+			label: "Finish",
+			description: "Terminal tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				return {
+					content: [{ type: "text", text: "finished" }],
+					details: { value: params.value },
+					terminate: true,
+				};
+			},
+		};
+
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool, finishTool] };
+		const observed: boolean[] = [];
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+			shouldStopAfterTurn: async ({ hasMoreToolCalls }) => {
+				observed.push(hasMoreToolCalls);
+				return false;
+			},
+		};
+
+		let llmCalls = 0;
+		const stream = agentLoop([createUserMessage("run then finish")], context, config, undefined, () => {
+			llmCalls++;
+			const mockStream = new MockAssistantStream();
+			queueMicrotask(() => {
+				if (llmCalls === 1) {
+					mockStream.push({
+						type: "done",
+						reason: "toolUse",
+						message: createAssistantMessage(
+							[{ type: "toolCall", id: "tool-1", name: "echo", arguments: { value: "hello" } }],
+							"toolUse",
+						),
+					});
+				} else {
+					mockStream.push({
+						type: "done",
+						reason: "toolUse",
+						message: createAssistantMessage(
+							[{ type: "toolCall", id: "tool-2", name: "finish", arguments: { value: "bye" } }],
+							"toolUse",
+						),
+					});
+				}
+			});
+			return mockStream;
+		});
+
+		for await (const _event of stream) {
+			// consume
+		}
+
+		expect(llmCalls).toBe(2);
+		// Turn 1's echo batch keeps the run going; turn 2's terminal finish batch does not.
+		expect(observed).toEqual([true, false]);
+	});
+
 	it("should stop after maxTurns assistant turns even if the model keeps calling tools", async () => {
 		const toolSchema = Type.Object({ value: Type.String() });
 		const executed: string[] = [];

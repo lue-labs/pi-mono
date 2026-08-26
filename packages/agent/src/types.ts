@@ -128,6 +128,13 @@ export interface ShouldStopAfterTurnContext {
 	context: AgentContext;
 	/** Messages that this loop invocation will return if it exits at this point. Prompt runs include the initial prompt messages; continuation runs do not include pre-existing context messages. */
 	newMessages: AgentMessage[];
+	/**
+	 * Whether this turn's tool batch leaves the run with more model work: the assistant
+	 * made tool calls and no terminal tool (`result.terminate`) ended the batch, so the
+	 * loop will start another provider request. Independent of queued steering/follow-up
+	 * messages, which can still continue the run when this is false.
+	 */
+	hasMoreToolCalls: boolean;
 }
 
 /** Replacement runtime state used by the agent loop before starting another provider request. */
