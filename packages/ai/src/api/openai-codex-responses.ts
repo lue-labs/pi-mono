@@ -30,7 +30,6 @@ import { registerSessionResourceCleanup } from "../session-resources.ts";
 import type {
 	Api,
 	AssistantMessage,
-	CacheRetention,
 	Context,
 	Model,
 	ProviderEnv,
@@ -42,6 +41,7 @@ import type {
 } from "../types.ts";
 import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { combineAbortSignals } from "../utils/abort-signals.ts";
+import { resolveCacheRetention } from "../utils/cache-retention.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import {
 	appendAssistantMessageDiagnostic,
@@ -52,7 +52,6 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
-import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
@@ -600,21 +599,6 @@ export {
 	buildSSEHeaders as _buildSSEHeadersForTests,
 	buildWebSocketHeaders as _buildWebSocketHeadersForTests,
 };
-
-/**
- * Resolve cache retention preference.
- * Defaults to "long"; set PI_CACHE_RETENTION=short or PI_CACHE_RETENTION=none to override process-wide.
- */
-function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
-	if (cacheRetention) {
-		return cacheRetention;
-	}
-	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
-	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
-		return envRetention;
-	}
-	return "long";
-}
 
 function buildRequestBody(
 	model: Model<"openai-codex-responses">,

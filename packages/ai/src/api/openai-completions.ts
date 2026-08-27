@@ -21,7 +21,6 @@ import type {
 	Message,
 	Model,
 	OpenAICompletionsCompat,
-	ProviderEnv,
 	ProviderHeaders,
 	SimpleStreamOptions,
 	StopReason,
@@ -35,12 +34,12 @@ import type {
 	ToolResultMessage,
 } from "../types.ts";
 import { stripSystemPromptDynamicBoundary } from "../types.ts";
+import { resolveCacheRetention } from "../utils/cache-retention.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
-import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import {
@@ -187,17 +186,6 @@ type ChatCompletionTextPartWithCacheControl = ChatCompletionContentPartText & {
 type ChatCompletionToolWithCacheControl = OpenAI.Chat.Completions.ChatCompletionTool & {
 	cache_control?: OpenAICompatCacheControl;
 };
-
-function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
-	if (cacheRetention) {
-		return cacheRetention;
-	}
-	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
-	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
-		return envRetention;
-	}
-	return "long";
-}
 
 export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptions> = (
 	model: Model<"openai-completions">,
