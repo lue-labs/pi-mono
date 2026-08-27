@@ -29,12 +29,12 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
+import { resolveCacheRetention } from "../utils/cache-retention.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
-import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
@@ -60,21 +60,6 @@ import {
 } from "./simple-options.ts";
 import { repairToolUseAdjacency, reportToolUseAdjacencyViolations } from "./tool-use-adjacency.ts";
 import { transformMessages } from "./transform-messages.ts";
-
-/**
- * Resolve cache retention preference.
- * Defaults to "long"; set PI_CACHE_RETENTION=short or PI_CACHE_RETENTION=none to override process-wide.
- */
-function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
-	if (cacheRetention) {
-		return cacheRetention;
-	}
-	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
-	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
-		return envRetention;
-	}
-	return "long";
-}
 
 function getCacheControl(
 	model: Model<"anthropic-messages">,

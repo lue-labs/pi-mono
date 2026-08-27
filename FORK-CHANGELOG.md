@@ -8,6 +8,7 @@ Release numbers track the fork's GitHub Packages releases, versioned in lockstep
 
 ### Changed
 
+- **Cache-retention resolution is shared by all six AI provider adapters.** The refactor keeps each adapter's existing explicit, environment, and backend-default behavior in one `packages/ai` utility, including the Codex `cacheRetention: "none"` provider-state gate from PR #428.
 - **Changesets publishing now reuses the canonical release build instead of concurrently rerunning destructive package lifecycle builds.** The nine-package organization-scope release exposed a race: parallel `prepublishOnly` scripts cleaned shared dependency declarations while client, server, and agent-core were compiling, leaving six packages published and three failed. The release workflow already completed the ordered root build and gates, so the publish command now sets npm's `ignore-scripts` config; retries skip immutable versions already present and publish the remaining artifacts from the verified build.
 
 - **Version-only release PRs now recognize caret/tilde internal dependency range bumps as release mechanics.** Changesets updates `^0.x` workspace ranges alongside exact lockstep pins; the changelog gate no longer misclassifies that generated package metadata as undocumented source behavior.
