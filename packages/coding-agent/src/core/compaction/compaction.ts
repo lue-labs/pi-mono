@@ -610,6 +610,20 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
+/**
+ * Returns an error message when a summarization response cannot safely be persisted.
+ * A length stop contains partial text and must not become a session checkpoint.
+ */
+export function getSummarizationFailure(response: AssistantMessage, label: string): string | undefined {
+	if (response.stopReason === "error") {
+		return `${label} failed: ${response.errorMessage || "Unknown error"}`;
+	}
+	if (response.stopReason === "length") {
+		return `${label} failed: generation hit the token cap and the summary is incomplete`;
+	}
+	return undefined;
+}
+
 function createSummarizationOptions(
 	model: Model<any>,
 	maxTokens: number,
@@ -765,8 +779,9 @@ export async function generateSummaryWithUsage(
 
 	const response = await completeSummarization(model, context, completionOptions, streamFn, retry, callbacks);
 
-	if (response.stopReason === "error") {
-		throw new Error(`Summarization failed: ${response.errorMessage || "Unknown error"}`);
+	const failure = getSummarizationFailure(response, "Summarization");
+	if (failure) {
+		throw new Error(failure);
 	}
 
 	const textContent = contentText(response.content);
@@ -916,13 +931,14 @@ export async function compact(
 	headers?: Record<string, string>,
 	customInstructions?: string,
 	signal?: AbortSignal,
-	thinkingLevel?: ThinkingLevel,
+	_thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
 	env?: Record<string, string>,
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 	cacheSafeContext?: CacheSafeCompactionContext,
 ): Promise<CompactionResult> {
+	const compactionThinkingLevel: ThinkingLevel = "off";
 	const {
 		firstKeptEntryId,
 		messagesToSummarize,
@@ -951,7 +967,7 @@ export async function compact(
 				signal,
 				customInstructions,
 				previousSummary,
-				thinkingLevel,
+				compactionThinkingLevel,
 				streamFn,
 				env,
 				retry,
@@ -969,7 +985,7 @@ export async function compact(
 			headers,
 			env,
 			signal,
-			thinkingLevel,
+			compactionThinkingLevel,
 			streamFn,
 			retry,
 			callbacks,
@@ -989,7 +1005,7 @@ export async function compact(
 			signal,
 			customInstructions,
 			previousSummary,
-			thinkingLevel,
+			compactionThinkingLevel,
 			streamFn,
 			env,
 			retry,
@@ -1059,8 +1075,9 @@ async function generateTurnPrefixSummary(
 		callbacks,
 	);
 
-	if (response.stopReason === "error") {
-		throw new Error(`Turn prefix summarization failed: ${response.errorMessage || "Unknown error"}`);
+	const failure = getSummarizationFailure(response, "Turn prefix summarization");
+	if (failure) {
+		throw new Error(failure);
 	}
 
 	return {
