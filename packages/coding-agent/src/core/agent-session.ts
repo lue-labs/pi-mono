@@ -826,14 +826,17 @@ export class AgentSession {
 		// before it ends — the post-run check defers threshold compaction to the
 		// next prompt. Stop the loop at the turn boundary instead;
 		// _handlePostAgentRun then compacts and resumes the interrupted run.
-		// Runs ending naturally (no more work) keep the defer semantics.
-		this.agent.shouldStopAfterTurn = ({ message, toolResults }) => {
+		// Runs ending naturally (no more work) keep the defer semantics — including
+		// a terminal tool batch (e.g. a goal_finish-style tool sets terminate):
+		// its tool results end the run rather than continuing it, so stopping for
+		// compaction here would compact after completion and resume a finished run.
+		this.agent.shouldStopAfterTurn = ({ message, toolResults, hasMoreToolCalls }) => {
 			if (this._extensionStopAfterTurnReason !== undefined) {
 				this._extensionStopAfterTurnReason = undefined;
 				return true;
 			}
 
-			if (toolResults.length === 0 && !this.agent.hasQueuedMessages()) return false;
+			if (!hasMoreToolCalls && !this.agent.hasQueuedMessages()) return false;
 			const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
 			if (!settings.enabled) return false;
 			const contextWindow = this.model?.contextWindow ?? 0;
