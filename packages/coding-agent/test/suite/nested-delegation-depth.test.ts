@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { type Context, fauxAssistantMessage, fauxText, fauxToolCall } from "@lue-labs/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../../src/core/agent-session.ts";
@@ -257,6 +259,92 @@ describe("agent tool suite: nested delegation depth", () => {
 		expect(resumeContext).toContain("## Course correction from the calling agent");
 		expect(resumeContext).toMatch(/`agent` tool is available/i);
 		expect((resumedSession as unknown as { _agentToolServices?: unknown })?._agentToolServices).toBeDefined();
+	});
+
+	it("applies fork prompt transforms on initial and resumed runs without touching explicit prompts", async () => {
+		const harness = await createHarness({ settings: { subagents: { maxDelegationDepth: 5 } } });
+		harnesses.push(harness);
+		const extensionsDir = join(harness.tempDir, "extensions");
+		mkdirSync(extensionsDir, { recursive: true });
+		writeFileSync(
+			join(extensionsDir, "strip-parent-only.js"),
+			`export default function (pi) {
+				pi.registerForkSystemPromptTransform((prompt) => prompt.replaceAll("<parent-only>\\n", ""));
+			}`,
+		);
+
+		const prompts: string[] = [];
+		harness.setResponses([
+			(context) => {
+				prompts.push(context.systemPrompt ?? "");
+				return fauxAssistantMessage("fork");
+			},
+			(context) => {
+				prompts.push(context.systemPrompt ?? "");
+				return fauxAssistantMessage("explicit");
+			},
+			(context) => {
+				prompts.push(context.systemPrompt ?? "");
+				return fauxAssistantMessage("slim");
+			},
+			(context) => {
+				prompts.push(context.systemPrompt ?? "");
+				return fauxAssistantMessage("none");
+			},
+		]);
+		const parentPrompt = "parent\n<parent-only>\nbase\n";
+		const details = await executeAgentTool(
+			{
+				mode: "parallel",
+				concurrency: 1,
+				tasks: [
+					{ agent: "general", task: "fork", context: "fork" },
+					{ agent: "general", task: "explicit", context: "fork", systemPrompt: "EXPLICIT <parent-only>\n" },
+					{ agent: "general", task: "slim", context: "slim" },
+					{ agent: "general", task: "none", context: "none" },
+				],
+			},
+			{ ...parentServices(harness, 0), parentSystemPrompt: parentPrompt },
+		);
+
+		expect(details.runs).toHaveLength(4);
+		expect(prompts[0]).toBe("parent\nbase\n");
+		expect(prompts[1]).toBe("EXPLICIT <parent-only>\n");
+		expect(prompts[2]).not.toContain("parent");
+		expect(prompts[2]).not.toContain("<parent-only>");
+		expect(prompts[3]).not.toContain("parent");
+		expect(prompts[3]).not.toContain("<parent-only>");
+
+		harness.setResponses([
+			(context) => {
+				prompts.push(context.systemPrompt ?? "");
+				return fauxAssistantMessage("initial persistent");
+			},
+		]);
+		const initial = await executeAgentTool(
+			{
+				mode: "single",
+				background: true,
+				persistent: true,
+				tasks: [{ agent: "general", task: "persistent fork", context: "fork" }],
+			},
+			{ ...parentServices(harness, 0), parentSystemPrompt: parentPrompt },
+		);
+		expect(initial.runId).toBeTruthy();
+		await waitForAgentRecentRun(initial.runId!);
+
+		harness.appendResponses([
+			(context) => {
+				prompts.push(context.systemPrompt ?? "");
+				return fauxAssistantMessage("resumed persistent");
+			},
+		]);
+		expect((await resumeAgentRecentRun(initial.runId!, "continue persistent fork")).ok).toBe(true);
+		await waitForAgentRecentRun(initial.runId!);
+		expect(prompts[4]).toBe("parent\nbase\n");
+		expect(prompts[5]).toBe("parent\nbase\n");
+
+		expect(parentPrompt).toBe("parent\n<parent-only>\nbase\n");
 	});
 
 	it("a depth-4 caller spawns a real depth-5 leaf that cannot delegate further", async () => {
