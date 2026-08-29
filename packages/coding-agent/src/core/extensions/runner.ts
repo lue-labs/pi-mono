@@ -8,7 +8,7 @@ import type { KeyId } from "@valkyriweb/pi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { AgentChainDefinition } from "../agents/chains.ts";
 import { setAgentExtensionDefinitionsProvider } from "../agents/extension-source.ts";
-import type { AgentDefinition } from "../agents/types.ts";
+import { type AgentDefinition, FORK_INHERITED_SYSTEM_PROMPT } from "../agents/types.ts";
 import type { ResourceDiagnostic } from "../diagnostics.ts";
 import type { EventBus } from "../event-bus.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
@@ -1419,6 +1419,32 @@ export class ExtensionRunner {
 	}
 
 	/**
+	 * Apply extension-owned transforms before a child agent inherits a parent's
+	 * system prompt. This is deliberately separate from the per-turn prompt
+	 * hooks: it runs once during child setup, before fork-mode inheritance is
+	 * frozen, and never mutates the parent session.
+	 */
+	applyForkSystemPromptTransforms(systemPrompt: string): string {
+		if (this.staleMessage) return systemPrompt;
+		let current = systemPrompt;
+		for (const ext of this.extensions) {
+			for (const transform of ext.forkSystemPromptTransforms ?? []) {
+				try {
+					current = transform(current);
+				} catch (err) {
+					this.emitError({
+						extensionPath: ext.path,
+						event: "fork_system_prompt",
+						error: err instanceof Error ? err.message : String(err),
+						stack: err instanceof Error ? err.stack : undefined,
+					});
+				}
+			}
+		}
+		return current;
+	}
+
+	/**
 	 * Apply only the `systemPrompt:build` filters (no before_agent_start
 	 * handlers) to a freshly rebuilt prompt.
 	 *
@@ -1497,7 +1523,11 @@ export class ExtensionRunner {
 			this.assertActive();
 			const context = opts.context ?? "fork";
 			const shouldPreserveForkPrompt = context === "fork" && opts.systemPrompt === undefined;
-			return this.forkAgentFn(shouldPreserveForkPrompt ? { ...opts, systemPrompt: currentSystemPrompt } : opts);
+			return this.forkAgentFn(
+				shouldPreserveForkPrompt
+					? { ...opts, systemPrompt: currentSystemPrompt, [FORK_INHERITED_SYSTEM_PROMPT]: true }
+					: opts,
+			);
 		};
 		const messages: NonNullable<BeforeAgentStartEventResult["message"]>[] = [];
 		let systemPromptModified = currentSystemPrompt !== systemPrompt;

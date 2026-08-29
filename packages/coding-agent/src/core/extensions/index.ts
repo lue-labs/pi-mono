@@ -90,6 +90,7 @@ export type {
 	ExtensionWidgetOptions,
 	ForkAgentOptions,
 	ForkAgentResult,
+	ForkSystemPromptTransform,
 	GetActiveToolsHandler,
 	GetAllToolsHandler,
 	GetCommandsHandler,

@@ -1,6 +1,9 @@
 import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
 import type { Api, Model, Usage } from "@valkyriweb/pi-ai";
 
+/** Internal marker for ctx.forkAgent's synthetic inherited systemPrompt. */
+export const FORK_INHERITED_SYSTEM_PROMPT = Symbol("pi.fork.inheritedSystemPrompt");
+
 export type AgentSource = "builtin" | "user" | "project";
 export type ContextMode = "default" | "fork" | "slim" | "none";
 export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted";
@@ -56,6 +59,8 @@ export interface AgentRegistry {
 }
 
 export interface AgentTaskConfig {
+	/** Internal-only marker; set by the ctx.forkAgent compatibility wrapper. */
+	[FORK_INHERITED_SYSTEM_PROMPT]?: true;
 	agent: string;
 	task: string;
 	description?: string;

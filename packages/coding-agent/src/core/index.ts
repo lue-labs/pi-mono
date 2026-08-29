@@ -56,6 +56,7 @@ export {
 	ExtensionRunner,
 	type ExtensionShortcut,
 	type ExtensionUIContext,
+	type ForkSystemPromptTransform,
 	type InlineExtension,
 	type LoadExtensionsResult,
 	type MessageRenderer,

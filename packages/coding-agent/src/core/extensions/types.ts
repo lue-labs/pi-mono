@@ -1387,6 +1387,14 @@ export interface ResolvedCommand extends RegisteredCommand {
 export type ExtensionHandler<E, R = undefined> = (event: E, ctx: ExtensionContext) => Promise<R | void> | R | void;
 
 /**
+ * Transform applied only when a child agent is about to inherit its parent's
+ * system prompt. The transform must be deterministic and must not mutate
+ * session state; returning the input unchanged preserves the normal cache
+ * affinity contract.
+ */
+export type ForkSystemPromptTransform = (systemPrompt: string) => string;
+
+/**
  * ExtensionAPI passed to extension factory functions.
  */
 export interface ExtensionAPI {
@@ -1479,6 +1487,14 @@ export interface ExtensionAPI {
 
 	/** Get the value of a registered CLI flag. */
 	getFlag(name: string): boolean | string | undefined;
+
+	/**
+	 * Register a deterministic transform for inherited child-agent system
+	 * prompts. This runs before fork-mode prompt inheritance is frozen, so an
+	 * extension can remove parent-only policy without mutating the parent or
+	 * running a per-turn hook in the child.
+	 */
+	registerForkSystemPromptTransform(transform: ForkSystemPromptTransform): void;
 
 	/**
 	 * Read this extension's tuning slice from `settings.json` `extensionConfig{}`
@@ -2283,6 +2299,8 @@ export interface Extension {
 	entryRenderers?: Map<string, EntryRenderer>;
 	commands: Map<string, RegisteredCommand>;
 	flags: Map<string, ExtensionFlag>;
+	/** Deterministic transforms applied to fork-inherited system prompts. */
+	forkSystemPromptTransforms?: ForkSystemPromptTransform[];
 	shortcuts: Map<KeyId, ExtensionShortcut>;
 	/** Handlers fired synchronously from `AgentSession.dispose()`. */
 	disposeHandlers: SessionDisposeHandler[];
