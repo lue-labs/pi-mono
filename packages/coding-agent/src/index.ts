@@ -122,6 +122,7 @@ export type {
 	ExtensionWidgetOptions,
 	ForkAgentOptions,
 	ForkAgentResult,
+	ForkSystemPromptTransform,
 	GlobToolCallEvent,
 	GrepToolCallEvent,
 	InlineExtension,

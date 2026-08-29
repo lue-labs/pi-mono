@@ -1455,6 +1455,15 @@ export class AgentSession {
 		return this._extensionRunner.previewSystemPromptRewrites(this._baseSystemPrompt, this._baseSystemPromptOptions);
 	}
 
+	/**
+	 * Apply child-only transforms to a prompt inherited from another session.
+	 * The executor calls this before freezing a fork prefix; the parent session
+	 * and its cache-bearing prompt remain untouched.
+	 */
+	getForkSystemPrompt(systemPrompt: string): string {
+		return this._extensionRunner.applyForkSystemPromptTransforms(systemPrompt);
+	}
+
 	/** Current retry attempt (0 if not retrying) */
 	get retryAttempt(): number {
 		return this._retryAttempt;

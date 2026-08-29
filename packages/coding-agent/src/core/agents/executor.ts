@@ -48,21 +48,22 @@ import {
 	startAgentRecentRun,
 	updateAgentRecentRunProgress,
 } from "./status.ts";
-import type {
-	AgentBackgroundCompletion,
-	AgentDefaultSelection,
-	AgentDefinition,
-	AgentExecutionProgress,
-	AgentOutputMode,
-	AgentRegistry,
-	AgentRunDetails,
-	AgentScope,
-	AgentTaskConfig,
-	AgentToolDetails,
-	AgentToolMode,
-	AgentToolStatus,
-	ContextMode,
-	NormalizedAgentTaskConfig,
+import {
+	type AgentBackgroundCompletion,
+	type AgentDefaultSelection,
+	type AgentDefinition,
+	type AgentExecutionProgress,
+	type AgentOutputMode,
+	type AgentRegistry,
+	type AgentRunDetails,
+	type AgentScope,
+	type AgentTaskConfig,
+	type AgentToolDetails,
+	type AgentToolMode,
+	type AgentToolStatus,
+	type ContextMode,
+	FORK_INHERITED_SYSTEM_PROMPT,
+	type NormalizedAgentTaskConfig,
 } from "./types.ts";
 
 // Tools globally denied to every Agent task regardless of depth. `agent` is not
@@ -954,7 +955,12 @@ async function prepareChildRunContext(options: {
 		task.thinking === undefined &&
 		task.systemPrompt === undefined &&
 		(task.cwd === undefined || hasAutomaticIsolationCwd);
-	const inheritedSystemPrompt = isForkMode || isCacheCompatibleGeneral ? executor.parentSystemPrompt : undefined;
+	const inheritedSystemPrompt =
+		isForkMode && task[FORK_INHERITED_SYSTEM_PROMPT] === true
+			? (task.systemPrompt ?? executor.parentSystemPrompt)
+			: task.systemPrompt === undefined && (isForkMode || isCacheCompatibleGeneral)
+				? executor.parentSystemPrompt
+				: undefined;
 	const agentDefaults =
 		isForkMode || isCacheCompatibleGeneral
 			? undefined
@@ -1149,11 +1155,13 @@ function applyChildSessionPolicy(
 	task: NormalizedAgentTaskConfig,
 	prepared: PreparedChildRunContext,
 	retainInheritedSystemPrompt: boolean,
+	inheritedSystemPrompt: string | undefined = prepared.inheritedSystemPrompt,
 ): void {
-	if (task.systemPrompt !== undefined) {
+	const hasRunnerInheritedPrompt = task[FORK_INHERITED_SYSTEM_PROMPT] === true;
+	if (task.systemPrompt !== undefined && !hasRunnerInheritedPrompt) {
 		session.overrideBaseSystemPrompt(task.systemPrompt);
-	} else if (retainInheritedSystemPrompt && prepared.inheritedSystemPrompt !== undefined) {
-		session.overrideBaseSystemPrompt(prepared.inheritedSystemPrompt);
+	} else if (retainInheritedSystemPrompt && inheritedSystemPrompt !== undefined) {
+		session.overrideBaseSystemPrompt(inheritedSystemPrompt);
 	} else if (prepared.agent.cacheProfile === "stable" && prepared.policy.mode === "none") {
 		session.overrideBaseSystemPrompt(buildAgentSystemAppend(prepared.agent));
 	}
@@ -1338,6 +1346,10 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 			session.state.messages = getFilteredForkMessages(options.parentSessionManager);
 		}
 
+		const inheritedSystemPrompt =
+			options.task.context !== "fork" || prepared.inheritedSystemPrompt === undefined
+				? prepared.inheritedSystemPrompt
+				: session.getForkSystemPrompt(prepared.inheritedSystemPrompt);
 		applyChildSessionPolicy(
 			session,
 			options.task,
@@ -1348,6 +1360,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 				prepared,
 				parentProviderTools: options.parentProviderTools,
 			}),
+			inheritedSystemPrompt,
 		);
 		applyParentCacheAffinityIfCompatible({
 			session,
@@ -1558,6 +1571,10 @@ async function resumeSingleBackgroundRun(
 	if (task.context === "fork" && task.tools === undefined && options.parentExecutableTools) {
 		session.inheritMissingActiveTools(options.parentExecutableTools);
 	}
+	const inheritedSystemPrompt =
+		task.context !== "fork" || prepared.inheritedSystemPrompt === undefined
+			? prepared.inheritedSystemPrompt
+			: session.getForkSystemPrompt(prepared.inheritedSystemPrompt);
 	applyChildSessionPolicy(
 		session,
 		task,
@@ -1568,6 +1585,7 @@ async function resumeSingleBackgroundRun(
 			prepared,
 			parentProviderTools: options.parentProviderTools,
 		}),
+		inheritedSystemPrompt,
 	);
 	applyParentCacheAffinityIfCompatible({
 		session,

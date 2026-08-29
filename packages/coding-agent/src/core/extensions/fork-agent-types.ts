@@ -1,7 +1,7 @@
 // Fork-owned module (fork-delta reforge slice 3): ctx.forkAgent + ctx.transcript API types
 // moved verbatim from types.ts. Re-exported from types.ts for import compat.
 
-import type { AgentToolDetails, AgentToolStatus } from "../agents/types.ts";
+import { type AgentToolDetails, type AgentToolStatus, FORK_INHERITED_SYSTEM_PROMPT } from "../agents/types.ts";
 
 // ============================================================================
 // Fork Agent (ctx.forkAgent)
@@ -48,6 +48,8 @@ export interface AgentHandle {
 
 /** Options for `ctx.forkAgent()`. */
 export interface ForkAgentOptions {
+	/** Internal-only marker for the runner's synthetic inherited prompt. */
+	[FORK_INHERITED_SYSTEM_PROMPT]?: true;
 	/** First user message delivered to the forked agent. */
 	prompt: string;
 	/**

@@ -14,6 +14,7 @@ import {
 	waitForAgentRecentRun,
 } from "./status.ts";
 import type { AgentBackgroundCompletion, AgentExecutionProgress, AgentToolDetails, AgentToolStatus } from "./types.ts";
+import { FORK_INHERITED_SYSTEM_PROMPT } from "./types.ts";
 
 export const AGENTS_ENGINE_SERVICE_ID = "agents.engine";
 
@@ -190,6 +191,9 @@ export function createAgentEngine(options: AgentEngineOptions): AgentEngine {
 							// When provided, fully replaces the auto-built child prompt — caller
 							// owns every byte for byte-stable cross-session/cross-cwd cache reuse.
 							systemPrompt: opts.systemPrompt,
+							// Preserve the runner's distinction between an automatic inherited
+							// prompt and an explicit systemPrompt override.
+							[FORK_INHERITED_SYSTEM_PROMPT]: opts[FORK_INHERITED_SYSTEM_PROMPT],
 							// Forwarded verbatim to the child's session_start event so a
 							// launching extension can correlate the fork with per-call state.
 							forkMetadata: opts.metadata,

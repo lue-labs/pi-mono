@@ -619,6 +619,7 @@ function createExtension(extensionPath: string, resolvedPath: string): Extension
 		entryRenderers: new Map(),
 		commands: new Map(),
 		flags: new Map(),
+		forkSystemPromptTransforms: [],
 		shortcuts: new Map(),
 		disposeHandlers: [],
 		registeredAgentDefinitions: [],

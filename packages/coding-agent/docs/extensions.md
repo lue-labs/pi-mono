@@ -1663,6 +1663,18 @@ const result = await pi.exec("git", ["status"], { signal, timeout: 5000 });
 // result.stdout, result.stderr, result.code, result.killed
 ```
 
+### pi.registerForkSystemPromptTransform(transform)
+
+Register a deterministic transform for a system prompt inherited by a `context: "fork"` child. Pi applies it during child setup, before the child freezes the inherited prompt; the parent session and its prompt remain unchanged. The transform does not run for `slim`/`none` children or for a child with an explicit `systemPrompt` override.
+
+Do not read timestamps, session state, files, or other changing values in this transform: its output must be stable for the same input prompt. This seam is intended for parent-only prompt fragments that must not leak into child agents.
+
+```typescript
+pi.registerForkSystemPromptTransform((systemPrompt) =>
+  systemPrompt.replace("<parent-only-policy>", ""),
+);
+```
+
 ### pi.getActiveTools() / pi.getAllTools() / pi.setActiveTools(names)
 
 Manage active tools. This works for both built-in tools and dynamically registered tools. `pi.getActiveTools()` returns the active tool names as `string[]`; `pi.getAllTools()` returns metadata for all configured tools.

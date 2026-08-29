@@ -101,6 +101,7 @@ type ForkExtensionAPI = Pick<
 	| "hideOverlay"
 	| "registerFooter"
 	| "getExtensionConfig"
+	| "registerForkSystemPromptTransform"
 	| "tools"
 	| "hooks"
 	| "harness"
@@ -260,6 +261,12 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 		getExtensionConfig<T = Record<string, unknown>>(namespace: string): T | undefined {
 			runtime.assertActive();
 			return runtime.extensionConfig[namespace] as T | undefined;
+		},
+
+		registerForkSystemPromptTransform(transform) {
+			runtime.assertActive();
+			if (!extension.forkSystemPromptTransforms) extension.forkSystemPromptTransforms = [];
+			extension.forkSystemPromptTransforms.push(transform);
 		},
 
 		tools: {

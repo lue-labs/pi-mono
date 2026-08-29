@@ -8,6 +8,7 @@ Release numbers track the fork's GitHub Packages releases, versioned in lockstep
 
 ### Changed
 
+- **Extensions can transform inherited fork-child system prompts without mutating the parent.** `registerForkSystemPromptTransform()` applies deterministic, child-only rewrites before `context: "fork"` prompts freeze, including foreground and resumed forks while preserving explicit child prompt overrides and excluding `slim`/`none` contexts.
 - **Cache-retention resolution is shared by all six AI provider adapters.** The refactor keeps each adapter's existing explicit, environment, and backend-default behavior in one `packages/ai` utility, including the Codex `cacheRetention: "none"` provider-state gate from PR #428.
 - **Changesets publishing now reuses the canonical release build instead of concurrently rerunning destructive package lifecycle builds.** The nine-package organization-scope release exposed a race: parallel `prepublishOnly` scripts cleaned shared dependency declarations while client, server, and agent-core were compiling, leaving six packages published and three failed. The release workflow already completed the ordered root build and gates, so the publish command now sets npm's `ignore-scripts` config; retries skip immutable versions already present and publish the remaining artifacts from the verified build.
 
