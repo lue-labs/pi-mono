@@ -9,8 +9,6 @@ This package's release notes are split:
 
 ## Unreleased
 
-- Extensions: add `registerForkSystemPromptTransform()` for deterministic, child-only rewrites of inherited `context:"fork"` system prompts before prompt freezing, covering foreground and resumed forks without mutating the parent cache-bearing prompt.
-
 - TUI: default-shell tool calls and results use a compact, width-safe panel adapted from prime-agent 0.7.0, removing the one-line vertical padding above and below each row while adding two-cell side padding, cached composition, and preserving existing lifecycle backgrounds. No system-prompt or tool-schema bytes change.
 
 - Fix: `Glob` root-path relativization (issue #6104) now also applies on the timeout path and to the `rg` pattern filter. Both sites kept an inline `slice(searchPath.length + 1)` copy, which ate the first character of every result when the search root ended in a separator (`/`, `I:\`); they now go through `relativizeGlobResultPath`.
