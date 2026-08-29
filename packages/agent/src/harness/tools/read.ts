@@ -1,4 +1,4 @@
-import type { ImageContent, TextContent } from "@valkyriweb/pi-ai";
+import type { ImageContent, TextContent } from "@lue-labs/pi-ai";
 import { type Static, Type } from "typebox";
 import type { AgentHarnessTool } from "../types.ts";
 import { getOrThrow } from "../types.ts";

@@ -1,4 +1,4 @@
-import type { Usage } from "@valkyriweb/pi-ai";
+import type { Usage } from "@lue-labs/pi-ai";
 
 export type CacheHealthWarning =
 	| "fresh_tail_large"

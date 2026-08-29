@@ -48,6 +48,7 @@ import type {
 	ToolResultMessage,
 } from "../types.ts";
 import { stripSystemPromptDynamicBoundary } from "../types.ts";
+import { resolveCacheRetention } from "../utils/cache-retention.ts";
 import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
@@ -689,21 +690,6 @@ function mapThinkingLevelToEffort(
 		default:
 			return "high";
 	}
-}
-
-/**
- * Resolve cache retention preference.
- * Defaults to "long"; set PI_CACHE_RETENTION=short or PI_CACHE_RETENTION=none to override process-wide.
- */
-function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
-	if (cacheRetention) {
-		return cacheRetention;
-	}
-	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
-	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
-		return envRetention;
-	}
-	return "long";
 }
 
 /**

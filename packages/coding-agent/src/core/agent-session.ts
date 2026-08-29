@@ -24,7 +24,7 @@ import type {
 	AgentTool,
 	PrepareNextTurnContext,
 	ThinkingLevel,
-} from "@valkyriweb/pi-agent-core";
+} from "@lue-labs/pi-agent-core";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -35,8 +35,8 @@ import type {
 	Tool,
 	ToolResultMessage,
 	Usage,
-} from "@valkyriweb/pi-ai";
-import { contentText } from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
+import { contentText } from "@lue-labs/pi-ai";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -48,7 +48,7 @@ import {
 	type RetryCallbacks,
 	resetApiProviders,
 	streamSimple,
-} from "@valkyriweb/pi-ai/compat";
+} from "@lue-labs/pi-ai/compat";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
@@ -118,7 +118,7 @@ import {
 import { getExtensionProcessService } from "./extensions/loader.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { ForkAgentOptions, ForkAgentResult, TranscriptEntry } from "./extensions/types.ts";
-import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
+import { type BashExecutionMessage, type CustomMessage, convertToLlm, hasUnsettledToolCalls } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
@@ -137,7 +137,9 @@ import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import {
+	capMidRunCompactionToolResultText,
 	capModelFacingToolResultText,
+	MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS,
 	replaceOversizedToolResultImages,
 	replaceUnsupportedToolResultImages,
 	retireOutOfBudgetContextImages,
@@ -472,6 +474,7 @@ export class AgentSession {
 	private _unsubscribeAgent?: () => void;
 	private _eventListeners: AgentSessionEventListener[] = [];
 	private _isAgentRunActive = false;
+	private _queuedMessageDrainAfterAgentSettles = false;
 	private _abortAndResumeQueuedPromise: Promise<void> | undefined;
 	private _idleWaitPromise: Promise<void> | undefined;
 	private _resolveIdleWait: (() => void) | undefined;
@@ -484,6 +487,7 @@ export class AgentSession {
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 
 	// Compaction state
+	private _manualCompactionPreflightAbortController: AbortController | undefined = undefined;
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
@@ -499,6 +503,8 @@ export class AgentSession {
 	private _autoCompactDisabledThisSession = false;
 	/** Set when the agent loop was stopped at a turn boundary by the mid-run compaction cap. */
 	private _midRunCompactionStop = false;
+	/** Tool results retained only to resume a turn after mid-run compaction. */
+	private _midRunCompactionToolResults: ToolResultMessage[] = [];
 	/** Set by extensions that need the current run to park after the active turn completes. */
 	private _extensionStopAfterTurnReason: string | undefined = undefined;
 	private _lastIdleCacheHintAssistantTimestamp: number | undefined = undefined;
@@ -585,6 +591,8 @@ export class AgentSession {
 	private _systemPromptOverride?: string;
 	private _source: InputSource = "interactive";
 	private _pendingAutoModelRequest?: PendingAutoModelRequest;
+	/** Single-flight guard so overlapping prompt() calls cannot resolve the same pending auto-model twice. */
+	private _autoModelResolveInFlight?: Promise<void>;
 	/** Session calls that can start or resume a turn, including asynchronous preflight. */
 	private _activeTurnCalls = 0;
 	/** Turn calls entered by the current async context, so isIdle can exclude the caller's own call. */
@@ -636,6 +644,7 @@ export class AgentSession {
 			settingsManager: this.settingsManager,
 			agent: this.agent,
 			findLastAssistantMessage: () => this._findLastAssistantMessage(),
+			loadDeferredExtensions: () => this._extensionRunner.loadDeferredExtensions(),
 			emit: (event) => this._emit(event),
 		});
 
@@ -817,14 +826,17 @@ export class AgentSession {
 		// before it ends — the post-run check defers threshold compaction to the
 		// next prompt. Stop the loop at the turn boundary instead;
 		// _handlePostAgentRun then compacts and resumes the interrupted run.
-		// Runs ending naturally (no more work) keep the defer semantics.
-		this.agent.shouldStopAfterTurn = ({ message, toolResults }) => {
+		// Runs ending naturally (no more work) keep the defer semantics — including
+		// a terminal tool batch (e.g. a goal_finish-style tool sets terminate):
+		// its tool results end the run rather than continuing it, so stopping for
+		// compaction here would compact after completion and resume a finished run.
+		this.agent.shouldStopAfterTurn = ({ message, toolResults, hasMoreToolCalls }) => {
 			if (this._extensionStopAfterTurnReason !== undefined) {
 				this._extensionStopAfterTurnReason = undefined;
 				return true;
 			}
 
-			if (toolResults.length === 0 && !this.agent.hasQueuedMessages()) return false;
+			if (!hasMoreToolCalls && !this.agent.hasQueuedMessages()) return false;
 			const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
 			if (!settings.enabled) return false;
 			const contextWindow = this.model?.contextWindow ?? 0;
@@ -832,6 +844,7 @@ export class AgentSession {
 			// Avoid stopping for compaction when the fixed prefix already exceeds its threshold.
 			if (contextWindow - settings.reserveTokens < this._estimateFixedPrefixTokens()) return false;
 			this._midRunCompactionStop = true;
+			this._midRunCompactionToolResults = toolResults;
 			return true;
 		};
 	}
@@ -908,6 +921,10 @@ export class AgentSession {
 			this._emit({ type: "agent_settled" });
 		} finally {
 			this._resolveIdleWaitIfIdle();
+			if (this._queuedMessageDrainAfterAgentSettles) {
+				this._queuedMessageDrainAfterAgentSettles = false;
+				this._drainQueuedMessagesPostCompaction();
+			}
 		}
 	}
 
@@ -1150,6 +1167,41 @@ export class AgentSession {
 			message:
 				"This session has been idle long enough that prompt-cache warmth may be gone. For broad follow-up work, prefer cache-efficient forks (`explore`/`decompose`) or compact first if you need a handoff summary.",
 		});
+	}
+
+	private _capMidRunCompactionToolResults(): void {
+		let remainingTextChars = MAX_MID_RUN_COMPACTION_TOOL_RESULTS_TEXT_CHARS;
+		let messages = this.agent.state.messages;
+		let changed = false;
+		for (const result of this._midRunCompactionToolResults) {
+			const content = capMidRunCompactionToolResultText(
+				result.content,
+				this._cwd,
+				result.toolCallId,
+				result.toolName,
+				remainingTextChars,
+			);
+			const retainedContent = content ?? result.content;
+			remainingTextChars = Math.max(
+				0,
+				remainingTextChars -
+					retainedContent.reduce((total, block) => total + (block.type === "text" ? block.text.length : 0), 0),
+			);
+			if (!content) continue;
+
+			// SessionManager stores message references. Replace the state slot rather
+			// than mutating result.content so the append-only session entry retains
+			// its full tool output for exporters and later session reloads.
+			const resultIndex = messages.indexOf(result);
+			if (resultIndex === -1) continue;
+			if (!changed) {
+				messages = messages.slice();
+				changed = true;
+			}
+			messages[resultIndex] = { ...result, content };
+		}
+		if (changed) this.agent.state.messages = messages;
+		this._midRunCompactionToolResults = [];
 	}
 
 	private _replaceMessageInPlace(target: AgentMessage, replacement: AgentMessage): void {
@@ -1551,6 +1603,9 @@ export class AgentSession {
 	 * cached system prefix (prompt-cache golden rule).
 	 */
 	async resumePendingInteractiveToolCall(): Promise<boolean> {
+		// A resumable pending call may belong to a deferred extension. Load it before
+		// resolving the persisted tool name, and before this path can invoke the model.
+		await this._extensionRunner.loadDeferredExtensions();
 		const messages = this.agent.state.messages;
 		const last = messages[messages.length - 1];
 		if (!last || last.role !== "assistant") return false;
@@ -1952,6 +2007,11 @@ export class AgentSession {
 	}
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		// Deferred extensions may register provider-visible tools. Never let the
+		// first request race their startup load, or tools[] changes after turn one
+		// and invalidates the prompt-cache prefix. The load is memoized, so callers
+		// that already prepared the turn pay no additional cost here.
+		await this._extensionRunner.loadDeferredExtensions();
 		this._isAgentRunActive = true;
 		try {
 			// A turn is starting — cancel any pending idle wake. The notification
@@ -2004,10 +2064,17 @@ export class AgentSession {
 			// The loop was stopped at a turn boundary by the mid-run cap. Compact
 			// now ("run", not "defer") and always resume — the interrupted run
 			// still has tool results or queued messages waiting for the model.
-			// If compaction can't run (prep failed, aborted), resuming uncompacted
-			// is still correct; the overflow path remains the backstop.
+			// A trailing tool result has no later assistant boundary, so it would
+			// otherwise survive verbatim regardless of keepRecentTokens. Let its
+			// size select that safe compaction boundary, then replace only the live
+			// retained result with an artifact-backed preview; durable history stays
+			// complete and the continuation starts slim.
 			this._midRunCompactionStop = false;
 			await this._checkCompaction(msg, true, "run");
+			// If compaction was skipped or failed, still bound the pending
+			// continuation. A successful compaction applies the cap before its
+			// estimatedTokensAfter/compaction_end event.
+			this._capMidRunCompactionToolResults();
 			return true;
 		}
 		if (await this._checkCompaction(msg, true, "defer")) {
@@ -2030,18 +2097,48 @@ export class AgentSession {
 	private _drainQueuedMessagesPostCompaction(): void {
 		if (this._disposed || !this.agent.hasQueuedMessages()) return;
 		if (this.isStreaming || this.isCompacting || this.agent.isProcessing) return;
-		void (async () => {
+		void this._withActiveTurnCall(async () => {
 			try {
-				await this.agent.continue();
-				while (await this._handlePostAgentRun()) {
+				await this._extensionRunner.loadDeferredExtensions();
+				if (
+					this._disposed ||
+					!this.agent.hasQueuedMessages() ||
+					this._isAgentRunActive ||
+					this.isCompacting ||
+					this.agent.isProcessing
+				) {
+					return;
+				}
+
+				this._isAgentRunActive = true;
+				try {
+					this._cancelIdleWake();
+					await this._refilterSystemPromptIfNeeded();
+					this._cacheHeartbeat.setSessionTarget(this._findLastAssistantMessage()?.timestamp);
+					this._cacheHeartbeat.noteActivity();
 					await this.agent.continue();
+					while (await this._handlePostAgentRun()) {
+						await this.agent.continue();
+					}
+				} finally {
+					this._systemPromptOverride = undefined;
+					this._flushPendingBashMessages();
+					await this._emitAgentSettled();
 				}
 			} catch {
 				// Racing run started or continue() rejected the trailing message
 				// shape: an active run drains the queue itself; otherwise the
 				// message stays visibly queued for the next turn.
 			}
-		})();
+		});
+	}
+
+	private _drainQueuedMessagesAfterCompactionLifecycle(): void {
+		if (this._isAgentRunActive) {
+			this._queuedMessageDrainAfterAgentSettles = true;
+			return;
+		}
+		this._drainQueuedMessagesPostCompaction();
 	}
 
 	/**
@@ -2063,6 +2160,12 @@ export class AgentSession {
 		let messages: AgentMessage[] | undefined;
 
 		try {
+			// Keep startup responsive, but make the first user action the hard boundary:
+			// all deferred commands, handlers, and tool schemas must exist before input
+			// handling and before_agent_start compute the first provider request. Entering
+			// try first keeps this preflight inside prompt()'s error-reporting contract.
+			await this._extensionRunner.loadDeferredExtensions();
+
 			// Handle extension commands first (execute immediately, even during streaming)
 			// Extension commands manage their own LLM interaction via pi.sendMessage()
 			if (expandPromptTemplates && text.startsWith("/")) {
@@ -2467,7 +2570,21 @@ export class AgentSession {
 		if (options?.deliverAs === "nextTurn") {
 			this._pendingNextTurnMessages.push(appMessage);
 			await emitCustomMessage();
-		} else if (this.isStreaming || this.isCompacting || this.agent.isProcessing) {
+		} else if (
+			this.isStreaming ||
+			this.isCompacting ||
+			this.agent.isProcessing ||
+			// A tool call still awaiting its result is a busy state the flags above can
+			// miss (an aborted run, or a window between run bookkeeping). Appending here
+			// would persist the message between the toolCall entry and its toolResult,
+			// which Anthropic rejects on every later request — permanently (pi-mono#479).
+			// Queue it instead; the agent loop drains steering only at turn boundaries,
+			// after the batch's results are recorded.
+			// triggerTurn callers still take the prompt path: queueing them with no run
+			// in flight would strand the message. Their ordering is repaired at request
+			// assembly instead (restoreToolResultAdjacency).
+			(!options?.triggerTurn && hasUnsettledToolCalls(this.agent.state.messages))
+		) {
 			// Treat compaction and any in-flight run as streaming-equivalent for delivery
 			// routing. Compaction runs its own LLM calls outside agent.runWithLifecycle(),
 			// so state.isStreaming is false even though the agent is busy and a regular
@@ -2491,6 +2608,9 @@ export class AgentSession {
 			await emitCustomMessage();
 		} else if (options?.triggerTurn) {
 			await this._withActiveTurnCall(async () => {
+				// Match prompt(): deferred handlers and tool schemas must be present before
+				// before_agent_start constructs the first machine-driven provider request.
+				await this._extensionRunner.loadDeferredExtensions();
 				// Mirror prompt()'s pre-turn compaction check. Without it, harness-driven
 				// turns (e.g. pi-goal continuations via sendCustomMessage({triggerTurn}))
 				// never hit threshold compaction — context grows unbounded across goal
@@ -2810,6 +2930,26 @@ export class AgentSession {
 		}
 	}
 
+	private async _abortForManualCompaction(abortController: AbortController): Promise<void> {
+		this.abortRetry();
+		this.agent.abort();
+		while (true) {
+			const foreignTurnCalls = this._activeTurnCalls - (this._turnCallScope.getStore() ?? 0);
+			if (
+				!this._isAgentRunActive &&
+				!this.agent.state.isStreaming &&
+				!this.agent.isProcessing &&
+				foreignTurnCalls <= 0
+			) {
+				break;
+			}
+			await this._getIdleWaitPromise();
+		}
+		if (this._manualCompactionPreflightAbortController !== abortController) {
+			throw new Error("Compaction was cancelled");
+		}
+	}
+
 	// =========================================================================
 	// Model Management
 	// =========================================================================
@@ -2847,9 +2987,30 @@ export class AgentSession {
 	}
 
 	private async _resolvePendingAutoModelForPrompt(promptText: string): Promise<void> {
+		// A resolution is already running for this pending request: join it instead of
+		// starting a second concurrent resolve (would emit duplicate warnings/model-selects).
+		if (this._autoModelResolveInFlight) return this._autoModelResolveInFlight;
+
 		const pending = this._pendingAutoModelRequest;
 		if (!pending) return;
+		// Capture-and-clear synchronously before the first await so a second prompt()
+		// landing in the resolution window observes no pending request. Re-armed below
+		// if the resolve throws, so a failed attempt can be retried by the next prompt.
+		this._pendingAutoModelRequest = undefined;
 
+		const run = this._runAutoModelResolve(promptText, pending);
+		this._autoModelResolveInFlight = run;
+		try {
+			await run;
+		} catch (error) {
+			this._pendingAutoModelRequest ??= pending;
+			throw error;
+		} finally {
+			this._autoModelResolveInFlight = undefined;
+		}
+	}
+
+	private async _runAutoModelResolve(promptText: string, pending: PendingAutoModelRequest): Promise<void> {
 		const currentModel = this.model;
 		if (!currentModel) {
 			throw new Error(formatNoModelSelectedMessage());
@@ -3160,8 +3321,42 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
-		await this.abort();
-		this._compactionAbortController = new AbortController();
+		if (
+			this._manualCompactionPreflightAbortController !== undefined ||
+			this._compactionAbortController !== undefined ||
+			this._autoCompactionAbortController !== undefined ||
+			this._branchSummaryAbortController !== undefined
+		) {
+			throw new Error("Compaction is already in progress");
+		}
+
+		const abortController = new AbortController();
+		this._manualCompactionPreflightAbortController = abortController;
+		try {
+			await this._abortForManualCompaction(abortController);
+			if (abortController.signal.aborted) {
+				throw new Error("Compaction cancelled");
+			}
+			this._compactionAbortController = abortController;
+			this._manualCompactionPreflightAbortController = undefined;
+			// Manual compaction is independently provider-capable and can run before
+			// the first prompt, so it needs the same settled tool registry.
+			await this._extensionRunner.loadDeferredExtensions();
+			if (abortController.signal.aborted) {
+				throw new Error("Compaction cancelled");
+			}
+		} catch (error) {
+			if (this._manualCompactionPreflightAbortController === abortController) {
+				this._manualCompactionPreflightAbortController = undefined;
+			}
+			if (this._compactionAbortController === abortController) {
+				this._compactionAbortController = undefined;
+			}
+			this._flushPendingBashMessages();
+			this._drainQueuedMessagesPostCompaction();
+			throw error;
+		}
+
 		this._emit({ type: "compaction_start", reason: "manual" });
 
 		try {
@@ -3195,7 +3390,7 @@ export class AgentSession {
 					customInstructions,
 					reason: "manual",
 					willRetry: false,
-					signal: this._compactionAbortController.signal,
+					signal: abortController.signal,
 				})) as SessionBeforeCompactResult | undefined;
 
 				if (result?.cancel) {
@@ -3229,7 +3424,7 @@ export class AgentSession {
 					apiKey,
 					headers,
 					customInstructions,
-					this._compactionAbortController.signal,
+					abortController.signal,
 					this.thinkingLevel,
 					this.agent.streamFunction,
 					env,
@@ -3248,7 +3443,7 @@ export class AgentSession {
 				details = result.details;
 			}
 
-			if (this._compactionAbortController.signal.aborted) {
+			if (abortController.signal.aborted) {
 				throw new Error("Compaction cancelled");
 			}
 
@@ -3295,7 +3490,9 @@ export class AgentSession {
 				details,
 			};
 			// compaction_end listeners may submit queued prompts, so expose idle state before notifying them.
-			this._compactionAbortController = undefined;
+			if (this._compactionAbortController === abortController) {
+				this._compactionAbortController = undefined;
+			}
 			this._emit({
 				type: "compaction_end",
 				reason: "manual",
@@ -3307,7 +3504,9 @@ export class AgentSession {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const aborted = message === "Compaction cancelled" || (error instanceof Error && error.name === "AbortError");
-			this._compactionAbortController = undefined;
+			if (this._compactionAbortController === abortController) {
+				this._compactionAbortController = undefined;
+			}
 			this._emit({
 				type: "compaction_end",
 				reason: "manual",
@@ -3318,7 +3517,9 @@ export class AgentSession {
 			});
 			throw error;
 		} finally {
-			this._compactionAbortController = undefined;
+			if (this._compactionAbortController === abortController) {
+				this._compactionAbortController = undefined;
+			}
 			this._reconnectToAgent();
 			this._drainQueuedMessagesPostCompaction();
 		}
@@ -3328,6 +3529,7 @@ export class AgentSession {
 	 * Cancel in-progress compaction (manual or auto).
 	 */
 	abortCompaction(): void {
+		this._manualCompactionPreflightAbortController?.abort();
 		this._compactionAbortController?.abort();
 		this._autoCompactionAbortController?.abort();
 	}
@@ -3460,11 +3662,38 @@ export class AgentSession {
 		if (this._autoCompactDisabledThisSession) {
 			return false;
 		}
+		if (
+			this._manualCompactionPreflightAbortController !== undefined ||
+			this._compactionAbortController !== undefined ||
+			this._autoCompactionAbortController !== undefined ||
+			this._branchSummaryAbortController !== undefined
+		) {
+			return false;
+		}
 
 		const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
+		const abortController = new AbortController();
+		this._autoCompactionAbortController = abortController;
 		let started = false;
+		let preflightComplete = false;
+		let drainQueuedMessages = false;
 
 		try {
+			// Auto-compaction may issue its own provider request. Most callers already
+			// crossed prompt preflight, but keep this entry point safe on its own.
+			await this._extensionRunner.loadDeferredExtensions();
+			preflightComplete = true;
+			if (abortController.signal.aborted) {
+				this._emit({
+					type: "compaction_end",
+					reason,
+					result: undefined,
+					aborted: true,
+					willRetry: false,
+				});
+				return false;
+			}
+
 			if (!this.model) {
 				return false;
 			}
@@ -3526,7 +3755,6 @@ export class AgentSession {
 			}
 
 			this._emit({ type: "compaction_start", reason });
-			this._autoCompactionAbortController = new AbortController();
 			started = true;
 
 			let extensionCompaction: CompactionResult | undefined;
@@ -3540,7 +3768,7 @@ export class AgentSession {
 					customInstructions: undefined,
 					reason,
 					willRetry,
-					signal: this._autoCompactionAbortController.signal,
+					signal: abortController.signal,
 				})) as SessionBeforeCompactResult | undefined;
 
 				if (extensionResult?.cancel) {
@@ -3581,7 +3809,7 @@ export class AgentSession {
 					apiKey,
 					headers,
 					undefined,
-					this._autoCompactionAbortController.signal,
+					abortController.signal,
 					this.thinkingLevel,
 					this.agent.streamFunction,
 					env,
@@ -3600,7 +3828,7 @@ export class AgentSession {
 				details = compactResult.details;
 			}
 
-			if (this._autoCompactionAbortController.signal.aborted) {
+			if (abortController.signal.aborted) {
 				this._emit({
 					type: "compaction_end",
 					reason,
@@ -3623,7 +3851,8 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
-			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			this._capMidRunCompactionToolResults();
+			const estimatedTokensAfter = estimateMessagesTokens(this.agent.state.messages);
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
@@ -3668,6 +3897,10 @@ export class AgentSession {
 			// Continue once so queued messages are delivered.
 			return this.agent.hasQueuedMessages();
 		} catch (error) {
+			if (!preflightComplete) {
+				drainQueuedMessages = true;
+				throw error;
+			}
 			const errorMessage = error instanceof Error ? error.message : "compaction failed";
 			// Transient provider-availability failures (rate limits / usage-limit
 			// windows, overload shedding) do not count toward the failure circuit
@@ -3719,7 +3952,12 @@ export class AgentSession {
 			}
 			return false;
 		} finally {
-			this._autoCompactionAbortController = undefined;
+			if (this._autoCompactionAbortController === abortController) {
+				this._autoCompactionAbortController = undefined;
+			}
+			if (drainQueuedMessages) {
+				this._drainQueuedMessagesAfterCompactionLifecycle();
+			}
 		}
 	}
 
@@ -4422,7 +4660,11 @@ export class AgentSession {
 				)
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
-					bash: { commandPrefix: shellCommandPrefix, shellPath },
+					bash: {
+						commandPrefix: shellCommandPrefix,
+						shellPath,
+						defaultTimeoutSeconds: this.settingsManager.getBashTimeoutSeconds(),
+					},
 				});
 
 		if (!this._baseToolsOverride) {
@@ -4784,6 +5026,11 @@ export class AgentSession {
 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
 		if (this.isStreaming) {
 			throw new Error("Wait for the current response to finish before navigating the session tree.");
+		}
+		if (options.summarize) {
+			// Branch summarization bypasses the normal prompt lifecycle and may be
+			// the session's first provider request.
+			await this._extensionRunner.loadDeferredExtensions();
 		}
 
 		const oldLeafId = this.sessionManager.getLeafId();

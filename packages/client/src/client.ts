@@ -9,7 +9,7 @@ import {
 	type ServerEvent,
 	type ServerSnapshot,
 	type SessionMetadata,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import { Connection } from "./connection.ts";
 import {
 	PiClientDisposedError,

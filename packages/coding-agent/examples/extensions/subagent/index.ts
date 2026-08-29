@@ -16,17 +16,17 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentToolResult } from "@valkyriweb/pi-agent-core";
-import type { Message } from "@valkyriweb/pi-ai";
-import { StringEnum } from "@valkyriweb/pi-ai";
+import type { AgentToolResult } from "@lue-labs/pi-agent-core";
+import type { Message } from "@lue-labs/pi-ai";
+import { StringEnum } from "@lue-labs/pi-ai";
 import {
 	CONFIG_DIR_NAME,
 	type ExtensionAPI,
 	getAgentDir,
 	getMarkdownTheme,
 	withFileMutationQueue,
-} from "@valkyriweb/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-coding-agent";
+import { Container, Markdown, Spacer, Text } from "@lue-labs/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 

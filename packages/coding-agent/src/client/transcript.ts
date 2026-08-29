@@ -1,4 +1,4 @@
-import type { JsonValue, SessionSnapshot, TranscriptItem, TranscriptProgress } from "@valkyriweb/pi-protocol";
+import type { JsonValue, SessionSnapshot, TranscriptItem, TranscriptProgress } from "@lue-labs/pi-protocol";
 
 export interface TranscriptState {
 	readonly snapshot: SessionSnapshot;

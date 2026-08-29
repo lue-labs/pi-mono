@@ -2,7 +2,7 @@
 # pi-update — bump the local pi install to the latest fork release.
 #
 # Thin wrapper around install-mini-pi. Resolves the latest release on
-# valkyriweb/pi-mono and reinstalls. Safe to run repeatedly (idempotent).
+# lue-labs/pi-mono and reinstalls. Safe to run repeatedly (idempotent).
 #
 # Usage:
 #   pi-update              # install latest release

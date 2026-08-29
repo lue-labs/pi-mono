@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import type { AssistantMessage } from "@valkyriweb/pi-ai";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import type { AssistantMessage } from "@lue-labs/pi-ai";
 import { describe, expect, it } from "vitest";
 import { buildSessionContext } from "../../../src/harness/session/context.ts";
 import type { Entry } from "../../../src/harness/session/types.ts";

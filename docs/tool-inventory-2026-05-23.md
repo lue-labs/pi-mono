@@ -19,7 +19,7 @@ call, grouped by source. Built from:
 
 ## Upstream pi core (untouched by fork)
 
-These ship in `@valkyriweb/pi-coding-agent` upstream. No fork divergence
+These ship in `@lue-labs/pi-coding-agent` upstream. No fork divergence
 on the canonical lowercase names.
 
 | Tool | File | Notes |

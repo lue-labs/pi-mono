@@ -1,4 +1,4 @@
-import type { CommandResult, ServerEvent, ServerSnapshot, SessionSnapshot } from "@valkyriweb/pi-protocol";
+import type { CommandResult, ServerEvent, ServerSnapshot, SessionSnapshot } from "@lue-labs/pi-protocol";
 import { toError } from "./errors.ts";
 import type { ListenerErrorHandler, Unsubscribe } from "./types.ts";
 

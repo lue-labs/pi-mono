@@ -11,7 +11,7 @@ import {
 	type SimpleStreamOptions,
 	type Usage,
 	uuidv7,
-} from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
 import type { AgentMessage, ThinkingLevel } from "../../types.ts";
 import { convertToLlm, createBranchSummaryMessage, createCompactionSummaryMessage } from "../messages.ts";
 import { buildSessionContext } from "../session/context.ts";

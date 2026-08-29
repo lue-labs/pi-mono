@@ -14,7 +14,7 @@ import {
 	type ServerHello,
 	type ServerHelloError,
 	type ServerMessage,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import {
 	type ByteConnection,
 	type ByteConnectionHandler,

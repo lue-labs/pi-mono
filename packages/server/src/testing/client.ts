@@ -8,7 +8,7 @@ import {
 	type ResponseEnvelope,
 	type ServerMessage,
 	ServerMessageDecoder,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import { Deferred } from "./service.ts";
 
 interface MessageWaiter {

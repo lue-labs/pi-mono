@@ -3,14 +3,14 @@
 	"compilerOptions": {
 		"outDir": "./dist",
 		"paths": {
-			"@valkyriweb/pi-agent-core": ["../agent/dist/index.d.ts"],
-			"@valkyriweb/pi-agent-core/*": ["../agent/dist/*.d.ts"],
-			"@valkyriweb/pi-ai": ["../ai/dist/index.d.ts"],
-			"@valkyriweb/pi-ai/*": ["../ai/dist/*.d.ts", "../ai/dist/providers/*.d.ts"],
-			"@valkyriweb/pi-client": ["../client/dist/index.d.ts"],
-			"@valkyriweb/pi-protocol": ["../protocol/dist/index.d.ts"],
-			"@valkyriweb/pi-tui": ["../tui/dist/index.d.ts"],
-			"@valkyriweb/pi-tui/*": ["../tui/dist/*.d.ts", "../tui/dist/components/*.d.ts"]
+			"@lue-labs/pi-agent-core": ["../agent/dist/index.d.ts"],
+			"@lue-labs/pi-agent-core/*": ["../agent/dist/*.d.ts"],
+			"@lue-labs/pi-ai": ["../ai/dist/index.d.ts"],
+			"@lue-labs/pi-ai/*": ["../ai/dist/*.d.ts", "../ai/dist/providers/*.d.ts"],
+			"@lue-labs/pi-client": ["../client/dist/index.d.ts"],
+			"@lue-labs/pi-protocol": ["../protocol/dist/index.d.ts"],
+			"@lue-labs/pi-tui": ["../tui/dist/index.d.ts"],
+			"@lue-labs/pi-tui/*": ["../tui/dist/*.d.ts", "../tui/dist/components/*.d.ts"]
 		},
 		"rootDir": "./src"
 	},

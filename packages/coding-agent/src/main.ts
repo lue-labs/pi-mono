@@ -6,7 +6,7 @@
  */
 
 import { createInterface } from "node:readline";
-import { type ImageContent, modelsAreEqual } from "@valkyriweb/pi-ai";
+import { type ImageContent, modelsAreEqual } from "@lue-labs/pi-ai";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import {
@@ -33,6 +33,12 @@ import {
 } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
+import {
+	extensionLoadDiagnostic,
+	FAILED_EXTENSION_PREFIX,
+	SKIPPED_EXTENSION_PREFIX,
+	STRICT_EXTENSIONS_ENV,
+} from "./core/extensions/load-diagnostics.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import {
@@ -64,6 +70,7 @@ import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
 
 const EXTENSION_LOAD_FAILURE_HINT = 'Hint: Start without extensions using "pi -ne".';
+const EXTENSION_SKIP_HINT = `Hint: those extensions were auto-discovered and were skipped, not loaded. Set ${STRICT_EXTENSIONS_ENV}=1 to make this fatal.`;
 
 /**
  * Read all content from piped stdin.
@@ -800,10 +807,7 @@ export async function main(args: string[], options?: MainOptions) {
 			...projectTrustDiagnostics,
 			...services.diagnostics,
 			...collectSettingsDiagnostics(settingsManager, "runtime creation"),
-			...resourceLoader.getExtensions().errors.map(({ path, error }) => ({
-				type: "error" as const,
-				message: `Failed to load extension "${path}": ${error}`,
-			})),
+			...resourceLoader.getExtensions().errors.map((failure) => extensionLoadDiagnostic(failure)),
 		];
 
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
@@ -911,10 +915,13 @@ export async function main(args: string[], options?: MainOptions) {
 	time("resolveModelScope");
 	reportDiagnostics(runtime.diagnostics);
 	if (runtime.diagnostics.some((diagnostic) => diagnostic.type === "error")) {
-		if (runtime.diagnostics.some((diagnostic) => diagnostic.message.includes("Failed to load extension"))) {
+		if (runtime.diagnostics.some((diagnostic) => diagnostic.message.includes(FAILED_EXTENSION_PREFIX))) {
 			console.error(chalk.yellow(EXTENSION_LOAD_FAILURE_HINT));
 		}
 		process.exit(1);
+	}
+	if (runtime.diagnostics.some((diagnostic) => diagnostic.message.startsWith(SKIPPED_EXTENSION_PREFIX))) {
+		console.error(chalk.yellow(EXTENSION_SKIP_HINT));
 	}
 	time("createAgentSession");
 

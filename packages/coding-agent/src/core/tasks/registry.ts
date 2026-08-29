@@ -61,6 +61,12 @@ export function listTasks(): TaskSnapshot[] {
 			if (snap) out.push(snap);
 		}
 	}
+	// Generic enumeration for adapters that own their own in-process store
+	// (e.g. extension-registered task types) and expose `list()`. The two
+	// wired-registry adapters above have no `list()` and are not double-counted.
+	for (const task of adapters.values()) {
+		if (task.list) out.push(...task.list());
+	}
 	return out;
 }
 

@@ -1,4 +1,4 @@
-import { setKeybindings } from "@valkyriweb/pi-tui";
+import { setKeybindings } from "@lue-labs/pi-tui";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type { SessionInfo } from "../src/core/session-manager.ts";

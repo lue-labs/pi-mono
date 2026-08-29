@@ -1,7 +1,7 @@
 // bash_kill — stop a backgrounded bash job
 // (fork-owned; extracted verbatim from bash.ts).
 
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
 import { type Static, Type } from "typebox";
 import { type BashBgJob, type BashBgJobStore, createBashBgJobStore } from "../bash-bg-jobs.ts";
 import type { ToolDefinition } from "../extensions/types.ts";

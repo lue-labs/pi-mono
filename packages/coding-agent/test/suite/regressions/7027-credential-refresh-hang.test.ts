@@ -1,4 +1,4 @@
-import type { Api, Model, Provider } from "@valkyriweb/pi-ai";
+import type { Api, Model, Provider } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { ModelRuntime } from "../../../src/core/model-runtime.ts";

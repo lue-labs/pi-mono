@@ -6,14 +6,14 @@ import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "@valkyriweb/pi-agent-core";
+import { Agent } from "@lue-labs/pi-agent-core";
 import {
 	type AssistantMessage,
 	type AssistantMessageEvent,
 	EventStream,
 	type ImageContent,
 	type TextContent,
-} from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
@@ -599,10 +599,12 @@ describe("AgentSession concurrent prompt guard", () => {
 					systemPrompt: string,
 					systemPromptOptions: BuildSystemPromptOptions,
 				) => Promise<string>;
+				loadDeferredExtensions: () => Promise<void>;
 			};
 		};
 		sessionWithRunner._extensionRunner = {
 			hasHandlers: (eventType) => eventType === "tool_call",
+			loadDeferredExtensions: async () => {},
 			applySystemPromptBuildFilters: async (systemPrompt: string) => systemPrompt,
 			fireSessionDispose: () => {},
 			emit: async () => {},
@@ -752,10 +754,12 @@ describe("AgentSession concurrent prompt guard", () => {
 					systemPrompt: string,
 					systemPromptOptions: BuildSystemPromptOptions,
 				) => Promise<string>;
+				loadDeferredExtensions: () => Promise<void>;
 			};
 		};
 		sessionWithRunner._extensionRunner = {
 			hasHandlers: () => false,
+			loadDeferredExtensions: async () => {},
 			applySystemPromptBuildFilters: async (systemPrompt: string) => systemPrompt,
 			fireSessionDispose: () => {},
 			emit: async () => {},

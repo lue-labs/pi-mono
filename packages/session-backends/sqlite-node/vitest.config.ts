@@ -23,11 +23,11 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: [
-			{ find: /^@valkyriweb\/pi-telemetry$/, replacement: telemetryIndex },
-			{ find: /^@valkyriweb\/pi-agent-core\/session\/testing$/, replacement: agentSessionTesting },
-			{ find: /^@valkyriweb\/pi-agent-core\/node$/, replacement: agentNode },
-			{ find: /^@valkyriweb\/pi-agent-core$/, replacement: agentIndex },
-			{ find: /^@valkyriweb\/pi-ai$/, replacement: aiIndex },
+			{ find: /^@lue-labs\/pi-telemetry$/, replacement: telemetryIndex },
+			{ find: /^@lue-labs\/pi-agent-core\/session\/testing$/, replacement: agentSessionTesting },
+			{ find: /^@lue-labs\/pi-agent-core\/node$/, replacement: agentNode },
+			{ find: /^@lue-labs\/pi-agent-core$/, replacement: agentIndex },
+			{ find: /^@lue-labs\/pi-ai$/, replacement: aiIndex },
 		],
 	},
 });

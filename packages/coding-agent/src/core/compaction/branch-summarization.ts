@@ -5,10 +5,10 @@
  * a summary of the branch being left so context isn't lost.
  */
 
-import type { AgentMessage, StreamFn } from "@valkyriweb/pi-agent-core";
-import type { RetryCallbacks, RetryPolicy } from "@valkyriweb/pi-ai";
-import { contentText } from "@valkyriweb/pi-ai";
-import type { Model, SimpleStreamOptions, Usage } from "@valkyriweb/pi-ai/compat";
+import type { AgentMessage, StreamFn } from "@lue-labs/pi-agent-core";
+import type { RetryCallbacks, RetryPolicy } from "@lue-labs/pi-ai";
+import { contentText } from "@lue-labs/pi-ai";
+import type { Model, SimpleStreamOptions, Usage } from "@lue-labs/pi-ai/compat";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,
@@ -16,7 +16,7 @@ import {
 	createCustomMessage,
 } from "../messages.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
-import { completeSummarization, estimateTokens } from "./compaction.ts";
+import { completeSummarization, estimateTokens, getSummarizationFailure } from "./compaction.ts";
 import {
 	computeFileLists,
 	createFileOps,
@@ -354,8 +354,9 @@ export async function generateBranchSummary(
 	if (response.stopReason === "aborted") {
 		return { aborted: true };
 	}
-	if (response.stopReason === "error") {
-		return { error: response.errorMessage || "Summarization failed" };
+	const failure = getSummarizationFailure(response, "Branch summarization");
+	if (failure) {
+		return { error: failure };
 	}
 
 	let summary = contentText(response.content);

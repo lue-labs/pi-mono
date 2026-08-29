@@ -18,7 +18,7 @@
 # Idempotent: re-running with same tag is a no-op once the build is in place.
 set -euo pipefail
 
-PI_REPO="${PI_REPO:-valkyriweb/pi-mono}"
+PI_REPO="${PI_REPO:-lue-labs/pi-mono}"
 PI_TAG="${1:-}"
 PI_PREFIX="${PI_PREFIX:-$HOME/.local}"
 PI_SHARE="$PI_PREFIX/share/pi"

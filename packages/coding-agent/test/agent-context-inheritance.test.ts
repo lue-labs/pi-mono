@@ -1,4 +1,4 @@
-import type { AssistantMessage, ToolResultMessage, UserMessage } from "@valkyriweb/pi-ai";
+import type { AssistantMessage, ToolResultMessage, UserMessage } from "@lue-labs/pi-ai";
 import { describe, expect, test } from "vitest";
 import {
 	getChildResourceLoaderOptions,

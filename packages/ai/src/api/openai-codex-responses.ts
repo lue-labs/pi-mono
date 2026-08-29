@@ -30,7 +30,6 @@ import { registerSessionResourceCleanup } from "../session-resources.ts";
 import type {
 	Api,
 	AssistantMessage,
-	CacheRetention,
 	Context,
 	Model,
 	ProviderEnv,
@@ -42,6 +41,7 @@ import type {
 } from "../types.ts";
 import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { combineAbortSignals } from "../utils/abort-signals.ts";
+import { resolveCacheRetention } from "../utils/cache-retention.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import {
 	appendAssistantMessageDiagnostic,
@@ -52,7 +52,6 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
-import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
@@ -226,6 +225,22 @@ function loadNodeZlib(): typeof NodeZlib | null {
 	return (process as ProcessWithBuiltinModule).getBuiltinModule?.("node:zlib") ?? null;
 }
 
+// Only the official ChatGPT Codex backend is known to decode zstd request
+// bodies; gateways speaking the Codex wire contract (ClawRouter and friends)
+// reject them, so a custom base URL defaults to an uncompressed body. An
+// explicit `compat.supportsZstdRequestCompression` always wins.
+function usesZstdRequestCompression(model: Model<"openai-codex-responses">): boolean {
+	const configured = model.compat?.supportsZstdRequestCompression;
+	if (configured !== undefined) return configured;
+	const baseUrl = model.baseUrl?.trim();
+	if (!baseUrl) return true;
+	try {
+		return new URL(baseUrl).host === new URL(DEFAULT_CODEX_BASE_URL).host;
+	} catch {
+		return false;
+	}
+}
+
 // Returns the zstd-compressed body bytes, or null when compression is
 // unavailable (browser/Vite builds). Callers fall back to sending the
 // uncompressed JSON when this returns null.
@@ -285,10 +300,13 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				context.tools,
 				model.compat?.supportsOpenAIGrammarTools ?? false,
 			);
-			// Local socket keying, SSE-fallback tracking, and debug stats stay keyed to
-			// the real Pi session id (see cache-affinity note below); provider-visible
-			// cache affinity uses cacheAffinitySessionId. cacheRetention "none" gates
-			// only what the provider retains, never local bookkeeping.
+			// Two session ids, split by who can observe them. localSessionId is the real
+			// Pi session and stays ungated for local-only bookkeeping (SSE-fallback state,
+			// failure records) so a retention-free turn still remembers that WebSocket
+			// transport failed. cacheSessionId is the retention-gated id and must be the
+			// input to everything the provider can see or retain: prompt_cache_key, the
+			// session-id / thread-id / x-client-request-id headers, and socket pooling
+			// (a reused socket carries connection-scoped previous_response_id state).
 			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 			const localSessionId = options?.sessionId;
 			const cacheSessionId = cacheRetention === "none" ? undefined : localSessionId;
@@ -310,15 +328,13 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			body.prompt_cache_key = cacheAffinitySessionId;
 
 			// ChatGPT Codex keys server-side prefix caching on the session-id header.
-			// Keep thread-id / x-client-request-id tied to the real Pi session while
-			// routing same-shape requests through the shared affinity session-id.
-			const codexThreadId = clampOpenAIPromptCacheKey(localSessionId);
+			// thread-id / x-client-request-id are provider-visible affinity, so they
+			// derive from the retention-gated id: under cacheRetention "none" the
+			// request must carry no handle the provider can correlate or retain.
+			const codexThreadId = clampOpenAIPromptCacheKey(cacheSessionId);
 			const codexSessionHeader = cacheAffinitySessionId;
-			// Provider-visible Codex session-id may be shared across same-shape sessions
-			// for prefix-cache reuse. Local WebSocket continuation state is different:
-			// previous_response_id is connection/conversation scoped, so keep local
-			// socket reuse, fallback tracking, and debug stats keyed to the real Pi
-			// session id carried in options.
+			// The provider-visible Codex session-id may be shared across same-shape
+			// sessions for prefix-cache reuse, so it is deliberately not the Pi session id.
 			const requestedTransport = options?.transport || "auto";
 			let transport = model.compat?.supportsWebSocketTransport === false ? "sse" : requestedTransport;
 			// previous_response_id continuation is provider-retained context, so
@@ -374,7 +390,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							},
 							httpTimeoutMs,
 							websocketConnectTimeoutMs,
-							localSessionId,
+							cacheSessionId,
 							accountId,
 							grammarToolInputProperties,
 							transportOptions,
@@ -429,8 +445,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			// Compress the request body once for the SSE path. The Codex backend
 			// decodes Content-Encoding: zstd; the WebSocket transport above sends the
 			// uncompressed JSON frame, matching the official Codex client.
-			const compressedBody =
-				model.compat?.supportsZstdRequestCompression === false ? null : compressRequestBodyZstd(bodyJson);
+			const compressedBody = usesZstdRequestCompression(model) ? compressRequestBodyZstd(bodyJson) : null;
 			if (compressedBody) {
 				sseHeaders.set("content-encoding", "zstd");
 			} else {
@@ -584,21 +599,6 @@ export {
 	buildSSEHeaders as _buildSSEHeadersForTests,
 	buildWebSocketHeaders as _buildWebSocketHeadersForTests,
 };
-
-/**
- * Resolve cache retention preference.
- * Defaults to "long"; set PI_CACHE_RETENTION=short or PI_CACHE_RETENTION=none to override process-wide.
- */
-function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
-	if (cacheRetention) {
-		return cacheRetention;
-	}
-	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
-	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
-		return envRetention;
-	}
-	return "long";
-}
 
 function buildRequestBody(
 	model: Model<"openai-codex-responses">,
@@ -957,12 +957,14 @@ interface CachedWebSocketContinuationState {
 	lastResponseItems: ResponseInput;
 }
 
+const MAX_CACHED_WEBSOCKET_CONTINUATIONS = 2;
+
 interface CachedWebSocketConnection {
 	socket: WebSocketLike;
 	busy: boolean;
 	createdAt: number;
 	idleTimer?: ReturnType<typeof setTimeout>;
-	continuation?: CachedWebSocketContinuationState;
+	continuations: CachedWebSocketContinuationState[];
 }
 
 export interface OpenAICodexWebSocketDebugStats {
@@ -1306,7 +1308,7 @@ async function acquireWebSocket(
 	}
 
 	const socket = await connectWebSocket(url, headers, signal, connectTimeoutMs, env);
-	const entry: CachedWebSocketConnection = { socket, busy: true, createdAt: Date.now() };
+	const entry: CachedWebSocketConnection = { socket, busy: true, createdAt: Date.now(), continuations: [] };
 	accountEntries = websocketSessionCache.get(sessionId);
 	if (!accountEntries) {
 		accountEntries = new Map();
@@ -1543,22 +1545,18 @@ function getCachedWebSocketInputDelta(
 }
 
 function buildCachedWebSocketRequestBody(entry: CachedWebSocketConnection, body: RequestBody): RequestBody {
-	const continuation = entry.continuation;
-	if (!continuation) {
-		return body;
+	for (const continuation of entry.continuations) {
+		const delta = getCachedWebSocketInputDelta(body, continuation);
+		if (delta && continuation.lastResponseId) {
+			return {
+				...body,
+				previous_response_id: continuation.lastResponseId,
+				input: delta,
+			};
+		}
 	}
 
-	const delta = getCachedWebSocketInputDelta(body, continuation);
-	if (!delta || !continuation.lastResponseId) {
-		entry.continuation = undefined;
-		return body;
-	}
-
-	return {
-		...body,
-		previous_response_id: continuation.lastResponseId,
-		input: delta,
-	};
+	return body;
 }
 
 async function* startWebSocketOutputOnFirstEvent(
@@ -1585,7 +1583,13 @@ async function processWebSocketStream(
 	onStart: () => void,
 	idleTimeoutMs: number | undefined,
 	websocketConnectTimeoutMs: number | undefined,
-	localSessionId: string | undefined,
+	// Governs socket pooling and the pooled-connection debug stats. A reused socket
+	// carries provider-side conversation state (connection-scoped
+	// previous_response_id), so this is the retention-gated id, not the local Pi
+	// session id: undefined makes acquireWebSocket open a one-shot socket and close
+	// it on release. SSE-fallback and failure bookkeeping stay on the real session
+	// id at the call site.
+	socketSessionId: string | undefined,
 	accountId: string | undefined,
 	grammarToolInputProperties: ReadonlyMap<string, string>,
 	options?: OpenAICodexResponsesOptions,
@@ -1593,7 +1597,7 @@ async function processWebSocketStream(
 	const { socket, entry, reused, release } = await acquireWebSocket(
 		url,
 		headers,
-		localSessionId,
+		socketSessionId,
 		accountId,
 		options?.signal,
 		websocketConnectTimeoutMs,
@@ -1605,7 +1609,7 @@ async function processWebSocketStream(
 	// WebSocket continuation still works via connection-scoped previous_response_id state.
 	const fullBody = body;
 	const requestBody = useCachedContext && entry ? buildCachedWebSocketRequestBody(entry, fullBody) : fullBody;
-	const stats = localSessionId ? getOrCreateWebSocketDebugStats(localSessionId) : undefined;
+	const stats = socketSessionId ? getOrCreateWebSocketDebugStats(socketSessionId) : undefined;
 	if (stats) {
 		stats.requests++;
 		if (reused) stats.connectionsReused++;
@@ -1650,15 +1654,16 @@ async function processWebSocketStream(
 				includeSystemPrompt: false,
 				grammarToolInputProperties,
 			}).filter((item) => item.type !== "function_call_output" && item.type !== "custom_tool_call_output");
-			entry.continuation = {
+			entry.continuations.unshift({
 				lastRequestBody: fullBody,
 				lastResponseId: output.responseId,
 				lastResponseItems: responseItems,
-			};
+			});
+			entry.continuations.length = Math.min(entry.continuations.length, MAX_CACHED_WEBSOCKET_CONTINUATIONS);
 		}
 	} catch (error) {
 		if (entry) {
-			entry.continuation = undefined;
+			entry.continuations = [];
 		}
 		keepConnection = false;
 		throw error;

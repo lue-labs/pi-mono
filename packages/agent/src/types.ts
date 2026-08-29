@@ -13,7 +13,7 @@ import type {
 	ToolReferenceContent,
 	ToolResultMessage,
 	Usage,
-} from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
 import type { Static, TSchema } from "typebox";
 
 /**
@@ -128,6 +128,13 @@ export interface ShouldStopAfterTurnContext {
 	context: AgentContext;
 	/** Messages that this loop invocation will return if it exits at this point. Prompt runs include the initial prompt messages; continuation runs do not include pre-existing context messages. */
 	newMessages: AgentMessage[];
+	/**
+	 * Whether this turn's tool batch leaves the run with more model work: the assistant
+	 * made tool calls and no terminal tool (`result.terminate`) ended the batch, so the
+	 * loop would otherwise start another provider request. Independent of queued steering/follow-up
+	 * messages, which can still continue the run when this is false.
+	 */
+	hasMoreToolCalls: boolean;
 }
 
 /** Replacement runtime state used by the agent loop before starting another provider request. */
@@ -313,7 +320,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
  * - "adaptive" is Claude-4.6+ / Sonnet-4.6 only: model self-regulates thinking budget per turn.
  * - "xhigh" is reserved for native xhigh-effort models (Opus 4.7, GPT-5, etc.).
  * - "ultra" is a client orchestration mode mapped to the model's maximum native effort.
- * Use model thinking-level metadata from @valkyriweb/pi-ai to detect support for a concrete model.
+ * Use model thinking-level metadata from @lue-labs/pi-ai to detect support for a concrete model.
  */
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "adaptive";
 

@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model, Usage } from "@valkyriweb/pi-ai";
+import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Api, Model, Usage } from "@lue-labs/pi-ai";
 
 /** Internal marker for ctx.forkAgent's synthetic inherited systemPrompt. */
 export const FORK_INHERITED_SYSTEM_PROMPT = Symbol("pi.fork.inheritedSystemPrompt");

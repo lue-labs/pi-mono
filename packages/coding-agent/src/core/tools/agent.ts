@@ -1,6 +1,6 @@
-import type { AgentTool, AgentToolResult, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { type Api, type Model, StringEnum } from "@valkyriweb/pi-ai";
-import { Container, Spacer, Text } from "@valkyriweb/pi-tui";
+import type { AgentTool, AgentToolResult, ThinkingLevel } from "@lue-labs/pi-agent-core";
+import { type Api, type Model, StringEnum } from "@lue-labs/pi-ai";
+import { Container, Spacer, Text } from "@lue-labs/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { type AgentEngine, getContextAgentEngine } from "../agents/engine.ts";
@@ -106,11 +106,17 @@ export const agentToolSchema = Type.Object({
 	chainDir: Type.Optional(Type.String({ description: "Base directory for relative chain outputs" })),
 	background: Type.Optional(
 		Type.Boolean({
+			default: true,
 			description:
-				"Run in the background and return immediately with a run id. Defaults to false (synchronous) — set true for long-running work you don't need the result from immediately.",
+				"Run in the background and return immediately with a run id. Defaults to true; pass false for a synchronous result in this turn.",
 		}),
 	),
-	run_in_background: Type.Optional(Type.Boolean({ description: "Claude Code-compatible alias for background" })),
+	run_in_background: Type.Optional(
+		Type.Boolean({
+			description:
+				"Claude Code-compatible alias for background. Uses the same default and must match background when both are provided.",
+		}),
+	),
 	agentScope: Type.Optional(StringEnum(["user", "project", "both"] as const)),
 });
 
@@ -239,11 +245,12 @@ export function normalizeAgentToolAliases(params: AgentToolInput): AgentToolInpu
 	rejectUnsupportedFutureFields(input);
 	const tasks = coerceTaskList(params.tasks, "tasks");
 	const chain = coerceTaskList(params.chain, "chain");
+	const background = resolveBooleanAlias(input, "background", "run_in_background");
 	return {
 		...params,
 		agent: resolveStringAlias(input, "agent", "subagent_type") ?? params.agent,
 		task: resolveStringAlias(input, "task", "prompt") ?? params.task,
-		background: resolveBooleanAlias(input, "background", "run_in_background") ?? params.background,
+		background: input.action ? background : (background ?? true),
 		tasks: tasks?.map((task) => normalizeAgentTaskAliases(task as AgentTaskParams, "tasks")),
 		chain: chain?.map((task) => normalizeAgentTaskAliases(task as AgentTaskParams, "chain")),
 	};
@@ -290,6 +297,129 @@ export function normalizeAgentToolMode(params: AgentToolInput): {
 	}
 	if (hasParallel) return { mode: "parallel", tasks: tasks ?? [] };
 	return { mode: "chain", tasks: chain ?? [] };
+}
+
+/**
+ * A single Agent task in a shape safe for rendering partial/streaming calls.
+ * Aliases are resolved with the same precedence as execution normalization
+ * (legacy `agent` over `subagent_type`, legacy `task` over `prompt`), but any
+ * field may be absent while arguments are still streaming.
+ */
+export interface AgentRenderTask {
+	agent?: string;
+	task?: string;
+	description?: string;
+}
+
+/**
+ * Result of {@link normalizeAgentToolModeForRender}. `state` distinguishes a
+ * fully-formed call (`valid`, parity with {@link normalizeAgentToolMode}), a
+ * still-streaming/incomplete call (`partial`), and a malformed complete call
+ * (`invalid` — unparseable task JSON, conflicting aliases, or more than one
+ * execution mode). Rendering stays useful in every state instead of throwing.
+ */
+export interface AgentRenderNormalization {
+	mode: AgentToolMode;
+	tasks: AgentRenderTask[];
+	background: boolean;
+	state: "valid" | "partial" | "invalid";
+}
+
+function lenientResolveString(
+	source: Record<string, unknown>,
+	primary: string,
+	alias: string,
+): { value?: string; conflict: boolean } {
+	const primaryValue = typeof source[primary] === "string" ? (source[primary] as string) : undefined;
+	const aliasValue = typeof source[alias] === "string" ? (source[alias] as string) : undefined;
+	const conflict = primaryValue !== undefined && aliasValue !== undefined && primaryValue !== aliasValue;
+	return { value: primaryValue ?? aliasValue, conflict };
+}
+
+function lenientTaskList(value: unknown): { tasks: unknown[]; parseFailed: boolean } {
+	if (value === undefined || value === null) return { tasks: [], parseFailed: false };
+	let candidate: unknown = value;
+	if (typeof candidate === "string") {
+		try {
+			candidate = JSON.parse(candidate);
+		} catch {
+			return { tasks: [], parseFailed: true };
+		}
+	}
+	if (Array.isArray(candidate)) return { tasks: candidate, parseFailed: false };
+	if (candidate && typeof candidate === "object") return { tasks: [candidate], parseFailed: false };
+	return { tasks: [], parseFailed: true };
+}
+
+function renderTaskFromSource(source: unknown): { task: AgentRenderTask; conflict: boolean; complete: boolean } {
+	if (!source || typeof source !== "object") {
+		return { task: {}, conflict: false, complete: false };
+	}
+	const record = source as Record<string, unknown>;
+	const agent = lenientResolveString(record, "agent", "subagent_type");
+	const childTask = lenientResolveString(record, "task", "prompt");
+	const description = typeof record.description === "string" ? record.description : undefined;
+	const task: AgentRenderTask = {};
+	if (agent.value !== undefined) task.agent = agent.value;
+	if (childTask.value !== undefined) task.task = childTask.value;
+	if (description !== undefined) task.description = description;
+	return {
+		task,
+		conflict: agent.conflict || childTask.conflict,
+		complete: agent.value !== undefined && childTask.value !== undefined,
+	};
+}
+
+/**
+ * Renderer-safe counterpart to {@link normalizeAgentToolMode}. Accepts partial,
+ * stringified, object, or array task inputs and never throws: extensions can
+ * call it while Agent-tool arguments are still streaming. For fully-formed
+ * inputs it reproduces execution mode/alias precedence (`state: "valid"`);
+ * incomplete inputs return `"partial"` and malformed complete inputs return
+ * `"invalid"`, both with best-effort tasks for display. Model/cache neutral —
+ * it reads arguments only and never touches params.system or tools[].
+ */
+export function normalizeAgentToolModeForRender(input: unknown): AgentRenderNormalization {
+	if (!input || typeof input !== "object") {
+		return { mode: "single", tasks: [], background: false, state: input == null ? "partial" : "invalid" };
+	}
+	const source = input as Record<string, unknown>;
+	const background = source.background === true || source.run_in_background === true;
+
+	const parallel = lenientTaskList(source.tasks);
+	const chain = lenientTaskList(source.chain);
+	const single = renderTaskFromSource(source);
+
+	const parallelPresent = parallel.tasks.length > 0;
+	const chainPresent = chain.tasks.length > 0;
+	const singlePresent = single.complete;
+	const modeCount = [singlePresent, parallelPresent, chainPresent].filter(Boolean).length;
+
+	let invalid = parallel.parseFailed || chain.parseFailed || modeCount > 1;
+
+	let mode: AgentToolMode;
+	let rendered: { task: AgentRenderTask; conflict: boolean; complete: boolean }[];
+	if (parallelPresent) {
+		mode = "parallel";
+		rendered = parallel.tasks.map(renderTaskFromSource);
+	} else if (chainPresent) {
+		mode = "chain";
+		rendered = chain.tasks.map(renderTaskFromSource);
+	} else {
+		mode = "single";
+		rendered = [single];
+	}
+
+	if (rendered.some((entry) => entry.conflict)) invalid = true;
+	const allComplete = rendered.every((entry) => entry.complete);
+
+	const state: AgentRenderNormalization["state"] = invalid
+		? "invalid"
+		: modeCount === 1 && allComplete
+			? "valid"
+			: "partial";
+
+	return { mode, tasks: rendered.map((entry) => entry.task), background, state };
 }
 
 function formatUsage(run: AgentRunDetails): string | undefined {
@@ -724,7 +854,7 @@ export function createAgentToolDefinition(
 		label,
 		description:
 			options?.description ??
-			"Run a Pi Agent task with a selected profile, optionally in parallel, sequentially, or in the background.",
+			"Run a Pi Agent task in the background by default; pass background:false or run_in_background:false for a synchronous result.",
 
 		promptSnippet: "Run an Agent task with bounded tools",
 		promptGuidelines: [
@@ -884,7 +1014,8 @@ export function createUppercaseAgentToolDefinition(
 		...options,
 		toolName: "Agent",
 		label: "Agent",
-		description: "Run a Pi Agent task through the Claude Code-compatible Agent tool.",
+		description:
+			"Run a Pi Agent task through the Claude Code-compatible Agent tool. Runs in the background by default; pass background:false for a synchronous result in this turn.",
 	});
 }
 
@@ -900,7 +1031,8 @@ export function createTaskToolDefinition(
 		...options,
 		toolName: "Task",
 		label: "Task",
-		description: "Run a Pi Agent task through the legacy Task alias.",
+		description:
+			"Run a Pi Agent task through the legacy Task alias. Runs in the background by default; pass background:false for a synchronous result in this turn.",
 	});
 }
 

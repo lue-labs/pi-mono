@@ -18,9 +18,9 @@
  * reforge slice 5); only `this.*` receivers were renamed to `this.host.*`
  * for session-owned state. Tier `platform` in pi-fork-patch-inventory.
  */
-import type { Agent } from "@valkyriweb/pi-agent-core";
-import type { AssistantMessage, Context, Model } from "@valkyriweb/pi-ai";
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@valkyriweb/pi-ai/compat";
+import type { Agent } from "@lue-labs/pi-agent-core";
+import type { AssistantMessage, Context, Model } from "@lue-labs/pi-ai";
+import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@lue-labs/pi-ai/compat";
 import type { AgentSessionEvent } from "./agent-session.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { convertToLlm } from "./messages.ts";
@@ -63,6 +63,7 @@ export interface CacheHeartbeatHost {
 	readonly settingsManager: SettingsManager;
 	readonly agent: Agent;
 	findLastAssistantMessage(): AssistantMessage | undefined;
+	loadDeferredExtensions(): Promise<void>;
 	emit(event: AgentSessionEvent): void;
 }
 
@@ -243,6 +244,7 @@ export class CacheHeartbeatManager {
 		scope: "base" | "session",
 	): Promise<void> {
 		if (this.host.disposed || !this.host.model) return;
+		await this.host.loadDeferredExtensions();
 		this._cacheHeartbeatAbortController?.abort();
 		const abortController = new AbortController();
 		this._cacheHeartbeatAbortController = abortController;

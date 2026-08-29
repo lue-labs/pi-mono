@@ -1,5 +1,5 @@
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
-import { Container, Text } from "@valkyriweb/pi-tui";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
+import { Container, Text } from "@lue-labs/pi-tui";
 import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { type Static, Type } from "typebox";

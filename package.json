@@ -14,7 +14,7 @@
 	"scripts": {
 		"clean": "npm run clean --workspaces",
 		"build": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build:ts && cd ../.. && npm run test:build-gate",
-		"build:offline": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build:offline && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build",
+		"build:offline": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build:offline && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build:ts",
 		"build:binary": "npm --prefix packages/coding-agent run build",
 		"check": "biome check --write --error-on-warnings . && npm run check:changelog && npm run check:pinned-deps && npm run check:ts-imports && npm run check:shrinkwrap && npm run check:install-lock:coding-agent && tsc --noEmit && npm run check:browser-smoke",
 		"lint:fork-delta": "node scripts/check-fork-delta-static.mjs",
@@ -31,7 +31,7 @@
 		"changeset": "changeset",
 		"changeset:status": "changeset status",
 		"version-packages": "changeset version && npm install --package-lock-only --ignore-scripts && npm run shrinkwrap:coding-agent && npm run install-lock:coding-agent",
-		"publish:changesets": "changeset publish",
+		"publish:changesets": "npm_config_ignore_scripts=true changeset publish",
 		"generate:models": "npm --prefix packages/ai run generate-models && npm --prefix packages/ai run generate-image-models",
 		"hydrate:model-data": "npm --prefix packages/ai run hydrate-model-data",
 		"check:model-data": "npm --prefix packages/ai run check:model-data",

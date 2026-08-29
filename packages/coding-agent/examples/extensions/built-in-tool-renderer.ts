@@ -25,9 +25,9 @@
  *   pi -e ./built-in-tool-renderer.ts
  */
 
-import type { BashToolDetails, EditToolDetails, ExtensionAPI, ReadToolDetails } from "@valkyriweb/pi-coding-agent";
-import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@valkyriweb/pi-coding-agent";
-import { Text } from "@valkyriweb/pi-tui";
+import type { BashToolDetails, EditToolDetails, ExtensionAPI, ReadToolDetails } from "@lue-labs/pi-coding-agent";
+import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@lue-labs/pi-coding-agent";
+import { Text } from "@lue-labs/pi-tui";
 
 export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();

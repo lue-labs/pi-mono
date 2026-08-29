@@ -1,4 +1,6 @@
 export {
+	type AgentRenderNormalization,
+	type AgentRenderTask,
 	type AgentToolDetails,
 	type AgentToolInput,
 	type AgentToolOptions,
@@ -9,6 +11,7 @@ export {
 	createTaskToolDefinition,
 	createUppercaseAgentTool,
 	createUppercaseAgentToolDefinition,
+	normalizeAgentToolModeForRender,
 } from "./agent.ts";
 export {
 	BASH_BG_DEFAULT_MAX_OUTPUT_BYTES,
@@ -148,7 +151,7 @@ export {
 	type WriteToolOptions,
 } from "./write.ts";
 
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
 import {
 	type AgentToolOptions,

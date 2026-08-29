@@ -1,5 +1,5 @@
-import type { Component } from "@valkyriweb/pi-tui";
-import { Box, Container, Spacer, Text } from "@valkyriweb/pi-tui";
+import type { Component } from "@lue-labs/pi-tui";
+import { Box, Container, Spacer, Text } from "@lue-labs/pi-tui";
 import type { EntryRenderer } from "../../../core/extensions/types.ts";
 import type { CustomEntry } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";

@@ -10,8 +10,9 @@ import {
 	startAgentRecentRun,
 	updateAgentRecentRunProgress,
 } from "../src/core/agents/status.ts";
-import type { AgentToolDetails } from "../src/core/agents/types.ts";
+import type { AgentToolDetails, AgentToolMode } from "../src/core/agents/types.ts";
 import {
+	type AgentToolInput,
 	createAgentToolDefinition,
 	normalizeAgentToolAliases,
 	normalizeAgentToolMode,
@@ -80,17 +81,111 @@ describe("agent tool", () => {
 		expect(inputs[1]?.tasks[0]?.[marker]).toBeUndefined();
 	});
 
-	test("Claude-style single-agent aliases normalize to Pi fields", () => {
-		const normalized = normalizeAgentToolAliases({
+	test("Agent background aliases default true and preserve explicit overrides", () => {
+		const omitted = normalizeAgentToolAliases({
 			subagent_type: "Explore",
 			prompt: "find config",
-			run_in_background: true,
 		} as Parameters<typeof normalizeAgentToolAliases>[0]);
-		expect(normalized).toMatchObject({ agent: "Explore", task: "find config", background: true });
-		expect(normalizeAgentToolMode(normalized)).toMatchObject({
+		expect(omitted).toMatchObject({ agent: "Explore", task: "find config", background: true });
+		expect(normalizeAgentToolAliases({ agent: "Explore", task: "find", background: true }).background).toBe(true);
+		expect(normalizeAgentToolAliases({ agent: "Explore", task: "find", background: false }).background).toBe(false);
+		expect(normalizeAgentToolAliases({ agent: "Explore", task: "find", run_in_background: true }).background).toBe(
+			true,
+		);
+		expect(normalizeAgentToolAliases({ agent: "Explore", task: "find", run_in_background: false }).background).toBe(
+			false,
+		);
+		expect(
+			normalizeAgentToolAliases({
+				agent: "Explore",
+				task: "find",
+				background: false,
+				run_in_background: false,
+			}).background,
+		).toBe(false);
+		expect(normalizeAgentToolAliases({ action: "status", runId: "run-123" }).background).toBeUndefined();
+		expect(normalizeAgentToolMode(omitted)).toMatchObject({
 			mode: "single",
 			tasks: [expect.objectContaining({ agent: "Explore", task: "find config" })],
 		});
+	});
+
+	test("omitted background launches single, parallel, and chain modes asynchronously", async () => {
+		const inputs: Array<{ mode: AgentToolMode; background?: boolean }> = [];
+		const engine = {
+			async run(input: { mode: AgentToolMode; background?: boolean }) {
+				inputs.push(input);
+				if (input.background) {
+					return {
+						mode: input.mode,
+						status: "running",
+						runs: [],
+						runId: `run-${input.mode}`,
+						background: true,
+					} satisfies AgentToolDetails;
+				}
+				return { mode: input.mode, status: "completed", runs: [], background: false } satisfies AgentToolDetails;
+			},
+		} as unknown as AgentEngine;
+		const tool = createAgentToolDefinition(process.cwd(), { engine });
+		const calls = [
+			{ agent: "explore", task: "map single" },
+			{ tasks: [{ agent: "explore", task: "map parallel" }] },
+			{ chain: [{ agent: "plan", task: "Use {previous}" }] },
+		] satisfies AgentToolInput[];
+
+		for (const params of calls) {
+			const result = await tool.execute("default-background", params, undefined, undefined, {
+				hasUI: false,
+			} as never);
+			const details = result.details as AgentToolDetails;
+			expect(details).toMatchObject({ status: "running", background: true });
+			expect(details.runId).toMatch(/^run-/);
+		}
+		expect(inputs.map(({ mode, background }) => ({ mode, background }))).toEqual([
+			{ mode: "single", background: true },
+			{ mode: "parallel", background: true },
+			{ mode: "chain", background: true },
+		]);
+	});
+
+	test("explicit false aliases keep single, parallel, and chain execution synchronous", async () => {
+		const inputs: Array<{ mode: AgentToolMode; background?: boolean }> = [];
+		const engine = {
+			async run(input: { mode: AgentToolMode; background?: boolean }) {
+				inputs.push(input);
+				return {
+					mode: input.mode,
+					status: "completed",
+					runs: [],
+					background: input.background,
+				} satisfies AgentToolDetails;
+			},
+		} as unknown as AgentEngine;
+		const tool = createAgentToolDefinition(process.cwd(), { engine });
+		const calls = [
+			{ agent: "explore", task: "single background", background: false },
+			{ tasks: [{ agent: "explore", task: "parallel background" }], background: false },
+			{ chain: [{ agent: "plan", task: "chain background" }], background: false },
+			{ agent: "explore", task: "single alias", run_in_background: false },
+			{ tasks: [{ agent: "explore", task: "parallel alias" }], run_in_background: false },
+			{ chain: [{ agent: "plan", task: "chain alias" }], run_in_background: false },
+		] satisfies AgentToolInput[];
+
+		for (const params of calls) {
+			const result = await tool.execute("foreground", params, undefined, undefined, { hasUI: false } as never);
+			const details = result.details as AgentToolDetails;
+			expect(details).toMatchObject({ status: "completed", background: false });
+			expect(details.runId).toBeUndefined();
+		}
+		expect(inputs.map(({ mode, background }) => ({ mode, background }))).toEqual([
+			{ mode: "single", background: false },
+			{ mode: "parallel", background: false },
+			{ mode: "chain", background: false },
+			{ mode: "single", background: false },
+			{ mode: "parallel", background: false },
+			{ mode: "chain", background: false },
+		]);
 	});
 
 	test("Claude-style aliases normalize inside tasks and chains", () => {
@@ -158,6 +253,9 @@ describe("agent tool", () => {
 			expect(properties).toHaveProperty("prompt");
 			expect(properties).toHaveProperty("subagent_type");
 			expect(properties).toHaveProperty("run_in_background");
+			expect(properties.background as { default?: boolean; description?: string }).toMatchObject({ default: true });
+			expect((properties.background as { description?: string }).description).toContain("Defaults to true");
+			expect((properties.run_in_background as { description?: string }).description).toContain("same default");
 			const taskItem = (
 				properties.tasks as { items: { properties: Record<string, { description?: string }>; required?: string[] } }
 			).items;
@@ -201,7 +299,11 @@ describe("agent tool", () => {
 			expect(tool.parameters.properties).toHaveProperty("subagent_type");
 			expect(tool.parameters.properties).toHaveProperty("prompt");
 			expect(tool.description).toContain("Agent task");
-			expect(tool.description.length).toBeLessThan(150);
+			expect(tool.description.length).toBeLessThan(170);
+		}
+		for (const tool of [tools.Agent, tools.Task]) {
+			expect(tool.description).toContain("background by default");
+			expect(tool.description).toContain("background:false");
 		}
 		const guidelines = createAgentToolDefinition(process.cwd()).promptGuidelines?.join("\n") ?? "";
 		expect(guidelines).toContain("Write an outcome contract");

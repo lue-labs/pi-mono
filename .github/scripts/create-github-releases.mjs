@@ -14,7 +14,7 @@
 //
 // Usage: node create-github-releases.mjs '<publishedPackages JSON>'
 //   publishedPackages: changesets/action `publishedPackages` output, e.g.
-//   [{"name":"@valkyriweb/pi-coding-agent","version":"0.31.0"}]
+//   [{"name":"@lue-labs/pi-coding-agent","version":"0.31.0"}]
 
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -29,7 +29,7 @@ if (!Array.isArray(published) || published.length === 0) {
 }
 
 const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
-const repo = process.env.GITHUB_REPOSITORY || "valkyriweb/pi-mono";
+const repo = process.env.GITHUB_REPOSITORY || "lue-labs/pi-mono";
 const forkChangelogUrl = `${serverUrl}/${repo}/blob/main/FORK-CHANGELOG.md`;
 
 // Map package name -> directory by scanning tracked package.json files.
@@ -50,7 +50,7 @@ for (const f of pkgFiles) {
 }
 
 // Pin every gh call to the fork repo: this clone has both an `origin`
-// (valkyriweb/pi-mono) and an `upstream` (earendil-works/pi-mono) remote, so
+// (lue-labs/pi-mono) and an `upstream` (earendil-works/pi-mono) remote, so
 // gh's default-repo resolution can pick the wrong one.
 function releaseExists(tag) {
   try {
@@ -73,7 +73,7 @@ for (const { name, version } of published) {
 
   const dir = nameToDir.get(name);
   const lines = [
-    `Fork release of \`${name}\` \`${version}\`, published to GitHub Packages (@valkyriweb scope).`,
+    `Fork release of \`${name}\` \`${version}\`, published to GitHub Packages (@lue-labs scope).`,
     "",
     `- **Fork release notes:** [FORK-CHANGELOG.md](${forkChangelogUrl})`,
   ];

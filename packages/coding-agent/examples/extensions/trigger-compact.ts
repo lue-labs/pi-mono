@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@valkyriweb/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@lue-labs/pi-coding-agent";
 
 const COMPACT_THRESHOLD_TOKENS = 100_000;
 

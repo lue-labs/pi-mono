@@ -1,4 +1,4 @@
-# VISION.md — valkyriweb/pi-mono
+# VISION.md — lue-labs/pi-mono
 
 ## Purpose
 
@@ -28,7 +28,7 @@ private setup. Everything operator-specific lives in the sibling
 
 ## What good looks like
 
-- **Clean install path:** `npm install -g @valkyriweb/pi-coding-agent` (or the
+- **Clean install path:** `npm install -g @lue-labs/pi-coding-agent` (or the
   release binary) works on a fresh machine with zero repo-local knowledge. A
   quickstart doc covers provider auth, the first run, extension loading, and
   where to go next.
@@ -96,7 +96,7 @@ private setup. Everything operator-specific lives in the sibling
   currently inconsistent with the workspaces and must be reconciled before the
   next release. Do not infer a lockstep package set.
 - **Release gate:** local `npm run check` + `test:build-gate`, then the
-  Changesets workflow on `main` publishes restricted `@valkyriweb/*` packages to
+  Changesets workflow on `main` publishes restricted `@lue-labs/*` packages to
   GitHub Packages and invokes binary builds when coding-agent ships. Full
   runbook: [`docs/RELEASING.md`](docs/RELEASING.md).
 - **Smoke evidence:** Node and Bun startup, `--version`/`--list-models`,

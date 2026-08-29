@@ -1,6 +1,6 @@
 {
-	"name": "@valkyriweb/pi-protocol",
-	"version": "0.84.4",
+	"name": "@lue-labs/pi-protocol",
+	"version": "0.84.6",
 	"description": "Transport-neutral CBOR protocol for remote pi sessions",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -32,7 +32,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/lue-labs/pi-mono.git",
 		"directory": "packages/protocol"
 	},
 	"publishConfig": {

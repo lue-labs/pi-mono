@@ -1,4 +1,4 @@
-# @valkyriweb/pi-session-backend-sqlite-node
+# @lue-labs/pi-session-backend-sqlite-node
 
 Node sqlite session backend for `@earendil-works/pi-agent-core` sessions. Provides the
 `node:sqlite` adapter (`SqliteDatabase` implementation), SQLite session repository,

@@ -1,4 +1,4 @@
-import type { TelemetryContext } from "@valkyriweb/pi-telemetry";
+import type { TelemetryContext } from "@lue-labs/pi-telemetry";
 import type { AnthropicOptions } from "./api/anthropic-messages.ts";
 import type { AzureOpenAIResponsesOptions } from "./api/azure-openai-responses.ts";
 import type { BedrockOptions } from "./api/bedrock-converse-stream.ts";
@@ -685,7 +685,7 @@ export interface OpenAIResponsesCompat {
 	sendChatgptAccountId?: boolean;
 	/** Whether the endpoint accepts the Codex WebSocket transport (Codex Responses only). Default: true. */
 	supportsWebSocketTransport?: boolean;
-	/** Whether SSE request bodies may use Content-Encoding: zstd (Codex Responses only). Default: true. */
+	/** Whether SSE request bodies may use Content-Encoding: zstd (Codex Responses only). Default: true on the official ChatGPT Codex backend, false for any other base URL. */
 	supportsZstdRequestCompression?: boolean;
 }
 

@@ -6,15 +6,15 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const packages = [
-	{ directory: "packages/telemetry", name: "@valkyriweb/pi-telemetry" },
-	{ directory: "packages/ai", name: "@valkyriweb/pi-ai" },
-	{ directory: "packages/tui", name: "@valkyriweb/pi-tui" },
-	{ directory: "packages/agent", name: "@valkyriweb/pi-agent-core" },
-	{ directory: "packages/protocol", name: "@valkyriweb/pi-protocol" },
-	{ directory: "packages/client", name: "@valkyriweb/pi-client" },
-	{ directory: "packages/session-backends/sqlite-node", name: "@valkyriweb/pi-session-backend-sqlite-node" },
-	{ directory: "packages/server", name: "@valkyriweb/pi-server" },
-	{ directory: "packages/coding-agent", name: "@valkyriweb/pi-coding-agent" },
+	{ directory: "packages/telemetry", name: "@lue-labs/pi-telemetry" },
+	{ directory: "packages/ai", name: "@lue-labs/pi-ai" },
+	{ directory: "packages/tui", name: "@lue-labs/pi-tui" },
+	{ directory: "packages/agent", name: "@lue-labs/pi-agent-core" },
+	{ directory: "packages/protocol", name: "@lue-labs/pi-protocol" },
+	{ directory: "packages/client", name: "@lue-labs/pi-client" },
+	{ directory: "packages/session-backends/sqlite-node", name: "@lue-labs/pi-session-backend-sqlite-node" },
+	{ directory: "packages/server", name: "@lue-labs/pi-server" },
+	{ directory: "packages/coding-agent", name: "@lue-labs/pi-coding-agent" },
 ];
 
 function printUsage() {

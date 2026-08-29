@@ -132,7 +132,7 @@ function createSourceCheckout(): { root: string; packageDir: string } {
 	const packageDir = join(root, "packages", "coding-agent");
 	mkdirSync(join(root, ".git"), { recursive: true });
 	mkdirSync(packageDir, { recursive: true });
-	writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name: "@valkyriweb/pi-coding-agent" }));
+	writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name: "@lue-labs/pi-coding-agent" }));
 	tempDir = root;
 	process.env.PI_PACKAGE_DIR = packageDir;
 	setExecPath(join(packageDir, "dist", "cli.js"));
@@ -170,8 +170,8 @@ describe("detectInstallMethod", () => {
 		);
 
 		expect(detectInstallMethod()).toBe("pnpm");
-		expect(getUpdateInstruction("@valkyriweb/pi-coding-agent")).toBe(
-			"Run: pnpm install -g --ignore-scripts --config.minimumReleaseAge=0 @valkyriweb/pi-coding-agent",
+		expect(getUpdateInstruction("@lue-labs/pi-coding-agent")).toBe(
+			"Run: pnpm install -g --ignore-scripts --config.minimumReleaseAge=0 @lue-labs/pi-coding-agent",
 		);
 	});
 
@@ -182,16 +182,16 @@ describe("detectInstallMethod", () => {
 		setExecPath("/usr/local/bin/node");
 
 		expect(detectInstallMethod()).toBe("unknown");
-		expect(getSelfUpdateCommand("@valkyriweb/pi-coding-agent")).toBeUndefined();
-		expect(getUpdateInstruction("@valkyriweb/pi-coding-agent")).toBe(
-			"Update @valkyriweb/pi-coding-agent using the package manager, wrapper, or source checkout that provides this installation.",
+		expect(getSelfUpdateCommand("@lue-labs/pi-coding-agent")).toBeUndefined();
+		expect(getUpdateInstruction("@lue-labs/pi-coding-agent")).toBe(
+			"Update @lue-labs/pi-coding-agent using the package manager, wrapper, or source checkout that provides this installation.",
 		);
 	});
 
 	test("self-updates source checkout installs from configured command", () => {
 		createSourceCheckout();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", undefined, undefined, [
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent", undefined, undefined, [
 			"/Users/luke/Projects/personal/rusty/scripts/update-pi",
 		]);
 
@@ -207,7 +207,7 @@ describe("detectInstallMethod", () => {
 		createSourceCheckout();
 		process.env.PI_SOURCE_UPDATE_COMMAND = "~/Projects/personal/rusty/scripts/update-pi";
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent");
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent");
 
 		expect(command?.display).toBe("~/Projects/personal/rusty/scripts/update-pi");
 		expect(command?.args.at(-1)).toBe("~/Projects/personal/rusty/scripts/update-pi");
@@ -216,8 +216,8 @@ describe("detectInstallMethod", () => {
 	test("source checkout unavailable instruction mentions source update config", () => {
 		createSourceCheckout();
 
-		expect(getSelfUpdateCommand("@valkyriweb/pi-coding-agent")).toBeUndefined();
-		expect(getSelfUpdateUnavailableInstruction("@valkyriweb/pi-coding-agent")).toContain(
+		expect(getSelfUpdateCommand("@lue-labs/pi-coding-agent")).toBeUndefined();
+		expect(getSelfUpdateUnavailableInstruction("@lue-labs/pi-coding-agent")).toContain(
 			"Configure a source update command with PI_SOURCE_UPDATE_COMMAND or settings.sourceUpdateCommand",
 		);
 	});
@@ -225,7 +225,7 @@ describe("detectInstallMethod", () => {
 	test("self-updates npm installs from custom prefixes", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent");
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent");
 
 		expect(detectInstallMethod()).toBe("npm");
 		expect(command).toEqual({
@@ -237,18 +237,18 @@ describe("detectInstallMethod", () => {
 				"-g",
 				"--ignore-scripts",
 				"--min-release-age=0",
-				"@valkyriweb/pi-coding-agent",
+				"@lue-labs/pi-coding-agent",
 			],
-			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @valkyriweb/pi-coding-agent`,
+			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @lue-labs/pi-coding-agent`,
 		});
 	});
 
 	test("self-updates exact npm versions without uninstalling the current package", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", undefined, {
-			packageName: "@valkyriweb/pi-coding-agent",
-			installSpec: "@valkyriweb/pi-coding-agent@1.2.3",
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent", undefined, {
+			packageName: "@lue-labs/pi-coding-agent",
+			installSpec: "@lue-labs/pi-coding-agent@1.2.3",
 		});
 
 		expect(command).toEqual({
@@ -260,26 +260,26 @@ describe("detectInstallMethod", () => {
 				"-g",
 				"--ignore-scripts",
 				"--min-release-age=0",
-				"@valkyriweb/pi-coding-agent@1.2.3",
+				"@lue-labs/pi-coding-agent@1.2.3",
 			],
-			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @valkyriweb/pi-coding-agent@1.2.3`,
+			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @lue-labs/pi-coding-agent@1.2.3`,
 		});
 	});
 
 	test("self-updates renamed packages from the current install prefix", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", undefined, "@new-scope/pi");
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent", undefined, "@new-scope/pi");
 
 		expect(command).toEqual({
 			command: "npm",
 			args: ["--prefix", prefix, "install", "-g", "--ignore-scripts", "--min-release-age=0", "@new-scope/pi"],
-			display: `npm --prefix ${prefix} uninstall -g @valkyriweb/pi-coding-agent && npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @new-scope/pi`,
+			display: `npm --prefix ${prefix} uninstall -g @lue-labs/pi-coding-agent && npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @new-scope/pi`,
 			steps: [
 				{
 					command: "npm",
-					args: ["--prefix", prefix, "uninstall", "-g", "@valkyriweb/pi-coding-agent"],
-					display: `npm --prefix ${prefix} uninstall -g @valkyriweb/pi-coding-agent`,
+					args: ["--prefix", prefix, "uninstall", "-g", "@lue-labs/pi-coding-agent"],
+					display: `npm --prefix ${prefix} uninstall -g @lue-labs/pi-coding-agent`,
 				},
 				{
 					command: "npm",
@@ -293,7 +293,7 @@ describe("detectInstallMethod", () => {
 	test("self-update respects configured npmCommand", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", ["npm", "--prefix", prefix]);
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent", ["npm", "--prefix", prefix]);
 
 		expect(command).toEqual({
 			command: "npm",
@@ -304,16 +304,16 @@ describe("detectInstallMethod", () => {
 				"-g",
 				"--ignore-scripts",
 				"--min-release-age=0",
-				"@valkyriweb/pi-coding-agent",
+				"@lue-labs/pi-coding-agent",
 			],
-			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @valkyriweb/pi-coding-agent`,
+			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @lue-labs/pi-coding-agent`,
 		});
 	});
 
 	test("self-update treats empty npmCommand as unset", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", []);
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent", []);
 
 		expect(command?.args).toEqual([
 			"--prefix",
@@ -322,17 +322,17 @@ describe("detectInstallMethod", () => {
 			"-g",
 			"--ignore-scripts",
 			"--min-release-age=0",
-			"@valkyriweb/pi-coding-agent",
+			"@lue-labs/pi-coding-agent",
 		]);
 	});
 
 	test("quotes npm self-update display paths", () => {
 		const { prefix } = createNpmPrefixInstall("pi prefix ");
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent");
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent");
 
 		expect(command?.display).toBe(
-			`npm --prefix "${prefix}" install -g --ignore-scripts --min-release-age=0 @valkyriweb/pi-coding-agent`,
+			`npm --prefix "${prefix}" install -g --ignore-scripts --min-release-age=0 @lue-labs/pi-coding-agent`,
 		);
 	});
 
@@ -342,40 +342,40 @@ describe("detectInstallMethod", () => {
 		setExecPath(`${packageDir}\\dist\\cli.js`);
 
 		expect(detectInstallMethod()).toBe("npm");
-		expect(getUpdateInstruction("@valkyriweb/pi-coding-agent")).toBe(
-			"Run: npm install -g --ignore-scripts --min-release-age=0 @valkyriweb/pi-coding-agent",
+		expect(getUpdateInstruction("@lue-labs/pi-coding-agent")).toBe(
+			"Run: npm install -g --ignore-scripts --min-release-age=0 @lue-labs/pi-coding-agent",
 		);
 	});
 
 	test("self-updates bun global installs from bun pm bin", () => {
 		createBunGlobalInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent");
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent");
 
 		expect(detectInstallMethod()).toBe("bun");
 		expect(command).toEqual({
 			command: "bun",
-			args: ["install", "-g", "--ignore-scripts", "--minimum-release-age=0", "@valkyriweb/pi-coding-agent"],
-			display: "bun install -g --ignore-scripts --minimum-release-age=0 @valkyriweb/pi-coding-agent",
+			args: ["install", "-g", "--ignore-scripts", "--minimum-release-age=0", "@lue-labs/pi-coding-agent"],
+			display: "bun install -g --ignore-scripts --minimum-release-age=0 @lue-labs/pi-coding-agent",
 		});
 	});
 
 	test("self-updates renamed pnpm global installs by removing the old package first", () => {
 		createPnpmGlobalInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", undefined, "@new-scope/pi");
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent", undefined, "@new-scope/pi");
 
 		expect(detectInstallMethod()).toBe("pnpm");
 		expect(command).toEqual({
 			command: "pnpm",
 			args: ["install", "-g", "--ignore-scripts", "--config.minimumReleaseAge=0", "@new-scope/pi"],
 			display:
-				"pnpm remove -g @valkyriweb/pi-coding-agent && pnpm install -g --ignore-scripts --config.minimumReleaseAge=0 @new-scope/pi",
+				"pnpm remove -g @lue-labs/pi-coding-agent && pnpm install -g --ignore-scripts --config.minimumReleaseAge=0 @new-scope/pi",
 			steps: [
 				{
 					command: "pnpm",
-					args: ["remove", "-g", "@valkyriweb/pi-coding-agent"],
-					display: "pnpm remove -g @valkyriweb/pi-coding-agent",
+					args: ["remove", "-g", "@lue-labs/pi-coding-agent"],
+					display: "pnpm remove -g @lue-labs/pi-coding-agent",
 				},
 				{
 					command: "pnpm",
@@ -390,7 +390,7 @@ describe("detectInstallMethod", () => {
 		const temp = mkdtempSync(join(tmpdir(), "pi-pnpm11-"));
 		const binDir = join(temp, "bin");
 		const root = join(temp, "Library", "pnpm", "global", "v11");
-		const packageName = "@valkyriweb/pi-coding-agent";
+		const packageName = "@lue-labs/pi-coding-agent";
 		const globalPackageDir = join(root, "11e9a", "node_modules", "@earendil-works", "pi-coding-agent");
 		const storePackageDir = join(
 			temp,
@@ -432,18 +432,18 @@ describe("detectInstallMethod", () => {
 	test("self-updates renamed yarn global installs by removing the old package first", () => {
 		createYarnGlobalInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", undefined, "@new-scope/pi");
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent", undefined, "@new-scope/pi");
 
 		expect(detectInstallMethod()).toBe("yarn");
 		expect(command).toEqual({
 			command: "yarn",
 			args: ["global", "add", "--ignore-scripts", "@new-scope/pi"],
-			display: "yarn global remove @valkyriweb/pi-coding-agent && yarn global add --ignore-scripts @new-scope/pi",
+			display: "yarn global remove @lue-labs/pi-coding-agent && yarn global add --ignore-scripts @new-scope/pi",
 			steps: [
 				{
 					command: "yarn",
-					args: ["global", "remove", "@valkyriweb/pi-coding-agent"],
-					display: "yarn global remove @valkyriweb/pi-coding-agent",
+					args: ["global", "remove", "@lue-labs/pi-coding-agent"],
+					display: "yarn global remove @lue-labs/pi-coding-agent",
 				},
 				{
 					command: "yarn",
@@ -457,19 +457,19 @@ describe("detectInstallMethod", () => {
 	test("self-updates renamed bun global installs by removing the old package first", () => {
 		createBunGlobalInstall();
 
-		const command = getSelfUpdateCommand("@valkyriweb/pi-coding-agent", undefined, "@new-scope/pi");
+		const command = getSelfUpdateCommand("@lue-labs/pi-coding-agent", undefined, "@new-scope/pi");
 
 		expect(detectInstallMethod()).toBe("bun");
 		expect(command).toEqual({
 			command: "bun",
 			args: ["install", "-g", "--ignore-scripts", "--minimum-release-age=0", "@new-scope/pi"],
 			display:
-				"bun uninstall -g @valkyriweb/pi-coding-agent && bun install -g --ignore-scripts --minimum-release-age=0 @new-scope/pi",
+				"bun uninstall -g @lue-labs/pi-coding-agent && bun install -g --ignore-scripts --minimum-release-age=0 @new-scope/pi",
 			steps: [
 				{
 					command: "bun",
-					args: ["uninstall", "-g", "@valkyriweb/pi-coding-agent"],
-					display: "bun uninstall -g @valkyriweb/pi-coding-agent",
+					args: ["uninstall", "-g", "@lue-labs/pi-coding-agent"],
+					display: "bun uninstall -g @lue-labs/pi-coding-agent",
 				},
 				{
 					command: "bun",
@@ -484,8 +484,8 @@ describe("detectInstallMethod", () => {
 		const { packageDir } = createNpmPrefixInstall();
 		chmodSync(packageDir, 0o500);
 
-		expect(getSelfUpdateCommand("@valkyriweb/pi-coding-agent")).toBeUndefined();
-		expect(getSelfUpdateUnavailableInstruction("@valkyriweb/pi-coding-agent")).toContain(
+		expect(getSelfUpdateCommand("@lue-labs/pi-coding-agent")).toBeUndefined();
+		expect(getSelfUpdateUnavailableInstruction("@lue-labs/pi-coding-agent")).toContain(
 			"the install path is not writable",
 		);
 	});

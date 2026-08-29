@@ -1,4 +1,4 @@
-import { Container, getKeybindings, Spacer, Text } from "@valkyriweb/pi-tui";
+import { Container, getKeybindings, Spacer, Text } from "@lue-labs/pi-tui";
 import {
 	type AgentRecentRun,
 	agentRunUiStatus,
@@ -10,6 +10,44 @@ import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint, rawKeyHint } from "./keybinding-hints.ts";
 
 export type AgentRunsSelectorAction = "detail" | "interrupt" | "cancel" | "resume";
+
+/**
+ * View-level grace for settled runs (CC 2.1.232 parity): Claude Code's task
+ * registry retains terminal tasks; its background-tasks dialog hides completed
+ * local agents once the 30s eviction grace (`PANEL_GRACE_MS`/`kye = 30000`)
+ * passes. The 2.5s timer in CC is only an ephemeral completion border-flash
+ * nudge, not registry deletion. Pi mirrors the split: the durable registry
+ * (`recentRuns`, bounded at 25) keeps terminal runs; only this view ages them
+ * out.
+ */
+export const AGENT_RUN_SETTLED_VIEW_GRACE_MS = 30_000;
+
+/**
+ * Filter + order the runs view (pure; CC 2.1.232 background-tasks-dialog
+ * parity):
+ *
+ * - Ordering: running rows first, then newest-first by `startedAt` — CC sorts
+ *   `status === "running"` to the top, remainder by start time descending.
+ * - Initial-load filtering: `completed` and `cancelled` rows older than the
+ *   30s grace are hidden from the view (their registry rows survive for
+ *   `/agents status`). `failed` and `interrupted` rows never age out: they
+ *   carry actionable state (error text, resume/cancel) that CC's evicted
+ *   states do not need but Pi's operator verbs do.
+ */
+export function selectAgentRunRows(runs: AgentRecentRun[], nowMs = Date.now()): AgentRecentRun[] {
+	const visible = runs.filter((run) => {
+		if (run.status !== "completed" && run.status !== "cancelled") return true;
+		const endedAtMs = run.endedAt ? Date.parse(run.endedAt) : Number.NaN;
+		if (Number.isNaN(endedAtMs)) return true;
+		return nowMs - endedAtMs < AGENT_RUN_SETTLED_VIEW_GRACE_MS;
+	});
+	return visible.sort((a, b) => {
+		const aRunning = a.status === "running";
+		const bRunning = b.status === "running";
+		if (aRunning !== bRunning) return aRunning ? -1 : 1;
+		return Date.parse(b.startedAt) - Date.parse(a.startedAt);
+	});
+}
 
 export interface AgentRunResumePrompt {
 	title: string;
@@ -180,7 +218,7 @@ export class AgentRunsSelectorComponent extends Container {
 	private rebuild(): void {
 		this.clear();
 		this.listContainer.clear();
-		const runs = this.getRuns();
+		const runs = selectAgentRunRows(this.getRuns());
 		this.displayedRuns = runs;
 		if (runs.length === 0) {
 			this.selectedIndex = 0;

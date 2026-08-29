@@ -5,7 +5,7 @@
 </p>
 <p align="center">
   <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@valkyriweb/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@valkyriweb/pi-coding-agent?style=flat-square" /></a>
+  <a href="https://www.npmjs.com/package/@lue-labs/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@lue-labs/pi-coding-agent?style=flat-square" /></a>
 </p>
 
 > New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
@@ -63,7 +63,7 @@ I regularly publish my own `pi-mono` work sessions here:
 ## Quick Start
 
 ```bash
-npm install -g --ignore-scripts @valkyriweb/pi-coding-agent
+npm install -g --ignore-scripts @lue-labs/pi-coding-agent
 ```
 
 `--ignore-scripts` disables dependency lifecycle scripts during install. Pi does not require install scripts for normal npm installs.
@@ -462,7 +462,7 @@ See [docs/packages.md](docs/packages.md).
 ### SDK
 
 ```typescript
-import { createAgentSession, ModelRuntime, SessionManager } from "@valkyriweb/pi-coding-agent";
+import { createAgentSession, ModelRuntime, SessionManager } from "@lue-labs/pi-coding-agent";
 
 const modelRuntime = await ModelRuntime.create();
 const { session } = await createAgentSession({
@@ -701,9 +701,9 @@ MIT
 
 ## See Also
 
-- [@valkyriweb/pi-ai](https://www.npmjs.com/package/@valkyriweb/pi-ai): Core LLM toolkit
-- [@valkyriweb/pi-agent-core](https://www.npmjs.com/package/@valkyriweb/pi-agent-core): Agent framework
-- [@valkyriweb/pi-tui](https://www.npmjs.com/package/@valkyriweb/pi-tui): Terminal UI components
+- [@lue-labs/pi-ai](https://www.npmjs.com/package/@lue-labs/pi-ai): Core LLM toolkit
+- [@lue-labs/pi-agent-core](https://www.npmjs.com/package/@lue-labs/pi-agent-core): Agent framework
+- [@lue-labs/pi-tui](https://www.npmjs.com/package/@lue-labs/pi-tui): Terminal UI components
 
 <p align="center">
   <a href="https://pi.dev">pi.dev</a> domain graciously donated by

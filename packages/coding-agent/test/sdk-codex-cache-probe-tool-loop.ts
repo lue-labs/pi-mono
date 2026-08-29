@@ -19,7 +19,7 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 	Type,
-} from "@valkyriweb/pi-ai/compat";
+} from "@lue-labs/pi-ai/compat";
 import {
 	getOpenAICodexWebSocketDebugStats,
 	streamSimple as streamSimpleOpenAICodexResponses,

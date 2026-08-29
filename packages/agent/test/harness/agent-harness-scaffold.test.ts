@@ -1,5 +1,5 @@
-import { createModels, type Usage } from "@valkyriweb/pi-ai";
-import { getModel } from "@valkyriweb/pi-ai/compat";
+import { createModels, type Usage } from "@lue-labs/pi-ai";
+import { getModel } from "@lue-labs/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import {
 	AgentHarness,

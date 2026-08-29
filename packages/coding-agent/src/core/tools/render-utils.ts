@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import { pathToFileURL } from "node:url";
-import type { ImageContent, TextContent } from "@valkyriweb/pi-ai";
-import { getCapabilities, getImageDimensions, hyperlink, imageFallback } from "@valkyriweb/pi-tui";
+import type { ImageContent, TextContent } from "@lue-labs/pi-ai";
+import { getCapabilities, getImageDimensions, hyperlink, imageFallback } from "@lue-labs/pi-tui";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { resolvePath } from "../../utils/paths.ts";

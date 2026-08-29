@@ -1,4 +1,4 @@
-import type { AgentTool } from "@valkyriweb/pi-agent-core";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 
 /** Wrap a ToolDefinition into an AgentTool for the core runtime. */

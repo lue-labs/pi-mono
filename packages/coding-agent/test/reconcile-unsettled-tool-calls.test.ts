@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import type { AssistantMessage, ToolResultMessage } from "@valkyriweb/pi-ai";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import type { AssistantMessage, ToolResultMessage } from "@lue-labs/pi-ai";
 import { describe, expect, it } from "vitest";
 import { reconcileUnsettledToolCalls, UNSETTLED_TOOL_CALL_TEXT } from "../src/core/messages.ts";
 

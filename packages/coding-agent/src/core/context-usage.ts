@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import type { AssistantMessage, Usage } from "@valkyriweb/pi-ai";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import type { AssistantMessage, Usage } from "@lue-labs/pi-ai";
 import type { ContextUsage, ToolDefinition } from "./extensions/types.ts";
 import type { SessionEntry } from "./session-manager.ts";
 

@@ -77,6 +77,7 @@ export type {
 	ExtensionFlag,
 	ExtensionFooterSpec,
 	ExtensionHandler,
+	ExtensionLoadError,
 	ExtensionMainPaneAPI,
 	ExtensionMainPaneFactory,
 	ExtensionMode,

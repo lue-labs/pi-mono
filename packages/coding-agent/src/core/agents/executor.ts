@@ -1,8 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, AssistantMessage, Model, TextContent, Tool, Usage } from "@valkyriweb/pi-ai";
+import type { AgentTool, ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Api, AssistantMessage, Model, TextContent, Tool, Usage } from "@lue-labs/pi-ai";
 import type { AgentSession } from "../agent-session.ts";
 import {
 	type AgentSessionServices,

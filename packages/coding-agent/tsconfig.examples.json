@@ -3,10 +3,10 @@
 	"compilerOptions": {
 		"noEmit": true,
 		"paths": {
-			"@valkyriweb/pi-coding-agent": ["./src/index.ts"],
-			"@valkyriweb/pi-coding-agent/hooks": ["./src/core/hooks/index.ts"],
-			"@valkyriweb/pi-tui": ["../tui/src/index.ts"],
-			"@valkyriweb/pi-ai": ["../ai/src/index.ts"],
+			"@lue-labs/pi-coding-agent": ["./src/index.ts"],
+			"@lue-labs/pi-coding-agent/hooks": ["./src/core/hooks/index.ts"],
+			"@lue-labs/pi-tui": ["../tui/src/index.ts"],
+			"@lue-labs/pi-ai": ["../ai/src/index.ts"],
 			"typebox": ["../../node_modules/typebox"]
 		},
 		"skipLibCheck": true

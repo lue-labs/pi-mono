@@ -424,6 +424,13 @@ describe("deferred tools", () => {
 
 	it("emits Kimi deferred schemas after all tool results in a batch", () => {
 		const context = makeContext([makeTool("base_tool"), makeTool("late_tool"), makeTool("later_tool")]);
+		// Declare both calls on the assistant turn (as the Anthropic batch fixture
+		// above does): a tool_result whose tool_use is absent is an orphan and is
+		// now dropped at the transform seam (pi-mono#479).
+		(context.messages[1] as AssistantMessage).content = [
+			{ type: "toolCall", id: "call_1", name: "base_tool", arguments: {} },
+			{ type: "toolCall", id: "call_2", name: "base_tool", arguments: {} },
+		];
 		context.messages.splice(3, 0, {
 			...makeToolResult(["later_tool"]),
 			toolCallId: "call_2",

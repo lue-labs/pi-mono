@@ -22,7 +22,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import { fauxAssistantMessage } from "@lue-labs/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { executeAgentTool } from "../src/core/agents/executor.ts";
 import { clearAgentExtensionDefinitionsProviderForTests } from "../src/core/agents/extension-source.ts";

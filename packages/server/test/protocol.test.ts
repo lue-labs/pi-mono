@@ -1,5 +1,5 @@
-import type { Api, AssistantMessage, Model, ToolCall, ToolResultMessage, UserMessage } from "@valkyriweb/pi-ai";
-import { encodeServerMessage, PROTOCOL_VERSION } from "@valkyriweb/pi-protocol";
+import type { Api, AssistantMessage, Model, ToolCall, ToolResultMessage, UserMessage } from "@lue-labs/pi-ai";
+import { encodeServerMessage, PROTOCOL_VERSION } from "@lue-labs/pi-protocol";
 import { describe, expect, test } from "vitest";
 import {
 	sanitizeProtocolDetails,

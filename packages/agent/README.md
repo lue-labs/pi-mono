@@ -1,23 +1,23 @@
-# @valkyriweb/pi-agent-core
+# @lue-labs/pi-agent-core
 
-Stateful agent with tool execution and event streaming. Built on `@valkyriweb/pi-ai`.
+Stateful agent with tool execution and event streaming. Built on `@lue-labs/pi-ai`.
 
 ## Installation
 
 ```bash
-npm install @valkyriweb/pi-agent-core
+npm install @lue-labs/pi-agent-core
 ```
 
 ### SQLite session backends
 
-The SQLite session backend and the `node:sqlite` adapter live in a separate package, `@valkyriweb/pi-session-backend-sqlite-node`, so the core package does not pull in runtime builtins or native SQLite dependencies by default. The backend accepts a runtime-specific SQLite factory, allowing other session backends to ship as their own packages in the future.
+The SQLite session backend and the `node:sqlite` adapter live in a separate package, `@lue-labs/pi-session-backend-sqlite-node`, so the core package does not pull in runtime builtins or native SQLite dependencies by default. The backend accepts a runtime-specific SQLite factory, allowing other session backends to ship as their own packages in the future.
 
 ## Quick Start
 
 ```typescript
-import { Agent } from "@valkyriweb/pi-agent-core";
-import { createModels } from "@valkyriweb/pi-ai";
-import { anthropicProvider } from "@valkyriweb/pi-ai/providers/anthropic";
+import { Agent } from "@lue-labs/pi-agent-core";
+import { createModels } from "@lue-labs/pi-ai";
+import { anthropicProvider } from "@lue-labs/pi-ai/providers/anthropic";
 
 const models = createModels();
 models.setProvider(anthropicProvider());
@@ -141,7 +141,7 @@ const stream = agentLoop(
 );
 ```
 
-`shouldStopAfterTurn` runs after `turn_end` is emitted and after the assistant response and any tool executions have completed normally. If it returns `true`, the loop emits `agent_end` and exits before polling steering or follow-up queues, and before starting another LLM call. It does not abort the provider stream, does not cancel running tools, and does not alter the assistant message stop reason. The `AgentOptions` callback also receives the active run's `AbortSignal` as its second argument.
+`shouldStopAfterTurn` runs after `turn_end` is emitted and after the assistant response and any tool executions have completed normally. Its context includes `hasMoreToolCalls`, which is `false` when the assistant made no tool calls or every finalized result terminated the batch. If it returns `true`, the loop emits `agent_end` and exits before polling steering or follow-up queues, and before starting another LLM call. It does not abort the provider stream, does not cancel running tools, and does not alter the assistant message stop reason. The `AgentOptions` callback also receives the active run's `AbortSignal` as its second argument.
 
 When you use the `Agent` class, assistant `message_end` processing is treated as a barrier before tool preflight begins. That means `beforeToolCall` sees agent state that already includes the assistant message that requested the tool call.
 
@@ -378,7 +378,7 @@ Follow-up messages are checked only when there are no more tool calls and no ste
 Extend `AgentMessage` via declaration merging:
 
 ```typescript
-declare module "@valkyriweb/pi-agent-core" {
+declare module "@lue-labs/pi-agent-core" {
   interface CustomAgentMessages {
     notification: { role: "notification"; text: string; timestamp: number };
   }
@@ -460,7 +460,7 @@ Return `terminate: true` from `execute()` or `afterToolCall` to hint that the ag
 For browser apps that proxy through a backend:
 
 ```typescript
-import { Agent, streamProxy } from "@valkyriweb/pi-agent-core";
+import { Agent, streamProxy } from "@lue-labs/pi-agent-core";
 
 const agent = new Agent({
   streamFn: (model, context, options) =>
@@ -477,7 +477,7 @@ const agent = new Agent({
 For direct control without the Agent class:
 
 ```typescript
-import { agentLoop, agentLoopContinue } from "@valkyriweb/pi-agent-core";
+import { agentLoop, agentLoopContinue } from "@lue-labs/pi-agent-core";
 
 const context: AgentContext = {
   systemPrompt: "You are helpful.",

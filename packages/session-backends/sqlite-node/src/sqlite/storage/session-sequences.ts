@@ -1,4 +1,4 @@
-import { SessionError } from "@valkyriweb/pi-agent-core";
+import { SessionError } from "@lue-labs/pi-agent-core";
 import type { SqliteDatabase } from "../types.ts";
 
 export function createSequence(db: SqliteDatabase, sessionId: string, nextSeq = 1) {

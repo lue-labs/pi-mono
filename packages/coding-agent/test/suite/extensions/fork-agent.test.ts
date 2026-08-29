@@ -1,8 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Context } from "@valkyriweb/pi-ai";
-import { fauxAssistantMessage, fauxToolCall } from "@valkyriweb/pi-ai";
+import type { Context } from "@lue-labs/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearAgentRecentRunsForTests, listAgentRecentRuns } from "../../../src/core/agents/status.ts";
 import { hookAgentsTools } from "../../../src/core/extensions/agents.ts";
@@ -183,6 +183,10 @@ describe("ctx.forkAgent", () => {
 		const harness = await createHarness({ extensionFactories: [factory] });
 		harnesses.push(harness);
 		makeAgentServices(harness);
+		// Simulate a parent-only handler activated after startup's deferred batch.
+		// prompt() now awaits that batch, so establish the same lifecycle ordering
+		// before injecting the synthetic handler directly into agent state.
+		await harness.session.loadDeferredExtensions();
 		harness.session.agent.state.tools.push({
 			name: "ctx_execute",
 			label: "ctx_execute",

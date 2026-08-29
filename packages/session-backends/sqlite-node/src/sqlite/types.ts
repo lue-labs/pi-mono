@@ -1,4 +1,4 @@
-import type { FileSystem, SessionCreateOptions, SessionMetadata } from "@valkyriweb/pi-agent-core";
+import type { FileSystem, SessionCreateOptions, SessionMetadata } from "@lue-labs/pi-agent-core";
 
 /** Result of a prepared SQLite statement execution. */
 export interface SqliteRunResult {

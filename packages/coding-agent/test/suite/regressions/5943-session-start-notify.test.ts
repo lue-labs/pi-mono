@@ -1,5 +1,5 @@
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai";
-import { Container, Text } from "@valkyriweb/pi-tui";
+import { fauxAssistantMessage } from "@lue-labs/pi-ai";
+import { Container, Text } from "@lue-labs/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import type { ExtensionUIContext } from "../../../src/core/extensions/index.ts";
@@ -405,7 +405,11 @@ describe("regression #5943: session_start transient UI", () => {
 			};
 
 			await interactiveModePrototype.rebindCurrentSession.call(context, { renderBeforeBind: true });
-			await harness.session.agent.waitForIdle();
+			// sendUserMessage() is intentionally fire-and-forget from extension hooks;
+			// yield once so its async prompt preflight enters the session busy scope
+			// before waiting for the resulting turn to settle.
+			await Promise.resolve();
+			await harness.session.waitForIdle();
 
 			expect(events.slice(0, 3)).toEqual(["render", "subscribe", "bind"]);
 			expect(events).toContain("message_start:user:user from start");

@@ -1,4 +1,4 @@
-import { type Model, modelsAreEqual } from "@valkyriweb/pi-ai";
+import { type Model, modelsAreEqual } from "@lue-labs/pi-ai";
 import {
 	Container,
 	type Focusable,
@@ -8,7 +8,7 @@ import {
 	Spacer,
 	Text,
 	type TUI,
-} from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
 import { AUTO_MODEL_ALIAS_PROVIDERS } from "../../../core/model-resolver.ts";
 import type { ModelRuntime } from "../../../core/model-runtime.ts";
 import type { SettingsManager } from "../../../core/settings-manager.ts";

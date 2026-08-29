@@ -1,4 +1,4 @@
-import type { Usage } from "@valkyriweb/pi-ai/compat";
+import type { Usage } from "@lue-labs/pi-ai/compat";
 import type { SessionEntry } from "./session-manager.ts";
 
 export interface UsageTotals {

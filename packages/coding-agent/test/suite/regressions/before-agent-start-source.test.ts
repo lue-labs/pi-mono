@@ -17,8 +17,8 @@
  * (and `"extension"`) in both their `input` and `before_agent_start` hooks.
  * Replaces the legacy `PI_MEMORY_SUBAGENT=1` env contract for in-process runs.
  */
-import type { Context } from "@valkyriweb/pi-ai";
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai";
+import type { Context } from "@lue-labs/pi-ai";
+import { fauxAssistantMessage } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { executeAgentTool } from "../../../src/core/agents/executor.ts";
 import type { BeforeAgentStartEvent, ExtensionAPI, InputSource } from "../../../src/index.ts";

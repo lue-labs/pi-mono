@@ -14,9 +14,9 @@
 
 This is the home of the Pi agent harness project including our self extensible coding agent.
 
-* **[@valkyriweb/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@valkyriweb/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
-* **[@valkyriweb/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
+* **[@lue-labs/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
+* **[@lue-labs/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
+* **[@lue-labs/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
 
 To learn more about Pi:
 
@@ -27,11 +27,11 @@ To learn more about Pi:
 
 | Package | Description |
 |---------|-------------|
-| **[@valkyriweb/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@valkyriweb/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@valkyriweb/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@valkyriweb/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@valkyriweb/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+| **[@lue-labs/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
+| **[@lue-labs/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
+| **[@lue-labs/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
+| **[@lue-labs/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
+| **[@lue-labs/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
 
 For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
 

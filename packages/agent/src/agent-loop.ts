@@ -9,7 +9,7 @@ import {
 	EventStream,
 	type ToolResultMessage,
 	validateToolArguments,
-} from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-ai";
 import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
 	AgentContext,
@@ -246,6 +246,7 @@ async function runLoop(
 				toolResults,
 				context: currentContext,
 				newMessages,
+				hasMoreToolCalls,
 			};
 			const nextTurnSnapshot = await config.prepareNextTurn?.(nextTurnContext);
 			if (nextTurnSnapshot) {
@@ -268,6 +269,7 @@ async function runLoop(
 					toolResults,
 					context: currentContext,
 					newMessages,
+					hasMoreToolCalls,
 				})
 			) {
 				await emit({ type: "agent_end", messages: newMessages });

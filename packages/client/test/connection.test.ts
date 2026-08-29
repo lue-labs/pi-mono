@@ -6,7 +6,7 @@ import {
 	PROTOCOL_VERSION,
 	ProtocolValidationError,
 	type ServerSnapshot,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import { describe, expect, test } from "vitest";
 import { type ByteTransportFactory, PiClient, PiDisconnectedError } from "../src/index.ts";
 import {

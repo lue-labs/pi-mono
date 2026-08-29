@@ -5,8 +5,8 @@
  * without paying for an extra follow-up LLM turn.
  */
 
-import { defineTool, type ExtensionAPI } from "@valkyriweb/pi-coding-agent";
-import { Text } from "@valkyriweb/pi-tui";
+import { defineTool, type ExtensionAPI } from "@lue-labs/pi-coding-agent";
+import { Text } from "@lue-labs/pi-tui";
 import { Type } from "typebox";
 
 interface StructuredOutputDetails {

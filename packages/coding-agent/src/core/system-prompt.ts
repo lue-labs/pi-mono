@@ -2,7 +2,7 @@
  * System prompt construction and project context loading
  */
 
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@valkyriweb/pi-ai";
+import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@lue-labs/pi-ai";
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import type { ContextFile } from "./context-file-imports.ts";
 import {

@@ -53,6 +53,7 @@ export {
 	type ExtensionFactory,
 	type ExtensionFlag,
 	type ExtensionHandler,
+	type ExtensionLoadError,
 	ExtensionRunner,
 	type ExtensionShortcut,
 	type ExtensionUIContext,

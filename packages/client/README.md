@@ -1,9 +1,9 @@
-# @valkyriweb/pi-client
+# @lue-labs/pi-client
 
 Transport-neutral client for remote pi sessions. `PiClient` exchanges length-prefixed CBOR messages through a small `ByteTransport` interface. The package has no Node-specific imports.
 
 ```ts
-import { PiClient, type ByteTransportFactory } from "@valkyriweb/pi-client";
+import { PiClient, type ByteTransportFactory } from "@lue-labs/pi-client";
 
 const transportFactory: ByteTransportFactory = async (handlers) => {
   // Connect using WebSocket, Unix socket, or another ordered byte transport.
@@ -46,8 +46,8 @@ Subscriber exceptions are isolated from protocol state. Set `onListenerError` in
 Node.js and Bun consumers can use the separately exported Unix-domain socket transport:
 
 ```ts
-import { PiClient } from "@valkyriweb/pi-client";
-import { createUnixTransportFactory } from "@valkyriweb/pi-client/unix";
+import { PiClient } from "@lue-labs/pi-client";
+import { createUnixTransportFactory } from "@lue-labs/pi-client/unix";
 
 const client = new PiClient({
   transportFactory: createUnixTransportFactory({
@@ -60,4 +60,4 @@ await client.connect();
 
 `maxPendingBytes` bounds queued outbound data. It defaults to four times the protocol frame limit. The transport preserves send order and waits for socket backpressure before resolving each send.
 
-The `@valkyriweb/pi-client` root remains transport- and runtime-neutral. Importing the Node-compatible transport requires the explicit `@valkyriweb/pi-client/unix` subpath.
+The `@lue-labs/pi-client` root remains transport- and runtime-neutral. Importing the Node-compatible transport requires the explicit `@lue-labs/pi-client/unix` subpath.

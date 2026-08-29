@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import { type ImageContent, type Message, type TextContent, type Usage, uuidv7 } from "@valkyriweb/pi-ai";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import { type ImageContent, type Message, type TextContent, type Usage, uuidv7 } from "@lue-labs/pi-ai";
 import { randomUUID } from "crypto";
 import {
 	appendFileSync,
@@ -1433,12 +1433,37 @@ export class SessionManager {
 	// =========================================================================
 
 	/**
+	 * Restore durable payloads when a rewind path contains resident-pruned data.
+	 * Rewind must retain the original branch context; the compacted JSONL is the
+	 * source of truth and is never rewritten by prune.
+	 */
+	private _restoreDurableTranscriptBeforeBranch(branchFromId: string | null): void {
+		if (!branchFromId || !this.sessionFile || this.hasPendingDurableEntries()) return;
+		const residentPath = this.getBranch(branchFromId);
+		if (residentPath.length === 0) return;
+
+		const durableEntries = loadEntriesFromFile(this.sessionFile);
+		const durablePath = buildBranchFromEntries(durableEntries, branchFromId);
+		if (
+			!durablePath ||
+			(durablePath.length === residentPath.length &&
+				durablePath.every((entry, index) => JSON.stringify(entry) === JSON.stringify(residentPath[index])))
+		) {
+			return;
+		}
+
+		this.fileEntries = durableEntries;
+		this._buildIndex();
+	}
+
+	/**
 	 * Start a new branch from an earlier entry.
 	 * Moves the leaf pointer to the specified entry. The next appendXXX() call
 	 * will create a child of that entry, forming a new branch. Existing entries
 	 * are not modified or deleted.
 	 */
 	branch(branchFromId: string): void {
+		this._restoreDurableTranscriptBeforeBranch(branchFromId);
 		if (!this.byId.has(branchFromId)) {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}
@@ -1466,6 +1491,7 @@ export class SessionManager {
 		fromHook?: boolean,
 		usage?: Usage,
 	): string {
+		this._restoreDurableTranscriptBeforeBranch(branchFromId);
 		if (branchFromId !== null && !this.byId.has(branchFromId)) {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}

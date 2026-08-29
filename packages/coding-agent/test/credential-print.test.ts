@@ -1,4 +1,4 @@
-import { InMemoryModelsStore } from "@valkyriweb/pi-ai";
+import { InMemoryModelsStore } from "@lue-labs/pi-ai";
 import { describe, expect, test, vi } from "vitest";
 import { parseArgs } from "../src/cli/args.ts";
 import {

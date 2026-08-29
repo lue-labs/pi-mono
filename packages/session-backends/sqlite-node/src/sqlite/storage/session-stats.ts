@@ -1,5 +1,5 @@
-import { SessionError, type SessionStats } from "@valkyriweb/pi-agent-core";
-import type { Usage } from "@valkyriweb/pi-ai";
+import { SessionError, type SessionStats } from "@lue-labs/pi-agent-core";
+import type { Usage } from "@lue-labs/pi-ai";
 import type { SqliteDatabase } from "../types.ts";
 
 export interface SessionStatsRow {

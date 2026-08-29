@@ -29,12 +29,12 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
+import { resolveCacheRetention } from "../utils/cache-retention.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
-import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
@@ -58,23 +58,8 @@ import {
 	clampMaxTokensToContext,
 	MIN_THINKING_BUDGET,
 } from "./simple-options.ts";
-import { reportToolUseAdjacencyViolations } from "./tool-use-adjacency.ts";
+import { repairToolUseAdjacency, reportToolUseAdjacencyViolations } from "./tool-use-adjacency.ts";
 import { transformMessages } from "./transform-messages.ts";
-
-/**
- * Resolve cache retention preference.
- * Defaults to "long"; set PI_CACHE_RETENTION=short or PI_CACHE_RETENTION=none to override process-wide.
- */
-function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
-	if (cacheRetention) {
-		return cacheRetention;
-	}
-	const envRetention = getProviderEnvValue("PI_CACHE_RETENTION", env);
-	if (envRetention === "short" || envRetention === "none" || envRetention === "long") {
-		return envRetention;
-	}
-	return "long";
-}
 
 function getCacheControl(
 	model: Model<"anthropic-messages">,
@@ -723,8 +708,16 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			}
 			// After onPayload, never before: an extension may replace messages
 			// wholesale, so the pre-hook array is not what the provider sees. Record
-			// the shape, do not repair it — a silent fix erases the evidence.
+			// the shape first — the log is the evidence trail — then repair it:
+			// Anthropic rejects the whole request on a split pair, and a frozen
+			// history replays the same 400 forever (killed lue-kube 01a0202f).
 			reportToolUseAdjacencyViolations(params.messages, model.id);
+			const repairedMessages = repairToolUseAdjacency(params.messages);
+			if (repairedMessages !== params.messages) {
+				// Never mutate the hook's object — extensions may return a frozen
+				// payload, and in-place assignment would fail every request.
+				params = { ...params, messages: repairedMessages };
+			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
@@ -1078,6 +1071,10 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					continuationParams = nextContinuation as MessageCreateParamsStreaming;
 				}
 				reportToolUseAdjacencyViolations(continuationParams.messages, model.id);
+				const repairedContinuation = repairToolUseAdjacency(continuationParams.messages);
+				if (repairedContinuation !== continuationParams.messages) {
+					continuationParams = { ...continuationParams, messages: repairedContinuation };
+				}
 
 				// Snapshot the completed call's cumulative totals; the next call's
 				// message_start/delta will add this call's contribution on top.

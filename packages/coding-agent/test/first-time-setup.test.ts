@@ -35,7 +35,7 @@ describe("shouldRunFirstTimeSetup", () => {
 
 	it("never runs on an unofficial (fork) distribution even when other conditions favor setup", () => {
 		// First-time setup is gated to the official Pi distribution via
-		// isOfficialDistribution in startup-ui.ts; this fork (@valkyriweb) is
+		// isOfficialDistribution in startup-ui.ts; this fork (@lue-labs) is
 		// deliberately treated as unofficial, so setup never runs regardless of
 		// experimental mode, default agent dir, or a missing settings.json. The
 		// remaining cases below stay false for the same reason on this fork.

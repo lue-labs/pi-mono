@@ -10,9 +10,9 @@
  * correct for that point in history.
  */
 
-import { StringEnum } from "@valkyriweb/pi-ai";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@valkyriweb/pi-coding-agent";
-import { matchesKey, Text, truncateToWidth } from "@valkyriweb/pi-tui";
+import { StringEnum } from "@lue-labs/pi-ai";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@lue-labs/pi-coding-agent";
+import { matchesKey, Text, truncateToWidth } from "@lue-labs/pi-tui";
 import { Type } from "typebox";
 
 interface Todo {

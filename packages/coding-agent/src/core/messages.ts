@@ -5,8 +5,8 @@
  * and provides a transformer to convert them to LLM-compatible messages.
  */
 
-import type { AgentMessage, CustomMessage } from "@valkyriweb/pi-agent-core";
-import type { ImageContent, Message, TextContent, ToolCall, ToolResultMessage } from "@valkyriweb/pi-ai";
+import type { AgentMessage, CustomMessage } from "@lue-labs/pi-agent-core";
+import type { ImageContent, Message, TextContent, ToolCall, ToolResultMessage } from "@lue-labs/pi-ai";
 
 export type { CustomMessage };
 
@@ -56,7 +56,7 @@ export interface CompactionSummaryMessage {
 }
 
 // Extend CustomAgentMessages via declaration merging
-declare module "@valkyriweb/pi-agent-core" {
+declare module "@lue-labs/pi-agent-core" {
 	interface CustomAgentMessages {
 		bashExecution: BashExecutionMessage;
 		custom: CustomMessage;
@@ -161,6 +161,28 @@ function unsettledToolResult(toolCall: ToolCall, timestamp: number): ToolResultM
  *
  * Returns the input array unchanged when every tool call is already settled.
  */
+/**
+ * Whether the recorded history still has a tool call awaiting its result.
+ *
+ * Callers use this to keep injected content out of an open tool batch: a
+ * message appended between a `toolCall` and its `toolResult` is persisted in
+ * that position forever, and Anthropic rejects the rebuilt history outright
+ * (pi-mono#479).
+ */
+export function hasUnsettledToolCalls(messages: AgentMessage[]): boolean {
+	const settled = new Set<string>();
+	for (const message of messages) {
+		if (message.role === "toolResult") settled.add(message.toolCallId);
+	}
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		for (const block of message.content) {
+			if (block.type === "toolCall" && !settled.has(block.id)) return true;
+		}
+	}
+	return false;
+}
+
 export function reconcileUnsettledToolCalls(messages: AgentMessage[]): AgentMessage[] {
 	const settled = new Set<string>();
 	for (const message of messages) {

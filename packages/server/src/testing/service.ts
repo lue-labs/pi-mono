@@ -6,7 +6,7 @@ import type {
 	SessionSnapshot,
 	ThinkingLevel,
 	TranscriptProgress,
-} from "@valkyriweb/pi-protocol";
+} from "@lue-labs/pi-protocol";
 import { PiServerError } from "../errors.ts";
 import type {
 	CreateSessionOptions,

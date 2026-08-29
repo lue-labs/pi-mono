@@ -1,4 +1,4 @@
-import type { FileError, Result } from "@valkyriweb/pi-agent-core";
+import type { FileError, Result } from "@lue-labs/pi-agent-core";
 import {
 	type BranchBounds,
 	type Entry,
@@ -16,8 +16,8 @@ import {
 	type SessionRepo as SessionRepository,
 	type SessionStats,
 	type SessionStorage,
-} from "@valkyriweb/pi-agent-core";
-import { uuidv7 } from "@valkyriweb/pi-ai";
+} from "@lue-labs/pi-agent-core";
+import { uuidv7 } from "@lue-labs/pi-ai";
 import { appendEntryToBranchCache, buildCachedBranch, deleteBranchCache, rebuildBranchCache } from "./branch-cache.ts";
 import { applyMigrations } from "./migrations.ts";
 import { type CachedBranchEntryRow, queryCachedBranchRows, readCachedBranch } from "./storage/branch-entries.ts";

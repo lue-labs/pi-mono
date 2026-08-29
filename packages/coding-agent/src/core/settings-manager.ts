@@ -1,6 +1,6 @@
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Transport } from "@valkyriweb/pi-ai";
-import type { TuiMode as RendererTuiMode, ScrollViewScrollbar } from "@valkyriweb/pi-tui";
+import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Transport } from "@lue-labs/pi-ai";
+import type { TuiMode as RendererTuiMode, ScrollViewScrollbar } from "@lue-labs/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -170,6 +170,7 @@ export interface Settings {
 	quietStartup?: boolean;
 	defaultProjectTrust?: DefaultProjectTrust; // default: "ask"; global setting only
 	shellCommandPrefix?: string; // Prefix prepended to every bash command (e.g., "shopt -s expand_aliases" for alias support)
+	bashTimeoutSeconds?: number; // Default foreground timeout (seconds) for bash tool calls that omit `timeout`; 0 disables it. Overridden by PI_BASH_TIMEOUT_SECONDS and by an explicit per-call timeout
 	npmCommand?: string[]; // Command used for npm package lookup/install operations, argv-style (e.g., ["mise", "exec", "node@20", "--", "npm"])
 	sourceUpdateCommand?: string[]; // Command used to self-update source checkout installs, argv-style
 	collapseChangelog?: boolean; // Show condensed changelog after update (use /changelog for full)
@@ -1065,6 +1066,25 @@ export class SettingsManager {
 	setShellCommandPrefix(prefix: string | undefined): void {
 		this.globalSettings.shellCommandPrefix = prefix;
 		this.markModified("shellCommandPrefix");
+		this.save();
+	}
+
+	/**
+	 * Default foreground timeout (seconds) for bash tool calls that omit `timeout`.
+	 * `0` disables the default; `undefined` leaves the built-in default in place.
+	 */
+	getBashTimeoutSeconds(): number | undefined {
+		const value = this.settings.bashTimeoutSeconds;
+		if (value === undefined) return undefined;
+		return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+	}
+
+	setBashTimeoutSeconds(seconds: number | undefined): void {
+		if (seconds !== undefined && (!Number.isFinite(seconds) || seconds < 0)) {
+			throw new Error(`Invalid bashTimeoutSeconds setting: ${String(seconds)}`);
+		}
+		this.globalSettings.bashTimeoutSeconds = seconds;
+		this.markModified("bashTimeoutSeconds");
 		this.save();
 	}
 

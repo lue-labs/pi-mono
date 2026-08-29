@@ -15,8 +15,8 @@
  * tool. All pending state lives in the persisted tool call itself (arguments), never in
  * extension-local memory or the cached system prefix.
  */
-import type { AssistantMessage } from "@valkyriweb/pi-ai";
-import { fauxAssistantMessage } from "@valkyriweb/pi-ai/compat";
+import type { AssistantMessage } from "@lue-labs/pi-ai";
+import { fauxAssistantMessage } from "@lue-labs/pi-ai/compat";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { createHarness, getAssistantTexts } from "../harness.ts";

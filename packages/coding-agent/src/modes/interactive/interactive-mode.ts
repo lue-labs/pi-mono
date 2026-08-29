@@ -7,9 +7,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@valkyriweb/pi-agent-core";
-import type { AuthEvent, AuthPrompt } from "@valkyriweb/pi-ai";
-import type { AssistantMessage, ImageContent, Message, Model } from "@valkyriweb/pi-ai/compat";
+import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import type { AuthEvent, AuthPrompt } from "@lue-labs/pi-ai";
+import type { AssistantMessage, ImageContent, Message, Model } from "@lue-labs/pi-ai/compat";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -24,8 +24,8 @@ import type {
 	SlashCommand,
 	Terminal,
 	TuiMainScreenRenderState,
-} from "@valkyriweb/pi-tui";
-import * as TuiLayouts from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
+import * as TuiLayouts from "@lue-labs/pi-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -44,7 +44,7 @@ import {
 	TuiAltScreen,
 	TuiMainScreen,
 	visibleWidth,
-} from "@valkyriweb/pi-tui";
+} from "@lue-labs/pi-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import {
@@ -1869,7 +1869,13 @@ export class InteractiveMode {
 			const extensionErrors = this.session.resourceLoader.getExtensions().errors;
 			if (extensionErrors.length > 0) {
 				for (const error of extensionErrors) {
-					extensionDiagnostics.push({ type: "error", message: error.error, path: error.path });
+					// Auto-discovered extensions are skipped rather than fatal, so report them
+					// as warnings. They stay listed: a skipped extension must remain visible.
+					extensionDiagnostics.push({
+						type: error.discovered ? "warning" : "error",
+						message: error.discovered ? `Skipped: ${error.error}` : error.error,
+						path: error.path,
+					});
 				}
 			}
 
@@ -2497,11 +2503,16 @@ export class InteractiveMode {
 	private getVisibleExtensionFooterIds(): string[] {
 		return this.session.extensionRunner
 			.getRegisteredFooters()
-			.filter(({ spec }) => spec.visible?.() ?? true)
+			.filter(({ id, spec, extensionPath }) => {
+				try {
+					if (!(spec.visible?.() ?? true)) return false;
+					return spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0;
+				} catch (err) {
+					this.footer.reportFooterPillError(id, extensionPath, err);
+					return false;
+				}
+			})
 			.sort((a, b) => (a.spec.order ?? 0) - (b.spec.order ?? 0))
-			.filter(
-				({ spec }) => spec.render({ width: this.ui.terminal.columns, theme, selected: false }).trim().length > 0,
-			)
 			.map(({ id }) => id);
 	}
 

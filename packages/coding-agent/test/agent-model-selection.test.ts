@@ -1,4 +1,4 @@
-import { type Api, type Model, registerFauxProvider } from "@valkyriweb/pi-ai/compat";
+import { type Api, type Model, registerFauxProvider } from "@lue-labs/pi-ai/compat";
 import { afterEach, describe, expect, test } from "vitest";
 import { getBuiltinAgentDefinitions } from "../src/core/agents/definitions.ts";
 import { resolveAgentDefaults, resolveAgentModel, resolveAgentThinking } from "../src/core/agents/executor.ts";

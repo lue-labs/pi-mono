@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@valkyriweb/pi-tui";
+import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
+import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@lue-labs/pi-tui";
 import { getSelectListTheme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 

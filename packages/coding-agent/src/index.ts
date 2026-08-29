@@ -110,6 +110,7 @@ export type {
 	ExtensionFlag,
 	ExtensionFooterSpec,
 	ExtensionHandler,
+	ExtensionLoadError,
 	ExtensionMainPaneAPI,
 	ExtensionMainPaneFactory,
 	ExtensionOverlayAPI,
@@ -344,6 +345,8 @@ export {
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools
 export {
+	type AgentRenderNormalization,
+	type AgentRenderTask,
 	BASH_BG_DEFAULT_MAX_OUTPUT_BYTES,
 	BASH_BG_MAX_LOG_READ_BYTES,
 	BASH_BG_STALL_TAIL_BYTES,
@@ -416,6 +419,7 @@ export {
 	looksLikeBashBgPrompt,
 	type ModelCaller,
 	nodeSchema,
+	normalizeAgentToolModeForRender,
 	onBashTimeout,
 	parseHarnessJSON,
 	type ReadOperations,

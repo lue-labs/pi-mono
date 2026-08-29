@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AssistantMessage, ToolResultMessage } from "@valkyriweb/pi-ai";
+import type { AssistantMessage, ToolResultMessage } from "@lue-labs/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UNSETTLED_TOOL_CALL_TEXT } from "../src/core/messages.ts";
 import { createAgentSession } from "../src/core/sdk.ts";

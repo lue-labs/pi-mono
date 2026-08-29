@@ -1011,7 +1011,7 @@ export type BashTimeoutOutcome = { backgroundedJobId: string } | { failed: true 
 
 /** Upstream-faithful default: kill the timed-out process and report failure.
  *  Detach-on-timeout is opt-in via `onBashTimeout()` — the my-pi
- *  `native-tool-aliases` extension installs the detach resolver for Luke's
+ *  `native-tool-overrides` extension installs the detach resolver for Luke's
  *  `Bash` tool, so the opinionated policy lives there, not in core. */
 function killOnBashTimeout(t: BashTimeout): BashTimeoutOutcome {
 	t.kill();

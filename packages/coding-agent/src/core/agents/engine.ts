@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { AgentTool, ThinkingLevel } from "@valkyriweb/pi-agent-core";
-import type { Api, Model, Tool } from "@valkyriweb/pi-ai";
+import type { AgentTool, ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { Api, Model, Tool } from "@lue-labs/pi-ai";
 import type { AgentHandle, ForkAgentOptions, ForkAgentResult } from "../extensions/types.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
 import type { AgentToolInput } from "../tools/agent.ts";
