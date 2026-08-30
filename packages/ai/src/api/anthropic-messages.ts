@@ -808,16 +808,26 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			// `output.usage` always reflects the full assistant turn.
 			const carryOverUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
 
+			// pause_turn requires the complete provider response content to be echoed
+			// byte-for-byte. Keep a wire-format accumulator separate from output.content:
+			// the latter intentionally excludes provider-executed server blocks from the
+			// canonical session message. This accumulator is ephemeral and exists only for
+			// the in-stream continuation request.
+			const pauseTurnWireContent: ContentBlockParam[] = [];
+			const pauseTurnWireBlocks = new Map<number, { block: ContentBlockParam; partialJson: string }>();
+
 			// Provider-executed (server-side) web tools (web_search/web_fetch) stream as
 			// `server_tool_use` blocks whose input arrives via `input_json_delta`. We track
 			// them here — keyed by content-block index — instead of in `output.content`, so
-			// they never become agent-loop toolCalls, never round-trip to the API, and never
-			// perturb the cache prefix. They are surfaced purely as display-only events.
+			// they never become agent-loop toolCalls or persist to session JSONL. They only
+			// round-trip through the ephemeral pause_turn accumulator above and otherwise
+			// remain display-only events, preserving the stable cache prefix.
 			const serverToolUses = new Map<number, { id: string; name: string; partialJson: string; input: unknown }>();
 
 			while (true) {
 				for await (const event of iterateAnthropicEvents(response, options?.signal)) {
 					if (event.type === "message_start") {
+						pauseTurnWireBlocks.clear();
 						output.responseId = event.message.id;
 						output.model = event.message.model;
 						const fallbackCost =
@@ -843,6 +853,9 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
 						calculateCost(usageModel, output.usage);
 					} else if (event.type === "content_block_start") {
+						const wireBlock = { ...event.content_block } as unknown as ContentBlockParam;
+						pauseTurnWireContent.push(wireBlock);
+						pauseTurnWireBlocks.set(event.index, { block: wireBlock, partialJson: "" });
 						if (event.content_block.type === "text") {
 							const block: Block = {
 								type: "text",
@@ -913,6 +926,23 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							});
 						}
 					} else if (event.type === "content_block_delta") {
+						const wireState = pauseTurnWireBlocks.get(event.index);
+						if (event.delta.type === "text_delta" && wireState?.block.type === "text") {
+							wireState.block.text += event.delta.text;
+						} else if (event.delta.type === "thinking_delta" && wireState?.block.type === "thinking") {
+							wireState.block.thinking += event.delta.thinking;
+						} else if (event.delta.type === "signature_delta" && wireState?.block.type === "thinking") {
+							wireState.block.signature = (wireState.block.signature ?? "") + event.delta.signature;
+						} else if (event.delta.type === "citations_delta" && wireState?.block.type === "text") {
+							wireState.block.citations = [...(wireState.block.citations ?? []), event.delta.citation];
+						} else if (
+							event.delta.type === "input_json_delta" &&
+							(wireState?.block.type === "tool_use" || wireState?.block.type === "server_tool_use")
+						) {
+							wireState.partialJson += event.delta.partial_json;
+							wireState.block.input = parseStreamingJson(wireState.partialJson);
+						}
+
 						if (event.delta.type === "text_delta") {
 							const index = blocks.findIndex((b) => b.index === event.index);
 							const block = blocks[index];
@@ -963,6 +993,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							}
 						}
 					} else if (event.type === "content_block_stop") {
+						pauseTurnWireBlocks.delete(event.index);
 						const serverTool = serverToolUses.get(event.index);
 						if (serverTool) {
 							const parsedInput = (
@@ -1068,28 +1099,14 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					delete (block as { partialJson?: string }).partialJson;
 				}
 
-				// Echo the partial assistant turn back unmodified. transformMessages +
-				// the signed-thinking-block branch in the assistant-block builder
-				// round-trip thinking signatures byte-for-byte, which is what
-				// Anthropic validates against on resume.
-				const continuationContext: Context = {
-					...context,
-					messages: [
-						...context.messages,
-						{
-							role: "assistant",
-							content: output.content,
-							api: output.api,
-							provider: output.provider,
-							model: output.model,
-							usage: output.usage,
-							stopReason: "stop",
-							timestamp: output.timestamp,
-						} satisfies AssistantMessage,
-					],
+				// Echo the complete provider wire content directly. Passing output.content
+				// through transformMessages would omit server tool blocks and can rewrite
+				// signed thinking when Anthropic reports a fallback response model.
+				let continuationParams = buildParams(model, context, isOAuth, options);
+				continuationParams = {
+					...continuationParams,
+					messages: [...continuationParams.messages, { role: "assistant", content: [...pauseTurnWireContent] }],
 				};
-
-				let continuationParams = buildParams(model, continuationContext, isOAuth, options);
 				const nextContinuation = await options?.onPayload?.(continuationParams, model);
 				if (nextContinuation !== undefined) {
 					continuationParams = nextContinuation as MessageCreateParamsStreaming;

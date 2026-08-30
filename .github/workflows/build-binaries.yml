@@ -174,7 +174,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          runtime_platform="$(node -p '`${process.platform}-${process.arch}`')"
+          runtime_platform="$(node -p 'process.platform + "-" + process.arch')"
           case "${runtime_platform}" in
             darwin-arm64|darwin-x64|linux-arm64|linux-x64)
               platform="${runtime_platform}"
@@ -202,10 +202,11 @@ jobs:
 
           mkdir -p extracted
           if [[ "${archive}" == *.zip ]]; then
-            export ARCHIVE_PATH="$(cygpath -w "${archive}")"
-            export DESTINATION_PATH="$(cygpath -w extracted)"
+            ARCHIVE_PATH="$(cygpath -w "${archive}")"
+            DESTINATION_PATH="$(cygpath -w extracted)"
+            export ARCHIVE_PATH DESTINATION_PATH
             powershell.exe -NoProfile -NonInteractive -Command \
-              'Expand-Archive -LiteralPath $env:ARCHIVE_PATH -DestinationPath $env:DESTINATION_PATH -Force'
+              "Expand-Archive -LiteralPath \$env:ARCHIVE_PATH -DestinationPath \$env:DESTINATION_PATH -Force"
           else
             tar -xf "${archive}" -C extracted
           fi
