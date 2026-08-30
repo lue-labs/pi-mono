@@ -91,7 +91,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 			prompt += formatSkillsForPrompt(skills);
 		}
 
-		prompt += `\nCurrent working directory: ${promptCwd}`;
+		prompt += `\nCurrent working directory: ${promptCwd}\n`;
 
 		return prompt;
 	}
@@ -120,14 +120,21 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	};
 
 	const hasBash = tools.includes("bash") || tools.includes("Bash");
+	const hasPowerShell = tools.includes("powershell");
 	const hasGrep = tools.includes("grep") || tools.includes("Grep");
 	const hasGlob = tools.includes("Glob");
 	const hasLs = tools.includes("ls") || tools.includes("Ls");
 	const hasRead = tools.includes("read") || tools.includes("Read");
 
 	// File exploration guidelines
-	if (hasBash && !hasGrep && !hasGlob && !hasLs) {
-		addGuideline("Use Bash for file operations like ls, rg, find");
+	if ((hasBash || hasPowerShell) && !hasGrep && !hasGlob && !hasLs) {
+		if (hasBash && hasPowerShell) {
+			addGuideline("Use Bash or PowerShell for file operations like listing, searching, and finding files");
+		} else if (hasPowerShell) {
+			addGuideline("Use PowerShell for file operations like listing, searching, and finding files");
+		} else {
+			addGuideline("Use Bash for file operations like ls, rg, find");
+		}
 	} else if (hasBash && (hasGrep || hasGlob || hasLs)) {
 		// Shared with bash.ts promptGuidelines via prompt-guidelines.ts so
 		// addGuideline deduplicates by exact string match.

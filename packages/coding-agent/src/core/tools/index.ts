@@ -113,6 +113,17 @@ export {
 } from "./ls.ts";
 export { createPiModelCaller, type PiModelCallerOptions } from "./pi-model-caller.ts";
 export {
+	createLocalPowerShellOperations,
+	createPowerShellTool,
+	createPowerShellToolDefinition,
+	type PowerShellOperations,
+	type PowerShellSpawnContext,
+	type PowerShellSpawnHook,
+	type PowerShellToolDetails,
+	type PowerShellToolInput,
+	type PowerShellToolOptions,
+} from "./powershell.ts";
+export {
 	createReadTool,
 	createReadToolDefinition,
 	type ReadOperations,
@@ -181,6 +192,7 @@ import { createEditTool, createEditToolDefinition, type EditToolOptions } from "
 import { createGlobTool, createGlobToolDefinition, type GlobToolOptions } from "./glob.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
+import { createPowerShellTool, createPowerShellToolDefinition, type PowerShellToolOptions } from "./powershell.ts";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.ts";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.ts";
 
@@ -196,6 +208,7 @@ export type ToolName =
 	| "BashOutput"
 	| "bash_kill"
 	| "KillShell"
+	| "powershell"
 	| "edit"
 	| "write"
 	| "grep"
@@ -212,6 +225,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"BashOutput",
 	"bash_kill",
 	"KillShell",
+	"powershell",
 	"edit",
 	"write",
 	"grep",
@@ -225,6 +239,7 @@ export const allToolNames: Set<ToolName> = new Set([
 export interface ToolsOptions {
 	read?: ReadToolOptions;
 	bash?: BashToolOptions;
+	powershell?: PowerShellToolOptions;
 	write?: WriteToolOptions;
 	edit?: EditToolOptions;
 	grep?: GrepToolOptions;
@@ -249,6 +264,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createBashKillToolDefinition();
 		case "KillShell":
 			return createKillShellToolDefinition();
+		case "powershell":
+			return createPowerShellToolDefinition(cwd, options?.powershell);
 		case "edit":
 			return createEditToolDefinition(cwd, options?.edit);
 		case "write":
@@ -286,6 +303,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createBashKillTool();
 		case "KillShell":
 			return createKillShellTool();
+		case "powershell":
+			return createPowerShellTool(cwd, options?.powershell);
 		case "edit":
 			return createEditTool(cwd, options?.edit);
 		case "write":
@@ -336,6 +355,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		BashOutput: createBashOutputNativeToolDefinition(),
 		bash_kill: createBashKillToolDefinition(),
 		KillShell: createKillShellToolDefinition(),
+		powershell: createPowerShellToolDefinition(cwd, options?.powershell),
 		edit: createEditToolDefinition(cwd, options?.edit),
 		write: createWriteToolDefinition(cwd, options?.write),
 		grep: createGrepToolDefinition(cwd, options?.grep),
@@ -376,6 +396,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		BashOutput: createBashOutputNativeTool(),
 		bash_kill: createBashKillTool(),
 		KillShell: createKillShellTool(),
+		powershell: createPowerShellTool(cwd, options?.powershell),
 		edit: createEditTool(cwd, options?.edit),
 		write: createWriteTool(cwd, options?.write),
 		grep: createGrepTool(cwd, options?.grep),

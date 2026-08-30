@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { MessageCreateParamsStreaming } from "@anthropic-ai/sdk/resources/messages.js";
+import type { MessageCreateParamsStreaming, RawMessageStartEvent } from "@anthropic-ai/sdk/resources/messages.js";
 import { describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
 import type { Context, ThinkingContent } from "../src/types.ts";
@@ -30,23 +30,40 @@ function createSseResponse(events: Array<{ event: string; data: string }>): Resp
 const THINKING_SIGNATURE = "sig-from-anthropic-do-not-mutate";
 const THINKING_TEXT = "Considering the web search results...";
 
-function partialThinkingTurn(stopReason: "pause_turn" | "end_turn"): Array<{ event: string; data: string }> {
-	return [
-		{
-			event: "message_start",
-			data: JSON.stringify({
-				type: "message_start",
-				message: {
-					id: "msg_pause_test",
-					usage: {
-						input_tokens: 10,
-						output_tokens: 0,
-						cache_read_input_tokens: 0,
-						cache_creation_input_tokens: 0,
-					},
-				},
-			}),
+function messageStart(modelId: string, id: string, inputTokens: number): { event: string; data: string } {
+	const event = {
+		type: "message_start",
+		message: {
+			id,
+			type: "message",
+			role: "assistant",
+			model: modelId,
+			content: [],
+			container: null,
+			stop_reason: null,
+			stop_sequence: null,
+			stop_details: null,
+			usage: {
+				input_tokens: inputTokens,
+				output_tokens: 0,
+				cache_read_input_tokens: 0,
+				cache_creation_input_tokens: 0,
+				cache_creation: null,
+				inference_geo: null,
+				server_tool_use: null,
+				service_tier: null,
+			},
 		},
+	} satisfies RawMessageStartEvent;
+	return { event: "message_start", data: JSON.stringify(event) };
+}
+
+function partialThinkingTurn(
+	modelId: string,
+	stopReason: "pause_turn" | "end_turn",
+): Array<{ event: string; data: string }> {
+	return [
+		messageStart(modelId, "msg_pause_test", 10),
 		{
 			event: "content_block_start",
 			data: JSON.stringify({
@@ -92,23 +109,9 @@ function partialThinkingTurn(stopReason: "pause_turn" | "end_turn"): Array<{ eve
 	];
 }
 
-function continuationTextTurn(text: string): Array<{ event: string; data: string }> {
+function continuationTextTurn(modelId: string, text: string): Array<{ event: string; data: string }> {
 	return [
-		{
-			event: "message_start",
-			data: JSON.stringify({
-				type: "message_start",
-				message: {
-					id: "msg_continuation",
-					usage: {
-						input_tokens: 20,
-						output_tokens: 0,
-						cache_read_input_tokens: 0,
-						cache_creation_input_tokens: 0,
-					},
-				},
-			}),
-		},
+		messageStart(modelId, "msg_continuation", 20),
 		{
 			event: "content_block_start",
 			data: JSON.stringify({
@@ -144,6 +147,76 @@ function continuationTextTurn(text: string): Array<{ event: string; data: string
 		},
 		{ event: "message_stop", data: JSON.stringify({ type: "message_stop" }) },
 	];
+}
+
+function serverToolPauseTurn(modelId: string, includeResult = false): Array<{ event: string; data: string }> {
+	const events: Array<{ event: string; data: string }> = [
+		messageStart(modelId, "msg_server_tool_pause", 10),
+		{
+			event: "content_block_start",
+			data: JSON.stringify({
+				type: "content_block_start",
+				index: 0,
+				content_block: {
+					type: "server_tool_use",
+					id: "srvtoolu_1",
+					name: "web_search",
+					input: {},
+					caller: { type: "direct" },
+				},
+			}),
+		},
+		{
+			event: "content_block_delta",
+			data: JSON.stringify({
+				type: "content_block_delta",
+				index: 0,
+				delta: { type: "input_json_delta", partial_json: '{"query":"pi runtime"}' },
+			}),
+		},
+		{
+			event: "content_block_stop",
+			data: JSON.stringify({ type: "content_block_stop", index: 0 }),
+		},
+	];
+	if (includeResult) {
+		events.push(
+			{
+				event: "content_block_start",
+				data: JSON.stringify({
+					type: "content_block_start",
+					index: 1,
+					content_block: {
+						type: "web_search_tool_result",
+						tool_use_id: "srvtoolu_1",
+						content: { type: "web_search_tool_result_error", error_code: "unavailable" },
+						caller: { type: "direct" },
+					},
+				}),
+			},
+			{
+				event: "content_block_stop",
+				data: JSON.stringify({ type: "content_block_stop", index: 1 }),
+			},
+		);
+	}
+	events.push(
+		{
+			event: "message_delta",
+			data: JSON.stringify({
+				type: "message_delta",
+				delta: { stop_reason: "pause_turn" },
+				usage: {
+					input_tokens: 10,
+					output_tokens: 8,
+					cache_read_input_tokens: 0,
+					cache_creation_input_tokens: 0,
+				},
+			}),
+		},
+		{ event: "message_stop", data: JSON.stringify({ type: "message_stop" }) },
+	);
+	return events;
 }
 
 interface ScriptedCall {
@@ -185,8 +258,8 @@ describe("Anthropic pause_turn resume", () => {
 
 	it("resumes the assistant turn in-stream on pause_turn and exposes a single completed turn", async () => {
 		const { client, calls } = createScriptedAnthropicClient([
-			createSseResponse(partialThinkingTurn("pause_turn")),
-			createSseResponse(continuationTextTurn("Answer: 42.")),
+			createSseResponse(partialThinkingTurn(model.id, "pause_turn")),
+			createSseResponse(continuationTextTurn(model.id, "Answer: 42.")),
 		]);
 
 		const stream = streamAnthropic(model, baseContext, { client });
@@ -235,16 +308,86 @@ describe("Anthropic pause_turn resume", () => {
 		expect(result.usage.totalTokens).toBe(42);
 	});
 
+	it("preserves unresolved server tool use only in the ephemeral continuation", async () => {
+		const { client, calls } = createScriptedAnthropicClient([
+			createSseResponse(serverToolPauseTurn(model.id)),
+			createSseResponse(continuationTextTurn(model.id, "Done.")),
+		]);
+
+		const result = await streamAnthropic(model, baseContext, { client }).result();
+		expect(result.errorMessage).toBeUndefined();
+		expect(calls).toHaveLength(2);
+		const continuation = calls[1]!.params.messages.at(-1)!;
+		expect(continuation.role).toBe("assistant");
+		expect(continuation.content).toEqual([
+			{
+				type: "server_tool_use",
+				id: "srvtoolu_1",
+				name: "web_search",
+				input: { query: "pi runtime" },
+				caller: { type: "direct" },
+			},
+		]);
+		expect((result.content as Array<{ type: string }>).some((block) => block.type === "server_tool_use")).toBe(false);
+	});
+
+	it("preserves completed server tool use and result blocks without persisting them", async () => {
+		const { client, calls } = createScriptedAnthropicClient([
+			createSseResponse(serverToolPauseTurn(model.id, true)),
+			createSseResponse(continuationTextTurn(model.id, "Done.")),
+		]);
+
+		const result = await streamAnthropic(model, baseContext, { client }).result();
+		const continuation = calls[1]!.params.messages.at(-1)!;
+		expect(continuation.content).toEqual([
+			{
+				type: "server_tool_use",
+				id: "srvtoolu_1",
+				name: "web_search",
+				input: { query: "pi runtime" },
+				caller: { type: "direct" },
+			},
+			{
+				type: "web_search_tool_result",
+				tool_use_id: "srvtoolu_1",
+				content: { type: "web_search_tool_result_error", error_code: "unavailable" },
+				caller: { type: "direct" },
+			},
+		]);
+		expect(
+			(result.content as Array<{ type: string }>).some(
+				(block) => block.type === "server_tool_use" || block.type === "web_search_tool_result",
+			),
+		).toBe(false);
+	});
+
+	it("preserves signed thinking when a pause response reports a fallback model", async () => {
+		const fallbackModel = `${model.id}-fallback`;
+		const { client, calls } = createScriptedAnthropicClient([
+			createSseResponse(partialThinkingTurn(fallbackModel, "pause_turn")),
+			createSseResponse(continuationTextTurn(model.id, "Done.")),
+		]);
+
+		await streamAnthropic(model, baseContext, { client }).result();
+		const continuation = calls[1]!.params.messages.at(-1)!;
+		const content = continuation.content as Array<{ type: string; thinking?: string; signature?: string }>;
+		expect(content.find((block) => block.type === "thinking")).toEqual({
+			type: "thinking",
+			thinking: THINKING_TEXT,
+			signature: THINKING_SIGNATURE,
+		});
+	});
+
 	it("accumulates usage across multiple pause_turn resumes", async () => {
 		// 3 partial turns + 1 final continuation.
 		// Each partial turn reports input=10, output=8 (from partialThinkingTurn).
 		// Continuation reports input=20, output=4 (from continuationTextTurn).
 		// Cumulative: input = 10+10+10+20 = 50, output = 8+8+8+4 = 28.
 		const { client } = createScriptedAnthropicClient([
-			createSseResponse(partialThinkingTurn("pause_turn")),
-			createSseResponse(partialThinkingTurn("pause_turn")),
-			createSseResponse(partialThinkingTurn("pause_turn")),
-			createSseResponse(continuationTextTurn("Done.")),
+			createSseResponse(partialThinkingTurn(model.id, "pause_turn")),
+			createSseResponse(partialThinkingTurn(model.id, "pause_turn")),
+			createSseResponse(partialThinkingTurn(model.id, "pause_turn")),
+			createSseResponse(continuationTextTurn(model.id, "Done.")),
 		]);
 
 		const stream = streamAnthropic(model, baseContext, { client });
@@ -259,10 +402,10 @@ describe("Anthropic pause_turn resume", () => {
 
 	it("loops through multiple pause_turn responses before terminating", async () => {
 		const { client, calls } = createScriptedAnthropicClient([
-			createSseResponse(partialThinkingTurn("pause_turn")),
-			createSseResponse(partialThinkingTurn("pause_turn")),
-			createSseResponse(partialThinkingTurn("pause_turn")),
-			createSseResponse(continuationTextTurn("Done.")),
+			createSseResponse(partialThinkingTurn(model.id, "pause_turn")),
+			createSseResponse(partialThinkingTurn(model.id, "pause_turn")),
+			createSseResponse(partialThinkingTurn(model.id, "pause_turn")),
+			createSseResponse(continuationTextTurn(model.id, "Done.")),
 		]);
 
 		const stream = streamAnthropic(model, baseContext, { client });
@@ -277,7 +420,10 @@ describe("Anthropic pause_turn resume", () => {
 		for (let i = 1; i < calls.length; i++) {
 			const msgs = calls[i]!.params.messages;
 			expect(msgs.length).toBeGreaterThanOrEqual(2);
-			expect(msgs[msgs.length - 1]!.role).toBe("assistant");
+			const partialAssistant = msgs[msgs.length - 1]!;
+			expect(partialAssistant.role).toBe("assistant");
+			const partialContent = partialAssistant.content as Array<{ type: string }>;
+			expect(partialContent.filter((block) => block.type === "thinking")).toHaveLength(i);
 		}
 	});
 
@@ -286,7 +432,7 @@ describe("Anthropic pause_turn resume", () => {
 		// loop trips the cap.
 		const responses: Response[] = [];
 		for (let i = 0; i < 32; i++) {
-			responses.push(createSseResponse(partialThinkingTurn("pause_turn")));
+			responses.push(createSseResponse(partialThinkingTurn(model.id, "pause_turn")));
 		}
 		const { client } = createScriptedAnthropicClient(responses);
 

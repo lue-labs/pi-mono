@@ -8,6 +8,7 @@ import type { ResourceDiagnostic } from "./diagnostics.ts";
 export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.ts";
 
 import { canonicalizePath, isLocalPath, resolvePath } from "../utils/paths.ts";
+import { stripBom } from "../utils/text.ts";
 import {
 	type ContextFile,
 	type ContextFileImportCache,
@@ -77,7 +78,7 @@ function resolvePromptInput(
 
 	if (existsSync(input)) {
 		try {
-			const raw = readFileSync(input, "utf-8");
+			const raw = stripBom(readFileSync(input, "utf-8"));
 			if (!options?.expandImports) {
 				return raw;
 			}
@@ -106,7 +107,7 @@ function loadContextFileFromDir(dir: string): ContextFile | null {
 				}
 				return {
 					path: filePath,
-					content: readFileSync(filePath, "utf-8"),
+					content: stripBom(readFileSync(filePath, "utf-8")),
 				};
 			} catch (error) {
 				console.error(chalk.yellow(`Warning: Could not read ${filePath}: ${error}`));

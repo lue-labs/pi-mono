@@ -17,7 +17,7 @@ import { readdir, stat } from "fs/promises";
 import { join, resolve } from "path";
 import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
-import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
+import { APP_NAME, getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import {
 	type BashExecutionMessage,
@@ -592,7 +592,27 @@ export function loadEntriesFromFile(filePath: string, options: LoadEntriesFromFi
 		entries.push(entry);
 	});
 
-	return hasValidSessionHeader(entries) ? entries : [];
+	if (!hasValidSessionHeader(entries)) return [];
+
+	// Repair an unterminated tail so subsequent appends cannot fuse with it.
+	if (entries.length > 0 && fileEndsWithoutNewline(resolvedFilePath)) {
+		appendFileSync(resolvedFilePath, "\n");
+	}
+	return entries;
+}
+
+/** True when the file has content and its final byte is not a newline. */
+function fileEndsWithoutNewline(filePath: string): boolean {
+	const { size } = statSync(filePath);
+	if (size === 0) return false;
+	const fd = openSync(filePath, "r");
+	try {
+		const lastByte = Buffer.allocUnsafe(1);
+		readSync(fd, lastByte, 0, 1, size - 1);
+		return lastByte[0] !== 0x0a;
+	} finally {
+		closeSync(fd);
+	}
 }
 
 /**
@@ -953,7 +973,7 @@ export class SessionManager {
 			if (this.fileEntries.length === 0) {
 				const explicitPath = this.sessionFile;
 				if (statSync(explicitPath).size > 0) {
-					throw new Error(`Session file is not a valid pi session: ${explicitPath}`);
+					throw new Error(`Session file is not a valid ${APP_NAME} session: ${explicitPath}`);
 				}
 				this.newSession();
 				this.sessionFile = explicitPath;
@@ -1495,13 +1515,14 @@ export class SessionManager {
 		if (branchFromId !== null && !this.byId.has(branchFromId)) {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}
+		const fromId = this.leafId ?? "root";
 		this.leafId = branchFromId;
 		const entry: BranchSummaryEntry = {
 			type: "branch_summary",
 			id: generateId(this.byId),
 			parentId: branchFromId,
 			timestamp: new Date().toISOString(),
-			fromId: branchFromId ?? "root",
+			fromId,
 			summary,
 			details,
 			usage,

@@ -70,6 +70,17 @@ vi.mock("openai", () => {
 	return { default: FakeOpenAI };
 });
 
+const localOpenAICompletionsModel = {
+	api: "openai-completions",
+	provider: "local-vllm",
+	baseUrl: "http://localhost:8000/v1",
+	reasoning: true,
+	input: ["text"],
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	contextWindow: 128000,
+	maxTokens: 8192,
+} satisfies Omit<Model<"openai-completions">, "id" | "name" | "compat">;
+
 describe("openai-completions tool_choice", () => {
 	beforeEach(() => {
 		mockState.lastParams = undefined;
@@ -143,6 +154,30 @@ describe("openai-completions tool_choice", () => {
 		expect(params.tool_choice).toBe("required");
 		expect(Array.isArray(params.tools)).toBe(true);
 		expect(params.tools?.length ?? 0).toBeGreaterThan(0);
+	});
+
+	it("includes toolChoice when no tools are provided", async () => {
+		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
+		const model = { ...baseModel, api: "openai-completions" } as const;
+		let payload: unknown;
+
+		await streamSimple(
+			model,
+			{
+				messages: [{ role: "user", content: "Summarize the conversation", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test",
+				toolChoice: "none",
+				onPayload: (params: unknown) => {
+					payload = params;
+				},
+			},
+		).result();
+
+		const params = (payload ?? mockState.lastParams) as { tool_choice?: string; tools?: unknown[] };
+		expect(params.tool_choice).toBe("none");
+		expect(params).not.toHaveProperty("tools");
 	});
 
 	it("omits strict when compat disables strict mode", async () => {
@@ -288,15 +323,31 @@ describe("openai-completions tool_choice", () => {
 		expect(model.compat?.zaiToolStream).toBe(true);
 	});
 
-	it("stores z.ai GLM-5.2 effort metadata", () => {
+	it("stores z.ai effort metadata", () => {
 		for (const provider of ["zai", "zai-coding-cn"] as const) {
-			const model = getModel(provider, "glm-5.2")!;
-			expect(model.compat?.supportsReasoningEffort).toBe(true);
-			expect(model.thinkingLevelMap).toEqual({
+			for (const modelId of ["glm-5.2", "glm-5.2-highspeed"] as const) {
+				const model = getModel(provider, modelId)!;
+				expect(model.compat?.supportsReasoningEffort).toBe(true);
+				expect(model.thinkingLevelMap).toEqual({
+					off: "none",
+					minimal: null,
+					low: null,
+					medium: null,
+					high: "high",
+					xhigh: null,
+					max: "max",
+				});
+			}
+
+			const glm53 = getModel(provider, "glm-5.3")!;
+			expect(glm53.compat?.supportsReasoningEffort).toBe(true);
+			expect(glm53.thinkingLevelMap).toEqual({
+				off: null,
 				minimal: null,
-				low: "high",
-				medium: "high",
+				low: "low",
+				medium: null,
 				high: "high",
+				xhigh: null,
 				max: "max",
 			});
 		}
@@ -1134,7 +1185,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("stores Qwen Token Plan reasoning replay compat in built-in metadata", () => {
-		const providers = ["qwen-token-plan", "qwen-token-plan-cn"] as const;
+		const providers = ["qwen-token-plan", "qwen-token-plan-cn", "qwen-token-plan-individual"] as const;
 
 		for (const provider of providers) {
 			const model = getModel(provider, "qwen3.7-max")!;
@@ -1418,6 +1469,53 @@ describe("openai-completions tool_choice", () => {
 			model.api === "openai-completions" &&
 			(model.compat as Record<string, unknown> | undefined)?.maxTokensField === "max_tokens";
 		const cases = [pickModel("opencode-go", sendsMaxTokens), pickModel("opencode", sendsMaxTokens)] as const;
+
+		for (const model of cases) {
+			let payload: unknown;
+
+			await streamSimple(
+				model,
+				{
+					messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+				},
+				{
+					apiKey: "test",
+					maxTokens: 123,
+					onPayload: (params: unknown) => {
+						payload = params;
+					},
+				},
+			).result();
+
+			const params = (payload ?? mockState.lastParams) as { max_tokens?: number; max_completion_tokens?: number };
+			expect(params.max_tokens).toBe(123);
+			expect(params.max_completion_tokens).toBeUndefined();
+		}
+	});
+
+	it("sends max_tokens for built-in and custom DeepSeek API models", async () => {
+		const customModel = {
+			...localOpenAICompletionsModel,
+			id: "custom-deepseek-model",
+			name: "Custom DeepSeek Model",
+			provider: "custom-deepseek",
+			baseUrl: "https://api.deepseek.com",
+		} satisfies Model<"openai-completions">;
+		const customUppercaseModel = {
+			...customModel,
+			id: "custom-uppercase-deepseek-model",
+			name: "Custom Uppercase DeepSeek Model",
+			baseUrl: "https://API.DeepSeek.COM",
+		} satisfies Model<"openai-completions">;
+		const nativeModels = [
+			getModel("deepseek", "deepseek-v4-flash")!,
+			getModel("deepseek", "deepseek-v4-pro")!,
+		] as const;
+		const cases = [...nativeModels, customModel, customUppercaseModel] as const;
+
+		for (const model of nativeModels) {
+			expect(model.compat?.maxTokensField).toBe("max_tokens");
+		}
 
 		for (const model of cases) {
 			let payload: unknown;

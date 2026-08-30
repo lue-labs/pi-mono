@@ -35,6 +35,7 @@ import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } fr
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
+import { getPiUserAgent } from "../utils/pi-user-agent.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
@@ -288,14 +289,23 @@ export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export type AnthropicThinkingDisplay = "summarized" | "omitted";
 
+type MessageCreateParamsStreamingWithFallbacks = MessageCreateParamsStreaming & {
+	fallbacks?: readonly { model: string }[];
+};
+
 const FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14";
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 const TOOL_SEARCH_BETA = "advanced-tool-use-2025-11-20";
 const EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11";
+const SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01";
+
+function shouldUseServerSideFallbackBeta(model: Model<"anthropic-messages">): boolean {
+	return (model.compat?.allowedFallbackModels?.length ?? 0) > 0;
+}
 
 function getAnthropicCompat(
 	model: Model<"anthropic-messages">,
-): Required<Omit<AnthropicMessagesCompat, "forceAdaptiveThinking">> {
+): Required<Omit<AnthropicMessagesCompat, "forceAdaptiveThinking" | "allowedFallbackModels">> {
 	const modelSupportsDeferredTools = !model.id.toLowerCase().includes("haiku");
 	return {
 		supportsEagerToolInputStreaming: model.compat?.supportsEagerToolInputStreaming ?? true,
@@ -397,6 +407,10 @@ function mergeHeaders(...headerSources: (ProviderHeaders | undefined)[]): Provid
 	return merged;
 }
 
+function mergeClientHeaders(...headerSources: (ProviderHeaders | undefined)[]): ProviderHeaders {
+	return mergeHeaders({ "User-Agent": getPiUserAgent() }, ...headerSources);
+}
+
 function hasHeader(headers: ProviderHeaders | undefined, name: string): boolean {
 	if (!headers) return false;
 	const expected = name.toLowerCase();
@@ -422,7 +436,7 @@ function mergeHeadersWithAnthropicBetas(
 	requiredBetas: string[],
 	...headerSources: (Record<string, string | null> | undefined)[]
 ): Record<string, string | null> {
-	const merged = mergeHeaders(...headerSources);
+	const merged = mergeClientHeaders(...headerSources);
 	const betaSet = new Set<string>();
 	for (const [key, value] of Object.entries(merged)) {
 		if (key.toLowerCase() !== "anthropic-beta") continue;
@@ -661,6 +675,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 		try {
 			let client: Anthropic;
 			let isOAuth: boolean;
+			let usageModel = model;
 
 			if (options?.client) {
 				client = options.client;
@@ -688,6 +703,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					shouldUseFineGrainedToolStreamingBeta(model, context),
 					shouldUseToolSearchBeta(model, context),
 					usesExtendedCacheTtl(model, options?.cacheRetention, options?.env),
+					shouldUseServerSideFallbackBeta(model),
 					options?.headers,
 					options?.fetch,
 					copilotDynamicHeaders,
@@ -792,17 +808,35 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			// `output.usage` always reflects the full assistant turn.
 			const carryOverUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
 
+			// pause_turn requires the complete provider response content to be echoed
+			// byte-for-byte. Keep a wire-format accumulator separate from output.content:
+			// the latter intentionally excludes provider-executed server blocks from the
+			// canonical session message. This accumulator is ephemeral and exists only for
+			// the in-stream continuation request.
+			const pauseTurnWireContent: ContentBlockParam[] = [];
+			const pauseTurnWireBlocks = new Map<number, { block: ContentBlockParam; partialJson: string }>();
+
 			// Provider-executed (server-side) web tools (web_search/web_fetch) stream as
 			// `server_tool_use` blocks whose input arrives via `input_json_delta`. We track
 			// them here — keyed by content-block index — instead of in `output.content`, so
-			// they never become agent-loop toolCalls, never round-trip to the API, and never
-			// perturb the cache prefix. They are surfaced purely as display-only events.
+			// they never become agent-loop toolCalls or persist to session JSONL. They only
+			// round-trip through the ephemeral pause_turn accumulator above and otherwise
+			// remain display-only events, preserving the stable cache prefix.
 			const serverToolUses = new Map<number, { id: string; name: string; partialJson: string; input: unknown }>();
 
 			while (true) {
 				for await (const event of iterateAnthropicEvents(response, options?.signal)) {
 					if (event.type === "message_start") {
+						pauseTurnWireBlocks.clear();
 						output.responseId = event.message.id;
+						output.model = event.message.model;
+						const fallbackCost =
+							output.model === model.id
+								? undefined
+								: model.compat?.allowedFallbackModels?.find(
+										(fallback) => fallback.provider === model.provider && fallback.model === output.model,
+									)?.cost;
+						usageModel = fallbackCost ? { ...model, id: output.model, cost: fallbackCost } : model;
 						// Capture initial token usage from message_start event
 						// This ensures we have input token counts even if the stream is aborted early.
 						// On pause_turn resumes, add to carryOverUsage so totals stay cumulative.
@@ -817,8 +851,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						// Anthropic doesn't provide total_tokens, compute from components
 						output.usage.totalTokens =
 							output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
-						calculateCost(model, output.usage);
+						calculateCost(usageModel, output.usage);
 					} else if (event.type === "content_block_start") {
+						const wireBlock = { ...event.content_block } as unknown as ContentBlockParam;
+						pauseTurnWireContent.push(wireBlock);
+						pauseTurnWireBlocks.set(event.index, { block: wireBlock, partialJson: "" });
 						if (event.content_block.type === "text") {
 							const block: Block = {
 								type: "text",
@@ -889,6 +926,23 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							});
 						}
 					} else if (event.type === "content_block_delta") {
+						const wireState = pauseTurnWireBlocks.get(event.index);
+						if (event.delta.type === "text_delta" && wireState?.block.type === "text") {
+							wireState.block.text += event.delta.text;
+						} else if (event.delta.type === "thinking_delta" && wireState?.block.type === "thinking") {
+							wireState.block.thinking += event.delta.thinking;
+						} else if (event.delta.type === "signature_delta" && wireState?.block.type === "thinking") {
+							wireState.block.signature = (wireState.block.signature ?? "") + event.delta.signature;
+						} else if (event.delta.type === "citations_delta" && wireState?.block.type === "text") {
+							wireState.block.citations = [...(wireState.block.citations ?? []), event.delta.citation];
+						} else if (
+							event.delta.type === "input_json_delta" &&
+							(wireState?.block.type === "tool_use" || wireState?.block.type === "server_tool_use")
+						) {
+							wireState.partialJson += event.delta.partial_json;
+							wireState.block.input = parseStreamingJson(wireState.partialJson);
+						}
+
 						if (event.delta.type === "text_delta") {
 							const index = blocks.findIndex((b) => b.index === event.index);
 							const block = blocks[index];
@@ -939,6 +993,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							}
 						}
 					} else if (event.type === "content_block_stop") {
+						pauseTurnWireBlocks.delete(event.index);
 						const serverTool = serverToolUses.get(event.index);
 						if (serverTool) {
 							const parsedInput = (
@@ -1024,7 +1079,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						// Anthropic doesn't provide total_tokens, compute from components
 						output.usage.totalTokens =
 							output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
-						calculateCost(model, output.usage);
+						calculateCost(usageModel, output.usage);
 					}
 				}
 
@@ -1044,28 +1099,14 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					delete (block as { partialJson?: string }).partialJson;
 				}
 
-				// Echo the partial assistant turn back unmodified. transformMessages +
-				// the signed-thinking-block branch in the assistant-block builder
-				// round-trip thinking signatures byte-for-byte, which is what
-				// Anthropic validates against on resume.
-				const continuationContext: Context = {
-					...context,
-					messages: [
-						...context.messages,
-						{
-							role: "assistant",
-							content: output.content,
-							api: output.api,
-							provider: output.provider,
-							model: output.model,
-							usage: output.usage,
-							stopReason: "stop",
-							timestamp: output.timestamp,
-						} satisfies AssistantMessage,
-					],
+				// Echo the complete provider wire content directly. Passing output.content
+				// through transformMessages would omit server tool blocks and can rewrite
+				// signed thinking when Anthropic reports a fallback response model.
+				let continuationParams = buildParams(model, context, isOAuth, options);
+				continuationParams = {
+					...continuationParams,
+					messages: [...continuationParams.messages, { role: "assistant", content: [...pauseTurnWireContent] }],
 				};
-
-				let continuationParams = buildParams(model, continuationContext, isOAuth, options);
 				const nextContinuation = await options?.onPayload?.(continuationParams, model);
 				if (nextContinuation !== undefined) {
 					continuationParams = nextContinuation as MessageCreateParamsStreaming;
@@ -1162,9 +1203,15 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 ): AssistantMessageEventStream => {
 	assertRequestAuth(model.provider, options?.apiKey, options?.headers);
 
-	const base = buildBaseOptions(model, context, options, options?.apiKey);
+	const base = {
+		...buildBaseOptions(model, context, options, options?.apiKey),
+		toolChoice: options?.toolChoice,
+	} satisfies AnthropicOptions;
 	if (!options?.reasoning) {
-		return stream(model, context, { ...base, thinkingEnabled: false } satisfies AnthropicOptions);
+		return stream(model, context, {
+			...base,
+			thinkingEnabled: false,
+		} satisfies AnthropicOptions);
 	}
 
 	// For models with adaptive thinking: use an effort level.
@@ -1241,6 +1288,7 @@ function createClient(
 	useFineGrainedToolStreamingBeta: boolean,
 	useToolSearchBeta: boolean,
 	useExtendedCacheTtlBeta: boolean,
+	useServerSideFallbackBeta: boolean,
 	optionsHeaders?: ProviderHeaders,
 	fetch?: typeof globalThis.fetch,
 	dynamicHeaders?: Record<string, string>,
@@ -1260,6 +1308,9 @@ function createClient(
 	}
 	if (useExtendedCacheTtlBeta) {
 		betaFeatures.push(EXTENDED_CACHE_TTL_BETA);
+	}
+	if (useServerSideFallbackBeta) {
+		betaFeatures.push(SERVER_SIDE_FALLBACK_BETA);
 	}
 
 	// Copilot: Bearer auth, selective betas.
@@ -1338,7 +1389,7 @@ function buildParams(
 	context: Context,
 	isOAuthToken: boolean,
 	options?: AnthropicOptions,
-): MessageCreateParamsStreaming {
+): MessageCreateParamsStreamingWithFallbacks {
 	const { cacheControl } = getCacheControl(model, options?.cacheRetention, options?.env);
 	const compat = getAnthropicCompat(model);
 	// Single authoritative name map for this request — shared by tools[] and the
@@ -1376,7 +1427,7 @@ function buildParams(
 	// against this set — Anthropic rejects the request when a reference names a
 	// tool that is not in tools[].
 	const requestToolNames: ReadonlySet<string> = new Set((wireTools ?? []).map((tool) => normalizeToolName(tool.name)));
-	const params: MessageCreateParamsStreaming = {
+	const params: MessageCreateParamsStreamingWithFallbacks = {
 		model: model.id,
 		messages: convertMessages(
 			context.messages,
@@ -1484,6 +1535,11 @@ function buildParams(
 			type: "auto",
 			disable_parallel_tool_use: false,
 		} as MessageCreateParamsStreaming["tool_choice"];
+	}
+
+	const allowedFallbackModels = model.compat?.allowedFallbackModels;
+	if (allowedFallbackModels && allowedFallbackModels.length > 0) {
+		params.fallbacks = allowedFallbackModels.map((fallback) => ({ model: fallback.model }));
 	}
 
 	return params;
@@ -1761,7 +1817,7 @@ function shouldUseToolSearchBeta(model: Model<"anthropic-messages">, context: Co
 
 function convertTools(
 	tools: Tool[],
-	model: Model<any>,
+	model: Model<"anthropic-messages">,
 	isOAuthToken: boolean,
 	supportsEagerToolInputStreaming: boolean,
 	supportsDeferredTools: boolean,
@@ -1796,7 +1852,7 @@ function convertTools(
 		const tool = toolByWireName.get(wireName) as Tool;
 		const deferLoading =
 			!tool.alwaysLoad && ((supportsDeferredTools && !!tool.deferLoading) || !!deferredNames?.has(wireName));
-		const flagKey = `${model.provider}|${isOAuthToken ? 1 : 0}|${supportsEagerToolInputStreaming ? 1 : 0}|${deferLoading ? 1 : 0}|${wireName}`;
+		const flagKey = `${model.provider}|${model.compat?.supportsStrictTools ? 1 : 0}|${isOAuthToken ? 1 : 0}|${supportsEagerToolInputStreaming ? 1 : 0}|${deferLoading ? 1 : 0}|${wireName}`;
 		let perToolMap = convertedToolCache.get(tool);
 		if (!perToolMap) {
 			perToolMap = new Map();

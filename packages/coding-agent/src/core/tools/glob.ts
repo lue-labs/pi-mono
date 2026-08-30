@@ -159,7 +159,7 @@ async function resolveGlobBackend(input: {
 }): Promise<GlobBackendCommand | undefined> {
 	const insideGitRepo = await isInsideGitRepo(input.searchPath);
 	if (input.backend !== "bfs" && input.backend !== "fd") {
-		const rgPath = await ensureTool("rg", true);
+		const rgPath = await ensureTool("rg");
 		if (rgPath) return { backend: "rg", command: rgPath, args: buildRgFilesArgs({ ...input, insideGitRepo }) };
 	}
 
@@ -169,7 +169,7 @@ async function resolveGlobBackend(input: {
 	}
 
 	if (input.backend !== "rg" && input.backend !== "bfs") {
-		const fdPath = await ensureTool("fd", true);
+		const fdPath = await ensureTool("fd");
 		if (fdPath) return { backend: "fd", command: fdPath, args: buildFdArgs({ ...input, insideGitRepo }) };
 	}
 	return undefined;

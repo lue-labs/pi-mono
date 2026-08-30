@@ -420,7 +420,7 @@ export const streamSimple: StreamFunction<"pi-messages", SimpleStreamOptions> = 
 	return stream(model, context, {
 		...options,
 		reasoning: options?.reasoning,
-		toolChoice: extra?.toolChoice,
+		toolChoice: options?.toolChoice,
 		debug: extra?.debug,
 	});
 };

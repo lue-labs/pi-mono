@@ -31,7 +31,7 @@ describe("grep backend selection", () => {
 		expect(backend?.backend).toBe("rg");
 		expect(backend?.command).toBe("/managed/rg");
 		expect(backend?.args).toEqual(expect.arrayContaining(["--json", "needle", "/repo"]));
-		expect(toolMocks.ensureTool).toHaveBeenCalledWith("rg", true);
+		expect(toolMocks.ensureTool).toHaveBeenCalledWith("rg");
 		expect(toolMocks.getOptionalSearchToolPath).not.toHaveBeenCalled();
 	});
 

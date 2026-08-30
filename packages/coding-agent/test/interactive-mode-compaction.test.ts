@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@lue-labs/pi-agent-core";
+import type { Usage } from "@lue-labs/pi-ai";
 import { Container, Text, type TUI } from "@lue-labs/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
@@ -74,6 +75,136 @@ function renderChat(container: Container): string {
 }
 
 describe("InteractiveMode compaction events", () => {
+	test("uses the cache miss notice setting for compaction and branch summary costs", () => {
+		const usage: Usage = {
+			input: 10,
+			output: 20,
+			cacheRead: 30,
+			cacheWrite: 40,
+			totalTokens: 100,
+			cost: { input: 0.01, output: 0.02, cacheRead: 0.03, cacheWrite: 0.065, total: 0.125 },
+		};
+		const addCompactionCostNotice = Reflect.get(InteractiveMode.prototype, "addCompactionCostNotice") as (
+			this: { chatContainer: Container; settingsManager: { getShowCacheMissNotices(): boolean } },
+			notice: {
+				type: "compaction_cost";
+				kind: "compaction" | "branch_summary";
+				usage: Usage;
+			},
+		) => void;
+
+		initTheme("dark");
+		const enabled = {
+			chatContainer: new Container(),
+			settingsManager: { getShowCacheMissNotices: () => true },
+		};
+		addCompactionCostNotice.call(enabled, { type: "compaction_cost", kind: "compaction", usage });
+		addCompactionCostNotice.call(enabled, {
+			type: "compaction_cost",
+			kind: "branch_summary",
+			usage,
+		});
+		const output = stripAnsi(enabled.chatContainer.render(120).join("\n"));
+		expect(output).toContain("Compaction: 100 tokens billed (~$0.13)");
+		expect(output).toContain("Branch summary: 100 tokens billed (~$0.13)");
+
+		const disabled = {
+			chatContainer: new Container(),
+			settingsManager: { getShowCacheMissNotices: () => false },
+		};
+		addCompactionCostNotice.call(disabled, { type: "compaction_cost", kind: "compaction", usage });
+		expect(disabled.chatContainer.children).toHaveLength(0);
+	});
+
+	test("renders each compaction cost after its summary", () => {
+		const currentUsage: Usage = {
+			input: 10,
+			output: 20,
+			cacheRead: 30,
+			cacheWrite: 40,
+			totalTokens: 100,
+			cost: { input: 0.01, output: 0.02, cacheRead: 0.03, cacheWrite: 0.04, total: 0.1 },
+		};
+		const previousUsage: Usage = {
+			input: 1,
+			output: 2,
+			cacheRead: 3,
+			cacheWrite: 4,
+			totalTokens: 10,
+			cost: { input: 0.001, output: 0.002, cacheRead: 0.003, cacheWrite: 0.004, total: 0.01 },
+		};
+		const entries: SessionEntry[] = [
+			{
+				type: "compaction",
+				id: "current",
+				parentId: "previous",
+				timestamp: "2025-01-02T00:00:00Z",
+				summary: "current summary",
+				firstKeptEntryId: "kept",
+				tokensBefore: 200,
+				usage: currentUsage,
+			},
+			{
+				type: "compaction",
+				id: "previous",
+				parentId: null,
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "previous summary",
+				firstKeptEntryId: "kept",
+				tokensBefore: 100,
+				usage: previousUsage,
+			},
+		];
+		const fakeThis = { renderSessionItems: vi.fn() };
+		const renderSessionEntries = Reflect.get(InteractiveMode.prototype, "renderSessionEntries") as (
+			this: typeof fakeThis,
+			entries: SessionEntry[],
+		) => void;
+
+		renderSessionEntries.call(fakeThis, entries);
+
+		expect(fakeThis.renderSessionItems).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({ role: "compactionSummary", summary: "current summary" }),
+				{ type: "compaction_cost", kind: "compaction", usage: currentUsage },
+				expect.objectContaining({ role: "compactionSummary", summary: "previous summary" }),
+				{ type: "compaction_cost", kind: "compaction", usage: previousUsage },
+			],
+			{},
+		);
+	});
+
+	test("updates the working state when the same agent run resumes after compaction", async () => {
+		const fakeThis = {
+			isInitialized: true,
+			footer: { invalidate: vi.fn() },
+			activeStatusIndicator: undefined,
+			workingVisible: true,
+			showWorkingStatusIndicator: vi.fn(),
+			clearStatusIndicator: vi.fn(),
+			settingsManager: { getShowTerminalProgress: () => true },
+			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
+		};
+		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
+			this: typeof fakeThis,
+			event: { type: "turn_start" },
+		) => Promise<void>;
+
+		await handleEvent.call(fakeThis, { type: "turn_start" });
+
+		expect(fakeThis.ui.terminal.setProgress).toHaveBeenCalledWith(true);
+		expect(fakeThis.showWorkingStatusIndicator).toHaveBeenCalledTimes(1);
+		expect(fakeThis.clearStatusIndicator).not.toHaveBeenCalled();
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+
+		fakeThis.workingVisible = false;
+		await handleEvent.call(fakeThis, { type: "turn_start" });
+
+		expect(fakeThis.showWorkingStatusIndicator).toHaveBeenCalledTimes(1);
+		expect(fakeThis.clearStatusIndicator).toHaveBeenCalledTimes(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
+	});
+
 	beforeAll(() => {
 		initTheme("dark");
 	});

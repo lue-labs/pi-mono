@@ -571,9 +571,7 @@ Use this EXACT format:
 
 Be concise. Preserve exact file paths, function names, and error messages needed to connect the prefix to the retained suffix.`;
 
-const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
-
-Update the existing structured summary with new information. RULES:
+const UPDATE_SUMMARIZATION_INSTRUCTIONS = `Update the existing structured summary with new information. RULES:
 - PRESERVE all existing information from the previous summary
 - ADD new progress, decisions, and context from the new messages
 - UPDATE the Progress section: move items from "In Progress" to "Done" when completed
@@ -610,6 +608,10 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
+const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
+
+${UPDATE_SUMMARIZATION_INSTRUCTIONS}`;
+
 /**
  * Returns an error message when a summarization response cannot safely be persisted.
  * A length stop contains partial text and must not become a session checkpoint.
@@ -632,8 +634,9 @@ function createSummarizationOptions(
 	env: Record<string, string> | undefined,
 	signal: AbortSignal | undefined,
 	thinkingLevel: ThinkingLevel | undefined,
+	sessionId: string | undefined,
 ): SimpleStreamOptions {
-	const options: SimpleStreamOptions = { maxTokens, signal, apiKey, headers, env, cacheRetention: "long" };
+	const options: SimpleStreamOptions = { maxTokens, signal, apiKey, headers, env, cacheRetention: "long", sessionId };
 	if (model.reasoning && thinkingLevel && thinkingLevel !== "off") {
 		options.reasoning = thinkingLevel;
 	}
@@ -669,11 +672,12 @@ export async function completeSummarization(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 ): Promise<AssistantMessage> {
-	// Summaries are standalone requests, so isolate routing and avoid cache writes that cannot be reused.
+	// Avoid cache writes for one-off summaries. Reuse caller-supplied routing when available;
+	// callers without a session ID, including branch summaries, receive a fresh routing ID.
 	const requestOptions: SimpleStreamOptions = {
 		...options,
 		cacheRetention: "none",
-		sessionId: uuidv7(),
+		sessionId: options.sessionId ?? uuidv7(),
 	};
 	const produce = async (): Promise<AssistantMessage> =>
 		streamFn
@@ -701,6 +705,7 @@ export async function generateSummary(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 	cacheSafeContext?: CacheSafeCompactionContext,
+	sessionId?: string,
 ): Promise<string> {
 	return (
 		await generateSummaryWithUsage(
@@ -718,8 +723,23 @@ export async function generateSummary(
 			retry,
 			callbacks,
 			cacheSafeContext,
+			sessionId,
 		)
 	).text;
+}
+
+/** Build the provider context for a standalone summary request. */
+function buildSummarizationContext(promptText: string): Context {
+	return {
+		systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
+		messages: [
+			{
+				role: "user",
+				content: [{ type: "text", text: promptText }],
+				timestamp: Date.now(),
+			},
+		],
+	};
 }
 
 /** Generate or update a conversation summary and return its provider usage. */
@@ -738,6 +758,7 @@ export async function generateSummaryWithUsage(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 	cacheSafeContext?: CacheSafeCompactionContext,
+	sessionId?: string,
 ): Promise<{ text: string; usage: Usage }> {
 	const maxTokens = Math.min(
 		Math.floor(0.8 * reserveTokens),
@@ -750,7 +771,16 @@ export async function generateSummaryWithUsage(
 		basePrompt = `${basePrompt}\n\nAdditional focus: ${customInstructions}`;
 	}
 
-	const completionOptions = createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel);
+	const completionOptions = createSummarizationOptions(
+		model,
+		maxTokens,
+		apiKey,
+		headers,
+		env,
+		signal,
+		thinkingLevel,
+		sessionId,
+	);
 	let context: Context;
 
 	if (cacheSafeContext) {
@@ -774,7 +804,7 @@ export async function generateSummaryWithUsage(
 			promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
 		}
 		promptText += basePrompt;
-		context = { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: [createSummaryUserMessage(promptText)] };
+		context = buildSummarizationContext(promptText);
 	}
 
 	const response = await completeSummarization(model, context, completionOptions, streamFn, retry, callbacks);
@@ -782,6 +812,9 @@ export async function generateSummaryWithUsage(
 	const failure = getSummarizationFailure(response, "Summarization");
 	if (failure) {
 		throw new Error(failure);
+	}
+	if (response.content.some((block) => block.type === "toolCall")) {
+		throw new Error("Summarization attempted to call a tool");
 	}
 
 	const textContent = contentText(response.content);
@@ -923,6 +956,7 @@ Be concise. Focus on what's needed to understand the kept suffix.`;
  *
  * @param preparation - Pre-calculated preparation from prepareCompaction()
  * @param customInstructions - Optional custom focus for the summary
+ * @param sessionId - Optional routing session ID forwarded without enabling prompt caching
  */
 export async function compact(
 	preparation: CompactionPreparation,
@@ -937,6 +971,7 @@ export async function compact(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 	cacheSafeContext?: CacheSafeCompactionContext,
+	sessionId?: string,
 ): Promise<CompactionResult> {
 	const compactionThinkingLevel: ThinkingLevel = "off";
 	const {
@@ -973,6 +1008,7 @@ export async function compact(
 				retry,
 				callbacks,
 				cacheSafeContext,
+				sessionId,
 			);
 			historyText = historyResult.text;
 			historyUsage = historyResult.usage;
@@ -990,6 +1026,7 @@ export async function compact(
 			retry,
 			callbacks,
 			cacheSafeContext,
+			sessionId,
 		);
 		// Merge into single summary
 		summary = `${historyText}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
@@ -1011,6 +1048,7 @@ export async function compact(
 			retry,
 			callbacks,
 			cacheSafeContext,
+			sessionId,
 		);
 		summary = result.text;
 		summaryUsage = result.usage;
@@ -1049,6 +1087,7 @@ async function generateTurnPrefixSummary(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 	cacheSafeContext?: CacheSafeCompactionContext,
+	sessionId?: string,
 ): Promise<{ text: string; usage: Usage }> {
 	const maxTokens = Math.min(
 		Math.floor(0.5 * reserveTokens),
@@ -1064,12 +1103,12 @@ async function generateTurnPrefixSummary(
 				messages: [...cacheSafeContext.messages, createSummaryUserMessage(cacheSafePromptText)],
 				tools: cacheSafeContext.tools,
 			}
-		: { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: [createSummaryUserMessage(promptText)] };
+		: buildSummarizationContext(promptText);
 
 	const response = await completeSummarization(
 		model,
 		context,
-		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel),
+		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel, sessionId),
 		streamFn,
 		retry,
 		callbacks,
@@ -1078,6 +1117,9 @@ async function generateTurnPrefixSummary(
 	const failure = getSummarizationFailure(response, "Turn prefix summarization");
 	if (failure) {
 		throw new Error(failure);
+	}
+	if (response.content.some((block) => block.type === "toolCall")) {
+		throw new Error("Turn prefix summarization attempted to call a tool");
 	}
 
 	return {

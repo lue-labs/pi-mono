@@ -99,6 +99,11 @@ const grepSchema = Type.Object({
 	),
 });
 
+export const grepToolSystemPromptContribution = {
+	snippet: "Search file contents for patterns (respects .gitignore)",
+	guidelines: [],
+} as const;
+
 export type GrepToolInput = Static<typeof grepSchema>;
 const DEFAULT_LIMIT = 100;
 const DEFAULT_TIMEOUT_SECONDS = 30;
@@ -159,7 +164,7 @@ export async function resolveGrepBackend(input: {
 	type?: string;
 	multiline?: boolean;
 }): Promise<GrepBackendCommand | undefined> {
-	const rgPath = await ensureTool("rg", true);
+	const rgPath = await ensureTool("rg");
 	if (rgPath) return { backend: "rg", command: rgPath, args: buildRgArgs(input) };
 
 	// ugrep needs -o for cross-line patterns, which changes output semantics — rg only.
@@ -479,8 +484,8 @@ export function createGrepToolDefinition(
 	return {
 		name: toolName,
 		label,
-		description: `A powerful content-search tool built on ripgrep. ALWAYS use this tool for content search; NEVER invoke \`grep\` or \`rg\` via bash — those calls are blocked at runtime. Supports full regex syntax; ripgrep, not grep — escape literal braces (use \`interface\\{\\}\` to find \`interface{}\`). Filter files with \`glob\` (e.g. "**/*.tsx") or \`type\` (e.g. js, py, rust). \`outputMode\`: "content" (matching lines with file paths and line numbers, default), "files_with_matches" (paths only), "count" (match counts). By default patterns match within single lines; use \`multiline:true\` for cross-line patterns. Respects .gitignore. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars unless full:true is set; huge full:true output is still byte-capped to prevent crashes. For conceptual or meaning-based searches ('where is auth handled?', 'how does X work?', 'find the retry logic'), prefer \`semantic_grep\` if available — it finds concepts even when the exact wording differs. Default rule: if you don't already know the exact string, use \`semantic_grep\` first. \`grep\` is for known literals, identifiers, and error messages.`,
-		promptSnippet: "Search file contents for patterns (respects .gitignore)",
+		description: `A powerful content-search tool built on ripgrep. ALWAYS use this tool for content search; NEVER invoke \`grep\` or \`rg\` via bash — those calls are blocked at runtime. Supports full regex syntax; ripgrep, not grep — escape literal braces (use \`interface{}\` to find \`interface{}\`). Filter files with \`glob\` or \`type\`. Respects .gitignore. Times out after ${DEFAULT_TIMEOUT_SECONDS}s by default; pass timeout up to ${MAX_TIMEOUT_SECONDS}s for intentional broad searches. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB. For conceptual searches, prefer \`semantic_grep\` if available; grep is for known literals, identifiers, and error messages.`,
+		promptSnippet: grepToolSystemPromptContribution.snippet,
 		executionMode: "parallel",
 		parameters: grepSchema,
 		async execute(

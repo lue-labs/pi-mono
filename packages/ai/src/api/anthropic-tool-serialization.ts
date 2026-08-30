@@ -14,6 +14,7 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Context, Model, Tool } from "../types.ts";
+import { getJsonSchemaToolParameters, resolveJsonSchemaStrictSampling } from "./constrained-sampling.ts";
 
 /**
  * A JSON Schema fragment as it arrives from a tool definition. Tool schemas
@@ -81,7 +82,7 @@ export const convertedToolCache = new WeakMap<object, Map<string, Anthropic.Mess
 
 export function convertOneTool(
 	tool: Tool,
-	model: Model<any>,
+	model: Model<"anthropic-messages">,
 	supportsEagerToolInputStreaming: boolean,
 	deferLoading: boolean,
 	wireName: string,
@@ -111,9 +112,19 @@ export function convertOneTool(
 		}
 		// No advisor model configured → fall through to the client tool path.
 	}
-	const schema = tool.parameters as { properties?: JsonValue; required?: string[] };
+	const strict = resolveJsonSchemaStrictSampling(tool, model.compat?.supportsStrictTools ?? false);
+	const parameters = getJsonSchemaToolParameters(tool, strict);
+	const schema = parameters as { properties?: JsonValue; required?: string[] };
 	const properties = sortObjectKeysDeep(schema.properties ?? {}) as Record<string, unknown>;
 	const required = (schema.required ?? []).slice().sort();
+	const legacyInputSchema = { type: "object" as const, properties, required };
+	const inputSchema =
+		strict === true
+			? {
+					...(sortObjectKeysDeep(parameters as JsonValue) as Record<string, unknown>),
+					...legacyInputSchema,
+				}
+			: legacyInputSchema;
 	// anti-slop(no-conditional-empty-object-spread) fires on the two flag
 	// spreads below and stays unfixed on purpose. Key insertion order here is
 	// the serialized byte order of the cached tools[] prefix, and the flags must
@@ -127,11 +138,8 @@ export function convertOneTool(
 		name: wireName,
 		description: tool.description,
 		...(supportsEagerToolInputStreaming ? { eager_input_streaming: true } : {}),
+		...(strict === true ? { strict: true } : {}),
 		...(deferLoading ? { defer_loading: true } : {}),
-		input_schema: {
-			type: "object",
-			properties,
-			required,
-		},
+		input_schema: inputSchema,
 	};
 }

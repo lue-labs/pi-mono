@@ -92,6 +92,16 @@ describe("provider retry classification", () => {
 		).toBe(true);
 		expect(isRetryableAssistantError(fauxAssistantMessage("not an error"))).toBe(false);
 	});
+	it("matches upstream request buffer exhaustion wording", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "Error: exceeded request buffer limit while retrying upstream",
+				}),
+			),
+		).toBe(true);
+	});
 });
 
 describe("retryAssistantCall", () => {

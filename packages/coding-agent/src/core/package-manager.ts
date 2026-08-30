@@ -1,6 +1,16 @@
 import type { ChildProcess, ChildProcessByStdio } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	globSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 
 function getEnv(): NodeJS.ProcessEnv {
@@ -24,14 +34,14 @@ function getEnv(): NodeJS.ProcessEnv {
 
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
-import { globSync } from "glob";
 import ignore from "ignore";
 import { minimatch } from "minimatch";
-import { maxSatisfying, rcompare, satisfies, valid, validRange } from "semver";
+import { gt, maxSatisfying, rcompare, satisfies, valid, validRange } from "semver";
 import { CONFIG_DIR_NAME } from "../config.ts";
 import { spawnProcess, spawnProcessSync } from "../utils/child-process.ts";
 import { type GitSource, parseGitUrl } from "../utils/git.ts";
 import { canonicalizePath, isLocalPath, markPathIgnoredByCloudSync, resolvePath } from "../utils/paths.ts";
+import { stripBom } from "../utils/text.ts";
 import type { ExtensionLoadMode } from "./extensions/types.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
 import { type ExtensionManifestEntry, manifestEntryPath, type PiManifest, readPiManifest } from "./pi-manifest.ts";
@@ -293,7 +303,19 @@ function manifestOverridePatterns(entries: Array<ExtensionManifestEntry | string
 	return entries.map(manifestEntryPath).filter(isOverridePattern);
 }
 
-function splitPatterns(entries: unknown): { plain: string[]; patterns: string[] } {
+/** Glob entries discover visible paths; exact entries can target dot paths or symlinked trees. */
+function expandPackageGlob(pattern: string, root: string): string[] {
+	return globSync(pattern, { cwd: root })
+		.map((match) => resolve(root, match))
+		.filter((path) =>
+			relative(root, path)
+				.split(sep)
+				.every((segment) => segment === ".." || !segment.startsWith(".")),
+		)
+		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+function splitPatterns(entries: string[]): { plain: string[]; patterns: string[] } {
 	const plain: string[] = [];
 	const patterns: string[] = [];
 	for (const entry of normalizeResourceEntries(entries)) {
@@ -416,7 +438,12 @@ function collectSkillEntries(
 			}
 
 			const relPath = toPosixPath(relative(root, fullPath));
-			if (mode === "pi" && dir === root && isFile && entry.name.endsWith(".md") && !ig.ignores(relPath)) {
+			const shouldIncludeMarkdownFile =
+				isFile &&
+				entry.name.endsWith(".md") &&
+				!ig.ignores(relPath) &&
+				((mode === "pi" && dir === root) || (mode === "agents" && dir !== root));
+			if (shouldIncludeMarkdownFile) {
 				entries.push(fullPath);
 				continue;
 			}
@@ -1166,7 +1193,7 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const targetVersion = await this.getLatestNpmVersion(source.version ? source.spec : source.name, source.range);
-			return targetVersion !== installedVersion;
+			return gt(targetVersion, installedVersion);
 		} catch {
 			// Preserve existing update behavior when version lookup fails.
 			return true;
@@ -1522,7 +1549,7 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const targetVersion = await this.getLatestNpmVersion(source.version ? source.spec : source.name, source.range);
-			return targetVersion !== installedVersion;
+			return gt(targetVersion, installedVersion);
 		} catch {
 			return false;
 		}
@@ -1533,7 +1560,7 @@ export class DefaultPackageManager implements PackageManager {
 		if (!existsSync(packageJsonPath)) return undefined;
 		try {
 			const content = readFileSync(packageJsonPath, "utf-8");
-			const pkg = JSON.parse(content) as { version?: string };
+			const pkg = JSON.parse(stripBom(content)) as { version?: string };
 			return pkg.version;
 		} catch {
 			return undefined;
@@ -1917,7 +1944,7 @@ export class DefaultPackageManager implements PackageManager {
 		if (!existsSync(packageJsonPath)) return false;
 
 		try {
-			const manifest = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { dependencies?: unknown };
+			const manifest = JSON.parse(stripBom(readFileSync(packageJsonPath, "utf-8"))) as { dependencies?: unknown };
 			if (
 				!manifest.dependencies ||
 				typeof manifest.dependencies !== "object" ||
@@ -2365,14 +2392,7 @@ export class DefaultPackageManager implements PackageManager {
 			const entryPath = manifestEntryPath(entry);
 			if (isOverridePattern(entryPath)) continue;
 
-			const resolved = !hasGlobPattern(entryPath)
-				? [resolve(root, entryPath)]
-				: globSync(entryPath, {
-						cwd: root,
-						absolute: true,
-						dot: false,
-						nodir: false,
-					}).map((match) => resolve(match));
+			const resolved = !hasGlobPattern(entryPath) ? [resolve(root, entryPath)] : expandPackageGlob(entryPath, root);
 
 			const collected = this.collectFilesFromPaths(resolved, resourceType);
 			files.push(...collected);

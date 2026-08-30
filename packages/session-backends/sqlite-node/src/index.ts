@@ -1,5 +1,6 @@
 import type { SQLInputValue } from "node:sqlite";
 import { DatabaseSync } from "node:sqlite";
+import { sql } from "./sqlite/sql.ts";
 import type { SqliteDatabase, SqliteDatabaseFactory, SqliteRunResult, SqliteStatement } from "./sqlite/types.ts";
 
 function isNamedParameters(value: unknown): value is Record<string, SQLInputValue> {
@@ -47,6 +48,15 @@ class NodeSqliteStatement implements SqliteStatement {
 				: this.statement.all(...(params as SQLInputValue[]))
 		) as TRow[];
 	}
+
+	iterate<TRow extends object>(...params: unknown[]): Iterable<TRow> {
+		const [first, ...rest] = params;
+		return (
+			isNamedParameters(first)
+				? this.statement.iterate(first, ...(rest as SQLInputValue[]))
+				: this.statement.iterate(...(params as SQLInputValue[]))
+		) as Iterable<TRow>;
+	}
 }
 
 class NodeSqliteDatabase implements SqliteDatabase {
@@ -65,17 +75,17 @@ class NodeSqliteDatabase implements SqliteDatabase {
 	}
 
 	transaction<T>(fn: () => T): T {
-		this.db.exec("BEGIN IMMEDIATE");
+		sql`BEGIN IMMEDIATE`.exec(this);
 		try {
 			const result = fn();
 			if (isAsyncResult(result)) {
 				throw new TypeError("SQLite transaction callbacks must be synchronous");
 			}
-			this.db.exec("COMMIT");
+			sql`COMMIT`.exec(this);
 			return result;
 		} catch (error) {
 			try {
-				this.db.exec("ROLLBACK");
+				sql`ROLLBACK`.exec(this);
 			} catch {
 				// Ignore rollback errors to rethrow original error.
 			}

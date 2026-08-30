@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { stripBom } from "../utils/text.ts";
 import type { ExtensionLoadMode } from "./extensions/types.ts";
 
 /** Extension manifest entry. The object form carries the fork's per-entry load mode. */
@@ -30,7 +31,7 @@ function isExtensionManifestEntry(entry: unknown): entry is ExtensionManifestEnt
 
 export function readPiManifest(packageJsonPath: string): PiManifest | null {
 	try {
-		const pkg: unknown = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+		const pkg: unknown = JSON.parse(stripBom(readFileSync(packageJsonPath, "utf-8")));
 		if (!isObject(pkg) || !isObject(pkg.pi)) {
 			return null;
 		}

@@ -3,8 +3,15 @@ import type { AgentTool } from "@lue-labs/pi-agent-core";
 import type { ImageContent } from "@lue-labs/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHarness, type Harness } from "./harness.ts";
+
+const normalizeToolResultImages = vi.hoisted(() => vi.fn());
+vi.mock("../../src/utils/tool-result-images.ts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../src/utils/tool-result-images.ts")>();
+	normalizeToolResultImages.mockImplementation(actual.normalizeToolResultImages);
+	return { ...actual, normalizeToolResultImages };
+});
 
 function pngChunk(type: string, body: Buffer): Buffer {
 	const header = Buffer.alloc(8);
@@ -67,6 +74,7 @@ describe("AgentSession tool result images", () => {
 	const harnesses: Harness[] = [];
 
 	afterEach(() => {
+		normalizeToolResultImages.mockClear();
 		while (harnesses.length > 0) {
 			harnesses.pop()?.cleanup();
 		}
@@ -105,5 +113,6 @@ describe("AgentSession tool result images", () => {
 		const images = getToolResultImages(harness);
 		expect(images).toHaveLength(1);
 		expect(images[0].data).toBe(OVERSIZED_PNG_BASE64);
+		expect(normalizeToolResultImages).toHaveBeenCalledWith(expect.any(Array), { autoResizeImages: false });
 	});
 });
