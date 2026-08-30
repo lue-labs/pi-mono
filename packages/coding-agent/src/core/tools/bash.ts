@@ -13,6 +13,7 @@ import {
 	getShellConfig,
 	getShellEnv,
 	killProcessTree,
+	type ShellConfig,
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
@@ -31,6 +32,7 @@ import {
 	semanticExitForBashCommand,
 } from "../bash-policy.ts";
 import { segmentCommand } from "../bash-script-segmenter.ts";
+import { getExperimentalToolSampling } from "../experimental.ts";
 import type { ExtensionContext, ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import {
 	GUIDELINE_BASH_SHELL_WORK,
@@ -110,6 +112,11 @@ const bashSchema = Type.Object({
 	),
 });
 
+export const bashToolSystemPromptContribution = {
+	snippet: "Execute bash commands (ls, grep, find, etc.)",
+	guidelines: ["You can inspect PI_* environment variables for current model and session details."],
+} as const;
+
 export type BashToolInput = Static<typeof bashSchema>;
 
 export interface BashToolDetails {
@@ -142,24 +149,19 @@ export interface BashOperations {
 	) => Promise<{ exitCode: number | null; backgroundedJobId?: string }>;
 }
 
-/**
- * Create bash operations using pi's built-in local shell execution backend.
- *
- * This is useful for extensions that intercept user_bash and still want pi's
- * standard local shell behavior while wrapping or rewriting commands.
- */
-export function createLocalBashOperations(options?: { shellPath?: string }): BashOperations {
+/** Shared process execution used by the built-in shell tools. */
+export function createLocalShellOperations(shellName: string, resolveShellConfig: () => ShellConfig): BashOperations {
 	return {
 		exec: async (command, cwd, { onData, signal, timeout, env, ownerSessionId }) => {
 			const timeoutMs = resolveTimeoutMs(timeout);
 			if (signal?.aborted) {
 				throw new Error("aborted");
 			}
-			const shellConfig = getShellConfig(options?.shellPath);
+			const shellConfig = resolveShellConfig();
 			try {
 				await fsAccess(cwd, constants.F_OK);
 			} catch {
-				throw new Error(`Working directory does not exist: ${cwd}\nCannot execute bash commands.`);
+				throw new Error(`Working directory does not exist: ${cwd}\nCannot execute ${shellName} commands.`);
 			}
 
 			const commandFromStdin = shellConfig.commandTransport === "stdin";
@@ -231,6 +233,16 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 	};
 }
 
+/**
+ * Create bash operations using pi's built-in local shell execution backend.
+ *
+ * This is useful for extensions that intercept user_bash and still want pi's
+ * standard local shell behavior while wrapping or rewriting commands.
+ */
+export function createLocalBashOperations(options?: { shellPath?: string }): BashOperations {
+	return createLocalShellOperations("bash", () => getShellConfig(options?.shellPath));
+}
+
 export interface BashSpawnContext {
 	command: string;
 	cwd: string;
@@ -300,7 +312,7 @@ const BASH_UPDATE_THROTTLE_MS = 100;
 /** Environment override for the default foreground timeout (seconds; 0 disables). */
 export const BASH_TIMEOUT_ENV_VAR = "PI_BASH_TIMEOUT_SECONDS";
 
-type BashRenderState = {
+export type BashRenderState = {
 	startedAt: number | undefined;
 	endedAt: number | undefined;
 	interval: NodeJS.Timeout | undefined;
@@ -328,17 +340,7 @@ function isUsableTimeoutSetting(value: number | undefined): value is number {
 	return value !== undefined && Number.isFinite(value) && value >= 0;
 }
 
-/**
- * Resolve the default foreground timeout (seconds) used when a call omits `timeout`.
- *
- * Precedence: PI_BASH_TIMEOUT_SECONDS > configured value (the `bashTimeoutSeconds`
- * setting, threaded in as `BashToolOptions.defaultTimeoutSeconds`) > built-in
- * default. `0` from either source disables the default and returns undefined, which
- * restores unbounded foreground behavior for power users. Unusable values are
- * ignored rather than failing every bash call: the environment variable falls
- * through to the configured value, and an unusable configured value falls through
- * to the built-in default.
- */
+/** Resolve the default foreground timeout, honoring environment and settings overrides. */
 export function resolveBashDefaultTimeoutSeconds(configuredSeconds?: number): number | undefined {
 	const raw = process.env[BASH_TIMEOUT_ENV_VAR];
 	if (raw !== undefined && raw.trim() !== "") {
@@ -353,8 +355,6 @@ function resolveBashTimeout(
 	timeout: number | false | undefined,
 	defaultTimeoutSeconds: number | undefined,
 ): number | undefined {
-	// An explicit per-call value always wins: `false` disables the timeout and a
-	// number is honoured up to MAX_TIMEOUT_MS (validated in resolveTimeoutMs).
 	if (timeout === false) return undefined;
 	if (timeout !== undefined) return timeout;
 	return defaultTimeoutSeconds;
@@ -382,29 +382,29 @@ function formatBashCall(
 	const modeSuffix = isBackground ? theme.fg("accent", " [bg]") : isTuiOnly ? theme.fg("accent", " [tui]") : "";
 	const timeoutSuffix =
 		modeSuffix || (timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : theme.fg("muted", " (no timeout)"));
-
 	const prompt = `${theme.fg("toolTitle", theme.bold(label))} `;
-
 	if (command === null) return prompt + invalidArgText(theme) + timeoutSuffix;
 	if (!command) return prompt + theme.fg("toolOutput", "...") + timeoutSuffix;
-
-	// Segment the command and highlight each portion in its own language
 	const segments = segmentCommand(command);
 	const allLines: string[] = [];
-	for (const seg of segments) {
-		const highlighted = highlightCode(seg.text, seg.lang);
-		allLines.push(...highlighted);
-	}
+	for (const seg of segments) allLines.push(...highlightCode(seg.text, seg.lang));
 	const highlighted =
 		allLines.length === 1
 			? (allLines[0] ?? "")
 			: (allLines[0] ?? "") +
 				allLines
 					.slice(1)
-					.map((l) => `\n  ${l}`)
+					.map((line) => `\n  ${line}`)
 					.join("");
-
 	return prompt + highlighted + timeoutSuffix;
+}
+
+function formatShellCall(args: { command?: string; timeout?: number | false } | undefined, prompt: string): string {
+	const command = str(args?.command);
+	const timeout = args?.timeout;
+	const timeoutSuffix = typeof timeout === "number" ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
+	const commandDisplay = command === null ? invalidArgText(theme) : command ? command : theme.fg("toolOutput", "...");
+	return theme.fg("toolTitle", theme.bold(`${prompt} ${commandDisplay}`)) + timeoutSuffix;
 }
 
 function rebuildBashResultRenderComponent(
@@ -489,39 +489,58 @@ function rebuildBashResultRenderComponent(
 	}
 }
 
-export function createBashToolDefinition(
+export interface ShellToolConfig {
+	name: string;
+	label: string;
+	shellName: string;
+	prompt: string;
+	promptSnippet: string;
+	promptGuidelines?: readonly string[];
+	tempFilePrefix: string;
+}
+
+export function createShellToolDefinition(
 	cwd: string,
+	config: ShellToolConfig,
 	options?: BashToolOptions,
 ): ToolDefinition<typeof bashSchema, BashToolDetails | undefined, BashRenderState> {
 	const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
 	const commandPrefix = options?.commandPrefix;
 	const exposeSessionEnvironment = options?.exposeSessionEnvironment ?? true;
 	const spawnHook = options?.spawnHook;
-	const toolName = options?.toolName ?? "bash";
-	const label = options?.label ?? "Bash";
+	const toolName = options?.toolName ?? config.name;
+	const label = options?.label ?? config.label;
 	const defaultTimeoutSeconds = resolveBashDefaultTimeoutSeconds(options?.defaultTimeoutSeconds);
 	return {
 		name: toolName,
 		label,
-		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first); if truncated, full output is saved to a temp file (or pass full:true to return the complete output inline when you truly need all of it). Optionally provide a timeout in seconds. IMPORTANT: prefer native file tools for repo exploration (Glob for paths, Grep for content, Read/Edit/Write for files) — avoid running \`grep\`/\`rg\`/\`find\` in Bash for repo work unless explicitly instructed or a dedicated tool cannot accomplish the task; pipeline filters on command output (e.g. \`kubectl ... | grep Ready\`) are fine. Pass run_in_background:true to run detached and return immediately with a bgId — a task_notification fires on completion (do not poll); read with bash_output(bgId), stop with bash_kill(bgId). Pass tui_only:true to stream output to the TUI but return only an exit/size summary to context (incompatible with run_in_background).`,
+		description:
+			config.name === "bash"
+				? `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first); if truncated, full output is saved to a temp file (or pass full:true to return the complete output inline when you truly need all of it). Optionally provide a timeout in seconds. IMPORTANT: prefer native file tools for repo exploration (Glob for paths, Grep for content, Read/Edit/Write for files) — avoid running \`grep\`/\`rg\`/\`find\` in Bash for repo work unless explicitly instructed or a dedicated tool cannot accomplish the task; pipeline filters on command output are fine. Pass run_in_background:true to run detached and return immediately with a bgId. Pass tui_only:true to stream output to the TUI but return only an exit/size summary to context.`
+				: `Execute a ${config.shellName} command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${BASH_MAX_OUTPUT_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
 		promptSnippet:
-			"Execute bash commands; set run_in_background:true for long-running work and read later with bash_output",
+			config.name === "bash"
+				? "Execute bash commands; set run_in_background:true for long-running work and read later with bash_output"
+				: config.promptSnippet,
 		executionMode: "sequential",
-		promptGuidelines: [
-			"Use run_in_background:true for any command likely to exceed ~30s when you don't need the output immediately (builds, installers, kubectl rollouts, long test suites, dev servers).",
-			"A backgrounded bash job notifies you with a task_notification when it finishes (carrying the bgId + output log path). Do NOT poll it with sleep loops or re-run the command to check — continue other work and the harness re-invokes you on completion. Call bash_output(bgId) only to peek before it finishes, or use monitor_start to be woken on every output batch.",
-			"Always stop background jobs you started but no longer need with bash_kill(bgId).",
-			// Shared with system-prompt.ts via prompt-guidelines.ts so addGuideline
-			// deduplicates by exact string match (a hand-copied variant drifted once
-			// and sessions carried both near-duplicate bullets).
-			GUIDELINE_NATIVE_FILE_TOOLS,
-			GUIDELINE_BASH_SHELL_WORK,
-			GUIDELINE_READ_EDIT_WRITE,
-			...(exposeSessionEnvironment
-				? ["Inspect PI_* environment variables for current model and session details."]
-				: []),
-		],
+		promptGuidelines:
+			config.name === "bash"
+				? [
+						"Use run_in_background:true for any command likely to exceed ~30s when you don't need the output immediately (builds, installers, kubectl rollouts, long test suites, dev servers).",
+						"A backgrounded bash job notifies you with a task_notification when it finishes. Do not poll it with sleep loops or re-run the command to check.",
+						"Always stop background jobs you started but no longer need with bash_kill(bgId).",
+						GUIDELINE_NATIVE_FILE_TOOLS,
+						GUIDELINE_BASH_SHELL_WORK,
+						GUIDELINE_READ_EDIT_WRITE,
+						...(exposeSessionEnvironment
+							? ["Inspect PI_* environment variables for current model and session details."]
+							: []),
+					]
+				: exposeSessionEnvironment && config.promptGuidelines
+					? [...config.promptGuidelines]
+					: undefined,
 		parameters: bashSchema,
+		constrainedSampling: getExperimentalToolSampling(),
 		async execute(
 			_toolCallId,
 			{
@@ -550,7 +569,7 @@ export function createBashToolDefinition(
 			// place. Omitting `workdir` is byte-identical to the previous behaviour.
 			const effectiveCwd = workdir ? resolve(cwd, workdir) : cwd;
 			const policy = currentBashPolicy();
-			if (policy) {
+			if (config.name === "bash" && policy) {
 				const denied = checkBashPolicy(command, policy);
 				if (denied) {
 					return {
@@ -560,7 +579,7 @@ export function createBashToolDefinition(
 					};
 				}
 			}
-			if (redundantCdToCurrentWorkingDirectory(command, effectiveCwd)) {
+			if (config.name === "bash" && redundantCdToCurrentWorkingDirectory(command, effectiveCwd)) {
 				return {
 					isError: true,
 					content: [{ type: "text", text: redundantCdError() }],
@@ -577,6 +596,14 @@ export function createBashToolDefinition(
 							text: "tui_only is incompatible with run_in_background. Background jobs already keep output out of context in the returned outputPath.",
 						},
 					],
+					details: undefined,
+				};
+			}
+
+			if (run_in_background && config.name !== "bash") {
+				return {
+					isError: true,
+					content: [{ type: "text", text: `run_in_background is not supported by the ${config.name} tool` }],
 					details: undefined,
 				};
 			}
@@ -614,7 +641,7 @@ export function createBashToolDefinition(
 				ctx,
 			);
 			const output = new OutputAccumulator({
-				tempFilePrefix: "pi-bash",
+				tempFilePrefix: config.tempFilePrefix,
 				maxBytes: full ? Number.POSITIVE_INFINITY : BASH_MAX_OUTPUT_BYTES,
 				maxLines: full ? Number.POSITIVE_INFINITY : undefined,
 			});
@@ -766,13 +793,17 @@ export function createBashToolDefinition(
 						exitCode === 0 || exitCode === null
 							? `[tui_only] Command exited ${exitCode ?? "null"} after ${durationStr} (${sizeStr}). Output streamed to TUI only.${pathHint}`
 							: `[tui_only] Command exited ${exitCode} after ${durationStr} (${sizeStr}). Output streamed to TUI only.${pathHint}`;
-					if (exitCode !== 0 && exitCode !== null && !semanticExitForBashCommand(command, exitCode)) {
+					if (
+						exitCode !== 0 &&
+						exitCode !== null &&
+						(config.name !== "bash" || !semanticExitForBashCommand(command, exitCode))
+					) {
 						throw new Error(summary);
 					}
 					return { content: [{ type: "text", text: summary }], details };
 				}
 				if (exitCode !== 0 && exitCode !== null) {
-					const semanticExit = semanticExitForBashCommand(command, exitCode);
+					const semanticExit = config.name === "bash" ? semanticExitForBashCommand(command, exitCode) : undefined;
 					if (!semanticExit) {
 						throw new Error(appendStatus(outputText, `Command exited with code ${exitCode}`));
 					}
@@ -791,7 +822,11 @@ export function createBashToolDefinition(
 				state.endedAt = undefined;
 			}
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatBashCall(args, label, defaultTimeoutSeconds));
+			text.setText(
+				config.name === "bash"
+					? formatBashCall(args, label, defaultTimeoutSeconds)
+					: formatShellCall(args, config.prompt),
+			);
 			return text;
 		},
 		renderResult(result, options, _theme, context) {
@@ -820,6 +855,23 @@ export function createBashToolDefinition(
 			return component;
 		},
 	};
+}
+
+const bashToolConfig: ShellToolConfig = {
+	name: "bash",
+	label: "Bash",
+	shellName: "bash",
+	prompt: "$",
+	promptSnippet: bashToolSystemPromptContribution.snippet,
+	promptGuidelines: bashToolSystemPromptContribution.guidelines,
+	tempFilePrefix: "pi-bash",
+};
+
+export function createBashToolDefinition(
+	cwd: string,
+	options?: BashToolOptions,
+): ToolDefinition<typeof bashSchema, BashToolDetails | undefined, BashRenderState> {
+	return createShellToolDefinition(cwd, bashToolConfig, options);
 }
 
 export function createBashTool(cwd: string, options?: BashToolOptions): AgentTool<typeof bashSchema> {

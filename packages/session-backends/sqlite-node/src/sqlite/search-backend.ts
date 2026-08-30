@@ -1,6 +1,7 @@
-import type { SessionSearch, SessionSearchHit, SessionSearchOptions } from "@lue-labs/pi-agent-core";
-import { getFileSystemResultOrThrow } from "@lue-labs/pi-agent-core";
+import type { FileError, Result, SessionSearch, SessionSearchHit, SessionSearchOptions } from "@lue-labs/pi-agent-core";
+import { SessionError } from "@lue-labs/pi-agent-core";
 import { applyMigrations } from "./migrations.ts";
+import { sql } from "./sql.ts";
 import { decodeSessionMetadata, type SessionRow } from "./storage/sessions.ts";
 import type {
 	SqliteDatabase,
@@ -8,6 +9,14 @@ import type {
 	SqliteSessionMetadata,
 	SqliteSessionRepositoryEnv,
 } from "./types.ts";
+
+function getFileSystemResultOrThrow<TValue>(result: Result<TValue, FileError>, message: string): TValue {
+	if (!result.ok) {
+		const code = result.error.code === "not_found" ? "not_found" : "storage";
+		throw new SessionError(code, `${message}: ${result.error.message}`, result.error);
+	}
+	return result.value;
+}
 
 function getParentPath(path: string): string {
 	const normalized = path.replace(/[\\/]+$/, "");
@@ -17,10 +26,18 @@ function getParentPath(path: string): string {
 	return normalized.slice(0, lastSlash);
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+	if (!signal?.aborted) return;
+	if (signal.reason instanceof Error) throw signal.reason;
+	const error = new Error("The operation was aborted");
+	error.name = "AbortError";
+	throw error;
+}
+
 function configureSqliteDatabase(db: SqliteDatabase): void {
-	db.exec("PRAGMA journal_mode=WAL");
-	db.exec("PRAGMA synchronous=FULL");
-	db.exec("PRAGMA busy_timeout=5000");
+	sql`PRAGMA journal_mode=WAL`.exec(db);
+	sql`PRAGMA synchronous=FULL`.exec(db);
+	sql`PRAGMA busy_timeout=5000`.exec(db);
 }
 
 export interface SqliteSessionSearchOptions {
@@ -30,14 +47,20 @@ export interface SqliteSessionSearchOptions {
 }
 
 function tableExists(db: SqliteDatabase, name: string): boolean {
-	return !!db
-		.prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1")
-		.get<{ found: number }>(name);
+	return !!sql`SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ${name} LIMIT 1`.get<{
+		found: number;
+	}>(db);
+}
+
+function rebuildSearchIndex(db: SqliteDatabase): void {
+	sql`INSERT INTO session_search_fts(session_search_fts) VALUES('rebuild')`.run(db);
 }
 
 function ensureSearchSchema(db: SqliteDatabase): void {
 	const ftsExists = tableExists(db, "session_search_fts");
-	db.exec(`
+	const entriesExist = tableExists(db, "entries");
+	db.transaction(() => {
+		sql`
 CREATE VIRTUAL TABLE IF NOT EXISTS session_search_fts USING fts5(
   payload,
   content = 'entries',
@@ -54,12 +77,19 @@ CREATE TRIGGER IF NOT EXISTS session_search_fts_au AFTER UPDATE OF payload ON en
   INSERT INTO session_search_fts(session_search_fts, rowid, payload) VALUES('delete', old.rowid, old.payload);
   INSERT INTO session_search_fts(rowid, payload) VALUES (new.rowid, new.payload);
 END;
-`);
-	if (!ftsExists) db.exec("INSERT INTO session_search_fts(session_search_fts) VALUES('rebuild')");
+`.exec(db);
+		if (!ftsExists && entriesExist) rebuildSearchIndex(db);
+	});
+}
+
+export interface SqliteSessionSearchHit extends SessionSearchHit {
+	readonly metadata: SqliteSessionMetadata;
+	readonly timestamp: number;
+	readonly score: number;
 }
 
 /** SQLite FTS search over a co-located canonical session database. */
-class SqliteSessionSearch implements SessionSearch<SqliteSessionMetadata> {
+class SqliteSessionSearch implements SessionSearch<SqliteSessionSearchHit> {
 	private readonly options: SqliteSessionSearchOptions;
 	private databasePath: string | undefined;
 
@@ -96,12 +126,20 @@ class SqliteSessionSearch implements SessionSearch<SqliteSessionMetadata> {
 		}
 	}
 
-	async search(options: SessionSearchOptions): Promise<SessionSearchHit<SqliteSessionMetadata>[]> {
-		const text = options.text.trim();
-		if (!text) return [];
+	async *search(text: string, options: SessionSearchOptions = {}): AsyncIterable<SqliteSessionSearchHit> {
+		const queryText = text.trim();
+		if (!queryText || (options.limit !== undefined && options.limit <= 0)) return;
+		if (options.entryTypes?.length === 0) return;
+		throwIfAborted(options.signal);
 		const db = await this.openDatabase();
 		try {
-			const query = `"${text.replaceAll('"', '""')}"`;
+			const query = `"${queryText.replaceAll('"', '""')}"`;
+			const predicates = ["session_search_fts MATCH ?"];
+			const params: unknown[] = [query];
+			if (options.entryTypes !== undefined) {
+				predicates.push(`se.type IN (${options.entryTypes.map(() => "?").join(", ")})`);
+				params.push(...options.entryTypes);
+			}
 			const rows = db
 				.prepare(
 					`SELECT s.id, s.created_at, s.metadata, s.cwd, s.parent_session_id,
@@ -120,27 +158,31 @@ class SqliteSessionSearch implements SessionSearch<SqliteSessionMetadata> {
 							FROM facts AS f
 							WHERE f.session_id = s.id AND f.kind = 'name' AND f.key IS NULL
 						)
-					WHERE session_search_fts MATCH ? AND (? IS NULL OR s.cwd = ?)
-					ORDER BY score`,
+					WHERE ${predicates.join(" AND ")}
+					ORDER BY score
+					LIMIT ?`,
 				)
-				.all<SessionRow & { entry_id: string; timestamp: string; score: number }>(
-					query,
-					options.cwd ?? null,
-					options.cwd ?? null,
+				.iterate<SessionRow & { entry_id: string; timestamp: number; score: number }>(
+					...params,
+					options.limit ?? -1,
 				);
 			const path = await this.getDatabasePath();
-			return rows.map((row) => ({
-				metadata: decodeSessionMetadata(row, path),
-				entryId: row.entry_id,
-				timestamp: row.timestamp,
-				score: row.score,
-			}));
+			for (const row of rows) {
+				throwIfAborted(options.signal);
+				yield {
+					sessionId: row.id,
+					metadata: decodeSessionMetadata(row, path),
+					entryId: row.entry_id,
+					timestamp: row.timestamp,
+					score: row.score,
+				};
+			}
 		} finally {
 			db.close();
 		}
 	}
 }
 
-export function createSqliteSessionSearch(options: SqliteSessionSearchOptions): SessionSearch<SqliteSessionMetadata> {
+export function createSqliteSessionSearch(options: SqliteSessionSearchOptions): SessionSearch<SqliteSessionSearchHit> {
 	return new SqliteSessionSearch(options);
 }

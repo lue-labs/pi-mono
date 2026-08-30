@@ -640,11 +640,42 @@ describe("totalTokens field", () => {
 	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_API_KEY)("Qwen Token Plan", () => {
 		it(
 			"qwen3.7-max - should return totalTokens equal to sum of components",
-			{ retry: 3, timeout: 60000 },
+			{
+				retry: 3,
+				timeout: 60000,
+			},
 			async () => {
 				const llm = getModel("qwen-token-plan", "qwen3.7-max");
 
 				console.log(`\nQwen Token Plan / ${llm.id}:`);
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.QWEN_TOKEN_PLAN_API_KEY,
+				});
+
+				logUsage("First request", first);
+				logUsage("Second request", second);
+
+				assertTotalTokensEqualsComponents(first);
+				assertTotalTokensEqualsComponents(second);
+			},
+		);
+	});
+
+	// =========================================================================
+	// Qwen Token Plan Individual
+	// =========================================================================
+
+	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_API_KEY)("Qwen Token Plan Individual", () => {
+		it(
+			"qwen3.8-max - should return totalTokens equal to sum of components",
+			{
+				retry: 3,
+				timeout: 60000,
+			},
+			async () => {
+				const llm = getModel("qwen-token-plan-individual", "qwen3.8-max");
+
+				console.log(`\nQwen Token Plan Individual / ${llm.id}:`);
 				const { first, second } = await testTotalTokensWithCache(llm, {
 					apiKey: process.env.QWEN_TOKEN_PLAN_API_KEY,
 				});
@@ -665,7 +696,10 @@ describe("totalTokens field", () => {
 	describe.skipIf(!process.env.QWEN_TOKEN_PLAN_CN_API_KEY)("Qwen Token Plan (CN)", () => {
 		it(
 			"qwen3.7-max - should return totalTokens equal to sum of components",
-			{ retry: 3, timeout: 60000 },
+			{
+				retry: 3,
+				timeout: 60000,
+			},
 			async () => {
 				const llm = getModel("qwen-token-plan-cn", "qwen3.7-max");
 

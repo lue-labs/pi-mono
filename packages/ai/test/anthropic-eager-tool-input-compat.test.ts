@@ -39,7 +39,10 @@ const schemaCompatibilityTool: Tool = {
 
 const strictTool: Tool = {
 	...tool,
-	parameters: Type.Object({ value: Type.String() }, { additionalProperties: false, title: "StrictLookupInput" }),
+	parameters: Type.Object(
+		{ value: Type.String(), optional: Type.Optional(Type.Number()) },
+		{ title: "StrictLookupInput" },
+	),
 	constrainedSampling: { type: "json_schema", strict: "prefer" },
 };
 
@@ -153,7 +156,13 @@ describe("Anthropic eager tool input streaming compatibility", () => {
 		expect(getFirstToolInputSchema(compatibilityRequest.body)).toEqual(normalizedSchema);
 
 		const strictRequest = await captureAnthropicRequest({ supportsStrictTools: true }, createContext([strictTool]));
-		expect(getFirstTool(strictRequest.body).strict).toBeUndefined();
-		expect(getFirstToolInputSchema(strictRequest.body)).toEqual(normalizedSchema);
+		expect(getFirstTool(strictRequest.body).strict).toBe(true);
+		expect(getFirstToolInputSchema(strictRequest.body)).toMatchObject({
+			additionalProperties: false,
+			// Fork serialization sorts semantically unordered required keys for cache-stable bytes.
+			required: ["optional", "value"],
+			properties: { optional: { anyOf: [{ type: "number" }, { type: "null" }] } },
+			title: "StrictLookupInput",
+		});
 	});
 });

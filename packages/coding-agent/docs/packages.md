@@ -38,7 +38,7 @@ pi update npm:@foo/bar      # update one package
 pi update --extension npm:@foo/bar
 ```
 
-These commands manage pi packages and `pi update` can update the pi CLI installation. To uninstall pi itself, see [Quickstart](quickstart.md#uninstall).
+These commands manage pi packages and `pi update` can update the pi CLI installation. For experimental installer-managed installations, `pi update` installs the exact checked version into a staged, lockfile-backed release and activates it only after verification, leaving the current release intact if the update fails. Managed installations do not support `--force`; rerun the installer to repair one. To uninstall pi itself, see [Quickstart](quickstart.md#uninstall).
 
 > **Maintainer note:** `pii` is the npm-installed CLI on Luke's machines. `pii update self` reinstalls the published package and overwrites any direct edits under the global `node_modules/@lue-labs/pi-coding-agent/dist/` tree. If a local hotfix was applied there, land the fix in `packages/coding-agent/src/`, rebuild `packages/coding-agent`, and reinstall/publish from that source instead of relying on the patched global dist.
 
@@ -133,7 +133,7 @@ Add a `pi` manifest to `package.json` or use conventional directories. Include t
 }
 ```
 
-Paths are relative to the package root. Arrays support glob patterns and `!exclusions`.
+Paths are relative to the package root. Arrays support glob patterns and `!exclusions`. Positive manifest globs discover visible paths in lexical order. List dot-prefixed paths directly. If a glob would need to continue through a symlink, list the symlinked resource root directly.
 
 Extension entries can also use object form to choose when the extension factory imports:
 

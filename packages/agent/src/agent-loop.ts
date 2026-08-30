@@ -19,6 +19,7 @@ import type {
 	AgentTool,
 	AgentToolCall,
 	AgentToolResult,
+	PrepareNextTurnContext,
 	StreamFn,
 } from "./types.ts";
 
@@ -162,7 +163,7 @@ async function runLoop(
 ): Promise<void> {
 	let currentContext = initialContext;
 	let config = initialConfig;
-	let firstTurn = true;
+	let lastCompletedTurn: PrepareNextTurnContext | undefined;
 	// Counts completed assistant turns across the whole run for the maxTurns cap.
 	let turnsCompleted = 0;
 	// Check for steering messages at start (user may have typed while waiting)
@@ -174,10 +175,28 @@ async function runLoop(
 
 		// Inner loop: process tool calls and steering messages
 		while (hasMoreToolCalls || pendingMessages.length > 0) {
-			if (!firstTurn) {
+			if (lastCompletedTurn) {
+				const nextTurnSnapshot = await config.prepareNextTurn?.(lastCompletedTurn);
+				if (nextTurnSnapshot) {
+					currentContext = nextTurnSnapshot.context ?? currentContext;
+					config = {
+						...config,
+						model: nextTurnSnapshot.model ?? config.model,
+						reasoning:
+							nextTurnSnapshot.thinkingLevel === undefined
+								? config.reasoning
+								: nextTurnSnapshot.thinkingLevel === "off"
+									? undefined
+									: nextTurnSnapshot.thinkingLevel,
+					};
+				}
+				// Preparation can be long-running (for example, compaction). Pick up steering
+				// queued while it ran. Only poll again if the earlier poll returned nothing;
+				// otherwise one-at-a-time mode would deliver two messages in this turn.
+				if (pendingMessages.length === 0) {
+					pendingMessages = (await config.getSteeringMessages?.()) || [];
+				}
 				await emit({ type: "turn_start" });
-			} else {
-				firstTurn = false;
 			}
 
 			// Process pending messages (inject before next assistant response)
@@ -241,37 +260,15 @@ async function runLoop(
 				return;
 			}
 
-			const nextTurnContext = {
+			lastCompletedTurn = {
 				message,
 				toolResults,
 				context: currentContext,
 				newMessages,
 				hasMoreToolCalls,
 			};
-			const nextTurnSnapshot = await config.prepareNextTurn?.(nextTurnContext);
-			if (nextTurnSnapshot) {
-				currentContext = nextTurnSnapshot.context ?? currentContext;
-				config = {
-					...config,
-					model: nextTurnSnapshot.model ?? config.model,
-					reasoning:
-						nextTurnSnapshot.thinkingLevel === undefined
-							? config.reasoning
-							: nextTurnSnapshot.thinkingLevel === "off"
-								? undefined
-								: nextTurnSnapshot.thinkingLevel,
-				};
-			}
 
-			if (
-				await config.shouldStopAfterTurn?.({
-					message,
-					toolResults,
-					context: currentContext,
-					newMessages,
-					hasMoreToolCalls,
-				})
-			) {
+			if (await config.shouldStopAfterTurn?.(lastCompletedTurn)) {
 				await emit({ type: "agent_end", messages: newMessages });
 				return;
 			}
@@ -653,9 +650,13 @@ async function prepareToolCall(
 				};
 			}
 			if (beforeResult?.block) {
+				const result = createErrorToolResult(beforeResult.reason || "Tool execution was blocked");
+				if (beforeResult.terminate === true) {
+					result.terminate = true;
+				}
 				return {
 					kind: "immediate",
-					result: createErrorToolResult(beforeResult.reason || "Tool execution was blocked"),
+					result,
 					isError: true,
 				};
 			}

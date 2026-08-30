@@ -449,7 +449,7 @@ renderResult(result, options, theme, context) {
 
 | Category | Colors |
 |----------|--------|
-| General | `text`, `accent`, `muted`, `dim` |
+| General | `text`, `accent`, `muted`, `dim`, `searchMatchText` |
 | Status | `success`, `error`, `warning` |
 | Borders | `border`, `borderAccent`, `borderMuted` |
 | Messages | `userMessageText`, `customMessageText`, `customMessageLabel` |
@@ -462,7 +462,7 @@ renderResult(result, options, theme, context) {
 
 **Background colors** (`theme.bg(color, text)`):
 
-`selectedBg`, `userMessageBg`, `customMessageBg`, `toolPendingBg`, `toolSuccessBg`, `toolErrorBg`
+`selectedBg`, `searchMatchBg`, `userMessageBg`, `customMessageBg`, `toolPendingBg`, `toolSuccessBg`, `toolErrorBg`
 
 **For Markdown**, use `getMarkdownTheme()`:
 

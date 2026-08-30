@@ -7,7 +7,7 @@ Pi uses JSON settings files with project settings overriding global settings.
 | `~/.pi/agent/settings.json` | Global (all projects) |
 | `.pi/settings.json` | Project (current directory) |
 
-Edit directly or use `/settings` for common options.
+Edit directly or use `/settings` for common options. To save startup model defaults interactively, use `/model` and press Ctrl+S on the desired model. To save the startup thinking level, use `/thinking` and press Ctrl+S.
 
 ## Project Trust
 
@@ -27,12 +27,13 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `defaultProvider` | string | - | Default provider (e.g., `"anthropic"`, `"openai"`) |
-| `defaultModel` | string | - | Default model ID |
-| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` |
+| `defaultProvider` | string | - | Startup provider (e.g., `"anthropic"`, `"openai"`; saved with Ctrl+S in `/model`, or edited manually) |
+| `defaultModel` | string | - | Startup model ID (saved with Ctrl+S in `/model`, or edited manually) |
+| `defaultThinkingLevel` | string | - | Startup thinking level (saved with Ctrl+S in `/thinking`, or edited manually): `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` |
+| `modelThinkingLevels` | object | - | Per-model startup thinking levels keyed by `"provider/modelId"`; configure from `/settings` → Default thinking level per model or edit manually |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
-| `showCacheMissNotices` | boolean | `false` | Show transcript notices for significant prompt-cache misses |
-| `thinkingBudgets` | object | - | Custom token budgets per thinking level |
+| `showCacheMissNotices` | boolean | `false` | Show transcript notices for significant prompt-cache misses and compaction or branch-summary usage |
+| `thinkingBudgets` | object | - | Custom token budgets per thinking level. Anthropic, Google, and Bedrock use these natively. OpenAI-compatible models use them when `compat.thinkingTokenBudgetField` (or `supportsThinkingTokenBudget`) is set. |
 
 #### thinkingBudgets
 
@@ -66,7 +67,9 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 | `autocompleteMaxVisible` | number | `5` | Max visible items in autocomplete dropdown (3-20) |
 | `showHardwareCursor` | boolean | `false` | Show the terminal cursor while TUI positions it for IME support |
 | `tuiMode` | string | `"regular"` | Interactive TUI mode: `"regular"` or experimental `"fullscreen"`. Changes from `/settings` apply immediately; `--tui-mode` overrides this setting at startup |
+| `fullscreenExitOutput` | string | `"transcript"` | Fullscreen exit output: `"transcript"` prints the final transcript and resume hint, while `"resume-hint"` restores the previous screen and prints only the resume hint. Has no effect in regular TUI mode |
 | `fullscreenScrollbar` | string | `"auto"` | Fullscreen transcript scrollbar: `"auto"` shows it temporarily while scrolling, `"always"` reserves the rightmost column and keeps it visible, and `"hidden"` hides it. Has no effect in regular TUI mode |
+| `fullscreenCopyOnSelect` | boolean | `true` | Automatically copy selected text in fullscreen mode. When disabled, selections stay highlighted and `Ctrl+X` copies the active selection |
 
 For VS Code, include `--wait` so pi resumes after the editor exits:
 
@@ -187,6 +190,9 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 | `terminal.clearOnShrink` | boolean | `false` | Clear empty rows when content shrinks (can cause flicker) |
 | `terminal.toolOutput` | string | `"compact"` | Default tool detail level: `"compact"` or `"expanded"`; Ctrl+O remains a session-only toggle |
 | `terminal.motion` | string | `"full"` | Activity indicator motion: `"full"` or `"reduced"` |
+| `terminal.hyperlinks` | boolean or `"auto"` | `"auto"` | Override OSC 8 hyperlink support (advanced, JSON-only) |
+| `terminal.images` | string or boolean | `"auto"` | Override image protocol support with `"kitty"`, `"iterm2"`, `false`, or `"auto"` (advanced, JSON-only) |
+| `terminal.trueColor` | boolean or `"auto"` | `"auto"` | Override truecolor support (advanced, JSON-only) |
 | `images.autoResize` | boolean | `true` | Resize images to 2000x2000 max. Applies to `@file` attachments, `read`, and images returned by tools |
 | `images.blockImages` | boolean | `false` | Block all images from being sent to LLM |
 
@@ -199,6 +205,20 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 | `bashTimeoutSeconds` | number | `120` | Default foreground timeout, in seconds, for bash tool calls that omit `timeout`. On timeout the command's process tree is killed and output captured so far is included in the error, unless a harness timeout policy adopts it as a background job. `0` disables the default (unbounded foreground commands). An explicit per-call `timeout` (or `timeout: false`), and `run_in_background: true`, always win. Environment override: `PI_BASH_TIMEOUT_SECONDS` (`0` disables) |
 | `npmCommand` | string[] | - | Command argv used for npm package lookup/install operations (e.g., `["mise", "exec", "node@20", "--", "npm"]`) |
 
+Windows paths in JSON must use forward slashes or escaped backslashes:
+
+```json
+{
+  "shellPath": "C:/Program Files/Git/bin/bash.exe"
+}
+```
+
+```json
+{
+  "shellPath": "C:\\Program Files\\Git\\bin\\bash.exe"
+}
+```
+
 ```json
 {
   "npmCommand": ["mise", "exec", "node@20", "--", "npm"]
@@ -206,6 +226,30 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 ```
 
 `npmCommand` is used for all npm package-manager operations, including installs, uninstalls, and dependency installs inside git packages. User-scoped npm packages install under `~/.pi/agent/npm/`; project-scoped npm packages install under `.pi/npm/`. Use argv-style entries exactly as the process should be launched. When `npmCommand` is configured, git package dependency installs use plain `install` to avoid npm-specific flags in wrappers or alternate package managers.
+
+### Tools
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `defaultTools` | string[] | - | Built-in tools enabled initially. When omitted, Pi uses its standard defaults |
+
+`defaultTools` selects the built-in tools enabled at startup. Extension and SDK custom tools remain enabled. Available built-ins are `read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, and `ls`:
+
+```json
+{
+  "defaultTools": ["bash", "edit", "write"]
+}
+```
+
+On Windows, select `powershell` instead of `bash`, or include both:
+
+```json
+{
+  "defaultTools": ["read", "powershell", "edit", "write"]
+}
+```
+
+An empty array starts with no built-in tools while preserving extension and SDK custom tools. `--tools` replaces this behavior with a strict allowlist for all tools, `--no-tools` disables all tools, and `--no-builtin-tools` disables the built-in defaults. `--exclude-tools` filters the resulting list. A project `defaultTools` array replaces the global array.
 
 ### Sessions
 
@@ -288,6 +332,9 @@ See [packages.md](packages.md) for package management details.
   "defaultProvider": "anthropic",
   "defaultModel": "claude-sonnet-4-20250514",
   "defaultThinkingLevel": "medium",
+  "modelThinkingLevels": {
+    "anthropic/claude-sonnet-4-20250514": "high"
+  },
   "theme": "dark",
   "compaction": {
     "enabled": true,

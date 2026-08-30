@@ -139,6 +139,7 @@ export type {
 	MessageRenderOptions,
 	MessageStartEvent,
 	MessageUpdateEvent,
+	PowerShellToolCallEvent,
 	ProjectTrustContext,
 	ProjectTrustEvent,
 	ProjectTrustEventDecision,
@@ -178,6 +179,9 @@ export type {
 	TranscriptEntry,
 	TurnEndEvent,
 	TurnStartEvent,
+	UIPromptEndEvent,
+	UIPromptKind,
+	UIPromptStartEvent,
 	UserBashEvent,
 	UserBashEventResult,
 	WidgetPlacement,
@@ -196,6 +200,7 @@ export {
 	isGlobToolResult,
 	isGrepToolResult,
 	isLsToolResult,
+	isPowerShellToolResult,
 	isReadToolResult,
 	isToolCallEventType,
 	isWriteToolResult,
@@ -255,6 +260,7 @@ export {
 	createGlobTool,
 	createGrepTool,
 	createLsTool,
+	createPowerShellTool,
 	createReadOnlyTools,
 	createReadTool,
 	createUppercaseBashTool,
@@ -295,6 +301,7 @@ export {
 export {
 	type CompactionSettings,
 	type DefaultProjectTrust,
+	type FullscreenExitOutput,
 	type ImageSettings,
 	type PackageSource,
 	type RetrySettings,
@@ -380,8 +387,10 @@ export {
 	createKillShellToolDefinition,
 	createLLMHarness,
 	createLocalBashOperations,
+	createLocalPowerShellOperations,
 	createLsToolDefinition,
 	createPiModelCaller,
+	createPowerShellToolDefinition,
 	createReadToolDefinition,
 	createUppercaseAgentToolDefinition,
 	createUppercaseBashToolDefinition,
@@ -421,6 +430,12 @@ export {
 	nodeSchema,
 	normalizeAgentToolModeForRender,
 	onBashTimeout,
+	type PowerShellOperations,
+	type PowerShellSpawnContext,
+	type PowerShellSpawnHook,
+	type PowerShellToolDetails,
+	type PowerShellToolInput,
+	type PowerShellToolOptions,
 	parseHarnessJSON,
 	type ReadOperations,
 	type ReadToolDetails,
@@ -526,5 +541,6 @@ export { copyToClipboard } from "./utils/clipboard.ts";
 export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.ts";
 export { convertToPng } from "./utils/image-convert.ts";
 export { formatDimensionNote, type ResizedImage, resizeImage } from "./utils/image-resize.ts";
+export { detectSupportedImageMimeTypeFromFile } from "./utils/mime.ts";
 // Shell utilities
-export { getShellConfig } from "./utils/shell.ts";
+export { getPowerShellConfig, getShellConfig } from "./utils/shell.ts";

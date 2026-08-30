@@ -35,6 +35,7 @@ import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } fr
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
+import { getPiUserAgent } from "../utils/pi-user-agent.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
@@ -288,14 +289,23 @@ export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export type AnthropicThinkingDisplay = "summarized" | "omitted";
 
+type MessageCreateParamsStreamingWithFallbacks = MessageCreateParamsStreaming & {
+	fallbacks?: readonly { model: string }[];
+};
+
 const FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14";
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 const TOOL_SEARCH_BETA = "advanced-tool-use-2025-11-20";
 const EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11";
+const SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01";
+
+function shouldUseServerSideFallbackBeta(model: Model<"anthropic-messages">): boolean {
+	return (model.compat?.allowedFallbackModels?.length ?? 0) > 0;
+}
 
 function getAnthropicCompat(
 	model: Model<"anthropic-messages">,
-): Required<Omit<AnthropicMessagesCompat, "forceAdaptiveThinking">> {
+): Required<Omit<AnthropicMessagesCompat, "forceAdaptiveThinking" | "allowedFallbackModels">> {
 	const modelSupportsDeferredTools = !model.id.toLowerCase().includes("haiku");
 	return {
 		supportsEagerToolInputStreaming: model.compat?.supportsEagerToolInputStreaming ?? true,
@@ -397,6 +407,10 @@ function mergeHeaders(...headerSources: (ProviderHeaders | undefined)[]): Provid
 	return merged;
 }
 
+function mergeClientHeaders(...headerSources: (ProviderHeaders | undefined)[]): ProviderHeaders {
+	return mergeHeaders({ "User-Agent": getPiUserAgent() }, ...headerSources);
+}
+
 function hasHeader(headers: ProviderHeaders | undefined, name: string): boolean {
 	if (!headers) return false;
 	const expected = name.toLowerCase();
@@ -422,7 +436,7 @@ function mergeHeadersWithAnthropicBetas(
 	requiredBetas: string[],
 	...headerSources: (Record<string, string | null> | undefined)[]
 ): Record<string, string | null> {
-	const merged = mergeHeaders(...headerSources);
+	const merged = mergeClientHeaders(...headerSources);
 	const betaSet = new Set<string>();
 	for (const [key, value] of Object.entries(merged)) {
 		if (key.toLowerCase() !== "anthropic-beta") continue;
@@ -661,6 +675,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 		try {
 			let client: Anthropic;
 			let isOAuth: boolean;
+			let usageModel = model;
 
 			if (options?.client) {
 				client = options.client;
@@ -688,6 +703,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 					shouldUseFineGrainedToolStreamingBeta(model, context),
 					shouldUseToolSearchBeta(model, context),
 					usesExtendedCacheTtl(model, options?.cacheRetention, options?.env),
+					shouldUseServerSideFallbackBeta(model),
 					options?.headers,
 					options?.fetch,
 					copilotDynamicHeaders,
@@ -803,6 +819,14 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				for await (const event of iterateAnthropicEvents(response, options?.signal)) {
 					if (event.type === "message_start") {
 						output.responseId = event.message.id;
+						output.model = event.message.model;
+						const fallbackCost =
+							output.model === model.id
+								? undefined
+								: model.compat?.allowedFallbackModels?.find(
+										(fallback) => fallback.provider === model.provider && fallback.model === output.model,
+									)?.cost;
+						usageModel = fallbackCost ? { ...model, id: output.model, cost: fallbackCost } : model;
 						// Capture initial token usage from message_start event
 						// This ensures we have input token counts even if the stream is aborted early.
 						// On pause_turn resumes, add to carryOverUsage so totals stay cumulative.
@@ -817,7 +841,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						// Anthropic doesn't provide total_tokens, compute from components
 						output.usage.totalTokens =
 							output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
-						calculateCost(model, output.usage);
+						calculateCost(usageModel, output.usage);
 					} else if (event.type === "content_block_start") {
 						if (event.content_block.type === "text") {
 							const block: Block = {
@@ -1024,7 +1048,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						// Anthropic doesn't provide total_tokens, compute from components
 						output.usage.totalTokens =
 							output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
-						calculateCost(model, output.usage);
+						calculateCost(usageModel, output.usage);
 					}
 				}
 
@@ -1162,9 +1186,15 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 ): AssistantMessageEventStream => {
 	assertRequestAuth(model.provider, options?.apiKey, options?.headers);
 
-	const base = buildBaseOptions(model, context, options, options?.apiKey);
+	const base = {
+		...buildBaseOptions(model, context, options, options?.apiKey),
+		toolChoice: options?.toolChoice,
+	} satisfies AnthropicOptions;
 	if (!options?.reasoning) {
-		return stream(model, context, { ...base, thinkingEnabled: false } satisfies AnthropicOptions);
+		return stream(model, context, {
+			...base,
+			thinkingEnabled: false,
+		} satisfies AnthropicOptions);
 	}
 
 	// For models with adaptive thinking: use an effort level.
@@ -1241,6 +1271,7 @@ function createClient(
 	useFineGrainedToolStreamingBeta: boolean,
 	useToolSearchBeta: boolean,
 	useExtendedCacheTtlBeta: boolean,
+	useServerSideFallbackBeta: boolean,
 	optionsHeaders?: ProviderHeaders,
 	fetch?: typeof globalThis.fetch,
 	dynamicHeaders?: Record<string, string>,
@@ -1260,6 +1291,9 @@ function createClient(
 	}
 	if (useExtendedCacheTtlBeta) {
 		betaFeatures.push(EXTENDED_CACHE_TTL_BETA);
+	}
+	if (useServerSideFallbackBeta) {
+		betaFeatures.push(SERVER_SIDE_FALLBACK_BETA);
 	}
 
 	// Copilot: Bearer auth, selective betas.
@@ -1338,7 +1372,7 @@ function buildParams(
 	context: Context,
 	isOAuthToken: boolean,
 	options?: AnthropicOptions,
-): MessageCreateParamsStreaming {
+): MessageCreateParamsStreamingWithFallbacks {
 	const { cacheControl } = getCacheControl(model, options?.cacheRetention, options?.env);
 	const compat = getAnthropicCompat(model);
 	// Single authoritative name map for this request — shared by tools[] and the
@@ -1376,7 +1410,7 @@ function buildParams(
 	// against this set — Anthropic rejects the request when a reference names a
 	// tool that is not in tools[].
 	const requestToolNames: ReadonlySet<string> = new Set((wireTools ?? []).map((tool) => normalizeToolName(tool.name)));
-	const params: MessageCreateParamsStreaming = {
+	const params: MessageCreateParamsStreamingWithFallbacks = {
 		model: model.id,
 		messages: convertMessages(
 			context.messages,
@@ -1484,6 +1518,11 @@ function buildParams(
 			type: "auto",
 			disable_parallel_tool_use: false,
 		} as MessageCreateParamsStreaming["tool_choice"];
+	}
+
+	const allowedFallbackModels = model.compat?.allowedFallbackModels;
+	if (allowedFallbackModels && allowedFallbackModels.length > 0) {
+		params.fallbacks = allowedFallbackModels.map((fallback) => ({ model: fallback.model }));
 	}
 
 	return params;
@@ -1761,7 +1800,7 @@ function shouldUseToolSearchBeta(model: Model<"anthropic-messages">, context: Co
 
 function convertTools(
 	tools: Tool[],
-	model: Model<any>,
+	model: Model<"anthropic-messages">,
 	isOAuthToken: boolean,
 	supportsEagerToolInputStreaming: boolean,
 	supportsDeferredTools: boolean,
@@ -1796,7 +1835,7 @@ function convertTools(
 		const tool = toolByWireName.get(wireName) as Tool;
 		const deferLoading =
 			!tool.alwaysLoad && ((supportsDeferredTools && !!tool.deferLoading) || !!deferredNames?.has(wireName));
-		const flagKey = `${model.provider}|${isOAuthToken ? 1 : 0}|${supportsEagerToolInputStreaming ? 1 : 0}|${deferLoading ? 1 : 0}|${wireName}`;
+		const flagKey = `${model.provider}|${model.compat?.supportsStrictTools ? 1 : 0}|${isOAuthToken ? 1 : 0}|${supportsEagerToolInputStreaming ? 1 : 0}|${deferLoading ? 1 : 0}|${wireName}`;
 		let perToolMap = convertedToolCache.get(tool);
 		if (!perToolMap) {
 			perToolMap = new Map();

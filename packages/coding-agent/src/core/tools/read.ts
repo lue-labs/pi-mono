@@ -11,6 +11,7 @@ import { getLanguageFromPath, highlightCode, type Theme } from "../../modes/inte
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../utils/paths.ts";
+import { getExperimentalToolSampling } from "../experimental.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import { resolveReadPathAsync, resolveToCwd } from "./path-utils.ts";
 import { getTextOutput, renderToolPath, replaceTabs, str } from "./render-utils.ts";
@@ -35,6 +36,15 @@ const readSchema = Type.Object({
 		}),
 	),
 });
+
+export const readToolSystemPromptContribution = {
+	snippet: "Read file contents",
+	guidelines: [
+		"Use read to examine files instead of cat or sed.",
+		"Read only the region you need: when you already know which part of a file is relevant, pass offset/limit instead of reading the whole file. Reserve full reads for when you genuinely need the entire file.",
+		"Track line counts from read results and never request an offset greater than the file's reported total lines.",
+	],
+} as const;
 
 export type ReadToolInput = Static<typeof readSchema>;
 
@@ -228,14 +238,11 @@ export function createReadToolDefinition(
 		name: toolName,
 		label,
 		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Pass full:true to read the entire file in one call when you genuinely need all of it.`,
-		promptSnippet: "Read file contents",
-		promptGuidelines: [
-			"Use read to examine files instead of cat or sed.",
-			"Read only the region you need: when you already know which part of a file is relevant, pass offset/limit instead of reading the whole file. Reserve full reads for when you genuinely need the entire file.",
-			"Track line counts from read results and never request an offset greater than the file's reported total lines.",
-		],
+		promptSnippet: readToolSystemPromptContribution.snippet,
+		promptGuidelines: [...readToolSystemPromptContribution.guidelines],
 		executionMode: "parallel",
 		parameters: readSchema,
+		constrainedSampling: getExperimentalToolSampling(),
 		async execute(
 			_toolCallId,
 			{ path, offset, limit, full }: { path: string; offset?: number; limit?: number; full?: boolean },
