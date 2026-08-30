@@ -60,7 +60,8 @@ describe("TuiAltScreen", () => {
 		const text = new Text(Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n"), 0, 0);
 		tui.addChild(text);
 		tui.start();
-		await terminal.waitForRender();
+		tui.renderNow(true);
+		await terminal.flush();
 
 		assert.deepStrictEqual(
 			terminal.getViewport().map((line) => line.trimEnd()),

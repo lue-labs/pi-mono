@@ -483,7 +483,8 @@ describe("Markdown component", () => {
 					tui.start();
 
 					try {
-						await terminal.waitForRender();
+						tui.renderNow(true);
+						await terminal.flush();
 						const viewport = terminal.getViewport();
 						const row = viewport.findIndex((line) => line.includes("one") && line.includes("norm"));
 						assert.notStrictEqual(row, -1, `Missing wrapped table row: ${JSON.stringify(viewport)}`);
