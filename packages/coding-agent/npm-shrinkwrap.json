@@ -1,21 +1,21 @@
 {
 	"name": "@lue-labs/pi-coding-agent",
-	"version": "0.84.6",
+	"version": "0.84.7",
 	"lockfileVersion": 3,
 	"requires": true,
 	"packages": {
 		"": {
 			"name": "@lue-labs/pi-coding-agent",
-			"version": "0.84.6",
+			"version": "0.84.7",
 			"license": "MIT",
 			"dependencies": {
 				"@pierre/diffs": "1.2.12",
 				"@silvia-odwyer/photon-node": "0.3.4",
-				"@lue-labs/pi-agent-core": "0.84.6",
-				"@lue-labs/pi-ai": "0.84.6",
-				"@lue-labs/pi-client": "0.84.6",
-				"@lue-labs/pi-protocol": "0.84.6",
-				"@lue-labs/pi-tui": "0.84.6",
+				"@lue-labs/pi-agent-core": "0.84.7",
+				"@lue-labs/pi-ai": "0.84.7",
+				"@lue-labs/pi-client": "0.84.7",
+				"@lue-labs/pi-protocol": "0.84.7",
+				"@lue-labs/pi-tui": "0.84.7",
 				"chalk": "5.6.2",
 				"cross-spawn": "7.0.6",
 				"diff": "8.0.4",
@@ -527,11 +527,11 @@
 			"hasInstallScript": true
 		},
 		"node_modules/@lue-labs/pi-agent-core": {
-			"version": "0.84.6",
+			"version": "0.84.7",
 			"license": "MIT",
 			"dependencies": {
-				"@lue-labs/pi-ai": "0.84.6",
-				"@lue-labs/pi-telemetry": "0.84.6",
+				"@lue-labs/pi-ai": "0.84.7",
+				"@lue-labs/pi-telemetry": "0.84.7",
 				"diff": "8.0.4",
 				"ignore": "7.0.5",
 				"typebox": "1.3.7",
@@ -542,12 +542,12 @@
 			}
 		},
 		"node_modules/@lue-labs/pi-ai": {
-			"version": "0.84.6",
+			"version": "0.84.7",
 			"license": "MIT",
 			"dependencies": {
 				"@anthropic-ai/sdk": "0.91.1",
 				"@aws-sdk/client-bedrock-runtime": "3.1048.0",
-				"@lue-labs/pi-telemetry": "^0.84.6",
+				"@lue-labs/pi-telemetry": "^0.84.7",
 				"@google/genai": "1.52.0",
 				"@smithy/node-http-handler": "4.7.3",
 				"http-proxy-agent": "7.0.2",
@@ -564,17 +564,17 @@
 			}
 		},
 		"node_modules/@lue-labs/pi-client": {
-			"version": "0.84.6",
+			"version": "0.84.7",
 			"license": "MIT",
 			"dependencies": {
-				"@lue-labs/pi-protocol": "0.84.6"
+				"@lue-labs/pi-protocol": "0.84.7"
 			},
 			"engines": {
 				"node": ">=22.19.0"
 			}
 		},
 		"node_modules/@lue-labs/pi-protocol": {
-			"version": "0.84.6",
+			"version": "0.84.7",
 			"license": "MIT",
 			"dependencies": {
 				"typebox": "1.3.7"
@@ -584,14 +584,14 @@
 			}
 		},
 		"node_modules/@lue-labs/pi-telemetry": {
-			"version": "0.84.6",
+			"version": "0.84.7",
 			"license": "MIT",
 			"engines": {
 				"node": ">=22.19.0"
 			}
 		},
 		"node_modules/@lue-labs/pi-tui": {
-			"version": "0.84.6",
+			"version": "0.84.7",
 			"license": "MIT",
 			"dependencies": {
 				"get-east-asian-width": "1.6.0",
