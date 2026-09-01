@@ -13,6 +13,7 @@ import {
 	Spacer,
 	Text,
 } from "@lue-labs/pi-tui";
+import type { ExtensionSetting } from "../../../core/extensions/types.ts";
 import { formatHttpIdleTimeoutMs, HTTP_IDLE_TIMEOUT_CHOICES } from "../../../core/http-dispatcher.ts";
 import type {
 	DefaultProjectTrust,
@@ -93,6 +94,7 @@ export interface SettingsConfig {
 	tuiMode: TuiMode;
 	fullscreenScrollbar: ScrollViewScrollbar;
 	warnings: WarningSettings;
+	extensionSettings?: ExtensionSetting[];
 }
 
 export interface SettingsCallbacks {
@@ -496,6 +498,7 @@ export class SettingsSelectorComponent extends Container {
 		const supportsImages = getCapabilities().images;
 		const followUpKey = keyDisplayText("app.message.followUp");
 		let currentWarnings = { ...config.warnings };
+		const extensionSettingsById = new Map<string, ExtensionSetting>();
 
 		const items: SettingItem[] = [
 			{
@@ -788,6 +791,19 @@ export class SettingsSelectorComponent extends Container {
 			},
 		);
 
+		for (const setting of config.extensionSettings ?? []) {
+			const id = `extension:${setting.extensionPath}:${setting.id}`;
+			if (extensionSettingsById.has(id)) continue;
+			extensionSettingsById.set(id, setting);
+			items.push({
+				id,
+				label: setting.label,
+				description: setting.description,
+				currentValue: typeof setting.currentValue === "function" ? setting.currentValue() : setting.currentValue,
+				values: [...setting.values],
+			});
+		}
+
 		// Add borders
 		this.addChild(new DynamicBorder());
 
@@ -896,6 +912,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "theme":
 						callbacks.onThemeChange(newValue);
+						break;
+					default:
+						extensionSettingsById.get(id)?.onChange(newValue);
 						break;
 				}
 			},

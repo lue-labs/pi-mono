@@ -4391,6 +4391,9 @@ export class AgentSession {
 				},
 				getThinkingLevel: () => this.thinkingLevel,
 				setThinkingLevel: (level) => this.setThinkingLevel(level),
+				setExtensionConfigValue: (namespace, key, value) => {
+					this.settingsManager.setExtensionConfigValue(namespace, key, value);
+				},
 			},
 			{
 				getModel: () => this.model,

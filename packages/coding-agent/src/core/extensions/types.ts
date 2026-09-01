@@ -1486,6 +1486,9 @@ export interface ExtensionAPI {
 		},
 	): void;
 
+	/** Register a setting shown in the interactive `/settings` selector. */
+	registerSetting(options: Omit<ExtensionSetting, "extensionPath">): void;
+
 	/** Get the value of a registered CLI flag. */
 	getFlag(name: string): boolean | string | undefined;
 
@@ -1505,6 +1508,9 @@ export interface ExtensionAPI {
 	 * this < L4 env/flag override (apply the env fallback yourself in-extension).
 	 */
 	getExtensionConfig<T = Record<string, unknown>>(namespace: string): T | undefined;
+
+	/** Persist one key in an extension's global `extensionConfig` namespace. */
+	setExtensionConfigValue(namespace: string, key: string, value: unknown): void;
 
 	// =========================================================================
 	// Message Rendering
@@ -1979,6 +1985,20 @@ export interface ExtensionFlag {
 	extensionPath: string;
 }
 
+/** A setting contributed to the interactive `/settings` selector by an extension. */
+export interface ExtensionSetting {
+	/** Unique setting id within the contributing extension. */
+	id: string;
+	label: string;
+	description?: string;
+	/** Current value, or a getter so reopened selectors reflect in-session changes. */
+	currentValue: string | (() => string);
+	values: string[];
+	/** Called when the user selects one of `values`. */
+	onChange: (value: string) => void;
+	extensionPath: string;
+}
+
 export interface ExtensionShortcut {
 	shortcut: KeyId;
 	description?: string;
@@ -2249,6 +2269,8 @@ export interface ExtensionActions {
 	setModel: SetModelHandler;
 	getThinkingLevel: GetThinkingLevelHandler;
 	setThinkingLevel: SetThinkingLevelHandler;
+	/** Persist one key in an extension's global `extensionConfig` namespace. */
+	setExtensionConfigValue?: (namespace: string, key: string, value: unknown) => void;
 }
 
 /**
@@ -2322,6 +2344,8 @@ export interface Extension {
 	entryRenderers?: Map<string, EntryRenderer>;
 	commands: Map<string, RegisteredCommand>;
 	flags: Map<string, ExtensionFlag>;
+	/** Settings contributed to the interactive `/settings` selector. */
+	registeredSettings?: Map<string, ExtensionSetting>;
 	/** Deterministic transforms applied to fork-inherited system prompts. */
 	forkSystemPromptTransforms?: ForkSystemPromptTransform[];
 	shortcuts: Map<KeyId, ExtensionShortcut>;

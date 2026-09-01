@@ -4872,6 +4872,7 @@ export class InteractiveMode {
 					tuiMode: this.ui.mode,
 					fullscreenScrollbar: this.settingsManager.getFullscreenScrollbar(),
 					warnings: this.settingsManager.getWarnings(),
+					extensionSettings: this.session.extensionRunner.getRegisteredSettings(),
 				},
 				{
 					onAutoCompactChange: (enabled) => {

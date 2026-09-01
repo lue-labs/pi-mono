@@ -101,6 +101,7 @@ type ForkExtensionAPI = Pick<
 	| "hideOverlay"
 	| "registerFooter"
 	| "getExtensionConfig"
+	| "setExtensionConfigValue"
 	| "registerForkSystemPromptTransform"
 	| "tools"
 	| "hooks"
@@ -261,6 +262,21 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 		getExtensionConfig<T = Record<string, unknown>>(namespace: string): T | undefined {
 			runtime.assertActive();
 			return runtime.extensionConfig[namespace] as T | undefined;
+		},
+
+		setExtensionConfigValue(namespace: string, key: string, value: unknown): void {
+			runtime.assertActive();
+			if (!runtime.setExtensionConfigValue) {
+				throw new Error("Extension config persistence is not available in this runtime");
+			}
+			const current = runtime.extensionConfig[namespace];
+			if (current !== undefined && (typeof current !== "object" || current === null || Array.isArray(current))) {
+				throw new Error(`Extension config namespace "${namespace}" must be an object`);
+			}
+			runtime.setExtensionConfigValue(namespace, key, value);
+			const config = (current as Record<string, unknown> | undefined) ?? {};
+			config[key] = value;
+			runtime.extensionConfig[namespace] = config;
 		},
 
 		registerForkSystemPromptTransform(transform) {

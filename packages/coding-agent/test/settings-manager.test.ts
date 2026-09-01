@@ -112,6 +112,42 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("extension config", () => {
+		it("persists one namespace key without dropping other config", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(
+				settingsPath,
+				JSON.stringify({
+					extensionConfig: {
+						"persistent-mode": { other: "keep" },
+						other: { enabled: true },
+					},
+				}),
+			);
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setExtensionConfigValue("persistent-mode", "enabled", true);
+			await manager.flush();
+
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.extensionConfig["persistent-mode"]).toEqual({
+				other: "keep",
+				enabled: true,
+			});
+			expect(savedSettings.extensionConfig.other).toEqual({ enabled: true });
+		});
+		it("rejects a malformed namespace without replacing it", () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ extensionConfig: { "persistent-mode": true } }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(() => manager.setExtensionConfigValue("persistent-mode", "enabled", false)).toThrow(
+				'Extension config namespace "persistent-mode" must be an object',
+			);
+			expect(manager.getGlobalSettings().extensionConfig).toEqual({ "persistent-mode": true });
+		});
+	});
+
 	describe("packages migration", () => {
 		it("should keep local-only extensions in extensions array", () => {
 			const settingsPath = join(agentDir, "settings.json");

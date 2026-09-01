@@ -57,6 +57,7 @@ import type {
 	ExtensionMode,
 	ExtensionOverlayFactory,
 	ExtensionRuntime,
+	ExtensionSetting,
 	ExtensionShortcut,
 	ExtensionUIContext,
 	ForkAgentOptions,
@@ -415,6 +416,7 @@ export class ExtensionRunner {
 		this.runtime.setModel = actions.setModel;
 		this.runtime.getThinkingLevel = actions.getThinkingLevel;
 		this.runtime.setThinkingLevel = actions.setThinkingLevel;
+		this.runtime.setExtensionConfigValue = actions.setExtensionConfigValue;
 
 		// Publish extension-registered agent definitions through the module-level
 		// bridge so `loadAgentRegistry` can merge them in without an import edge
@@ -798,6 +800,11 @@ export class ExtensionRunner {
 	/** See {@link collectRegisteredFooters}. */
 	getRegisteredFooters(): Array<{ id: string; spec: ExtensionFooterSpec; extensionPath: string }> {
 		return collectRegisteredFooters(this.extensions);
+	}
+
+	/** Return settings contributed by loaded extensions for the interactive selector. */
+	getRegisteredSettings(): ExtensionSetting[] {
+		return this.extensions.flatMap((extension) => [...(extension.registeredSettings?.values() ?? [])]);
 	}
 
 	private resolveRegisteredCommands(): ResolvedCommand[] {

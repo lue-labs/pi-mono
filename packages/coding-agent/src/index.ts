@@ -116,6 +116,7 @@ export type {
 	ExtensionOverlayAPI,
 	ExtensionOverlayFactory,
 	ExtensionRuntime,
+	ExtensionSetting,
 	ExtensionShortcut,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
