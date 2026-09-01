@@ -76,7 +76,7 @@ describe("pi-observability tracer (issue 09)", () => {
 		setModel: async () => false,
 		getThinkingLevel: () => "off",
 		setThinkingLevel: () => {},
-		setExtensionConfigValue: () => {},
+		setExtensionConfigValue: () => ({}),
 	};
 
 	const extensionContextActions: ExtensionContextActions = {

@@ -266,14 +266,7 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 
 		setExtensionConfigValue(namespace: string, key: string, value: unknown): void {
 			runtime.assertActive();
-			runtime.setExtensionConfigValue(namespace, key, value);
-			const current = runtime.extensionConfig[namespace];
-			const config =
-				typeof current === "object" && current !== null && !Array.isArray(current)
-					? { ...(current as Record<string, unknown>) }
-					: {};
-			config[key] = value;
-			runtime.extensionConfig[namespace] = config;
+			runtime.extensionConfig[namespace] = runtime.setExtensionConfigValue(namespace, key, value);
 		},
 
 		registerForkSystemPromptTransform(transform) {

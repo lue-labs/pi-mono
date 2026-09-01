@@ -2056,7 +2056,7 @@ export interface ExtensionFlag {
 
 /** A setting contributed to the interactive `/settings` selector by an extension. */
 export interface ExtensionSetting {
-	/** Unique setting id within the loaded extension set. */
+	/** Unique setting id within the registering extension. */
 	id: string;
 	label: string;
 	description?: string;
@@ -2091,6 +2091,12 @@ export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => 
 export type SetSessionNameHandler = (name: string) => void;
 
 export type GetSessionNameHandler = () => string | undefined;
+
+export type SetExtensionConfigValueHandler = (
+	namespace: string,
+	key: string,
+	value: unknown,
+) => Record<string, unknown>;
 
 export type GetActiveToolsHandler = () => string[];
 
@@ -2337,8 +2343,8 @@ export interface ExtensionActions {
 	setModel: SetModelHandler;
 	getThinkingLevel: GetThinkingLevelHandler;
 	setThinkingLevel: SetThinkingLevelHandler;
-	/** Persist one key in an extension's global `extensionConfig` namespace. */
-	setExtensionConfigValue: (namespace: string, key: string, value: unknown) => void;
+	/** Persist one key in an extension's global `extensionConfig` namespace and return the merged namespace. */
+	setExtensionConfigValue: SetExtensionConfigValueHandler;
 }
 
 /**

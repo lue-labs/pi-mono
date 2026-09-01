@@ -459,6 +459,15 @@ function createExtensionAPI(
 
 		registerSetting(options: Omit<ExtensionSetting, "extensionPath">): void {
 			assertActive();
+			if (options.values.length === 0) {
+				throw new Error(`Extension setting must define at least one value: ${options.id}`);
+			}
+			if (!options.values.includes(options.currentValue)) {
+				throw new Error(`Extension setting currentValue must be one of values: ${options.id}`);
+			}
+			if (new Set(options.values).size !== options.values.length) {
+				throw new Error(`Extension setting values must be unique: ${options.id}`);
+			}
 			if (extension.registeredSettings.has(options.id)) {
 				throw new Error(`Extension setting already registered: ${options.id}`);
 			}
