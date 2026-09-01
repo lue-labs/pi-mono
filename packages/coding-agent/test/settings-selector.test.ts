@@ -47,6 +47,40 @@ describe("SettingsSelectorComponent", () => {
 		expect(onChange).toHaveBeenCalledWith("enabled");
 	});
 
+	it("contains extension setting callback failures and reports them", () => {
+		const onError = vi.fn();
+		const setting = {
+			id: "broken",
+			label: "Broken setting",
+			currentValue: "off",
+			values: ["off", "on"],
+			onChange: () => {
+				throw new Error("setting failed");
+			},
+			extensionPath: "/tmp/broken.ts",
+		};
+		const selector = new SettingsSelectorComponent(
+			{
+				fullscreenScrollbar: "auto",
+				warnings: {},
+				defaultModel: "not set",
+				availableDefaultModels: [],
+				availableThinkingLevels: [],
+				modelThinkingLevels: {},
+				availableThemes: [],
+				extensionSettings: [setting],
+			} as unknown as SettingsConfig,
+			{ onExtensionSettingError: onError } as unknown as SettingsCallbacks,
+		);
+		const settingsList = selector.getSettingsList();
+
+		for (const character of "Broken setting") settingsList.handleInput(character);
+		settingsList.handleInput("\r");
+		settingsList.handleInput("\r");
+
+		expect(onError).toHaveBeenCalledWith(setting, expect.any(Error));
+	});
+
 	it("cycles through fullscreen settings", () => {
 		const onExitOutputChange = vi.fn();
 		const onScrollbarChange = vi.fn();

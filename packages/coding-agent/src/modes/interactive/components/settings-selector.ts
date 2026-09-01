@@ -131,6 +131,7 @@ export interface SettingsCallbacks {
 	onFullscreenScrollbarChange: (mode: ScrollViewScrollbar) => void;
 	onFullscreenCopyOnSelectChange: (enabled: boolean) => void;
 	onWarningsChange: (warnings: WarningSettings) => void;
+	onExtensionSettingError?: (setting: ExtensionSetting, error: unknown) => void;
 	onCancel: () => void;
 }
 
@@ -974,9 +975,16 @@ export class SettingsSelectorComponent extends Container {
 					case "theme":
 						callbacks.onThemeChange(newValue);
 						break;
-					default:
-						extensionSettingsById.get(id)?.onChange(newValue);
+					default: {
+						const setting = extensionSettingsById.get(id);
+						if (!setting) break;
+						try {
+							setting.onChange(newValue);
+						} catch (error) {
+							callbacks.onExtensionSettingError?.(setting, error);
+						}
 						break;
+					}
 				}
 			},
 			callbacks.onCancel,
