@@ -41,7 +41,6 @@ describe("SettingsSelectorComponent", () => {
 
 		for (const character of "Prompt suggestions") settingsList.handleInput(character);
 		settingsList.handleInput("\r");
-		settingsList.handleInput("\r");
 
 		expect(onChange).toHaveBeenCalledWith("enabled");
 		expect(setting.currentValue).toBe("enabled");
@@ -76,9 +75,9 @@ describe("SettingsSelectorComponent", () => {
 
 		for (const character of "Broken setting") settingsList.handleInput(character);
 		settingsList.handleInput("\r");
-		settingsList.handleInput("\r");
 
 		expect(onError).toHaveBeenCalledWith(setting, expect.any(Error));
+		expect(setting.currentValue).toBe("off");
 	});
 
 	it("cycles through fullscreen settings", () => {
