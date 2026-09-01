@@ -579,10 +579,7 @@ export class SettingsManager {
 	setExtensionConfigValue(namespace: string, key: string, value: unknown): void {
 		const extensionConfig = this.globalSettings.extensionConfig ?? {};
 		const current = extensionConfig[namespace];
-		const namespaceConfig =
-			typeof current === "object" && current !== null && !Array.isArray(current)
-				? current
-				: {};
+		const namespaceConfig = typeof current === "object" && current !== null && !Array.isArray(current) ? current : {};
 		this.globalSettings.extensionConfig = {
 			...extensionConfig,
 			[namespace]: {
