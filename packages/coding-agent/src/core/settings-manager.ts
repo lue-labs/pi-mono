@@ -590,7 +590,7 @@ export class SettingsManager {
 		};
 		this.markModified("extensionConfig", namespace);
 		this.save();
-		return structuredClone(nextNamespaceConfig);
+		return structuredClone(this.settings.extensionConfig?.[namespace] ?? {});
 	}
 
 	isProjectTrusted(): boolean {

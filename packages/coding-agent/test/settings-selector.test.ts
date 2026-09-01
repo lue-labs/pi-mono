@@ -16,6 +16,14 @@ describe("SettingsSelectorComponent", () => {
 
 	it("shows extension-contributed settings and invokes their callback", () => {
 		const onChange = vi.fn();
+		const setting = {
+			id: "prompt-suggestions",
+			label: "Prompt suggestions",
+			currentValue: "disabled",
+			values: ["disabled", "enabled"],
+			onChange,
+			extensionPath: "/tmp/prompt-suggestions.ts",
+		};
 		const selector = new SettingsSelectorComponent(
 			{
 				fullscreenScrollbar: "auto",
@@ -25,16 +33,7 @@ describe("SettingsSelectorComponent", () => {
 				availableThinkingLevels: [],
 				modelThinkingLevels: {},
 				availableThemes: [],
-				extensionSettings: [
-					{
-						id: "prompt-suggestions",
-						label: "Prompt suggestions",
-						currentValue: "disabled",
-						values: ["disabled", "enabled"],
-						onChange,
-						extensionPath: "/tmp/prompt-suggestions.ts",
-					},
-				],
+				extensionSettings: [setting],
 			} as unknown as SettingsConfig,
 			{} as unknown as SettingsCallbacks,
 		);
@@ -45,6 +44,7 @@ describe("SettingsSelectorComponent", () => {
 		settingsList.handleInput("\r");
 
 		expect(onChange).toHaveBeenCalledWith("enabled");
+		expect(setting.currentValue).toBe("enabled");
 	});
 
 	it("contains extension setting callback failures and reports them", () => {

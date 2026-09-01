@@ -980,6 +980,7 @@ export class SettingsSelectorComponent extends Container {
 						if (!setting) break;
 						try {
 							setting.onChange(newValue);
+							setting.currentValue = newValue;
 						} catch (error) {
 							callbacks.onExtensionSettingError?.(setting, error);
 						}

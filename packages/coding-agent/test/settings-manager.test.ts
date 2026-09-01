@@ -48,6 +48,23 @@ describe("SettingsManager", () => {
 			expect(savedSettings.extensionConfig["prompt-suggestions"]).toEqual({ maxMs: 4000, enabled: true });
 			expect(savedSettings.extensionConfig.other).toEqual({ enabled: true });
 		});
+
+		it("returns the merged namespace when project settings add sibling keys", () => {
+			writeFileSync(
+				join(agentDir, "settings.json"),
+				JSON.stringify({ extensionConfig: { "prompt-suggestions": { maxMs: 4000 } } }),
+			);
+			writeFileSync(
+				join(projectDir, ".pi", "settings.json"),
+				JSON.stringify({ extensionConfig: { "prompt-suggestions": { projectOnly: true } } }),
+			);
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			const returned = manager.setExtensionConfigValue("prompt-suggestions", "enabled", true);
+
+			expect(returned).toEqual({ maxMs: 4000, projectOnly: true, enabled: true });
+			expect(manager.getExtensionConfig()["prompt-suggestions"]).toEqual(returned);
+		});
 	});
 
 	describe("preserves externally added settings", () => {
