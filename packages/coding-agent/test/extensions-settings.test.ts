@@ -46,7 +46,7 @@ describe("extension settings", () => {
 						id: "invalid",
 						label: "Invalid",
 						currentValue,
-						values,
+						values: [...values],
 						onChange: () => {},
 					});
 				},
