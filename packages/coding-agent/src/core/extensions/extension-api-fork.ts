@@ -101,6 +101,7 @@ type ForkExtensionAPI = Pick<
 	| "hideOverlay"
 	| "registerFooter"
 	| "getExtensionConfig"
+	| "setExtensionConfigValue"
 	| "registerForkSystemPromptTransform"
 	| "tools"
 	| "hooks"
@@ -261,6 +262,11 @@ export function createForkExtensionAPI(extension: Extension, runtime: ExtensionR
 		getExtensionConfig<T = Record<string, unknown>>(namespace: string): T | undefined {
 			runtime.assertActive();
 			return runtime.extensionConfig[namespace] as T | undefined;
+		},
+
+		setExtensionConfigValue(namespace: string, key: string, value: unknown): void {
+			runtime.assertActive();
+			runtime.extensionConfig[namespace] = runtime.setExtensionConfigValue(namespace, key, value);
 		},
 
 		registerForkSystemPromptTransform(transform) {

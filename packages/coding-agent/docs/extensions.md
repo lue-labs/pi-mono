@@ -1686,6 +1686,41 @@ if (pi.getFlag("plan")) {
 }
 ```
 
+### pi.registerSetting(options)
+
+Register a setting in the interactive `/settings` selector. Settings are
+static UI entries contributed by extensions; the extension owns persistence
+and behavior through `onChange`. The `extensionPath` field is added by pi
+when it exposes registered settings to the selector.
+
+```typescript
+pi.registerSetting({
+  id: "plan-mode",
+  label: "Plan mode",
+  description: "Start new sessions in plan mode",
+  currentValue: "disabled",
+  values: ["disabled", "enabled"],
+  onChange: (value) => {
+    pi.setExtensionConfigValue("my-extension", "enabled", value === "enabled");
+  },
+});
+```
+
+Settings are displayed only by the interactive TUI. IDs must be unique within
+the registering extension; different extensions may reuse an ID. A setting
+change is persisted when `onChange` runs; extensions that resolve behavior once
+at session start should describe that a new session is required.
+
+### pi.getExtensionConfig(namespace) / pi.setExtensionConfigValue(namespace, key, value)
+
+Read the merged `extensionConfig` namespace and persist one key in the global
+extension configuration. The setter preserves other keys in the namespace.
+
+```typescript
+const config = pi.getExtensionConfig<{ enabled?: boolean }>("my-extension");
+pi.setExtensionConfigValue("my-extension", "enabled", true);
+```
+
 ### pi.exec(command, args, options?)
 
 Execute a shell command.

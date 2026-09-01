@@ -77,6 +77,7 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionRunner,
+	ExtensionSetting,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
 	ExtensionWidgetOptions,
@@ -5074,6 +5075,7 @@ export class InteractiveMode {
 					fullscreenScrollbar: this.settingsManager.getFullscreenScrollbar(),
 					fullscreenCopyOnSelect: this.settingsManager.getFullscreenCopyOnSelect(),
 					warnings: this.settingsManager.getWarnings(),
+					extensionSettings: this.session.extensionRunner.getRegisteredSettings(),
 				},
 				{
 					onAutoCompactChange: (enabled) => {
@@ -5261,6 +5263,15 @@ export class InteractiveMode {
 					},
 					onWarningsChange: (warnings) => {
 						this.settingsManager.setWarnings(warnings);
+					},
+					onExtensionSettingError: (setting: ExtensionSetting, error: unknown) => {
+						const normalized = error instanceof Error ? error : new Error(String(error));
+						this.session.extensionRunner.emitError({
+							extensionPath: setting.extensionPath,
+							event: "setting_change",
+							error: normalized.message,
+							stack: normalized.stack,
+						});
 					},
 					onCancel: () => {
 						done();

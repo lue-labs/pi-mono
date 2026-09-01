@@ -26,6 +26,47 @@ describe("SettingsManager", () => {
 		}
 	});
 
+	describe("extension configuration", () => {
+		it("persists one extension key without dropping sibling keys", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(
+				settingsPath,
+				JSON.stringify({
+					theme: "dark",
+					extensionConfig: {
+						"prompt-suggestions": { maxMs: 4000 },
+						other: { enabled: true },
+					},
+				}),
+			);
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setExtensionConfigValue("prompt-suggestions", "enabled", true);
+			await manager.flush();
+
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.extensionConfig["prompt-suggestions"]).toEqual({ maxMs: 4000, enabled: true });
+			expect(savedSettings.extensionConfig.other).toEqual({ enabled: true });
+		});
+
+		it("returns the merged namespace when project settings add sibling keys", () => {
+			writeFileSync(
+				join(agentDir, "settings.json"),
+				JSON.stringify({ extensionConfig: { "prompt-suggestions": { maxMs: 4000 } } }),
+			);
+			writeFileSync(
+				join(projectDir, ".pi", "settings.json"),
+				JSON.stringify({ extensionConfig: { "prompt-suggestions": { projectOnly: true } } }),
+			);
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			const returned = manager.setExtensionConfigValue("prompt-suggestions", "enabled", true);
+
+			expect(returned).toEqual({ maxMs: 4000, projectOnly: true, enabled: true });
+			expect(manager.getExtensionConfig()["prompt-suggestions"]).toEqual(returned);
+		});
+	});
+
 	describe("preserves externally added settings", () => {
 		it("should preserve enabledModels when changing thinking level", async () => {
 			// Create initial settings file

@@ -85,6 +85,7 @@ export type {
 	ExtensionOverlayFactory,
 	// Runtime
 	ExtensionRuntime,
+	ExtensionSetting,
 	ExtensionShortcut,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
@@ -158,6 +159,7 @@ export type {
 	SessionStartEvent,
 	SessionTreeEvent,
 	SetActiveToolsHandler,
+	SetExtensionConfigValueHandler,
 	SetLabelHandler,
 	SetModelHandler,
 	SetThinkingLevelHandler,
