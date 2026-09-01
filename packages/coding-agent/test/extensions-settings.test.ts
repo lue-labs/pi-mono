@@ -32,4 +32,29 @@ describe("extension settings", () => {
 		extension.registeredSettings.get("prompt-suggestions")?.onChange("enabled");
 		expect(changes).toEqual([["prompt-suggestions", "enabled", true]]);
 	});
+
+	it.each([
+		["empty values", "disabled", [] as string[], "at least one value"],
+		["unknown current value", "unknown", ["disabled", "enabled"], "currentValue"],
+		["duplicate values", "disabled", ["disabled", "disabled"], "unique"],
+	] as const)("rejects %s", async (_label, currentValue, values, message) => {
+		const runtime = createExtensionRuntime();
+		await expect(
+			loadExtensionFromFactory(
+				(pi) => {
+					pi.registerSetting({
+						id: "invalid",
+						label: "Invalid",
+						currentValue,
+						values,
+						onChange: () => {},
+					});
+				},
+				process.cwd(),
+				createEventBus(),
+				runtime,
+				"<test:invalid-extension-setting>",
+			),
+		).rejects.toThrow(message);
+	});
 });
