@@ -575,6 +575,25 @@ export class SettingsManager {
 		return structuredClone(this.settings.extensionConfig ?? {});
 	}
 
+	/** Persist one key in an extension's global tuning namespace. */
+	setExtensionConfigValue(namespace: string, key: string, value: unknown): void {
+		const extensionConfig = this.globalSettings.extensionConfig ?? {};
+		const current = extensionConfig[namespace];
+		const namespaceConfig =
+			typeof current === "object" && current !== null && !Array.isArray(current)
+				? current
+				: {};
+		this.globalSettings.extensionConfig = {
+			...extensionConfig,
+			[namespace]: {
+				...namespaceConfig,
+				[key]: structuredClone(value),
+			},
+		};
+		this.markModified("extensionConfig", namespace);
+		this.save();
+	}
+
 	isProjectTrusted(): boolean {
 		return this.projectTrusted;
 	}

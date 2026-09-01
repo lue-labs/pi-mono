@@ -61,6 +61,7 @@ describe("ExtensionRunner deferred extension commands", () => {
 		setModel: async () => false,
 		getThinkingLevel: () => "off",
 		setThinkingLevel: () => {},
+		setExtensionConfigValue: () => {},
 	};
 
 	const extensionContextActions: ExtensionContextActions = {

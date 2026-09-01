@@ -5074,6 +5074,7 @@ export class InteractiveMode {
 					fullscreenScrollbar: this.settingsManager.getFullscreenScrollbar(),
 					fullscreenCopyOnSelect: this.settingsManager.getFullscreenCopyOnSelect(),
 					warnings: this.settingsManager.getWarnings(),
+					extensionSettings: this.session.extensionRunner.getRegisteredSettings(),
 				},
 				{
 					onAutoCompactChange: (enabled) => {

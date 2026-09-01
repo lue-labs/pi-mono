@@ -44,6 +44,7 @@ import type {
 	ExtensionLoadError,
 	ExtensionLoadRequest,
 	ExtensionRuntime,
+	ExtensionSetting,
 	LoadExtensionsResult,
 	MarkdownTransformer,
 	MessageRenderer,
@@ -305,6 +306,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		setModel: () => Promise.reject(new Error("Extension runtime not initialized")),
 		getThinkingLevel: notInitialized,
 		setThinkingLevel: notInitialized,
+		setExtensionConfigValue: notInitialized,
 		flagValues: new Map(),
 		extensionConfig: {},
 		pendingProviderRegistrations: [],
@@ -453,6 +455,17 @@ function createExtensionAPI(
 					runtime.flagValues.set(name, options.default);
 				}
 			}
+		},
+
+		registerSetting(options: Omit<ExtensionSetting, "extensionPath">): void {
+			assertActive();
+			if (extension.registeredSettings.has(options.id)) {
+				throw new Error(`Extension setting already registered: ${options.id}`);
+			}
+			extension.registeredSettings.set(options.id, {
+				...options,
+				extensionPath: extension.path,
+			});
 		},
 
 		registerMessageRenderer<T>(customType: string, renderer: MessageRenderer<T>): void {
@@ -676,6 +689,7 @@ function createExtension(extensionPath: string, resolvedPath: string): Extension
 		entryRenderers: new Map(),
 		commands: new Map(),
 		flags: new Map(),
+		registeredSettings: new Map(),
 		forkSystemPromptTransforms: [],
 		shortcuts: new Map(),
 		disposeHandlers: [],

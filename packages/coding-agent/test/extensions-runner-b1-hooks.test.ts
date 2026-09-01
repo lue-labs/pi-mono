@@ -65,6 +65,7 @@ describe("ExtensionRunner B1 hooks", () => {
 		setModel: async () => false,
 		getThinkingLevel: () => "off",
 		setThinkingLevel: () => {},
+		setExtensionConfigValue: () => {},
 	};
 
 	const extensionContextActions: ExtensionContextActions = {

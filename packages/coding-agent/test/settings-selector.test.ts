@@ -14,6 +14,39 @@ describe("SettingsSelectorComponent", () => {
 		setKeybindings(new KeybindingsManager());
 	});
 
+	it("shows extension-contributed settings and invokes their callback", () => {
+		const onChange = vi.fn();
+		const selector = new SettingsSelectorComponent(
+			{
+				fullscreenScrollbar: "auto",
+				warnings: {},
+				defaultModel: "not set",
+				availableDefaultModels: [],
+				availableThinkingLevels: [],
+				modelThinkingLevels: {},
+				availableThemes: [],
+				extensionSettings: [
+					{
+						id: "prompt-suggestions",
+						label: "Prompt suggestions",
+						currentValue: "disabled",
+						values: ["disabled", "enabled"],
+						onChange,
+						extensionPath: "/tmp/prompt-suggestions.ts",
+					},
+				],
+			} as unknown as SettingsConfig,
+			{} as unknown as SettingsCallbacks,
+		);
+		const settingsList = selector.getSettingsList();
+
+		for (const character of "Prompt suggestions") settingsList.handleInput(character);
+		settingsList.handleInput("\r");
+		settingsList.handleInput("\r");
+
+		expect(onChange).toHaveBeenCalledWith("enabled");
+	});
+
 	it("cycles through fullscreen settings", () => {
 		const onExitOutputChange = vi.fn();
 		const onScrollbarChange = vi.fn();

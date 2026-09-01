@@ -85,6 +85,7 @@ export type {
 	ExtensionOverlayFactory,
 	// Runtime
 	ExtensionRuntime,
+	ExtensionSetting,
 	ExtensionShortcut,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
