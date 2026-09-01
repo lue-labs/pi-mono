@@ -1706,9 +1706,10 @@ pi.registerSetting({
 });
 ```
 
-Settings are displayed only by the interactive TUI. A setting change is
-persisted when `onChange` runs; extensions that resolve behavior once at
-session start should describe that a new session is required.
+Settings are displayed only by the interactive TUI. IDs must be unique within
+the registering extension; different extensions may reuse an ID. A setting
+change is persisted when `onChange` runs; extensions that resolve behavior once
+at session start should describe that a new session is required.
 
 ### pi.getExtensionConfig(namespace) / pi.setExtensionConfigValue(namespace, key, value)
 
