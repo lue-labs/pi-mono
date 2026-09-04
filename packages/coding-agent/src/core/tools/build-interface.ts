@@ -33,6 +33,7 @@
 import type { TextContent } from "@lue-labs/pi-ai";
 import { LayoutRenderer, type LayoutResponse } from "@lue-labs/pi-tui";
 import { type Static, Type } from "typebox";
+import type { EventBus } from "../event-bus.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import type { LayoutGraph } from "./layout-graph.ts";
 import type { UIHarness, UIHarnessOptions } from "./ui-harness.ts";
@@ -115,6 +116,35 @@ export interface BuildInterfaceToolOptions {
 	toolName?: string;
 	/** Override the UI label. Default: "Build UI". */
 	label?: string;
+	/**
+	 * Event bus used to announce that the agent is parked on the human.
+	 *
+	 * While the renderer holds the user, the session is blocked in the only
+	 * sense a supervisor cares about: it cannot progress until someone answers.
+	 * The herdr integration (`~/.pi/agent/extensions/herdr-agent-state.ts`)
+	 * already listens on `herdr:blocked` and refcounts it, so surfacing this in
+	 * the pane is a matter of emitting — nothing downstream needs changing.
+	 *
+	 * Deliberately scoped to this tool rather than the shared `ui.custom()`
+	 * seam every dialog goes through: the listener ranks `blocked` above
+	 * `working` and `idle`, so hooking the seam would paint the pane blocked
+	 * whenever the user opened a picker of their own accord, and `blocked`
+	 * would stop meaning "waiting on you".
+	 *
+	 * Optional — omit it and the tool behaves exactly as before.
+	 */
+	events?: EventBus;
+}
+
+/** Channel the herdr state extension listens on. */
+const BLOCKED_CHANNEL = "herdr:blocked";
+
+/** Keeps the pane's blocked label to a glanceable width. */
+const BLOCKED_LABEL_MAX = 80;
+
+function blockedLabel(intent: string): string {
+	const oneLine = intent.replace(/\s+/g, " ").trim();
+	return oneLine.length > BLOCKED_LABEL_MAX ? `${oneLine.slice(0, BLOCKED_LABEL_MAX - 1)}…` : oneLine;
 }
 
 const DEFAULT_DESCRIPTION =
@@ -146,7 +176,7 @@ export function createBuildInterfaceToolDefinition(
 		description: DEFAULT_DESCRIPTION,
 		parameters: buildInterfaceSchema,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			return executeBuildInterface(params, options.harness, ctx, signal);
+			return executeBuildInterface(params, options.harness, ctx, signal, options.events);
 		},
 	};
 }
@@ -165,6 +195,7 @@ export async function executeBuildInterface(
 	harness: UIHarness,
 	ctx: ExtensionContext | undefined,
 	signal?: AbortSignal,
+	events?: EventBus,
 ): Promise<{ content: TextContent[]; details: BuildInterfaceDetails }> {
 	if (!ctx?.hasUI) {
 		throw new Error("BuildInterface requires an interactive UI; the current mode does not provide one.");
@@ -174,14 +205,25 @@ export async function executeBuildInterface(
 	const graph = await harness(params, { signal });
 	if (signal?.aborted) throw new Error("Operation aborted");
 
-	const outcome = await ctx.ui.custom<RenderOutcome>(
-		(_tui, _theme, _keybindings, done) =>
-			new LayoutRenderer(graph, {
-				onSubmit: (response) => done({ status: "submitted", response }),
-				onCancel: () => done({ status: "cancelled" }),
-			}),
-		{ overlay: true },
-	);
+	// Blocked starts here, not at the top: composing the graph is the harness
+	// thinking, which is ordinary work. Only the mounted renderer waits on a
+	// human. The `finally` is load-bearing — an abort or a renderer throw must
+	// still balance the refcount, or the pane stays blocked for the rest of the
+	// session with nothing on screen to explain it.
+	events?.emit(BLOCKED_CHANNEL, { active: true, label: blockedLabel(params.intent) });
+	let outcome: RenderOutcome;
+	try {
+		outcome = await ctx.ui.custom<RenderOutcome>(
+			(_tui, _theme, _keybindings, done) =>
+				new LayoutRenderer(graph, {
+					onSubmit: (response) => done({ status: "submitted", response }),
+					onCancel: () => done({ status: "cancelled" }),
+				}),
+			{ overlay: true },
+		);
+	} finally {
+		events?.emit(BLOCKED_CHANNEL, { active: false });
+	}
 
 	return {
 		content: [{ type: "text", text: formatOutcomeForModel(outcome) }],
