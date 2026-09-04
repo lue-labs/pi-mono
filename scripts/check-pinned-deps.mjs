@@ -5,7 +5,7 @@ const dependencySections = ["dependencies", "devDependencies", "optionalDependen
 // Matches an exact semver (no range operators): MAJOR.MINOR.PATCH with optional
 // -prerelease and +build metadata. Anything with ^, ~, *, ranges, or tags fails.
 const exactVersionPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const ignoredDirectories = new Set([".git", "dist", "node_modules", ".pi"]);
+const ignoredDirectories = new Set([".git", "dist", "node_modules", ".pi", ".worktrees"]);
 const packageJsonFiles = [];
 
 function collectPackageJsonFiles(directory) {
