@@ -68,7 +68,7 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain(expected);
 		});
 
-		test("instructs models to resolve pi docs and examples under absolute base paths", () => {
+		test("routes Pi development through the pi skill with absolute doc roots", () => {
 			const prompt = buildSystemPrompt({
 				contextFiles: [],
 				skills: [],
@@ -76,9 +76,12 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt).toContain(
-				"- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory",
+				"Pi documentation: load skill `pi`; it routes runtime identity, updates, and the installed docs/examples at ",
 			);
-			expect(prompt).toContain("environment variables (docs/environment-variables.md)");
+			expect(prompt).toContain("README.md");
+			expect(prompt).toContain("/docs");
+			expect(prompt).toContain("/examples");
+			expect(prompt).not.toContain("Pi documentation (read only when");
 		});
 	});
 

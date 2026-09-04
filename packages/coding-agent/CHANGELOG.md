@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- System prompt: the eight-line "Pi documentation" routing block is replaced by one line that names the `pi` skill and the three installed doc roots (README, docs/, examples/). The skill already carries the per-topic routing table and loads on demand, so the static prompt stops paying for it on every request. This changes system-prompt bytes; cache prefixes rotate once on upgrade.
+
 - Extensions can contribute static entries to the interactive `/settings` selector with `pi.registerSetting()` and persist one key in their global `extensionConfig` namespace with `pi.setExtensionConfigValue()`. This is a generic UI/settings seam; it does not change prompts, tools, transcripts, provider requests, or cache prefixes.
 
 - Bash policy: ban process substitution `<(...)` / `>(...)` in the read-only `detectUnsafeConstructs` scanner (`EXPLORE_BASH_POLICY`, applied to the `explore` child agent). It previously rejected command substitution `$(...)`, backticks, and here-docs but not process substitution, so `cat <(rm -rf x)` / `tee >(rm -rf x)` could run an arbitrary inner command while presenting as a benign `cat`/`tee`. Adds a `/[<>]\(/` check plus a regression test (`test/bash-policy.test.ts`). Found via Claude Code 2.1.207–2.1.212 reverse-engineering triage (my-pi #1089).
