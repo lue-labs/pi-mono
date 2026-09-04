@@ -167,6 +167,20 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
 
+	// Route Pi development through the `pi` skill when the model can actually load it;
+	// otherwise keep the self-contained doc map so the paths still resolve.
+	const hasPiSkill = hasRead && skills.some((skill) => skill.name === "pi");
+	const piDocsSection = hasPiSkill
+		? `Pi documentation: load skill \`pi\`; it routes runtime identity, updates, and the installed docs/examples at ${readmePath}, ${docsPath}, and ${examplesPath}.`
+		: `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+- Main documentation: ${readmePath}
+- Additional docs: ${docsPath}
+- Examples: ${examplesPath} (extensions, custom tools, SDK)
+- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
+- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
+- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
+- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
+
 	let prompt = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:
@@ -177,7 +191,7 @@ In addition to the tools above, you may have access to other custom tools depend
 Guidelines:
 ${guidelines}
 
-Pi documentation: load skill \`pi\`; it routes runtime identity, updates, and the installed docs/examples at ${readmePath}, ${docsPath}, and ${examplesPath}.`;
+${piDocsSection}`;
 
 	prompt += `\n\n${SYSTEM_PROMPT_DYNAMIC_BOUNDARY}`;
 

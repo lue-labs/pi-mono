@@ -9,7 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
-- System prompt: the eight-line "Pi documentation" routing block is replaced by one line that names the `pi` skill and the three installed doc roots (README, docs/, examples/). The skill already carries the per-topic routing table and loads on demand, so the static prompt stops paying for it on every request. This changes system-prompt bytes; cache prefixes rotate once on upgrade.
+- System prompt: when a `pi` skill is loaded and the read tool is available, the eight-line "Pi documentation" routing block is replaced by one line that names the `pi` skill and the three installed doc roots (README, docs/, examples/). The skill carries the per-topic routing table and loads on demand, so the static prompt stops paying for it on every request. Without a `pi` skill (or without read), the self-contained doc map is kept so nothing points at a skill the model cannot load. This changes system-prompt bytes for skill users; cache prefixes rotate once on upgrade.
 
 - Extensions can contribute static entries to the interactive `/settings` selector with `pi.registerSetting()` and persist one key in their global `extensionConfig` namespace with `pi.setExtensionConfigValue()`. This is a generic UI/settings seam; it does not change prompts, tools, transcripts, provider requests, or cache prefixes.
 

@@ -1,5 +1,6 @@
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@lue-labs/pi-ai";
 import { describe, expect, test } from "vitest";
+import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { buildSystemPrompt } from "../src/core/system-prompt.ts";
 
 describe("buildSystemPrompt", () => {
@@ -68,10 +69,19 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain(expected);
 		});
 
-		test("routes Pi development through the pi skill with absolute doc roots", () => {
+		const piSkill = {
+			name: "pi",
+			description: "Pi router",
+			filePath: "/tmp/skills/pi/SKILL.md",
+			baseDir: "/tmp/skills/pi",
+			sourceInfo: createSyntheticSourceInfo("<test:pi>", { source: "test" }),
+			disableModelInvocation: false,
+		};
+
+		test("routes Pi development through the pi skill when it is loaded", () => {
 			const prompt = buildSystemPrompt({
 				contextFiles: [],
-				skills: [],
+				skills: [piSkill],
 				cwd: process.cwd(),
 			});
 
@@ -82,6 +92,30 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("/docs");
 			expect(prompt).toContain("/examples");
 			expect(prompt).not.toContain("Pi documentation (read only when");
+		});
+
+		test("keeps the self-contained Pi doc map when no pi skill is loaded", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("Pi documentation (read only when");
+			expect(prompt).toContain("- Main documentation: ");
+			expect(prompt).not.toContain("load skill `pi`");
+		});
+
+		test("keeps the Pi doc map when the pi skill is loaded but read is unavailable", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["bash"],
+				contextFiles: [],
+				skills: [piSkill],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("Pi documentation (read only when");
+			expect(prompt).not.toContain("load skill `pi`");
 		});
 	});
 
