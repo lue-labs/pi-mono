@@ -8,6 +8,7 @@ Release numbers track the fork's GitHub Packages releases, versioned in lockstep
 
 ### Changed
 
+- **`check:pinned-deps` skips the gitignored `.worktrees/` directory.** Sibling worktree checkouts were being walked, so a stale sibling with an unpinned dependency failed pre-commit and pre-push for unrelated changes in the primary checkout.
 - **Upstream sync (2026-08-30): integrated exact upstream Pi 0.84.4 (`b79e4cc8349`).** The semantic merge preserves the fork's `@lue-labs` package/release identity, cache-stable provider paths, deferred tools, background-task and model-alias behavior, `HARBOR_ADJACENCY_PATCH v1`, trigger-turn system-prompt override parity, and one-bottom-summary live compaction rendering while adopting upstream 0.84.4 provider, strict-tool, PowerShell, terminal, settings, and session fixes.
 - **Extensions can transform inherited fork-child system prompts without mutating the parent.** `registerForkSystemPromptTransform()` applies deterministic, child-only rewrites before `context: "fork"` prompts freeze, including foreground and resumed forks while preserving explicit child prompt overrides and excluding `slim`/`none` contexts.
 - **Cache-retention resolution is shared by all six AI provider adapters.** The refactor keeps each adapter's existing explicit, environment, and backend-default behavior in one `packages/ai` utility, including the Codex `cacheRetention: "none"` provider-state gate from PR #428.

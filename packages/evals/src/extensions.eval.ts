@@ -26,7 +26,7 @@ function createExtensionAuthoringHarness(name: string, transformSystemPrompt?: (
 			return {
 				response,
 				systemPromptHasGuidelines: session.systemPrompt.includes("\nGuidelines:\n"),
-				systemPromptHasPiDocs: session.systemPrompt.includes("\nPi documentation (read only"),
+				systemPromptHasPiDocs: session.systemPrompt.includes("\nPi documentation"),
 				extensionErrors: extensions.errors,
 				loadedExtensions: extensions.extensions.map(({ path, tools }) => ({
 					path,
