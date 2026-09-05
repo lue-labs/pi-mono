@@ -25,6 +25,12 @@ export interface CacheHealthInput extends CacheHealthTurnContext {
 	 * That expected one-time rewrite is classified as `thinking_strip_likely`
 	 * instead of `cache_write_unhealthy`. */
 	followsUserTurn?: boolean;
+	/** `cacheRead + cacheWrite` of the first assistant turn after the *previous*
+	 * user boundary. The strip removes every thinking block accrued since that
+	 * boundary, and the first of them sits in that turn's own reply, so the warm
+	 * prefix breaks exactly at this size. Lets a partial strip (read well above
+	 * the tools+system anchor) be recognised without the 50% collapse heuristic. */
+	previousUserBoundaryPrefix?: number;
 }
 
 export interface CacheHealthMetrics {
@@ -49,6 +55,7 @@ export const TTL_EXPIRY_LIKELY_PREVIOUS_CACHE_READ_MIN = 30_000;
 export const TTL_EXPIRY_LIKELY_IDLE_MS = 4.5 * 60 * 1000;
 export const THINKING_STRIP_PREVIOUS_CACHE_READ_MIN = 30_000;
 export const THINKING_STRIP_COLLAPSE_RATIO = 0.5;
+export const THINKING_STRIP_ANCHOR_TOLERANCE_TOKENS = 256;
 
 function finiteNumber(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -103,17 +110,26 @@ export function computeCacheHealth(input: CacheHealthInput): CacheHealthMetrics 
 	const warmthPct = percent(cacheRead, cacheActivity);
 	// Anthropic thinking-block strip: on the first real user message after an
 	// agentic loop the API drops the loop's thinking blocks from history, so the
-	// warm prefix collapses toward the static tools+system anchor and rewrites
-	// once. Signature: was warm, still partially read (anchor survived, so not a
+	// warm prefix rewinds to the previous user boundary and rewrites once. When
+	// that boundary was the session start the read collapses toward the static
+	// tools+system anchor; after later boundaries it lands exactly on the
+	// previous boundary's prefix, which can still be most of the context.
+	// Signature: was warm, still partially read (an anchor survived, so not a
 	// TTL death), big write, short gap (a >TTL gap makes plain expiry likelier),
 	// same model, and a user turn in between. Expected cost, not prefix drift.
+	const boundaryPrefix = finiteNumber(input.previousUserBoundaryPrefix);
+	const rewoundToBoundary =
+		boundaryPrefix > 0 &&
+		cacheRead < previousCacheRead &&
+		Math.abs(cacheRead - boundaryPrefix) <= THINKING_STRIP_ANCHOR_TOLERANCE_TOKENS;
+	const collapsedToAnchor = cacheRead < previousCacheRead * THINKING_STRIP_COLLAPSE_RATIO;
 	const thinkingStripLikely =
 		input.followsUserTurn === true &&
 		exemptions.length === 0 &&
 		sameModel &&
 		cacheRead > 0 &&
 		previousCacheRead >= THINKING_STRIP_PREVIOUS_CACHE_READ_MIN &&
-		cacheRead < previousCacheRead * THINKING_STRIP_COLLAPSE_RATIO &&
+		(collapsedToAnchor || rewoundToBoundary) &&
 		cacheWrite > CACHE_WRITE_WARNING_TOKEN_THRESHOLD &&
 		ttlGapMs !== null &&
 		ttlGapMs < TTL_EXPIRY_LIKELY_IDLE_MS;
