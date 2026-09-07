@@ -5,7 +5,9 @@ const telemetryIndex = fileURLToPath(new URL("../../telemetry/src/index.ts", imp
 const aiIndex = fileURLToPath(new URL("../../ai/src/index.ts", import.meta.url));
 const agentIndex = fileURLToPath(new URL("../../agent/src/index.ts", import.meta.url));
 const agentNode = fileURLToPath(new URL("../../agent/src/node.ts", import.meta.url));
-const agentSessionTesting = fileURLToPath(new URL("../../agent/src/harness/session/testing/index.ts", import.meta.url));
+const agentSessionTesting = fileURLToPath(
+	new URL("../../agent/src/harness/session/testing/index.ts", import.meta.url),
+);
 
 export default defineConfig({
 	test: {
@@ -22,12 +24,14 @@ export default defineConfig({
 		},
 	},
 	resolve: {
+		conditions: ["source"],
 		alias: [
 			{ find: /^@lue-labs\/pi-telemetry$/, replacement: telemetryIndex },
-			{ find: /^@lue-labs\/pi-agent-core\/session\/testing$/, replacement: agentSessionTesting },
 			{ find: /^@lue-labs\/pi-agent-core\/node$/, replacement: agentNode },
+			{ find: /^@lue-labs\/pi-agent-core\/harness\/session\/testing$/, replacement: agentSessionTesting },
 			{ find: /^@lue-labs\/pi-agent-core$/, replacement: agentIndex },
 			{ find: /^@lue-labs\/pi-ai$/, replacement: aiIndex },
 		],
 	},
+	ssr: { resolve: { conditions: ["source"] } },
 });

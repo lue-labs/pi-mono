@@ -55,3 +55,6 @@ collect.sh
 
 # Rust recast experiment build output
 experiments/rusty-core-recast/target/
+
+# upstream: generated extension doc
+packages/agent/docs/extensions/pi-server-artifact/index.md

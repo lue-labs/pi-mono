@@ -15,6 +15,7 @@ export default defineConfig({
 		silent: "passed-only",
 	},
 	resolve: {
+		conditions: ["source"],
 		alias: [
 			{ find: /^@lue-labs\/pi-telemetry$/, replacement: telemetrySrcIndex },
 			{ find: /^@earendil-works\/pi-telemetry$/, replacement: telemetrySrcIndex },
@@ -29,4 +30,5 @@ export default defineConfig({
 			{ find: /^@mariozechner\/pi-agent-core$/, replacement: agentSrcIndex },
 		],
 	},
+	ssr: { resolve: { conditions: ["source"] } },
 });

@@ -1,5 +1,5 @@
 import type * as NodeFs from "node:fs";
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import type { BetaMessageParam as MessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 
 // NEVER convert to a top-level runtime import - breaks browser/Vite builds
 type ProcessWithNodeBuiltinModule = typeof process & {

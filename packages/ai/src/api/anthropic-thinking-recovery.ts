@@ -11,7 +11,7 @@
  * Fork provenance: extracted verbatim from anthropic-messages.ts (fork-delta
  * reforge slice 6); tier `platform` in pi-fork-patch-inventory.
  */
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages.js";
+import type { BetaMessageParam as MessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 
 // Detect the specific 400 raised when a thinking/redacted_thinking block in the
 // latest assistant message does not match the signature Anthropic issued.

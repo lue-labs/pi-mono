@@ -41,7 +41,6 @@ export {
 	NOOP_TELEMETRY_CONTEXT,
 } from "@lue-labs/pi-telemetry";
 export * from "./agent.ts";
-// Loop functions
 export * from "./agent-loop.ts";
 export * from "./harness/agent-harness.ts";
 export {
@@ -73,11 +72,12 @@ export {
 	serializeConversation,
 	shouldCompact,
 } from "./harness/compaction/compaction.ts";
+export * from "./harness/context.ts";
 export * from "./harness/messages.ts";
 export * from "./harness/progressive-disclosure.ts";
 export * from "./harness/prompt-templates.ts";
-// Harness
 export * from "./harness/result.ts";
+export { type LaneSnapshotReduction, reduceLaneSnapshot } from "./harness/runtime/reducer.ts";
 export * from "./harness/session/index.ts";
 export * from "./harness/skills.ts";
 export * from "./harness/system-prompt.ts";
@@ -113,6 +113,9 @@ export {
 	type AgentHarnessStreamOptionsPatch,
 	type AgentHarnessTool,
 	type AgentHarnessToolContextSource,
+	type AgentHarnessToolInvocation,
+	type AgentHarnessToolUpdateCallback,
+	type AgentHarnessToolUpdateOptions,
 	BranchSummaryError,
 	type BranchSummaryErrorCode,
 	CompactionError,
@@ -132,15 +135,21 @@ export {
 	type PromptTemplate,
 	type Shell,
 	type ShellExecOptions,
+	type ShellExecResult,
+	type ShellOutputCaptureOptions,
+	type ShellOutputLimits,
+	type ShellOutputMetadata,
+	type ShellOutputRetention,
+	type ShellOutputTruncation,
+	type ShellOutputUpdate,
+	type ShellOutputView,
 	type Skill,
 	toError,
 } from "./harness/types.ts";
+export { applyShellOutputUpdate } from "./harness/utils/output-capture.ts";
 export * from "./harness/utils/shell-output.ts";
 export * from "./harness/utils/truncate.ts";
-// Proxy utilities
 export * from "./proxy.ts";
 export * from "./search/index.ts";
-// Stream defaults
 export { setDefaultStreamFn } from "./stream-fn.ts";
-// Types
 export * from "./types.ts";

@@ -6,7 +6,11 @@
 		"moduleResolution": "NodeNext",
 		"types": ["node", "vitest"],
 		"paths": {
-			"@lue-labs/pi-protocol": ["../protocol/src/index.ts"]
+			"@lue-labs/pi-agent-core": ["../agent/src/index.ts"],
+			"@lue-labs/pi-ai": ["../ai/src/index.ts"],
+			"@lue-labs/pi-ai/*": ["../ai/src/*.ts", "../ai/src/providers/*.ts"],
+			"@lue-labs/pi-protocol": ["../protocol/src/index.ts"],
+			"@lue-labs/pi-telemetry": ["../telemetry/src/index.ts"]
 		}
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts"]

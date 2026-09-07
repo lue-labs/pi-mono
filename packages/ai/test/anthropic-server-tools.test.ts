@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { MessageCreateParamsStreaming } from "@anthropic-ai/sdk/resources/messages.js";
+import type { MessageCreateParamsStreaming } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
 import type { AssistantMessageEvent, Context } from "../src/types.ts";
@@ -27,10 +27,12 @@ function createScriptedAnthropicClient(response: Response): {
 } {
 	const calls: MessageCreateParamsStreaming[] = [];
 	const client = {
-		messages: {
-			create: (params: MessageCreateParamsStreaming) => {
-				calls.push(params);
-				return { asResponse: async () => response };
+		beta: {
+			messages: {
+				create: (params: MessageCreateParamsStreaming) => {
+					calls.push(params);
+					return { asResponse: async () => response };
+				},
 			},
 		},
 	} as unknown as Anthropic;

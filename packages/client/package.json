@@ -51,7 +51,8 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@lue-labs/pi-protocol": "0.84.8"
+		"@lue-labs/pi-protocol": "0.84.8",
+		"@earendil-works/chord": "0.85.1"
 	},
 	"devDependencies": {
 		"shx": "0.4.0",

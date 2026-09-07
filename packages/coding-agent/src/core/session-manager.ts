@@ -943,6 +943,8 @@ export class SessionManager {
 
 		if (sessionFile) {
 			this.setSessionFile(sessionFile, hydrationOptions, preloadedFileEntries);
+		} else if (preloadedFileEntries?.length) {
+			this._loadEntries(preloadedFileEntries, newSessionOptions);
 		} else {
 			this.newSession(newSessionOptions);
 		}
@@ -964,13 +966,13 @@ export class SessionManager {
 				residentPruneOptions: hydrationOptions.residentPruneOptions,
 			};
 
-			this.fileEntries =
+			const entries =
 				preloadedFileEntries ??
 				loadEntriesFromFile(this.sessionFile, canPruneDuringLoad ? pruneLoadOptions : undefined);
 
 			// If file was empty, initialize it with a valid session header. If it was
 			// non-empty but did not parse as a pi session, fail without modifying it.
-			if (this.fileEntries.length === 0) {
+			if (entries.length === 0) {
 				const explicitPath = this.sessionFile;
 				if (statSync(explicitPath).size > 0) {
 					throw new Error(`Session file is not a valid ${APP_NAME} session: ${explicitPath}`);
@@ -982,17 +984,11 @@ export class SessionManager {
 				return;
 			}
 
-			const header = this.fileEntries.find((e) => e.type === "session") as SessionHeader | undefined;
-			this.sessionId = header?.id ?? createSessionId();
-
-			if (migrateToCurrentVersion(this.fileEntries)) {
-				this._rewriteFile();
-				if (pruneOnHydration) {
-					this.fileEntries = loadEntriesFromFile(this.sessionFile, pruneLoadOptions);
-				}
+			// A migration rewrites the file unpruned, so re-read it to keep the pruned view.
+			if (this._loadEntries(entries) && pruneOnHydration) {
+				this.fileEntries = loadEntriesFromFile(this.sessionFile, pruneLoadOptions);
+				this._buildIndex();
 			}
-
-			this._buildIndex();
 			this.flushed = true;
 		} else {
 			const explicitPath = this.sessionFile;
@@ -1027,6 +1023,28 @@ export class SessionManager {
 			this.sessionFile = join(this.getSessionDir(), `${fileTimestamp}_${this.sessionId}.jsonl`);
 		}
 		return this.sessionFile;
+	}
+
+	/** Returns true when a version migration rewrote the session file. */
+	private _loadEntries(entries: FileEntry[], options?: NewSessionOptions): boolean {
+		const header = entries.find((e) => e.type === "session") as SessionHeader | undefined;
+		let migrated = false;
+
+		if (header) {
+			this.fileEntries = entries;
+			this.sessionId = header.id;
+
+			if (migrateToCurrentVersion(this.fileEntries)) {
+				this._rewriteFile();
+				migrated = true;
+			}
+		} else {
+			this.newSession(options);
+			this.fileEntries = this.fileEntries.concat(entries);
+		}
+
+		this._buildIndex();
+		return migrated;
 	}
 
 	private _buildIndex(): void {
@@ -1552,10 +1570,27 @@ export class SessionManager {
 		// Because labels are real tree entries, later entries can be children of labels;
 		// removing labels requires re-chaining the retained path to avoid orphaned subtrees.
 		const pathWithoutLabels: SessionEntry[] = [];
+		const replacementByLabelId = new Map<string, string>();
+		const pendingLabelIds: string[] = [];
 		let pathParentId: string | null = null;
 		for (const entry of path) {
-			if (entry.type === "label") continue;
-			pathWithoutLabels.push({ ...entry, parentId: pathParentId });
+			if (entry.type === "label") {
+				pendingLabelIds.push(entry.id);
+				continue;
+			}
+			for (const labelId of pendingLabelIds) {
+				replacementByLabelId.set(labelId, entry.id);
+			}
+			pendingLabelIds.length = 0;
+			pathWithoutLabels.push(
+				entry.type === "compaction"
+					? {
+							...entry,
+							parentId: pathParentId,
+							firstKeptEntryId: replacementByLabelId.get(entry.firstKeptEntryId) ?? entry.firstKeptEntryId,
+						}
+					: { ...entry, parentId: pathParentId },
+			);
 			pathParentId = entry.id;
 		}
 
@@ -1703,9 +1738,9 @@ export class SessionManager {
 		return new SessionManager(cwd, dir, undefined, true);
 	}
 
-	/** Create an in-memory session (no file persistence) */
-	static inMemory(cwd: string = process.cwd(), options?: NewSessionOptions): SessionManager {
-		return new SessionManager(cwd, "", undefined, false, options);
+	/** Create an in-memory session (no file persistence), optionally from entries held outside the filesystem. */
+	static inMemory(cwd: string = process.cwd(), options?: NewSessionOptions, entries?: FileEntry[]): SessionManager {
+		return new SessionManager(cwd, "", undefined, false, options, undefined, entries);
 	}
 
 	/**

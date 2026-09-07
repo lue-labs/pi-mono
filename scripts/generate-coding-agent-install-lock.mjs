@@ -12,9 +12,11 @@ const rootLockfilePath = join(repoRoot, "package-lock.json");
 const outputPackageJsonPath = join(outputDir, "package.json");
 const outputLockfilePath = join(outputDir, "package-lock.json");
 const internalPackagePrefix = "@lue-labs/pi-";
+const internalPackageNames = new Set(["@earendil-works/chord"]);
 const installPackageName = "@lue-labs/pi-coding-agent-install";
 const allowedInstallScriptPackages = new Map([
 	["@google/genai@1.52.0", "preinstall is a no-op in the published package"],
+	["esbuild@0.28.1", "postinstall selects and verifies the platform-specific esbuild binary"],
 	["protobufjs@7.6.5", "postinstall only warns about protobufjs version scheme mismatches"],
 	["koffi@2.16.2", "fork keeps koffi optionalDependency for Windows VT input (Shift+Tab); install scripts build the native addon"],
 ]);
@@ -139,7 +141,7 @@ function getInternalWorkspaces(lockPackages) {
 		if (!lockPath.startsWith("packages/") || lockPath.includes("/node_modules/") || !entry.name || !entry.version) {
 			continue;
 		}
-		if (!entry.name.startsWith(internalPackagePrefix)) {
+		if (!entry.name.startsWith(internalPackagePrefix) && !internalPackageNames.has(entry.name)) {
 			continue;
 		}
 
@@ -257,7 +259,7 @@ function createRootLockEntry(installerPackageJson) {
 	return sortedPackageEntry(entry);
 }
 
-function validateGeneratedFiles(installerPackageJson, installLock, internalNames) {
+function validateGeneratedFiles(installerPackageJson, installLock, internalNames, internalWorkspaces) {
 	const errors = [];
 	const rootEntry = installLock.packages[""];
 	const includedPackageNames = new Set();
@@ -292,8 +294,12 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 		if (entry.dev || entry.devOptional || entry.extraneous) {
 			errors.push(`${lockPath || "root"} contains dev/extraneous metadata`);
 		}
-		if (packageName?.startsWith(internalPackagePrefix) && entry.version !== installerPackageJson.version) {
-			errors.push(`${lockPath} internal package version ${entry.version} does not match ${installerPackageJson.version}`);
+		if (packageName !== undefined && (packageName.startsWith(internalPackagePrefix) || internalPackageNames.has(packageName))) {
+			// chord keeps upstream's own version rather than the fork lockstep, so each workspace is its own reference.
+			const expectedVersion = internalWorkspaces.get(packageName)?.packageJson.version ?? installerPackageJson.version;
+			if (entry.version !== expectedVersion) {
+				errors.push(`${lockPath} internal package version ${entry.version} does not match ${expectedVersion}`);
+			}
 		}
 		if (entry.hasInstallScript) {
 			if (!packageName || !entry.version) {
@@ -397,7 +403,7 @@ function generateInstallLock() {
 		packages: sortedObject(installLockPackages),
 	};
 
-	validateGeneratedFiles(installerPackageJson, installLock, internalNames);
+	validateGeneratedFiles(installerPackageJson, installLock, internalNames, internalWorkspaces);
 	return { installerPackageJson, installLock };
 }
 

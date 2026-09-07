@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
 import { getModel } from "../src/compat.ts";
 import type { Message, Model } from "../src/types.ts";
-import { pickModel } from "./helpers/models.ts";
+import { pickModelForApi } from "./helpers/models.ts";
 
 interface CacheControl {
 	type: "ephemeral";
@@ -155,13 +155,22 @@ describe("openai-completions cacheControlFormat", () => {
 	});
 
 	it("preserves Anthropic-style cache markers for OpenRouter Anthropic models", async () => {
-		const model = pickModel("openrouter", (m) => m.id.startsWith("anthropic/"));
+		// OpenRouter routes its native Anthropic models over anthropic-messages, so
+		// pin the completions transport this suite is about rather than taking
+		// whichever Anthropic model the registry happens to list first.
+		const model = pickModelForApi("openrouter", "openai-completions", (m) => m.id.startsWith("anthropic/"));
+		const params = await capturePayload(model);
+		expectAnthropicCacheMarkers(params);
+	});
+
+	it("preserves Anthropic-style cache markers for OpenRouter Anthropic batch aliases", async () => {
+		const model = getModel("openrouter", "anthropic/claude-fable-5.1:batch");
 		const params = await capturePayload(model);
 		expectAnthropicCacheMarkers(params);
 	});
 
 	it("moves the conversation cache marker to a tool result", async () => {
-		const model = getModel("openrouter", "anthropic/claude-sonnet-4");
+		const model = getModel("openrouter", "anthropic/claude-fable-5.1:batch");
 		const timestamp = Date.now();
 		const params = await capturePayload(model, undefined, [
 			{ role: "user", content: "Read the file", timestamp },

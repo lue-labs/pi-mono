@@ -1,6 +1,17 @@
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@lue-labs/pi-ai";
 import { describe, expect, test } from "vitest";
+import type { Skill } from "../src/core/skills.ts";
+import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { buildSystemPrompt } from "../src/core/system-prompt.ts";
+
+const testSkill: Skill = {
+	name: "test-skill",
+	description: "A test skill.",
+	filePath: "/skills/test-skill/SKILL.md",
+	baseDir: "/skills/test-skill",
+	sourceInfo: createSyntheticSourceInfo("/skills/test-skill/SKILL.md", { source: "test" }),
+	disableModelInvocation: false,
+};
 
 describe("buildSystemPrompt", () => {
 	describe("empty tools", () => {
@@ -284,6 +295,36 @@ describe("buildSystemPrompt", () => {
 			}
 			// No leftover drifted variant of the native-tools rule.
 			expect(prompt).not.toContain("Prefer native file tools for repo exploration");
+		});
+	});
+
+	describe("skills", () => {
+		test.each([
+			{ name: "default prompt", customPrompt: undefined },
+			{ name: "custom prompt", customPrompt: "Custom system prompt" },
+		])("includes skills with only bash in the $name", ({ customPrompt }) => {
+			const prompt = buildSystemPrompt({
+				customPrompt,
+				selectedTools: ["bash"],
+				contextFiles: [],
+				skills: [testSkill],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("<available_skills>");
+			expect(prompt).toContain('name="test-skill"');
+			expect(prompt).toContain("Use bash to load a skill's file");
+		});
+
+		test("omits skills without read or bash", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["write"],
+				contextFiles: [],
+				skills: [testSkill],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).not.toContain("<available_skills>");
 		});
 	});
 });

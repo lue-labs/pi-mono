@@ -289,10 +289,12 @@ describe("anthropic wire repair after onPayload", () => {
 
 		let sentParams: { messages: MessageParam[] } | undefined;
 		const client = {
-			messages: {
-				create: (params: { messages: MessageParam[] }) => {
-					sentParams = params;
-					return { asResponse: async () => createAnthropicResponse() };
+			beta: {
+				messages: {
+					create: (params: { messages: MessageParam[] }) => {
+						sentParams = params;
+						return { asResponse: async () => createAnthropicResponse() };
+					},
 				},
 			},
 		};
@@ -377,10 +379,12 @@ describe("anthropic wire repair after onPayload", () => {
 
 		let sentParams: { messages: MessageParam[] } | undefined;
 		const client = {
-			messages: {
-				create: (params: { messages: MessageParam[] }) => {
-					sentParams = params;
-					return { asResponse: async () => createAnthropicResponse() };
+			beta: {
+				messages: {
+					create: (params: { messages: MessageParam[] }) => {
+						sentParams = params;
+						return { asResponse: async () => createAnthropicResponse() };
+					},
 				},
 			},
 		};
@@ -457,10 +461,12 @@ describe("anthropic wire repair after onPayload", () => {
 
 		let sentParams: { messages: MessageParam[] } | undefined;
 		const client = {
-			messages: {
-				create: (params: { messages: MessageParam[] }) => {
-					sentParams = params;
-					return { asResponse: async () => createAnthropicResponse() };
+			beta: {
+				messages: {
+					create: (params: { messages: MessageParam[] }) => {
+						sentParams = params;
+						return { asResponse: async () => createAnthropicResponse() };
+					},
 				},
 			},
 		};
