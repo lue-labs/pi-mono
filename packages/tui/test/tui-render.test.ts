@@ -220,15 +220,15 @@ function overrideEnv(names: readonly string[], value: string): () => void {
 	};
 }
 
-describe("TUI crash dump without configured log directory", () => {
-	it("writes the crash dump to the OS temp directory instead of a home-directory default", async () => {
+describe("TUI overwide line clamp without configured log directory", () => {
+	it("clamps the line and writes the log to the OS temp directory instead of a home-directory default", async () => {
 		// The TUI falls back to os.tmpdir() when no log directory is configured, so
 		// isolate the test by pointing the temp directory at a fresh directory rather
 		// than sharing the real one with concurrent test runs. os.tmpdir() reads
 		// TMPDIR on POSIX and TEMP/TMP on Windows, so override all three.
-		const crashDir = mkdtempSync(join(tmpdir(), "pi-tui-crash-"));
-		const crashLogPath = join(crashDir, "pi-tui-crash.log");
-		const restoreTmpdirEnv = overrideEnv(["TMPDIR", "TEMP", "TMP"], crashDir);
+		const logDir = mkdtempSync(join(tmpdir(), "pi-tui-crash-"));
+		const crashLogPath = join(logDir, "pi-crash.log");
+		const restoreTmpdirEnv = overrideEnv(["TMPDIR", "TEMP", "TMP"], logDir);
 		try {
 			const terminal = new VirtualTerminal(40, 10);
 			const tui: TUI = new TuiMainScreen(terminal);
@@ -238,20 +238,17 @@ describe("TUI crash dump without configured log directory", () => {
 			tui.start();
 			await terminal.waitForRender();
 
-			// Width overflow is detected in the differential render path
+			// Width overflow is detected in the differential render path. Overwide lines
+			// are truncated rather than thrown on, so the session survives (see #8028).
 			component.lines = ["ok", "x".repeat(60)];
-			assert.throws(
-				() => tui.renderNow(),
-				(error: unknown) => {
-					assert.ok(error instanceof Error);
-					assert.ok(error.message.includes(crashLogPath), `error message should reference ${crashLogPath}`);
-					return true;
-				},
-			);
-			assert.match(readFileSync(crashLogPath, "utf-8"), /Terminal width: 40/);
+			assert.doesNotThrow(() => tui.renderNow());
+
+			const log = readFileSync(crashLogPath, "utf-8");
+			assert.match(log, /Terminal width: 40/);
+			assert.match(log, /Line 1 visible width: 60/);
 		} finally {
 			restoreTmpdirEnv();
-			rmSync(crashDir, { recursive: true, force: true });
+			rmSync(logDir, { recursive: true, force: true });
 		}
 	});
 });
