@@ -36,8 +36,8 @@ const echoTool: Tool<typeof echoToolSchema> = {
 /**
  * Test 1: Live cross-provider handoff
  *
- * 1. Use github-copilot gpt-5.2-codex to generate a tool call
- * 2. Switch to openrouter openai/gpt-5.2-codex and complete
+ * 1. Use github-copilot gpt-5.5 to generate a tool call
+ * 2. Switch to openrouter openai/gpt-5.5 and complete
  * 3. Switch to openai-codex gpt-5.5 and complete
  *
  * Both should succeed without "call_id too long" errors.

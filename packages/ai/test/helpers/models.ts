@@ -27,6 +27,16 @@ export const supportsImages: ModelPredicate = (model) => model.input.includes("i
 /** Model is a reasoning/thinking model. */
 export const isReasoning: ModelPredicate = (model) => model.reasoning;
 
+/**
+ * Model is served over the given wire API. Aggregator providers (OpenRouter,
+ * Vercel AI Gateway) route some of their catalog to native provider APIs, and
+ * which models those are follows the upstream registry rather than this repo —
+ * so a test about one transport must pin the transport, not just a capability.
+ */
+export function usesApi(api: Api): ModelPredicate {
+	return (model) => model.api === api;
+}
+
 /** Model exposes the given thinking level (e.g. "xhigh"). */
 export function supportsThinkingLevel(level: ModelThinkingLevel): ModelPredicate {
 	return (model) => getSupportedThinkingLevels(model).includes(level);
@@ -61,4 +71,25 @@ export function pickModel<TProvider extends BuiltinProvider>(
 		);
 	}
 	return match as ProviderModel<TProvider>;
+}
+
+/**
+ * Pick the first model a provider serves over a specific wire API. Returns the
+ * narrowed `Model<TApi>` so a suite about one transport can hand the model to
+ * that transport's helpers without casting.
+ */
+export function pickModelForApi<TApi extends Api>(
+	provider: BuiltinProvider,
+	api: TApi,
+	predicate?: ModelPredicate,
+): Model<TApi> {
+	const models = getModels(provider) as unknown as Model<Api>[];
+	const match = models.find((model) => model.api === api && (predicate?.(model) ?? true));
+	if (!match) {
+		throw new Error(
+			`No registered "${api}" model for provider "${provider}" matching the requested capability. ` +
+				"Registry drift: regenerate src/models.generated.ts or relax the test capability.",
+		);
+	}
+	return match as Model<TApi>;
 }

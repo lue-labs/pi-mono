@@ -61,6 +61,7 @@ function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCo
 		supportsToolSearch: model.compat?.supportsToolSearch ?? false,
 		promptCacheApi: model.compat?.promptCacheApi ?? "legacy",
 		supportsExplicitPromptCacheMode: model.compat?.supportsExplicitPromptCacheMode ?? false,
+		supportsMaxOutputTokens: model.compat?.supportsMaxOutputTokens ?? true,
 		// Fork: Codex Responses transport flags share the compat type; default on.
 		sendChatgptAccountId: model.compat?.sendChatgptAccountId ?? true,
 		supportsWebSocketTransport: model.compat?.supportsWebSocketTransport ?? true,
@@ -72,10 +73,22 @@ function getPromptCacheRetention(
 	compat: Required<OpenAIResponsesCompat>,
 	cacheRetention: CacheRetention,
 ): "24h" | undefined {
-	// GPT-5.6+ deprecates prompt_cache_retention in favor of prompt_cache_options.ttl
-	// (default and only value "30m"); omit it entirely on breakpoint-capable models.
+	// GPT-5.6+ deprecates prompt_cache_retention in favor of prompt_cache_options.ttl;
+	// omit it entirely on breakpoint-capable and explicit-cache-mode models.
 	if (compat.promptCacheApi === "breakpoints") return undefined;
-	return cacheRetention === "long" && compat.supportsLongCacheRetention ? "24h" : undefined;
+	return cacheRetention === "long" && compat.supportsLongCacheRetention && !compat.supportsExplicitPromptCacheMode
+		? "24h"
+		: undefined;
+}
+
+function getPromptCacheOptions(
+	compat: Required<OpenAIResponsesCompat>,
+	cacheRetention: CacheRetention,
+): { mode?: "explicit"; ttl?: "30m" } | undefined {
+	if (!compat.supportsExplicitPromptCacheMode) return undefined;
+	if (cacheRetention === "none") return { mode: "explicit" };
+	if (cacheRetention === "long" && compat.supportsLongCacheRetention) return { ttl: "30m" };
+	return undefined;
 }
 
 function formatOpenAIResponsesError(error: unknown): string {
@@ -134,7 +147,9 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 			let params = buildParams(model, context, options, compat, grammarToolInputProperties);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
-				params = nextParams as ResponseCreateParamsStreaming & { prompt_cache_options?: { mode: "explicit" } };
+				params = nextParams as ResponseCreateParamsStreaming & {
+					prompt_cache_options?: { mode?: "explicit"; ttl?: "30m" };
+				};
 			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
@@ -264,9 +279,9 @@ function buildParams(
 	),
 ) {
 	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
-	// Explicit breakpoints ride the default implicit mode, so prompt_cache_options is
-	// not sent (mode "implicit" and ttl "30m" are the API defaults). The implicit
-	// latest-message breakpoint replaces the legacy last-user-message anchor.
+	// Explicit breakpoints ride the default implicit mode ("30m" is the API default
+	// ttl), so prompt_cache_options only carries what getPromptCacheOptions decides.
+	// The implicit latest-message breakpoint replaces the legacy last-user-message anchor.
 	const promptCacheBreakpoints = compat.promptCacheApi === "breakpoints" && cacheRetention !== "none";
 	const deferredToolsMode = compat.supportsAdditionalTools
 		? "additional-tools"
@@ -285,8 +300,9 @@ function buildParams(
 		},
 	});
 
-	const disableImplicitPromptCache = cacheRetention === "none" && compat.supportsExplicitPromptCacheMode;
-	const params: ResponseCreateParamsStreaming & { prompt_cache_options?: { mode: "explicit" } } = {
+	const params: ResponseCreateParamsStreaming & {
+		prompt_cache_options?: { mode?: "explicit"; ttl?: "30m" };
+	} = {
 		model: model.id,
 		input: messages,
 		stream: true,
@@ -295,11 +311,11 @@ function buildParams(
 				? undefined
 				: clampOpenAIPromptCacheKey(options?.cacheAffinityKey ?? options?.sessionId),
 		prompt_cache_retention: getPromptCacheRetention(compat, cacheRetention),
-		prompt_cache_options: disableImplicitPromptCache ? { mode: "explicit" } : undefined,
+		prompt_cache_options: getPromptCacheOptions(compat, cacheRetention),
 		store: false,
 	};
 
-	if (options?.maxTokens) {
+	if (options?.maxTokens && compat.supportsMaxOutputTokens) {
 		params.max_output_tokens = Math.max(options.maxTokens, OPENAI_RESPONSES_MIN_OUTPUT_TOKENS);
 	}
 

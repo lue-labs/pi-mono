@@ -143,7 +143,7 @@ describe("TUI debug logging", () => {
 	it("writes redraw logs to the provided directory", async () => {
 		const logDir = mkdtempSync(join(tmpdir(), "pi-tui-log-"));
 		try {
-			await withEnv({ PI_DEBUG_REDRAW: "1" }, async () => {
+			await withEnv({ PI_TUI_DEBUG_REDRAW: "1" }, async () => {
 				const terminal = new VirtualTerminal(40, 10);
 				const tui: TUI = new TuiMainScreen(terminal, undefined, logDir);
 				const component = new TestComponent();
@@ -152,7 +152,7 @@ describe("TUI debug logging", () => {
 				tui.start();
 				await terminal.waitForRender();
 
-				assert.match(readFileSync(join(logDir, "pi-debug.log"), "utf-8"), /fullRender: first render/);
+				assert.match(readFileSync(join(logDir, "pi-tui-debug.log"), "utf-8"), /fullRender: first render/);
 				tui.stop();
 			});
 		} finally {
@@ -203,6 +203,53 @@ describe("TUI bounded render output", () => {
 		assert.ok(output.startsWith("\x1b[?2026h"));
 		assert.ok(output.endsWith("\x1b[?2026l"));
 		assert.ok(!output.includes("\x1b[2J"), "the update should stay on the differential render path");
+	});
+});
+
+/** Set each environment variable to `value`, returning a function that restores the previous state. */
+function overrideEnv(names: readonly string[], value: string): () => void {
+	const previousValues = names.map((name) => [name, process.env[name]] as const);
+	for (const name of names) {
+		process.env[name] = value;
+	}
+	return () => {
+		for (const [name, previousValue] of previousValues) {
+			if (previousValue === undefined) delete process.env[name];
+			else process.env[name] = previousValue;
+		}
+	};
+}
+
+describe("TUI overwide line clamp without configured log directory", () => {
+	it("clamps the line and writes the log to the OS temp directory instead of a home-directory default", async () => {
+		// The TUI falls back to os.tmpdir() when no log directory is configured, so
+		// isolate the test by pointing the temp directory at a fresh directory rather
+		// than sharing the real one with concurrent test runs. os.tmpdir() reads
+		// TMPDIR on POSIX and TEMP/TMP on Windows, so override all three.
+		const logDir = mkdtempSync(join(tmpdir(), "pi-tui-crash-"));
+		const crashLogPath = join(logDir, "pi-crash.log");
+		const restoreTmpdirEnv = overrideEnv(["TMPDIR", "TEMP", "TMP"], logDir);
+		try {
+			const terminal = new VirtualTerminal(40, 10);
+			const tui: TUI = new TuiMainScreen(terminal);
+			const component = new TestComponent();
+			tui.addChild(component);
+			component.lines = ["ok"];
+			tui.start();
+			await terminal.waitForRender();
+
+			// Width overflow is detected in the differential render path. Overwide lines
+			// are truncated rather than thrown on, so the session survives (see #8028).
+			component.lines = ["ok", "x".repeat(60)];
+			assert.doesNotThrow(() => tui.renderNow());
+
+			const log = readFileSync(crashLogPath, "utf-8");
+			assert.match(log, /Terminal width: 40/);
+			assert.match(log, /Line 1 visible width: 60/);
+		} finally {
+			restoreTmpdirEnv();
+			rmSync(logDir, { recursive: true, force: true });
+		}
 	});
 });
 

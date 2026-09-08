@@ -170,7 +170,7 @@ export interface Settings {
 	subagents?: SubagentSettings; // Default model/thinking for native child agents (precedence: explicit task option > agent frontmatter > providers[parent.provider] > defaults > parent inheritance)
 	cacheHeartbeat?: CacheHeartbeatSettings;
 	hideThinkingBlock?: boolean;
-	showCacheMissNotices?: boolean; // default: false - show prompt-cache miss and compaction cost notices
+	showCacheMissNotices?: boolean; // default: false - show cache cost and provider recovery notices
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
 	shellPath?: string; // Custom shell path (e.g., for Cygwin users on Windows); supports leading ~ expansion
 	quietStartup?: boolean;

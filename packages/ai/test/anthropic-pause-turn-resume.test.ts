@@ -1,5 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { MessageCreateParamsStreaming, RawMessageStartEvent } from "@anthropic-ai/sdk/resources/messages.js";
+import type {
+	MessageCreateParamsStreaming,
+	BetaRawMessageStartEvent as RawMessageStartEvent,
+} from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
 import type { Context, ThinkingContent } from "../src/types.ts";
@@ -43,6 +46,8 @@ function messageStart(modelId: string, id: string, inputTokens: number): { event
 			stop_reason: null,
 			stop_sequence: null,
 			stop_details: null,
+			context_management: null,
+			diagnostics: null,
 			usage: {
 				input_tokens: inputTokens,
 				output_tokens: 0,
@@ -52,6 +57,10 @@ function messageStart(modelId: string, id: string, inputTokens: number): { event
 				inference_geo: null,
 				server_tool_use: null,
 				service_tier: null,
+				fallback_credit: null,
+				iterations: null,
+				output_tokens_details: null,
+				speed: null,
 			},
 		},
 	} satisfies RawMessageStartEvent;
@@ -227,19 +236,18 @@ interface ScriptedCall {
 function createScriptedAnthropicClient(responses: Response[]): { client: Anthropic; calls: ScriptedCall[] } {
 	const remaining = [...responses];
 	const calls: ScriptedCall[] = [];
+	const create = (params: MessageCreateParamsStreaming) => {
+		const response = remaining.shift();
+		if (!response) {
+			throw new Error(`scripted client exhausted; got ${calls.length + 1} requests`);
+		}
+		calls.push({ response, params });
+		return {
+			asResponse: async () => response,
+		};
+	};
 	const client = {
-		messages: {
-			create: (params: MessageCreateParamsStreaming) => {
-				const response = remaining.shift();
-				if (!response) {
-					throw new Error(`scripted client exhausted; got ${calls.length + 1} requests`);
-				}
-				calls.push({ response, params });
-				return {
-					asResponse: async () => response,
-				};
-			},
-		},
+		beta: { messages: { create } },
 	} as unknown as Anthropic;
 	return { client, calls };
 }

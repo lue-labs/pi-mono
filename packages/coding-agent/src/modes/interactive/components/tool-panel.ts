@@ -1,4 +1,10 @@
-import { applyBackgroundToLine, type Component, truncateToWidth } from "@lue-labs/pi-tui";
+import {
+	applyBackgroundToLine,
+	type Component,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	truncateToWidth,
+} from "@lue-labs/pi-tui";
 
 const TOOL_PANEL_PADDING_X = 2;
 
@@ -40,6 +46,30 @@ export class ToolPanel implements Component {
 	invalidate(): void {
 		this.cache = undefined;
 		for (const child of this.children) child.invalidate?.();
+	}
+
+	/**
+	 * Panel lines map one-to-one onto child lines, so only the horizontal padding has to be undone
+	 * before an event reaches the child that drew the row under the pointer.
+	 */
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.y < 0 || event.y >= event.height) return undefined;
+		const { contentWidth, paddingX } = panelLayout(event.width);
+		let childY = 0;
+		for (const child of this.children) {
+			const childHeight = child.render(contentWidth).length;
+			if (event.y >= childY && event.y < childY + childHeight) {
+				return child.handleMouse?.({
+					...event,
+					x: event.x - paddingX,
+					y: event.y - childY,
+					width: contentWidth,
+					height: childHeight,
+				});
+			}
+			childY += childHeight;
+		}
+		return undefined;
 	}
 
 	render(width: number): string[] {

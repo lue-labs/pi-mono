@@ -6,6 +6,7 @@ const dependencySections = ["dependencies", "devDependencies", "optionalDependen
 // -prerelease and +build metadata. Anything with ^, ~, *, ranges, or tags fails.
 const exactVersionPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const ignoredDirectories = new Set([".git", "dist", "node_modules", ".pi"]);
+const internalPackageNames = new Set(["@earendil-works/chord"]);
 const packageJsonFiles = [];
 
 function collectPackageJsonFiles(directory) {
@@ -24,7 +25,7 @@ function collectPackageJsonFiles(directory) {
 }
 
 function isInternalWorkspaceDependency(name) {
-	return name.startsWith("@lue-labs/pi-");
+	return name.startsWith("@lue-labs/pi-") || internalPackageNames.has(name);
 }
 
 function isNonRegistrySpecifier(specifier) {

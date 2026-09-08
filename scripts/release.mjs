@@ -152,7 +152,7 @@ function bumpOrSetVersion(target) {
 		}
 
 		console.log(`Setting explicit version (${target})...`);
-		run(`npm version ${target} --workspaces --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts`);
+		run(`node scripts/version-workspaces.mjs ${target} --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts`);
 	}
 
 	// npm version can temporarily install the previous workspace versions before
@@ -252,6 +252,10 @@ console.log();
 
 console.log("Running tests...");
 run("./test.sh");
+console.log();
+
+console.log("Checking the packed coding-agent consumer install...");
+run("npm run check:package-install");
 console.log();
 
 // 7. Commit and tag

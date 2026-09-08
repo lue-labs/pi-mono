@@ -1,11 +1,15 @@
+import { anthropicMessagesApi } from "../api/anthropic-messages.lazy.ts";
 import { openAICompletionsApi } from "../api/openai-completions.lazy.ts";
 import { envApiKeyAuth, lazyOAuth } from "../auth/helpers.ts";
 import { loadOpenRouterOAuth } from "../auth/oauth/load.ts";
 import { createProvider, type Provider } from "../models.ts";
 import { OPENROUTER_MODELS } from "./openrouter.models.ts";
 
-export function openrouterProvider(): Provider<"openai-completions"> {
-	return createProvider({
+export function openrouterProvider(): Provider<"anthropic-messages" | "openai-completions"> {
+	// Pinned explicitly: the generated catalog only carries anthropic-messages
+	// entries after a model-data refresh, and inference from `models` alone would
+	// narrow TApi and reject the api map on a stale catalog.
+	return createProvider<"anthropic-messages" | "openai-completions">({
 		id: "openrouter",
 		name: "OpenRouter",
 		baseUrl: "https://openrouter.ai/api/v1",
@@ -18,6 +22,9 @@ export function openrouterProvider(): Provider<"openai-completions"> {
 			}),
 		},
 		models: Object.values(OPENROUTER_MODELS),
-		api: openAICompletionsApi(),
+		api: {
+			"anthropic-messages": anthropicMessagesApi(),
+			"openai-completions": openAICompletionsApi(),
+		},
 	});
 }

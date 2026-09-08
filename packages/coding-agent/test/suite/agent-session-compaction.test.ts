@@ -196,6 +196,31 @@ function seedLargeCompactableSession(harness: Harness): string {
 	return oldUserId;
 }
 
+async function createAbortableCompactionHarness(): Promise<{
+	harness: Harness;
+	compactionStarted: Promise<void>;
+}> {
+	let markCompactionStarted = () => {};
+	const compactionStarted = new Promise<void>((resolve) => {
+		markCompactionStarted = resolve;
+	});
+	const harness = await createHarness({
+		settings: { compaction: { keepRecentTokens: 1 } },
+		extensionFactories: [
+			(pi) => {
+				pi.on("session_before_compact", async (event) => {
+					return await new Promise<{ cancel: true }>((resolve) => {
+						event.signal.addEventListener("abort", () => resolve({ cancel: true }), { once: true });
+						markCompactionStarted();
+					});
+				});
+			},
+		],
+	});
+	seedCompactableSession(harness);
+	return { harness, compactionStarted };
+}
+
 describe("AgentSession compaction characterization", () => {
 	const harnesses: Harness[] = [];
 
@@ -917,28 +942,38 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("cancels in-progress manual compaction when abortCompaction is called", async () => {
-		const harness = await createHarness({
-			settings: { compaction: { keepRecentTokens: 1 } },
-			extensionFactories: [
-				(pi) => {
-					pi.on("session_before_compact", async (event) => {
-						return await new Promise<{ cancel: true }>((resolve) => {
-							event.signal.addEventListener("abort", () => resolve({ cancel: true }), { once: true });
-						});
-					});
-				},
-			],
-		});
+		const { harness, compactionStarted } = await createAbortableCompactionHarness();
 		harnesses.push(harness);
 
-		await harness.session.prompt("one");
-		await harness.session.prompt("two");
-
 		const compactPromise = harness.session.compact();
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		const compactExpectation = expect(compactPromise).rejects.toThrow("Compaction cancelled");
+		await compactionStarted;
 		harness.session.abortCompaction();
 
-		await expect(compactPromise).rejects.toThrow("Compaction cancelled");
+		await compactExpectation;
+	});
+
+	// Regression test for #8920.
+	it("aborts an in-progress manual compaction and waits until the session is idle", async () => {
+		const { harness, compactionStarted } = await createAbortableCompactionHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("continued")]);
+
+		const compactPromise = harness.session.compact();
+		const compactExpectation = expect(compactPromise).rejects.toThrow("Compaction cancelled");
+		await compactionStarted;
+		await harness.session.abort();
+		await compactExpectation;
+
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
+			reason: "manual",
+			aborted: true,
+		});
+		expect(harness.session.isCompacting).toBe(false);
+		expect(harness.session.isIdle).toBe(true);
+
+		await expect(harness.session.prompt("next prompt")).resolves.toBeUndefined();
+		expect(harness.session.getLastAssistantText()).toBe("continued");
 	});
 
 	it("rejects duplicate manual compaction without clearing the active run controller", async () => {

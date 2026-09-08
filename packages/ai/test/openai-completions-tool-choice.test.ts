@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { convertMessages, stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
 import { getModel, streamSimple } from "../src/compat.ts";
 import type { AssistantMessage, Model, Tool, ToolResultMessage } from "../src/types.ts";
-import { hasCompatFlag, isReasoning, type ModelPredicate, pickModel } from "./helpers/models.ts";
+import { allOf, hasCompatFlag, isReasoning, type ModelPredicate, pickModel, usesApi } from "./helpers/models.ts";
 
 // OpenCode Go Kimi K2.6: deepseek thinking format with reasoning_effort suppressed.
 const opencodeKimiThinking: ModelPredicate = (model) => {
@@ -1120,7 +1120,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("uses system messages for OpenRouter reasoning model instructions", async () => {
-		const model = pickModel("openrouter", isReasoning);
+		const model = pickModel("openrouter", allOf(isReasoning, usesApi("openai-completions")));
 		let payload: unknown;
 
 		await streamSimple(
@@ -1139,6 +1139,33 @@ describe("openai-completions tool_choice", () => {
 
 		const params = payload as { messages?: Array<{ role?: string }> };
 		expect(params.messages?.[0]?.role).toBe("system");
+	});
+
+	it("keeps developer messages for OpenAI and Anthropic OpenRouter batch instructions", async () => {
+		for (const model of [
+			getModel("openrouter", "openai/gpt-5.2-codex"),
+			getModel("openrouter", "anthropic/claude-fable-5.1:batch"),
+		]) {
+			expect(model).toBeDefined();
+			let payload: unknown;
+
+			await streamSimple(
+				model!,
+				{
+					systemPrompt: "Follow instructions.",
+					messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+				},
+				{
+					apiKey: "test",
+					onPayload: (params: unknown) => {
+						payload = params;
+					},
+				},
+			).result();
+
+			const params = payload as { messages?: Array<{ role?: string }> };
+			expect(params.messages?.[0]?.role).toBe("developer");
+		}
 	});
 
 	it("keeps developer messages for OpenAI reasoning model instructions", async () => {
@@ -1712,7 +1739,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("uses OpenRouter reasoning object instead of reasoning_effort", async () => {
-		const model = pickModel("openrouter", isReasoning);
+		const model = pickModel("openrouter", allOf(isReasoning, usesApi("openai-completions")));
 		let payload: unknown;
 
 		await streamSimple(
