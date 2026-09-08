@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { findPackageDirectories } from "./package-workspaces.mjs";
+import { findPackageDirectories, isVendoredUpstreamPackage } from "./package-workspaces.mjs";
 
 const GENERATED_PACKAGE_SUFFIXES = [join("coding-agent", "install-lock")];
 
@@ -18,8 +18,11 @@ const workspacePackages = findPackageDirectories(packageRoot)
 		const path = join(directory, "package.json");
 		return { data: JSON.parse(readFileSync(path, "utf8")), path };
 	});
-const publishedPackages = workspacePackages.filter((pkg) => pkg.data.private !== true);
-const versionMap = new Map(workspacePackages.map((pkg) => [pkg.data.name, pkg.data.version]));
+// Vendored upstream packages are versioned by upstream, so they neither join the
+// fork's lockstep set nor supply versions for the dependency rewrite below.
+const forkOwnedPackages = workspacePackages.filter((pkg) => !isVendoredUpstreamPackage(pkg.data.name));
+const publishedPackages = forkOwnedPackages.filter((pkg) => pkg.data.private !== true);
+const versionMap = new Map(forkOwnedPackages.map((pkg) => [pkg.data.name, pkg.data.version]));
 
 console.log("Current versions:");
 for (const pkg of [...publishedPackages].sort((a, b) => a.data.name.localeCompare(b.data.name))) {

@@ -22,3 +22,12 @@ export function findPackageDirectories(root = "packages") {
 	visit(root);
 	return packageDirectories.sort();
 }
+
+/**
+ * Packages vendored verbatim from upstream Pi. Their versions track upstream's
+ * release rather than the fork's, so they stay out of lockstep bumps and out of
+ * the internal dependency rewrite.
+ */
+export function isVendoredUpstreamPackage(name) {
+	return typeof name === "string" && name.startsWith("@earendil-works/");
+}
