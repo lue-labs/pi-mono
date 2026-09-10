@@ -11,6 +11,26 @@ import { findPackageDirectories, isVendoredUpstreamPackage } from "./package-wor
 
 const GENERATED_PACKAGE_SUFFIXES = [join("coding-agent", "install-lock")];
 
+/**
+ * Point a specifier at `version` without changing how wide it is.
+ *
+ * The two paths that bump this repo disagree otherwise. Changesets — the path
+ * releases actually take — maintains exact pins on the fork-owned packages,
+ * while rewriting everything to `^` here widens them behind its back, so
+ * running `npm run version:*` produces a diff that reverses the last release
+ * commit. Widening is also not free: `^` on a package whose version is not the
+ * fork's resolves to whatever gets published next, which is the same failure
+ * `isVendoredUpstreamPackage` already exists to prevent.
+ *
+ * Returns null for anything that is not a plain `[^~]?<semver>` range —
+ * `workspace:*`, `npm:` aliases, `>=`/`||` unions — because there is no
+ * single version those can be retargeted to without changing their meaning.
+ */
+function retargetSpecifier(currentSpecifier, version) {
+	const match = /^([\^~]?)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)?$/.exec(currentSpecifier);
+	return match ? `${match[1]}${version}` : null;
+}
+
 const packageRoot = process.argv[2] ?? "packages";
 const workspacePackages = findPackageDirectories(packageRoot)
 	.filter((directory) => !GENERATED_PACKAGE_SUFFIXES.some((suffix) => directory.endsWith(suffix)))
@@ -54,7 +74,7 @@ for (const pkg of workspacePackages) {
 			// Registry aliases such as `npm:@earendil-works/pi-ai@0.1.2` are never workspace-linked,
 			// so lockstep bumping them would point at a version that is not published yet.
 			const version = versionMap.get(dependencyName);
-			const newSpecifier = version ? `^${version}` : null;
+			const newSpecifier = version ? retargetSpecifier(currentSpecifier, version) : null;
 			if (!newSpecifier || currentSpecifier === newSpecifier) {
 				continue;
 			}

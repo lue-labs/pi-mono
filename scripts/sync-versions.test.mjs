@@ -82,3 +82,46 @@ test("synchronizes fork-owned dependencies without touching vendored packages, r
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test("retargets each internal dependency without widening or narrowing its range", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-sync-versions-range-"));
+	try {
+		await writeManifest(root, "packages/ai", { name: "@lue-labs/pi-ai", version: "2.0.0" });
+		await writeManifest(root, "packages/coding-agent", {
+			name: "@lue-labs/pi-coding-agent",
+			version: "2.0.0",
+		});
+		await writeManifest(root, "packages/consumer", {
+			name: "@lue-labs/pi-consumer",
+			version: "2.0.0",
+			private: true,
+			dependencies: {
+				// Changesets maintains exact pins on fork-owned packages; a caret
+				// here would reverse the last release commit on the next bump.
+				"@lue-labs/pi-ai": "1.0.0",
+				"@lue-labs/pi-coding-agent": "~1.0.0",
+			},
+			devDependencies: {
+				// No single version expresses these, so they are left alone rather
+				// than collapsed to a release that may not exist.
+				"@lue-labs/pi-ai": "workspace:*",
+			},
+		});
+
+		const result = runSyncVersions(root);
+		assert.equal(result.status, 0, result.stderr);
+
+		const consumer = await readManifest(root, "packages/consumer");
+		assert.equal(consumer.dependencies["@lue-labs/pi-ai"], "2.0.0");
+		assert.equal(consumer.dependencies["@lue-labs/pi-coding-agent"], "~2.0.0");
+		assert.equal(consumer.devDependencies["@lue-labs/pi-ai"], "workspace:*");
+
+		// Running again must be a no-op: the churn this prevents is what made the
+		// two bump paths disagree in the first place.
+		const rerun = runSyncVersions(root);
+		assert.equal(rerun.status, 0, rerun.stderr);
+		assert.match(rerun.stdout, /already in sync/);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
