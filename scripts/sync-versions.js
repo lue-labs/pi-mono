@@ -27,7 +27,7 @@ const GENERATED_PACKAGE_SUFFIXES = [join("coding-agent", "install-lock")];
  * single version those can be retargeted to without changing their meaning.
  */
 function retargetSpecifier(currentSpecifier, version) {
-	const match = /^([\^~]?)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)?$/.exec(currentSpecifier);
+	const match = /^([\^~]?)\d+\.\d+\.\d+(?:[-+][-0-9A-Za-z.]+)?$/.exec(currentSpecifier);
 	return match ? `${match[1]}${version}` : null;
 }
 
