@@ -45,7 +45,7 @@ export default function buildInterfaceLLMExtension(pi: ExtensionAPI) {
 			}),
 		});
 
-		pi.registerTool(createBuildInterfaceToolDefinition({ harness }));
+		pi.registerTool(createBuildInterfaceToolDefinition({ harness, events: pi.events }));
 
 		ctx.ui.notify(`BuildInterface (LLM) registered. Harness model: ${model.name}`, "info");
 	});
