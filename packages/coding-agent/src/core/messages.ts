@@ -115,8 +115,9 @@ export function createCustomMessage(
 	display: boolean,
 	details: unknown | undefined,
 	timestamp: string,
+	modelVisible?: boolean,
 ): CustomMessage {
-	return {
+	const message: CustomMessage = {
 		role: "custom",
 		customType,
 		content,
@@ -124,6 +125,8 @@ export function createCustomMessage(
 		details,
 		timestamp: new Date(timestamp).getTime(),
 	};
+	if (modelVisible !== undefined) message.modelVisible = modelVisible;
+	return message;
 }
 
 export const UNSETTLED_TOOL_CALL_TEXT =
@@ -240,6 +243,7 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						timestamp: m.timestamp,
 					};
 				case "custom": {
+					if (m.modelVisible === false) return undefined;
 					const content = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;
 					return {
 						role: "user",

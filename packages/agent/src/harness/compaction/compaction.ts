@@ -291,6 +291,9 @@ export function estimateTokens(message: AgentMessage): number {
 			return Math.ceil(chars / 4);
 		}
 		case "custom":
+			if (message.modelVisible === false) return 0;
+			chars = estimateTextAndImageContentChars(message.content);
+			return Math.ceil(chars / 4);
 		case "toolResult": {
 			chars = estimateTextAndImageContentChars(message.content);
 			return Math.ceil(chars / 4);
@@ -317,7 +320,11 @@ function findValidCutPoints(entries: Entry[], startIndex: number, endIndex: numb
 				const role = entry.message.role;
 				switch (role) {
 					case "bashExecution":
+						cutPoints.push(i);
+						break;
 					case "custom":
+						if (entry.message.modelVisible !== false) cutPoints.push(i);
+						break;
 					case "branchSummary":
 					case "compactionSummary":
 					case "user":
@@ -348,7 +355,11 @@ export function findTurnStartIndex(entries: Entry[], entryIndex: number, startIn
 		}
 		if (entry.type === "message") {
 			const role = entry.message.role;
-			if (role === "user" || role === "bashExecution") {
+			if (
+				role === "user" ||
+				role === "bashExecution" ||
+				(role === "custom" && entry.message.modelVisible !== false)
+			) {
 				return i;
 			}
 		}

@@ -1021,6 +1021,7 @@ export class AgentSession {
 					event.message.content,
 					event.message.display,
 					event.message.details,
+					event.message.modelVisible,
 				);
 			} else if (
 				event.message.role === "user" ||
@@ -2576,7 +2577,7 @@ export class AgentSession {
 	 * - Not streaming + triggerTurn: appends to state/session, starts new turn
 	 * - Not streaming + no trigger: appends to state/session, no turn
 	 *
-	 * @param message Custom message with customType, content, display, details
+	 * @param message Custom message with customType, content, display, details, and optional model visibility
 	 * @param options.triggerTurn If true and not streaming, triggers a new LLM turn
 	 * @param options.deliverAs Delivery mode: "steer", "followUp", or "nextTurn"
 	 * @param options.wakeOnIdle If true and the message lands via the idle branch
@@ -2585,11 +2586,11 @@ export class AgentSession {
 	 *   the queue already drains into the active run. No-op when triggerTurn is set.
 	 */
 	async sendCustomMessage<T = unknown>(
-		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
+		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "modelVisible">,
 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn"; wakeOnIdle?: boolean },
 	): Promise<void> {
 		let landedAtIdle = false;
-		const appMessage = {
+		const appMessage: CustomMessage<T> = {
 			role: "custom" as const,
 			customType: message.customType,
 			// Untyped extensions can pass null/missing content; normalize at ingestion.
@@ -2597,7 +2598,8 @@ export class AgentSession {
 			display: message.display,
 			details: message.details,
 			timestamp: Date.now(),
-		} satisfies CustomMessage<T>;
+		};
+		if (message.modelVisible !== undefined) appMessage.modelVisible = message.modelVisible;
 		const emitCustomMessage = () =>
 			this._extensionRunner.emit({ type: "custom_message" as const, message: appMessage });
 		if (options?.deliverAs === "nextTurn") {
@@ -2689,14 +2691,16 @@ export class AgentSession {
 				const extraMessages: AgentMessage[] = [];
 				if (beforeStart?.messages) {
 					for (const msg of beforeStart.messages) {
-						extraMessages.push({
+						const extraMessage: CustomMessage = {
 							role: "custom",
 							customType: msg.customType,
 							content: msg.content,
 							display: msg.display,
 							details: msg.details,
 							timestamp: Date.now(),
-						});
+						};
+						if (msg.modelVisible !== undefined) extraMessage.modelVisible = msg.modelVisible;
+						extraMessages.push(extraMessage);
 					}
 				}
 				if (!this._systemPromptFrozen) {
@@ -2750,6 +2754,7 @@ export class AgentSession {
 				message.content,
 				message.display,
 				message.details,
+				message.modelVisible,
 			);
 			this._emit({ type: "message_start", message: appMessage });
 			this._emit({ type: "message_end", message: appMessage });
