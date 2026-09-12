@@ -12,6 +12,8 @@ longer append their full changelog here.
 
 ## Unreleased
 
+- Custom extension messages can remain durable in the UI/session feed without entering provider context, keeping UI-only monitor status updates cache-neutral while preserving model-visible wake messages through compaction and token accounting.
+
 - Add `max` to `ThinkingLevel` (GPT-5.6+ reasoning effort above `xhigh`).
 - Add opt-in `ultra` to `ThinkingLevel` for client-side maximum-reasoning orchestration.
 

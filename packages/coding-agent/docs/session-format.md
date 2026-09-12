@@ -272,7 +272,7 @@ Use `customType` to identify your extension's entries on reload. Interactive mod
 
 ### CustomMessageEntry
 
-Extension-injected messages that DO participate in LLM context.
+Extension-injected messages that participate in LLM context unless `modelVisible` is `false`.
 
 ```json
 {"type":"custom_message","id":"i9j0k1l2","parentId":"h8i9j0k1","timestamp":"2024-12-03T14:25:00.000Z","customType":"my-extension","content":"Injected context...","display":true}
@@ -281,6 +281,7 @@ Extension-injected messages that DO participate in LLM context.
 Fields:
 - `content`: String or `(TextContent | ImageContent)[]` (same as UserMessage)
 - `display`: `true` = show in TUI with distinct styling, `false` = hidden
+- `modelVisible`: Optional boolean; `false` retains the feed entry but omits its content from provider context. Omitted defaults to `true`.
 - `details`: Optional extension-specific metadata (not sent to LLM)
 
 ### LabelEntry
@@ -336,7 +337,7 @@ Entries form a tree:
    - `message` -> stored `AgentMessage`
    - `compaction` -> `compactionSummary` plus `retainedTail` when present
    - `branch_summary` -> `branchSummary`
-   - `custom_message` -> `CustomMessage`
+   - `custom_message` -> `CustomMessage` (omitted from provider context when `modelVisible` is `false`)
    - `custom` -> no context message
 
 This makes newer compactions act like self-contained checkpoints. `retainedTail` is optional only so older sessions that only store `firstKeptEntryId` continue to load correctly.

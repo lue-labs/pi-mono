@@ -295,6 +295,9 @@ export function estimateTokens(message: AgentMessage): number {
 			return Math.ceil(chars / 4);
 		}
 		case "custom":
+			if (message.modelVisible === false) return 0;
+			chars = estimateTextAndImageContentChars(message.content);
+			return Math.ceil(chars / 4);
 		case "toolResult": {
 			chars = estimateTextAndImageContentChars(message.content);
 			return Math.ceil(chars / 4);
@@ -318,10 +321,11 @@ function isCutPointMessage(message: AgentMessage): boolean {
 		case "user":
 		case "assistant":
 		case "bashExecution":
-		case "custom":
 		case "branchSummary":
 		case "compactionSummary":
 			return true;
+		case "custom":
+			return message.modelVisible !== false;
 		case "toolResult":
 			return false;
 	}
@@ -332,10 +336,11 @@ function isTurnStartMessage(message: AgentMessage): boolean {
 	switch (message.role) {
 		case "user":
 		case "bashExecution":
-		case "custom":
 		case "branchSummary":
 		case "compactionSummary":
 			return true;
+		case "custom":
+			return message.modelVisible !== false;
 		case "assistant":
 		case "toolResult":
 			return false;
