@@ -1436,7 +1436,7 @@ pi.registerTool({
 
 ### pi.sendMessage(message, options?)
 
-Inject a custom message into the session. Custom messages participate in LLM context. For durable TUI-only content that should not be sent to the LLM, use [`pi.appendEntry()`](#piappendentrycustomtype-data) with [`pi.registerEntryRenderer()`](#piregisterentryrenderercustomtype-renderer).
+Inject a custom message into the session. Custom messages participate in LLM context by default. Set `modelVisible: false` for a durable feed entry that should render in the TUI but stay out of provider context. For state that does not need a message entry at all, use [`pi.appendEntry()`](#piappendentrycustomtype-data) with [`pi.registerEntryRenderer()`](#piregisterentryrenderercustomtype-renderer).
 
 ```typescript
 pi.sendMessage({

@@ -109,8 +109,9 @@ function estimateMessageTokens(message: AgentMessage): number {
 		case "user":
 		case "assistant":
 		case "toolResult":
-		case "custom":
 			return estimateContentTokens(message.content);
+		case "custom":
+			return message.modelVisible === false ? 0 : estimateContentTokens(message.content);
 		case "bashExecution":
 			return estimateTextTokens(message.command) + estimateTextTokens(message.output);
 		case "branchSummary":
@@ -122,7 +123,7 @@ function estimateMessageTokens(message: AgentMessage): number {
 
 function estimateEntryTokens(entry: SessionEntry): number {
 	if (entry.type === "message") return estimateMessageTokens(entry.message);
-	if (entry.type === "custom_message") return estimateContentTokens(entry.content);
+	if (entry.type === "custom_message") return entry.modelVisible === false ? 0 : estimateContentTokens(entry.content);
 	if (entry.type === "branch_summary" || entry.type === "compaction") return estimateTextTokens(entry.summary);
 	return 0;
 }
