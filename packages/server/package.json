@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-server",
-	"version": "0.84.8",
+	"version": "0.84.9",
 	"description": "experimental server package for pi",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -50,9 +50,9 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@lue-labs/pi-protocol": "0.84.8",
+		"@lue-labs/pi-protocol": "0.84.9",
 		"@earendil-works/chord": "0.85.1",
-		"@lue-labs/pi-agent-core": "0.84.8"
+		"@lue-labs/pi-agent-core": "0.84.9"
 	},
 	"devDependencies": {
 		"shx": "0.4.0",
