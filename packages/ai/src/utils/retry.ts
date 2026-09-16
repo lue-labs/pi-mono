@@ -227,20 +227,17 @@ export async function retryAssistantCall(
  * This does not implement retry policy. Callers should first handle context
  * overflow separately, then apply their own retry budget, backoff, and reporting
  * before restarting the assistant turn.
+ *
+ * Partial output does not make an error non-retryable. A stream that drops after
+ * thinking or text has streamed (proxy restart, upstream deploy, network blip)
+ * leaves a message whose tool calls never executed. Callers that replay must
+ * exclude the errored assistant message from the provider context (AgentSession
+ * slices it off live state; the harness filters `stopReason: "error"` when it
+ * builds context; summarization keeps only the final result), so a retry costs
+ * tokens bounded by the retry budget and never duplicates output or effects.
  */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	if (message.stopReason !== "error" || !message.errorMessage) return false;
-	// An error after real assistant output is not a transient failure to replay:
-	// retrying would duplicate the partial answer in the transcript.
-	if (
-		message.content.some((block) => {
-			if (block.type === "text") return block.text.length > 0;
-			if (block.type === "thinking") return block.thinking.length > 0;
-			return true;
-		})
-	) {
-		return false;
-	}
 	const errorMessage = message.errorMessage;
 	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
