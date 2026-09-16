@@ -2,14 +2,21 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { APP_NAME } from "../src/config.ts";
+import { APP_NAME, ENV_COMMAND_NAME } from "../src/config.ts";
 import type { SessionManager } from "../src/core/session-manager.ts";
 import { formatResumeCommand } from "../src/modes/interactive/interactive-mode.ts";
 
 const tempDirs: string[] = [];
 const originalStdoutIsTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+const originalCommandName = process.env[ENV_COMMAND_NAME];
 
 afterEach(() => {
+	if (originalCommandName === undefined) {
+		delete process.env[ENV_COMMAND_NAME];
+	} else {
+		process.env[ENV_COMMAND_NAME] = originalCommandName;
+	}
+
 	if (originalStdoutIsTTY) {
 		Object.defineProperty(process.stdout, "isTTY", originalStdoutIsTTY);
 	} else {
@@ -52,6 +59,24 @@ function createSessionManager(options: {
 describe("formatResumeCommand", () => {
 	it("returns a session resume command for default session dirs", () => {
 		setStdoutIsTTY(true);
+		const sessionFile = createTempFile();
+		const sessionManager = createSessionManager({ sessionFile, sessionId: "test-session" });
+
+		expect(formatResumeCommand(sessionManager)).toBe(`${APP_NAME} --session test-session`);
+	});
+
+	it("names the launcher command when the wrapper sets it", () => {
+		setStdoutIsTTY(true);
+		process.env[ENV_COMMAND_NAME] = "pii";
+		const sessionFile = createTempFile();
+		const sessionManager = createSessionManager({ sessionFile, sessionId: "test-session" });
+
+		expect(formatResumeCommand(sessionManager)).toBe("pii --session test-session");
+	});
+
+	it("ignores an unsafe launcher command name", () => {
+		setStdoutIsTTY(true);
+		process.env[ENV_COMMAND_NAME] = "pii; rm -rf /";
 		const sessionFile = createTempFile();
 		const sessionManager = createSessionManager({ sessionFile, sessionId: "test-session" });
 

@@ -571,6 +571,15 @@ export const VERSION: string = pkg.version || "0.0.0";
 // e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
 export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 export const ENV_SESSION_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_SESSION_DIR`;
+// e.g. PI_COMMAND_NAME=pii. A launcher wrapper sets this so user-facing hints
+// ("To resume this session: …", "Run … update") name the command the user
+// actually typed. APP_NAME stays the identity behind env vars and config dirs.
+export const ENV_COMMAND_NAME = `${APP_NAME.toUpperCase()}_COMMAND_NAME`;
+
+export function getCommandName(): string {
+	const name = process.env[ENV_COMMAND_NAME]?.trim();
+	return name && /^[\w.-]+$/.test(name) ? name : APP_NAME;
+}
 
 export function expandTildePath(path: string): string {
 	return normalizePath(path);
