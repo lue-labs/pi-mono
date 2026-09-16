@@ -44,6 +44,7 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { splitSystemPromptForCache } from "./anthropic-cache-split.ts";
 import { type ServerToolResultBlockLike, summarizeServerToolResult } from "./anthropic-server-tools.ts";
 import {
+	anthropicKeepsPriorTurnThinking,
 	isLatestThinkingModifiedError,
 	stripStaleThinkingFromMessageParams,
 	stripThinkingFromLatestAssistantTurn,
@@ -1821,11 +1822,14 @@ function convertMessages(
 		}
 	}
 
-	// Thinking blocks older than the last real user turn are discarded by
-	// Anthropic, so replaying them only makes our bytes diverge from the history
-	// it keeps and forces a full-transcript rewrite at every user turn. Set
-	// PI_STALE_THINKING_REPLAY=1 to restore the old replay-everything behaviour.
-	if (process.env.PI_STALE_THINKING_REPLAY !== "1") {
+	// On last-turn-only models Anthropic discards thinking blocks older than the
+	// last real user turn, so replaying them only makes our bytes diverge from
+	// the history it keeps and forces a full-transcript rewrite at every user
+	// turn. On keep-all models (Opus 4.5+, Sonnet 4.6+, Fable, Mythos) those
+	// blocks stay in Anthropic's cached context, and stripping them is what
+	// causes the rewrite — so the strip is gated per model. Set
+	// PI_STALE_THINKING_REPLAY=1 to replay everything regardless of model.
+	if (process.env.PI_STALE_THINKING_REPLAY !== "1" && !anthropicKeepsPriorTurnThinking(model.id)) {
 		params = stripStaleThinkingFromMessageParams(params);
 	}
 

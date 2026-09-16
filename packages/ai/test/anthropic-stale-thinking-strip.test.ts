@@ -1,6 +1,11 @@
 import type { ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources/messages.js";
 import { describe, expect, it } from "vitest";
-import { stripStaleThinkingFromMessageParams } from "../src/api/anthropic-thinking-recovery.ts";
+import {
+	anthropicKeepsPriorTurnThinking,
+	stripStaleThinkingFromMessageParams,
+} from "../src/api/anthropic-thinking-recovery.ts";
+import { streamSimple } from "../src/compat.ts";
+import type { AssistantMessage, Context, Model } from "../src/types.ts";
 
 // Anthropic discards thinking blocks from assistant turns older than the last
 // real user turn. Replaying them makes our bytes diverge from the history it
@@ -110,5 +115,127 @@ describe("stripStaleThinkingFromMessageParams", () => {
 		// The bytes before the previous boundary must not move when a new turn
 		// arrives; only the most recent loop may be rewritten.
 		expect(prefixTwo).toBe(prefixOne);
+	});
+});
+
+// Anthropic's thinking docs split models into "keep all prior turns" (Opus
+// 4.5+, Sonnet 4.6+, Fable, Mythos) and "keep the last turn only" (earlier
+// Opus/Sonnet, all Haiku through 4.5). The strip above is only correct for the
+// latter: on a keep-all model prior thinking stays in Anthropic's cached
+// context, so dropping it client-side rewrites the transcript at every real
+// user turn.
+describe("anthropicKeepsPriorTurnThinking", () => {
+	it.each([
+		"claude-fable-5-1",
+		"claude-fable-5-1-200k",
+		"claude-fable-5",
+		"claude-mythos-5-1",
+		"claude-mythos-preview",
+		"claude-opus-4-5",
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-7",
+		"claude-opus-4-8",
+		"claude-sonnet-4-6",
+		"claude-sonnet-5",
+		"claude-haiku-4-6",
+		"anthropic.claude-opus-4-5-20251101-v1:0",
+		"claude-opus-4-5@20251101",
+		"mimo-v2.5-pro",
+	])("keeps prior-turn thinking on %s", (id) => {
+		expect(anthropicKeepsPriorTurnThinking(id)).toBe(true);
+	});
+
+	it.each([
+		"claude-haiku-4-5",
+		"claude-haiku-4-5-20251001",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4-5-20250929",
+		"claude-sonnet-4-20250514",
+		"claude-opus-4-1",
+		"claude-opus-4-20250514",
+		"claude-3-7-sonnet-latest",
+		"claude-3-5-haiku-20241022",
+		"claude-3-opus-20240229",
+		"us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+	])("strips prior-turn thinking on %s", (id) => {
+		expect(anthropicKeepsPriorTurnThinking(id)).toBe(false);
+	});
+});
+
+describe("stale thinking strip is gated per model in the request payload", () => {
+	interface AnthropicPayload {
+		messages?: Array<{ role: string; content: Array<{ type: string; thinking?: string }> }>;
+	}
+
+	const makeModel = (id: string): Model<"anthropic-messages"> => ({
+		id,
+		name: id,
+		api: "anthropic-messages",
+		provider: "anthropic",
+		baseUrl: "http://127.0.0.1:9",
+		reasoning: true,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 1024,
+	});
+
+	const signedAssistant = (modelId: string, text: string): AssistantMessage => ({
+		role: "assistant",
+		content: [
+			{ type: "thinking", thinking: text, thinkingSignature: `sig-${text}` },
+			{ type: "text", text: `said ${text}` },
+		],
+		provider: "anthropic",
+		api: "anthropic-messages",
+		model: modelId,
+		timestamp: 1,
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+	});
+
+	// Two real user turns: the first assistant turn's thinking is older than the
+	// last user boundary, which is exactly the block the strip targets.
+	const makeContext = (modelId: string): Context => ({
+		messages: [
+			{ role: "user", content: "first", timestamp: 0 },
+			signedAssistant(modelId, "old"),
+			{ role: "user", content: "second", timestamp: 2 },
+			signedAssistant(modelId, "current"),
+		],
+	});
+
+	async function capturePayload(modelId: string): Promise<AnthropicPayload> {
+		let captured: AnthropicPayload | undefined;
+		const stream = streamSimple(makeModel(modelId), makeContext(modelId), {
+			apiKey: "fake-key",
+			onPayload: (payload) => {
+				captured = payload as AnthropicPayload;
+				throw new Error("payload captured");
+			},
+		});
+		await stream.result();
+		if (!captured) throw new Error("Expected payload capture before request");
+		return captured;
+	}
+
+	const firstAssistantTypes = (payload: AnthropicPayload) =>
+		payload.messages?.find((m) => m.role === "assistant")?.content.map((b) => b.type);
+
+	it("replays prior-turn thinking on a keep-all model (claude-fable-5-1)", async () => {
+		const payload = await capturePayload("claude-fable-5-1");
+		expect(firstAssistantTypes(payload)).toEqual(["thinking", "text"]);
+	});
+
+	it("strips prior-turn thinking on a last-turn-only model (claude-haiku-4-5)", async () => {
+		const payload = await capturePayload("claude-haiku-4-5");
+		expect(firstAssistantTypes(payload)).toEqual(["text"]);
 	});
 });
