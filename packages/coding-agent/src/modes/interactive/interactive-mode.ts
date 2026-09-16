@@ -52,6 +52,7 @@ import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
 	getAuthPath,
+	getCommandName,
 	getDebugLogPath,
 	getDocsPath,
 	getSessionsDir,
@@ -292,7 +293,7 @@ export function formatResumeCommand(sessionManager: SessionManager): string | un
 	const sessionFile = sessionManager.getSessionFile();
 	if (!sessionFile || !fs.existsSync(sessionFile)) return undefined;
 
-	const args = [APP_NAME];
+	const args = [getCommandName()];
 	if (!sessionManager.usesDefaultSessionDir()) {
 		args.push("--session-dir", quoteIfNeeded(sessionManager.getSessionDir()));
 	}
@@ -4739,7 +4740,7 @@ export class InteractiveMode {
 	}
 
 	showNewVersionNotification(release: LatestPiRelease): void {
-		const action = theme.fg("accent", `${APP_NAME} update`);
+		const action = theme.fg("accent", `${getCommandName()} update`);
 		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
 		const changelogUrl = "https://pi.dev/changelog";
 		const changelogLink = getCapabilities().hyperlinks
@@ -4768,7 +4769,7 @@ export class InteractiveMode {
 	}
 
 	showPackageUpdateNotification(packages: string[]): void {
-		const action = theme.fg("accent", `${APP_NAME} update --extensions`);
+		const action = theme.fg("accent", `${getCommandName()} update --extensions`);
 		const updateInstruction = theme.fg("muted", "Package updates are available. Run ") + action;
 		const packageLines = packages.map((pkg) => `- ${pkg}`).join("\n");
 
