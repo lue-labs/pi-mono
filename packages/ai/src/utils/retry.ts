@@ -230,9 +230,11 @@ export async function retryAssistantCall(
  *
  * Partial output does not make an error non-retryable. A stream that drops after
  * thinking or text has streamed (proxy restart, upstream deploy, network blip)
- * leaves a message whose tool calls never executed and which the caller drops
- * from context before replaying, so nothing is duplicated except tokens the
- * caller's retry budget already bounds.
+ * leaves a message whose tool calls never executed. Callers that replay must
+ * exclude the errored assistant message from the provider context (AgentSession
+ * slices it off live state; the harness filters `stopReason: "error"` when it
+ * builds context; summarization keeps only the final result), so a retry costs
+ * tokens bounded by the retry budget and never duplicates output or effects.
  */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	if (message.stopReason !== "error" || !message.errorMessage) return false;
