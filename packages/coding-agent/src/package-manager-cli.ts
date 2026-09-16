@@ -19,6 +19,7 @@ import {
 	CONFIG_DIR_NAME,
 	detectInstallMethod,
 	getAgentDir,
+	getCommandName,
 	getPackageDir,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
@@ -631,7 +632,7 @@ function printSelfUpdateFallback(command: SelfUpdateCommand): void {
 
 function printPnpmSelfUpdateMetadataHint(): void {
 	console.error(chalk.yellow("If pnpm reports missing package versions, its cached registry metadata may be stale."));
-	console.error(chalk.yellow(`Run \`pnpm store prune\` and retry \`${APP_NAME} update --self\`.`));
+	console.error(chalk.yellow(`Run \`pnpm store prune\` and retry \`${getCommandName()} update --self\`.`));
 }
 
 function printSelfUpdateNote(note: string): void {
@@ -1012,7 +1013,9 @@ export async function handlePackageCommand(
 				const target = options.updateTarget ?? { type: "self" };
 				if (options.showExtensionsSkippedNote) {
 					console.log(
-						chalk.dim(`Extensions are skipped. Run ${APP_NAME} update --extensions to update extensions.`),
+						chalk.dim(
+							`Extensions are skipped. Run ${getCommandName()} update --extensions to update extensions.`,
+						),
 					);
 				}
 				if (updateTargetIncludesExtensions(target)) {
