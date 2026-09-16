@@ -83,11 +83,11 @@ export function stripThinkingFromLatestAssistantTurn(messages: MessageParam[]): 
  * Per the extended-thinking docs (thinking block preservation by model):
  * keep-all is Claude Opus 4.5+, Claude Sonnet 4.6+, and every Fable / Mythos
  * model; last-turn-only is earlier Opus and Sonnet plus all Haiku through 4.5.
- * On a keep-all model "previous turns' thinking blocks stay cached and in
- * context", so stripping them client-side is what busts the cache — it rewrites
- * the transcript from the first thinking block at every real user turn
- * (measured: 74k-token rewrite on claude-fable-5-1, my-pi cache-prefix
- * attribution 2026-09-16). Unknown or non-Claude ids default to keep-all: the
+ * On a keep-all model the prior blocks remain part of the retained context, so
+ * stripping them client-side is what busts the cache — measured, not quoted:
+ * it rewrites the transcript from the first thinking block at every real user
+ * turn (74k-token rewrite on claude-fable-5-1, my-pi cache-prefix attribution
+ * 2026-09-16). Unknown or non-Claude ids default to keep-all: the
  * last-turn-only set is a closed legacy list, and replaying is the safe
  * direction (the API strips what it does not keep, costing bytes, not
  * correctness).
