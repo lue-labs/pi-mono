@@ -3,6 +3,7 @@ import {
 	type DeferredFetchOptions,
 	fauxAssistantMessage,
 	fauxProvider,
+	fauxThinking,
 	fauxToolCall,
 	type MutableModels,
 	type Provider,
@@ -250,6 +251,46 @@ describe("runtime assistant retry wait", () => {
 			errorMessage: "503 service unavailable",
 		});
 		expect(fixture.events.at(-1)).toMatchObject({ type: "retry_scheduled", attempt: 2 });
+		await expectProjectionRestores(fixture);
+	});
+
+	it("retries a stream that drops after partial output without running its tools or replaying it", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(2_000);
+		const fixture = await createFixture({ deferredSubmission: false });
+		const ready = await advanceToReady(fixture);
+		fixture.faux.setResponses([
+			fauxAssistantMessage([fauxThinking("partial reasoning"), fauxToolCall("echo", { text: "never runs" })], {
+				stopReason: "error",
+				errorMessage: "Anthropic stream ended before message_stop",
+				timestamp: 10,
+			}),
+		]);
+
+		expect(await runGeneration(fixture.lane, fixture.drive, ready)).toEqual({ kind: "continue" });
+		const retryWait = currentRun(fixture);
+		expect(retryWait).toMatchObject({ at: "assistant.retry_wait", nextAttempt: 2 });
+		if (retryWait.at !== "assistant.retry_wait") throw new Error("partial stream drop did not schedule a retry");
+
+		const due: AssistantRetryWaitOperation = { ...retryWait, notBefore: 2_000 };
+		await replaceRunState(fixture, due);
+		expect(await runGeneration(fixture.lane, fixture.drive, due)).toEqual({ kind: "continue" });
+		const next = currentRun(fixture);
+		if (next.at !== "assistant.ready") throw new Error("retry did not become ready");
+
+		const retryContextRoles: string[] = [];
+		fixture.faux.setResponses([
+			(context) => {
+				retryContextRoles.push(...context.messages.map((message) => message.role));
+				return fauxAssistantMessage("recovered", { timestamp: 30 });
+			},
+		]);
+		await runGeneration(fixture.lane, fixture.drive, next);
+
+		expect(fixture.faux.state.callCount).toBe(2);
+		expect(retryContextRoles).toEqual(["user"]);
+		expect(fixture.events.some((event) => event.type === "tool_start")).toBe(false);
+		expect(fixture.events).toContainEqual(expect.objectContaining({ type: "retry_end", attempt: 2, success: true }));
 		await expectProjectionRestores(fixture);
 	});
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fauxAssistantMessage } from "../src/providers/faux.ts";
+import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "../src/providers/faux.ts";
 import { isRetryableAssistantError, type RetryPolicy, retryAssistantCall } from "../src/utils/retry.ts";
 
 const openAIExplicitRetryMessage =
@@ -92,6 +92,27 @@ describe("provider retry classification", () => {
 		).toBe(true);
 		expect(isRetryableAssistantError(fauxAssistantMessage("not an error"))).toBe(false);
 	});
+
+	it("keeps stream drops retryable after partial text, thinking, or tool-call output", () => {
+		const error = { stopReason: "error" as const, errorMessage: "Anthropic stream ended before message_stop" };
+
+		expect(isRetryableAssistantError(fauxAssistantMessage("partial text", error))).toBe(true);
+		expect(isRetryableAssistantError(fauxAssistantMessage(fauxThinking("partial reasoning"), error))).toBe(true);
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage(
+					[fauxThinking("partial reasoning"), fauxToolCall("write", { path: "result.txt" })],
+					error,
+				),
+			),
+		).toBe(true);
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("partial text", { stopReason: "error", errorMessage: "429 quota exceeded" }),
+			),
+		).toBe(false);
+	});
+
 	it("matches upstream request buffer exhaustion wording", () => {
 		expect(
 			isRetryableAssistantError(
