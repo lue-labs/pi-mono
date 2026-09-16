@@ -52,19 +52,27 @@ describe("AgentSession retry and event characterization", () => {
 		expect(harness.session.isRetrying).toBe(false);
 	});
 
-	it("does not replay a transient error after assistant output", async () => {
+	it("retries a stream that drops after partial output and replaces the partial turn", async () => {
 		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
 		harnesses.push(harness);
 		harness.setResponses([
-			fauxAssistantMessage("partial answer", { stopReason: "error", errorMessage: "terminated" }),
-			fauxAssistantMessage("unexpected replay"),
+			fauxAssistantMessage([fauxThinking("partial reasoning"), fauxToolCall("write", { path: "result.txt" })], {
+				stopReason: "error",
+				errorMessage: "Anthropic stream ended before message_stop",
+			}),
+			fauxAssistantMessage("recovered"),
 		]);
 
 		await harness.session.prompt("test");
 
-		expect(harness.faux.state.callCount).toBe(1);
-		expect(harness.eventsOfType("auto_retry_start")).toEqual([]);
-		expect(harness.eventsOfType("agent_end").map((event) => event.willRetry)).toEqual([false]);
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.eventsOfType("auto_retry_start").map((event) => event.attempt)).toEqual([1]);
+		expect(harness.eventsOfType("agent_end").map((event) => event.willRetry)).toEqual([true, false]);
+		// The dropped partial turn never ran its tool call and is not replayed into context.
+		expect(harness.eventsOfType("tool_execution_start")).toEqual([]);
+		const assistantMessages = harness.session.messages.filter((message) => message.role === "assistant");
+		expect(assistantMessages).toHaveLength(1);
+		expect(assistantMessages[0]?.stopReason).toBe("stop");
 	});
 
 	it("retries multiple transient failures and succeeds on the final attempt", async () => {
