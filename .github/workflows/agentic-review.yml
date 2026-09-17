@@ -113,9 +113,21 @@ jobs:
       - name: Build pi packages
         if: env.RUN_REVIEW == 'true'
         run: |
+          # Mirror the root `npm run build` dependency order, with chord first.
+          # chord ships no committed dist/ and has only prepublishOnly (no
+          # prepare), so `npm ci` never builds it; packages/agent, protocol,
+          # client, server and coding-agent all import its type declarations.
+          # coding-agent additionally imports protocol/client/server, which
+          # `npm ci --ignore-scripts` leaves without a dist/ as well.
+          npm --prefix packages/chord run build
           npm --prefix packages/tui run build
+          npm --prefix packages/telemetry run build
           npm --prefix packages/ai run build
           npm --prefix packages/agent run build
+          npm --prefix packages/session-backends/sqlite-node run build
+          npm --prefix packages/protocol run build
+          npm --prefix packages/client run build
+          npm --prefix packages/server run build
           npm --prefix packages/coding-agent run build:ts
       # rusty-review --engine pi execs `pi` by name; CI only built the fork as a
       # node entrypoint. Expose a `pi` shim on PATH so the Correctness stage runs
