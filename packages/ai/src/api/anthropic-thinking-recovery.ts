@@ -75,6 +75,42 @@ export function stripThinkingFromLatestAssistantTurn(messages: MessageParam[]): 
 	return { messages: recoveredMessages, removedThinkingBlocks, removedAssistantMessage };
 }
 
+/**
+ * Whether Anthropic keeps prior-turn thinking blocks in context for this model
+ * ("keep all prior turns"), or strips them once a non-tool-result user message
+ * arrives ("keep the last turn only").
+ *
+ * Per the extended-thinking docs (thinking block preservation by model):
+ * keep-all is Claude Opus 4.5+, Claude Sonnet 4.6+, and every Fable / Mythos
+ * model; last-turn-only is earlier Opus and Sonnet plus all Haiku through 4.5.
+ * On a keep-all model the prior blocks remain part of the retained context, so
+ * stripping them client-side is what busts the cache — measured, not quoted:
+ * it rewrites the transcript from the first thinking block at every real user
+ * turn (74k-token rewrite on claude-fable-5-1, my-pi cache-prefix attribution
+ * 2026-09-16). Unknown or non-Claude ids default to keep-all: the
+ * last-turn-only set is a closed legacy list, and replaying is the safe
+ * direction (the API strips what it does not keep, costing bytes, not
+ * correctness).
+ */
+export function anthropicKeepsPriorTurnThinking(modelId: string): boolean {
+	const id = modelId.toLowerCase();
+	// Legacy naming (`claude-3-5-haiku`, `claude-3-7-sonnet`, `claude-3-opus`):
+	// version precedes the family; every 3.x model is last-turn-only.
+	if (/claude-3(?:[-.]\d+)?-(?:opus|sonnet|haiku)/.test(id)) return false;
+	const match = /(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/.exec(id);
+	if (!match) return true;
+	const family = match[1];
+	const major = Number(match[2]);
+	// `claude-opus-4-20250514` / `claude-sonnet-4-5-20250929`: a trailing
+	// 8-digit date is not a minor version.
+	const minor = match[3] !== undefined && match[3].length < 8 ? Number(match[3]) : 0;
+	const atLeast = (needMajor: number, needMinor: number) =>
+		major > needMajor || (major === needMajor && minor >= needMinor);
+	if (family === "opus") return atLeast(4, 5);
+	if (family === "sonnet") return atLeast(4, 6);
+	return atLeast(4, 6);
+}
+
 // A real user turn, as opposed to the `role:"user"` envelopes that carry tool
 // results back into an agentic loop. Anthropic keeps replayed thinking blocks
 // across tool results but discards them across a real user turn, so only the
@@ -87,7 +123,8 @@ function isRealUserTurn(message: MessageParam): boolean {
 
 /**
  * Drop thinking blocks that Anthropic will discard anyway: those in assistant
- * messages older than the last real user turn.
+ * messages older than the last real user turn. Only correct for last-turn-only
+ * models — gate the call on {@link anthropicKeepsPriorTurnThinking}.
  *
  * Replaying them makes the bytes we send diverge from the history Anthropic
  * retains, starting at the earliest thinking block in the session. Every later

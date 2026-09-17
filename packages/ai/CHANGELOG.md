@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: the stale-thinking strip in `anthropic-messages` is now gated per model. Anthropic keeps prior-turn thinking blocks in cached context on Opus 4.5+, Sonnet 4.6+, Fable, and Mythos, so stripping them client-side rewrote the whole transcript at every real user turn (74k-token rewrite measured on `claude-fable-5-1`). `anthropicKeepsPriorTurnThinking(modelId)` decides; last-turn-only models (older Opus/Sonnet, Haiku ≤ 4.5) keep the strip. `PI_STALE_THINKING_REPLAY=1` still forces replay everywhere.
+
 - Fix: Codex Responses WebSocket continuation now retains the two most recent successful request branches, so a transient shorter monitor request cannot overwrite the compatible full-history baseline and force a second full-context cache miss when normal history resumes.
 
 - Fix: `cacheRetention: "none"` no longer leaks Codex session affinity. `thread-id` / `x-client-request-id`, WebSocket pooling, and pooled-connection debug stats are provider-visible and now derive from the retention-gated session id; SSE-fallback and failure bookkeeping stay on the real Pi session id so a broken transport is not redialed every turn. Also selects the OpenCode `max_tokens` fixtures by capability instead of pinned model ids, which is the documented policy in `test/helpers/models.ts`.
