@@ -1119,9 +1119,28 @@ export class AgentSession {
 		// `role:"user"`; a `!!`-prefixed bash record is dropped from context and is
 		// correctly not a boundary. Enumerating roles by hand drifted from this and
 		// mislabelled the resulting breaks as cache_write_unhealthy.
-		const followsUserTurn = entriesSincePreviousAssistant.some(
-			(entry) => entry.type === "message" && convertToLlm([entry.message])[0]?.role === "user",
-		);
+		const isUserBoundary = (entry: (typeof branch)[number]): boolean =>
+			entry.type === "message" && convertToLlm([entry.message])[0]?.role === "user";
+		const followsUserTurn = entriesSincePreviousAssistant.some(isUserBoundary);
+		// The strip rewinds the warm prefix to the previous boundary: the first
+		// assistant turn after it carried the first thinking block now being
+		// dropped, so its cached prefix size is where the next strip will read to.
+		let previousBoundaryIndex = -1;
+		for (let i = previousAssistantIndex; i >= 0; i--) {
+			if (isUserBoundary(branch[i])) {
+				previousBoundaryIndex = i;
+				break;
+			}
+		}
+		let previousUserBoundaryPrefix: number | undefined;
+		for (let i = previousBoundaryIndex + 1; previousBoundaryIndex >= 0 && i <= previousAssistantIndex; i++) {
+			const entry = branch[i];
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				const usage = (entry.message as AssistantMessage).usage;
+				previousUserBoundaryPrefix = (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0);
+				break;
+			}
+		}
 		const currentEntry = branch[currentAssistantIndex];
 		const model = (message as { model?: string }).model ?? this.model?.id ?? "unknown";
 		const timestamp =
@@ -1145,6 +1164,7 @@ export class AgentSession {
 				exemptions,
 				previousAssistant,
 				followsUserTurn,
+				previousUserBoundaryPrefix,
 			}),
 			sessionId: this.sessionManager.getSessionId(),
 			turn: assistantTurn,
