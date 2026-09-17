@@ -635,8 +635,15 @@ describe("AgentSession compaction characterization", () => {
 		expect(requestContext?.systemPrompt).toBe(harness.session.systemPrompt);
 		expect(getCurrentTools(requestContext?.messages ?? [])).toEqual([]);
 		expect(JSON.stringify(requestContext?.messages)).toContain("<split-turn-prefix>");
-		expect(requestOptions).toMatchObject({ cacheRetention: "none" });
-		expect(requestOptions?.sessionId).not.toBe("active-routing-session");
+		expect(JSON.stringify(requestContext?.messages.at(-1))).toContain("active session context");
+		// The assertions above establish that this request replays the live prefix
+		// verbatim: same system prompt, same tools, live conversation plus the summary ask.
+		// That prefix is already cached by the main loop, so the request must keep caching on
+		// to read it, and must keep the live routing session so it lands on the node holding
+		// it. Asserting "none" here would assert the bug: build a cache-reusable prefix, then
+		// forbid the reuse and cold-write the whole context instead.
+		expect(requestOptions).toMatchObject({ cacheRetention: "long" });
+		expect(requestOptions?.sessionId).toBe("active-routing-session");
 		expect(requestOptions?.transport).toBeUndefined();
 	});
 

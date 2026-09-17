@@ -624,6 +624,22 @@ export function getSummarizationFailure(response: AssistantMessage, label: strin
 	return undefined;
 }
 
+/**
+ * Builds the request options for a summarization call.
+ *
+ * `cacheSafe` selects between the two compaction shapes, which have opposite cache needs:
+ *
+ * - Cache-safe (fork): the request replays the live conversation prefix — same system
+ *   prompt, same model-facing messages, same tools — and appends only the summary
+ *   instruction. That prefix is already in the provider's cache because the main loop just
+ *   wrote it, so the request must keep caching enabled to *read* it. `"long"` matches the
+ *   main loop's own resolved retention (`resolveCacheRetention` defaults to `"long"`), and
+ *   a matching TTL is what lets the summary request hit the main loop's entry instead of
+ *   opening a second one.
+ * - Standalone: the conversation is serialized into a `<conversation>` text blob that shares
+ *   no prefix with any live session, so there is nothing to hit and caching would only pay
+ *   for a write that is never read. `"none"` is correct there, and stays the default.
+ */
 function createSummarizationOptions(
 	model: Model<any>,
 	maxTokens: number,
@@ -633,8 +649,17 @@ function createSummarizationOptions(
 	signal: AbortSignal | undefined,
 	thinkingLevel: ThinkingLevel | undefined,
 	sessionId: string | undefined,
+	cacheSafe: boolean,
 ): SimpleStreamOptions {
-	const options: SimpleStreamOptions = { maxTokens, signal, apiKey, headers, env, cacheRetention: "long", sessionId };
+	const options: SimpleStreamOptions = {
+		maxTokens,
+		signal,
+		apiKey,
+		headers,
+		env,
+		cacheRetention: cacheSafe ? "long" : "none",
+		sessionId,
+	};
 	if (model.reasoning && thinkingLevel && thinkingLevel !== "off") {
 		options.reasoning = thinkingLevel;
 	}
@@ -670,11 +695,16 @@ export async function completeSummarization(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 ): Promise<AssistantMessage> {
-	// Avoid cache writes for one-off summaries. Reuse caller-supplied routing when available;
-	// callers without a session ID, including branch summaries, receive a fresh routing ID.
+	// One-off summaries avoid cache writes by default: a standalone summary request shares no
+	// prefix with a live session, so a write here is never read back. Callers that build a
+	// cache-safe request (one that replays the live prefix) opt out by setting cacheRetention
+	// explicitly, and keep their session ID so the provider routes them to the node holding
+	// that prefix — `anthropic-messages.ts` drops `cacheSessionId` whenever retention is
+	// "none", so forcing "none" here would silently discard sticky routing too.
+	// Callers without a session ID, including branch summaries, receive a fresh routing ID.
 	const requestOptions: SimpleStreamOptions = {
 		...options,
-		cacheRetention: "none",
+		cacheRetention: options.cacheRetention ?? "none",
 		sessionId: options.sessionId ?? uuidv7(),
 	};
 	const produce = async (): Promise<AssistantMessage> =>
@@ -778,6 +808,7 @@ export async function generateSummaryWithUsage(
 		signal,
 		thinkingLevel,
 		sessionId,
+		cacheSafeContext !== undefined,
 	);
 	let context: Context;
 
@@ -1106,7 +1137,17 @@ async function generateTurnPrefixSummary(
 	const response = await completeSummarization(
 		model,
 		context,
-		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel, sessionId),
+		createSummarizationOptions(
+			model,
+			maxTokens,
+			apiKey,
+			headers,
+			env,
+			signal,
+			thinkingLevel,
+			sessionId,
+			cacheSafeContext !== undefined,
+		),
 		streamFn,
 		retry,
 		callbacks,
