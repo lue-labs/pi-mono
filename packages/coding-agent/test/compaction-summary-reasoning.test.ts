@@ -423,7 +423,9 @@ describe("generateSummary reasoning options", () => {
 		const preparation: CompactionPreparation = {
 			firstKeptEntryId: "entry-keep",
 			messagesToSummarize: messages,
-			turnPrefixMessages: [{ ...mockSummaryResponse, content: [{ type: "text", text: "early turn work" }] }],
+			turnPrefixMessages: [
+				{ ...mockSummaryResponse, content: [{ type: "text", text: "UNIQUE_PREFIX_BODY_MARKER early turn work" }] },
+			],
 			isSplitTurn: true,
 			tokensBefore: 100000,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
@@ -451,7 +453,12 @@ describe("generateSummary reasoning options", () => {
 
 		expect(completeSimpleMock).toHaveBeenCalledTimes(2);
 		const turnPrefixPrompt = getTextFromSummaryPromptCall(1);
-		expect(turnPrefixPrompt).toContain("<split-turn-prefix>");
+		// The cache-safe path must NOT re-serialize the turn prefix into the prompt: those
+		// messages are already in cacheSafeContext.messages, and duplicating them is billed as a
+		// never-read cache write on every compaction. It points at the boundary instead.
+		expect(turnPrefixPrompt).not.toContain("<split-turn-prefix>");
+		expect(turnPrefixPrompt).toContain("<boundary>");
+		expect(turnPrefixPrompt).toContain("UNIQUE_PREFIX_BODY_MARKER");
 		expect(turnPrefixPrompt).toContain("## Original Request");
 		expect(turnPrefixPrompt).toContain("## Early Progress");
 		expect(turnPrefixPrompt).toContain("## Context for Suffix");

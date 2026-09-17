@@ -552,9 +552,9 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
-const CACHE_SAFE_TURN_PREFIX_SUMMARIZATION_PROMPT = `The conversation above is the active session context. The split-turn prefix below is the early part of a single turn that was too large to keep in full. The suffix of that same turn remains in context after compaction.
+const CACHE_SAFE_TURN_PREFIX_SUMMARIZATION_PROMPT = `The conversation above is the active session context. The final turn in it was too large to keep in full: an early part (the "split-turn prefix") will be dropped, and the rest of that same turn (the "retained suffix") stays in context after compaction. The boundary between them is identified below.
 
-Summarize ONLY the split-turn prefix below so another LLM can understand the retained suffix. Do not restate the main checkpoint summary. Do not use or repeat the checkpoint sections "Goal", "Constraints & Preferences", "Progress", "Key Decisions", "Next Steps", or "Critical Context"; those belong to the main compaction summary.
+Summarize ONLY the split-turn prefix -- the messages in that final turn BEFORE the boundary marker below -- so another LLM can understand the retained suffix. Do not restate the main checkpoint summary. Do not use or repeat the checkpoint sections "Goal", "Constraints & Preferences", "Progress", "Key Decisions", "Next Steps", or "Critical Context"; those belong to the main compaction summary.
 
 Use this EXACT format:
 
@@ -1103,6 +1103,26 @@ export async function compact(
 /**
  * Generate a summary for a turn prefix (when splitting a turn).
  */
+/**
+ * Build a short, unambiguous marker for where the split-turn prefix ends.
+ *
+ * The cache-safe turn-prefix request no longer embeds the conversation as text, so the model
+ * needs some way to tell the prefix (to summarize) from the retained suffix (already in
+ * context). The LAST prefix message is that boundary: everything up to and including it is
+ * prefix. A bounded excerpt keeps this to a few hundred tokens instead of re-sending ~128k.
+ */
+function buildTurnBoundaryExcerpt(turnPrefixMessages: AgentMessage[]): string {
+	const last = turnPrefixMessages[turnPrefixMessages.length - 1];
+	if (!last) return "(no prefix messages)";
+	const text = contentText(convertToLlm([last])[0]?.content ?? []).trim();
+	if (text.length === 0) {
+		return `The split-turn prefix ends with the last ${last.role} message before the retained suffix.`;
+	}
+	const MAX = 600;
+	const excerpt = text.length > MAX ? `${text.slice(0, MAX)}...` : text;
+	return `The split-turn prefix ends with this ${last.role} message (summarize everything in the final turn up to and including it):\n\n${excerpt}`;
+}
+
 async function generateTurnPrefixSummary(
 	messages: AgentMessage[],
 	model: Model<any>,
@@ -1122,17 +1142,32 @@ async function generateTurnPrefixSummary(
 		Math.floor(0.5 * reserveTokens),
 		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
 	); // Smaller budget for turn prefix
-	const llmMessages = convertToLlm(messages);
-	const conversationText = serializeConversation(llmMessages);
-	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
-	const cacheSafePromptText = `<split-turn-prefix>\n${conversationText}\n</split-turn-prefix>\n\n${CACHE_SAFE_TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+	// Cache-safe path: the split-turn prefix messages are ALREADY present verbatim in
+	// cacheSafeContext.messages (the live model-facing context). Re-serializing them into the
+	// prompt would send the same conversation twice in one request -- once as structured
+	// messages inside the cached prefix, once as fresh text after it. Those duplicated bytes
+	// fall outside the cached prefix, so they are billed as a cache WRITE on every compaction
+	// and are never read back (measured: ~128k tokens / ~$2.57 on a single 200k-context
+	// compaction). Instead, point the model at the messages it can already see and mark the
+	// prefix/suffix boundary with a short excerpt of the LAST prefix message.
+	//
+	// The legacy (non-cache-safe) path is unchanged and still embeds the conversation, since it
+	// builds a standalone context that does not contain these messages. Its serialization is
+	// kept lazy so the cache-safe path does not pay to stringify a context it never sends.
 	const context: Context = cacheSafeContext
 		? {
 				systemPrompt: cacheSafeContext.systemPrompt,
-				messages: [...cacheSafeContext.messages, createSummaryUserMessage(cacheSafePromptText)],
+				messages: [
+					...cacheSafeContext.messages,
+					createSummaryUserMessage(
+						`${CACHE_SAFE_TURN_PREFIX_SUMMARIZATION_PROMPT}\n\n<boundary>\n${buildTurnBoundaryExcerpt(messages)}\n</boundary>`,
+					),
+				],
 				tools: cacheSafeContext.tools,
 			}
-		: buildSummarizationContext(promptText);
+		: buildSummarizationContext(
+				`<conversation>\n${serializeConversation(convertToLlm(messages))}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`,
+			);
 
 	const response = await completeSummarization(
 		model,
