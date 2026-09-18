@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Chore: remove unused `warnDeprecation` helper (`src/utils/deprecation.ts`). No remaining callers after the legacy config migration; behaviour unchanged ([#537](https://github.com/lue-labs/pi-mono/pull/537)).
+
 - Custom extension messages can remain durable in the UI/session feed without entering provider context, keeping UI-only monitor status updates cache-neutral while preserving model-visible wake messages across persistence, compaction, and resume.
 
 - Extensions can contribute static entries to the interactive `/settings` selector with `pi.registerSetting()` and persist one key in their global `extensionConfig` namespace with `pi.setExtensionConfigValue()`. This is a generic UI/settings seam; it does not change prompts, tools, transcripts, provider requests, or cache prefixes.
