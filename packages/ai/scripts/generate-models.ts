@@ -2196,9 +2196,18 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 			}
 		}
 
-		// Process Kimi For Coding models
-		if (data["kimi-for-coding"]?.models) {
-			const kimiModels = data["kimi-for-coding"].models as Record<string, ModelsDevModel>;
+		// Process Kimi For Coding models.
+		// models.dev renamed this provider: the original "kimi-for-coding" key became
+		// "kimi-code-plan-global" (kimi.ai) alongside "kimi-code-plan-cn" (kimi.com).
+		// The old key silently vanished from the API, which produced zero kimi-coding
+		// models while src/models.generated.ts still imported that provider, so
+		// `hydrate:model-data --strict` failed with "Cannot hydrate missing providers".
+		// Resolve across the known keys in preference order and keep emitting the
+		// stable internal provider id "kimi-coding" so generated output is unchanged.
+		const KIMI_CODING_MODELS_DEV_KEYS = ["kimi-code-plan-global", "kimi-for-coding", "kimi-code-plan-cn"] as const;
+		const kimiCodingSourceKey = KIMI_CODING_MODELS_DEV_KEYS.find((key) => data[key]?.models);
+		if (kimiCodingSourceKey) {
+			const kimiModels = data[kimiCodingSourceKey].models as Record<string, ModelsDevModel>;
 			const hasCanonicalModel = Object.prototype.hasOwnProperty.call(kimiModels, "kimi-for-coding");
 
 			const kimiAliases = new Set(["k2p5", "k2p6", "k2p7"]);
@@ -2240,6 +2249,18 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				});
 				recordModelsDevReasoningOptions("kimi-coding", normalizedId, m);
 			}
+		} else {
+			// Absence is legitimate here: every provider block in this file tolerates a
+			// missing models.dev key, and tests drive the generator with partial
+			// catalogs containing only the provider under test. Warn so a rename is
+			// visible in the log, and let the existing hydrate guard decide — it throws
+			// "Cannot hydrate missing providers" only when the generated aggregator
+			// actually demands this provider, which is the condition that matters.
+			console.warn(
+				`models.dev exposed none of the known Kimi For Coding provider keys (${KIMI_CODING_MODELS_DEV_KEYS.join(", ")}); ` +
+					"skipping kimi-coding. If this provider is expected, it was likely renamed again — " +
+					"update KIMI_CODING_MODELS_DEV_KEYS in packages/ai/scripts/generate-models.ts.",
+			);
 		}
 
 		// Process Moonshot AI models
