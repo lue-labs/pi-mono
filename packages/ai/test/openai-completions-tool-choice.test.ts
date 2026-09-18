@@ -325,38 +325,26 @@ describe("openai-completions tool_choice", () => {
 
 	it("stores z.ai effort metadata", () => {
 		for (const provider of ["zai", "zai-coding-cn"] as const) {
-			for (const modelId of ["glm-5.2", "glm-5.2-highspeed"] as const) {
+			for (const modelId of ["glm-5.3", "glm-5.3-flash", "glm-5.3-highspeed"] as const) {
 				const model = getModel(provider, modelId)!;
 				expect(model.compat?.supportsReasoningEffort).toBe(true);
 				expect(model.thinkingLevelMap).toEqual({
-					off: "none",
+					off: null,
 					minimal: null,
-					low: null,
+					low: "low",
 					medium: null,
 					high: "high",
 					xhigh: null,
 					max: "max",
 				});
 			}
-
-			const glm53 = getModel(provider, "glm-5.3")!;
-			expect(glm53.compat?.supportsReasoningEffort).toBe(true);
-			expect(glm53.thinkingLevelMap).toEqual({
-				off: null,
-				minimal: null,
-				low: "low",
-				medium: null,
-				high: "high",
-				xhigh: null,
-				max: "max",
-			});
 		}
 	});
 
-	it("maps z.ai GLM-5.2 thinking levels to reasoning_effort", async () => {
-		const model = getModel("zai", "glm-5.2")!;
+	it("maps z.ai GLM-5.3 thinking levels to reasoning_effort", async () => {
+		const model = getModel("zai", "glm-5.3")!;
 		const cases = [
-			{ reasoning: "low", effort: "high" },
+			{ reasoning: "low", effort: "low" },
 			{ reasoning: "medium", effort: "high" },
 			{ reasoning: "high", effort: "high" },
 			{ reasoning: "max", effort: "max" },
@@ -392,12 +380,12 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("preserves z.ai thinking when replaying reasoning_content", async () => {
-		const model = getModel("zai", "glm-5.2")!;
+		const model = getModel("zai", "glm-5.3")!;
 		const assistantMessage: AssistantMessage = {
 			role: "assistant",
 			api: "openai-completions",
 			provider: "zai",
-			model: "glm-5.2",
+			model: "glm-5.3",
 			content: [
 				{ type: "thinking", thinking: "prior reasoning", thinkingSignature: "reasoning_content" },
 				{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "README.md" } },
@@ -451,8 +439,8 @@ describe("openai-completions tool_choice", () => {
 		expect(params.thinking).toEqual({ type: "enabled", clear_thinking: false });
 	});
 
-	it("omits z.ai GLM-5.2 reasoning_effort when thinking is off", async () => {
-		const model = getModel("zai", "glm-5.2")!;
+	it("omits z.ai GLM-5.3 reasoning_effort when thinking is off", async () => {
+		const model = getModel("zai", "glm-5.3")!;
 		let payload: unknown;
 
 		await streamSimple(
@@ -1568,7 +1556,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("sends max_tokens for Z.AI completions models", async () => {
-		const cases = [getModel("zai", "glm-5-turbo")!, getModel("zai", "glm-5.2")!] as const;
+		const cases = [getModel("zai", "glm-5-turbo")!, getModel("zai", "glm-5.3")!] as const;
 
 		for (const model of cases) {
 			expect(model.compat?.maxTokensField).toBe("max_tokens");
