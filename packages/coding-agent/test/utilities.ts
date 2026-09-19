@@ -25,6 +25,7 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createCodingTools } from "../src/index.ts";
 import { pickModel } from "./helpers/models.ts";
+import { fixtureSessionDir } from "./helpers/session-storage.ts";
 
 /**
  * API key for authenticated tests. Tests using this should be wrapped in
@@ -257,7 +258,9 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
 		streamFn: streamSimple,
 	});
 
-	const sessionManager = options.inMemory ? SessionManager.inMemory() : SessionManager.create(tempDir);
+	const sessionManager = options.inMemory
+		? SessionManager.inMemory()
+		: SessionManager.create(tempDir, fixtureSessionDir(tempDir));
 	const settingsManager = SettingsManager.create(tempDir, tempDir);
 
 	if (options.settingsOverrides) {

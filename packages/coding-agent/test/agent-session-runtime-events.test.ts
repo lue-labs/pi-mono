@@ -19,6 +19,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "../src/index.ts";
+import { fixtureSessionDir } from "./helpers/session-storage.ts";
 
 type RecordedSessionEvent =
 	| SessionBeforeSwitchEvent
@@ -97,7 +98,7 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		const runtimeHost = await createAgentSessionRuntime(createRuntime, {
 			cwd: tempDir,
 			agentDir: tempDir,
-			sessionManager: SessionManager.create(tempDir),
+			sessionManager: SessionManager.create(tempDir, fixtureSessionDir(tempDir)),
 		});
 		await runtimeHost.session.bindExtensions({});
 

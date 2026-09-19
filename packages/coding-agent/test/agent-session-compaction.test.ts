@@ -20,6 +20,7 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createCodingTools } from "../src/index.ts";
 import { pickModel } from "./helpers/models.ts";
+import { fixtureSessionDir } from "./helpers/session-storage.ts";
 import { API_KEY, createTestResourceLoader } from "./utilities.ts";
 
 describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
@@ -58,7 +59,9 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 			},
 		});
 
-		sessionManager = inMemory ? SessionManager.inMemory() : SessionManager.create(tempDir);
+		sessionManager = inMemory
+			? SessionManager.inMemory()
+			: SessionManager.create(tempDir, fixtureSessionDir(tempDir));
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		// Use minimal keepRecentTokens so small test conversations have something to summarize
 		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
