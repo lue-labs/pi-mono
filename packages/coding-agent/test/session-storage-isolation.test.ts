@@ -1,21 +1,12 @@
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getAgentDir } from "../src/config.ts";
-import { resolvePath } from "../src/utils/paths.ts";
-import { fixtureSessionDir } from "./helpers/session-storage.ts";
+import { fixtureSessionDir, liveDefaultSessionDir } from "./helpers/session-storage.ts";
 import { createTestSession } from "./utilities.ts";
-
-function defaultSessionDirForCwd(cwd: string): string {
-	const resolvedCwd = resolvePath(cwd);
-	const safePath = `--${resolvedCwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-	return join(getAgentDir(), "sessions", safePath);
-}
 
 describe("test session storage isolation", () => {
 	it("persists createTestSession output in the fixture and removes it on cleanup", async () => {
 		const ctx = await createTestSession();
-		const leakedDir = defaultSessionDirForCwd(ctx.tempDir);
+		const leakedDir = liveDefaultSessionDir(ctx.tempDir);
 		const fixtureDir = fixtureSessionDir(ctx.tempDir);
 
 		try {

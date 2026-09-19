@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "@lue-labs/pi-ai";
@@ -15,6 +15,7 @@ import {
 	getTaskSnapshot,
 	listTasks,
 } from "../../../src/index.ts";
+import { liveDefaultSessionDir } from "../../helpers/session-storage.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 interface CapturedFork {
@@ -312,6 +313,41 @@ describe("ctx.forkAgent", () => {
 		// slugify the cwd), proving forkAgent({ cwd }) reached the child services.
 		expect(details.runs[0]?.sessionPath ?? "").toContain(cwdSlug);
 		expect(record.contexts.some(isChildContext)).toBe(true);
+	});
+
+	it("persists forkAgent child jsonl under the harness fixture, not the live agent dir", async () => {
+		const captured = newCaptured();
+		const record: ContextRecord = { contexts: [] };
+		const overrideCwd = mkdtempSync(join(tmpdir(), "forkcwd-"));
+		const cwdSlug = overrideCwd.split("/").pop()!;
+		const { factory } = forkExtensionFactory(captured, { cwd: overrideCwd });
+		const harness = await createHarness({ extensionFactories: [factory] });
+		makeAgentServices(harness);
+		harness.setResponses([recordingFactory(record, "msg"), recordingFactory(record, "msg")]);
+		let cleaned = false;
+
+		try {
+			await harness.session.prompt("kick off");
+			expect(captured.error).toBeUndefined();
+			const details = await captured.handle!.wait();
+			const sessionPath = details.runs[0]?.sessionPath ?? "";
+			const leakedDir = liveDefaultSessionDir(overrideCwd);
+
+			expect(details.status).toBe("completed");
+			expect(sessionPath).toContain(cwdSlug);
+			expect(sessionPath.startsWith(`${harness.tempDir}/`)).toBe(true);
+			expect(existsSync(sessionPath)).toBe(true);
+			expect(readFileSync(sessionPath, "utf8").length).toBeGreaterThan(0);
+			expect(existsSync(leakedDir)).toBe(false);
+
+			const persistedPath = sessionPath;
+			harness.cleanup();
+			cleaned = true;
+			expect(existsSync(persistedPath)).toBe(false);
+			expect(existsSync(leakedDir)).toBe(false);
+		} finally {
+			if (!cleaned) harness.cleanup();
+		}
 	});
 
 	it("inherits the parent's frozen system prompt for cache preservation across forks", async () => {

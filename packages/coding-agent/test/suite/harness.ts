@@ -19,6 +19,7 @@ import type { Settings } from "../../src/core/settings-manager.ts";
 import { SettingsManager } from "../../src/core/settings-manager.ts";
 import { boundModelFacingContextImages } from "../../src/core/tool-artifacts.ts";
 import type { InlineExtension, ResourceLoader } from "../../src/index.ts";
+import { redirectOmittedSessionCreates } from "../helpers/session-storage.ts";
 import {
 	type CreateTestExtensionsResultInput,
 	createTestExtensionsResult,
@@ -99,6 +100,23 @@ function createTempDir(): string {
 
 export async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
 	const tempDir = createTempDir();
+	const restoreOmittedSessionCreates = redirectOmittedSessionCreates(tempDir);
+	try {
+		return await createHarnessWithTempDir(tempDir, restoreOmittedSessionCreates, options);
+	} catch (error) {
+		restoreOmittedSessionCreates();
+		if (existsSync(tempDir)) {
+			rmSync(tempDir, { recursive: true });
+		}
+		throw error;
+	}
+}
+
+async function createHarnessWithTempDir(
+	tempDir: string,
+	restoreOmittedSessionCreates: () => void,
+	options: HarnessOptions,
+): Promise<Harness> {
 	const fauxProvider: FauxProviderRegistration = registerFauxProvider({
 		provider: options.provider,
 		models: options.models,
@@ -219,6 +237,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		cleanup() {
 			session.dispose();
 			fauxProvider.unregister();
+			restoreOmittedSessionCreates();
 			if (existsSync(tempDir)) {
 				rmSync(tempDir, { recursive: true });
 			}
