@@ -24,6 +24,7 @@ import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { createCodingTools } from "../src/index.ts";
 import { pickModel } from "./helpers/models.ts";
+import { fixtureSessionDir } from "./helpers/session-storage.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
 const API_KEY = process.env.ANTHROPIC_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
@@ -108,7 +109,7 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 			},
 		});
 
-		const sessionManager = SessionManager.create(tempDir);
+		const sessionManager = SessionManager.create(tempDir, fixtureSessionDir(tempDir));
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));

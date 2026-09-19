@@ -22,6 +22,7 @@ import {
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { pickModel } from "./helpers/models.ts";
+import { fixtureSessionDir } from "./helpers/session-storage.ts";
 import { API_KEY } from "./utilities.ts";
 
 describe.skipIf(!API_KEY)("AgentSession forking", () => {
@@ -46,7 +47,9 @@ describe.skipIf(!API_KEY)("AgentSession forking", () => {
 
 	async function createSession(noSession: boolean = false) {
 		const model = pickModel("anthropic");
-		sessionManager = noSession ? SessionManager.inMemory(tempDir) : SessionManager.create(tempDir);
+		sessionManager = noSession
+			? SessionManager.inMemory(tempDir)
+			: SessionManager.create(tempDir, fixtureSessionDir(tempDir));
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: API_KEY! }));
 

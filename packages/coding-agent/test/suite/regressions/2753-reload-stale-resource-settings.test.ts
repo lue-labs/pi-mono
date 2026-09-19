@@ -12,6 +12,7 @@ import {
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { ModelRuntime } from "../../../src/core/model-runtime.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
+import { fixtureSessionDir } from "../../helpers/session-storage.ts";
 
 describe("issue #2753 reload stale resource settings", () => {
 	const cleanups: Array<() => void> = [];
@@ -82,7 +83,7 @@ describe("issue #2753 reload stale resource settings", () => {
 		const runtime = await createAgentSessionRuntime(createRuntime, {
 			cwd: tempDir,
 			agentDir,
-			sessionManager: SessionManager.create(tempDir),
+			sessionManager: SessionManager.create(tempDir, fixtureSessionDir(tempDir)),
 		});
 
 		cleanups.push(() => {
