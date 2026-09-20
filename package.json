@@ -13,8 +13,8 @@
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",
-		"build": "cd packages/chord && npm run build && cd ../tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build:ts && cd ../.. && npm run test:build-gate",
-		"build:offline": "cd packages/chord && npm run build && cd ../tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build:offline && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build:ts",
+		"build": "cd packages/chord && npm run build && cd ../tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build && cd ../durable && npm run build && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build:ts && cd ../.. && npm run test:build-gate",
+		"build:offline": "cd packages/chord && npm run build && cd ../tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build:offline && cd ../durable && npm run build && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build:ts",
 		"build:binary": "npm --prefix packages/coding-agent run build",
 		"check": "biome check --write --error-on-warnings . && npm run check:changelog && npm run check:pinned-deps && npm run check:runtime-deps && npm run check:ts-imports && npm run check:entry-graphs && npm run check:shrinkwrap && npm run check:install-lock:coding-agent && tsc --noEmit && npm run check:browser-smoke",
 		"lint:fork-delta": "node scripts/check-fork-delta-static.mjs",
@@ -66,7 +66,10 @@
 		"release:minor": "node scripts/release.mjs minor",
 		"release:major": "node scripts/release.mjs major",
 		"release:fix-links": "node scripts/release-notes.mjs fix-github-releases",
-		"prepare": "husky"
+		"prepare": "husky",
+		"build:native:darwin": "npm --prefix packages/tui run build:native:darwin",
+		"build:native:linux": "npm --prefix packages/tui run build:native:linux",
+		"build:native:win32": "npm --prefix packages/tui run build:native:win32"
 	},
 	"devDependencies": {
 		"@anthropic-ai/sandbox-runtime": "0.0.26",
@@ -76,7 +79,7 @@
 		"@oxlint/plugins": "1.78.0",
 		"@types/node": "24.12.4",
 		"dependency-cruiser": "18.0.0",
-		"esbuild": "0.28.1",
+		"esbuild": "0.28.2",
 		"husky": "9.1.7",
 		"jiti": "2.7.0",
 		"knip": "6.25.0",
@@ -84,17 +87,15 @@
 		"oxlint": "1.78.0",
 		"shx": "0.4.0",
 		"typescript": "7.0.2",
-		"typescript5": "npm:typescript@5.9.3"
+		"typescript5": "npm:typescript@5.9.3",
+		"@typescript/native-preview": "7.0.0-dev.20260120.1",
+		"tsx": "4.22.1"
 	},
 	"engines": {
 		"node": ">=24.14.0"
 	},
 	"version": "0.0.3",
 	"overrides": {
-		"protobufjs": "7.6.5",
-		"rimraf": "6.1.2",
-		"gaxios": {
-			"rimraf": "6.1.2"
-		}
+		"protobufjs": "7.6.6"
 	}
 }

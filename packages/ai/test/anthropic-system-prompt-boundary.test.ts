@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
 import { type Context, type Model, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "../src/types.ts";
+import { normalizeContext } from "../src/utils/transcript.ts";
 
 function createModel(baseUrl: string): Model<"anthropic-messages"> {
 	return {
@@ -39,7 +40,7 @@ async function captureRequest(context: Context): Promise<Record<string, unknown>
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	const address = server.address() as AddressInfo;
 	try {
-		const stream = streamAnthropic(createModel(`http://127.0.0.1:${address.port}`), context, {
+		const stream = streamAnthropic(createModel(`http://127.0.0.1:${address.port}`), normalizeContext(context), {
 			apiKey: "test-key",
 			cacheRetention: "long",
 		});

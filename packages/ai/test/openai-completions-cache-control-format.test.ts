@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
-import { getModel } from "../src/compat.ts";
+import { getModel, normalizeContext } from "../src/compat.ts";
 import type { Message, Model } from "../src/types.ts";
 import { pickModelForApi } from "./helpers/models.ts";
 
@@ -81,7 +81,7 @@ async function capturePayload(
 
 	await streamOpenAICompletions(
 		model,
-		{
+		normalizeContext({
 			systemPrompt: "System prompt",
 			messages: messages ?? [{ role: "user", content: "Hello", timestamp }],
 			tools: [
@@ -93,7 +93,7 @@ async function capturePayload(
 					}),
 				},
 			],
-		},
+		}),
 		{ apiKey: "test-key", ...options },
 	).result();
 

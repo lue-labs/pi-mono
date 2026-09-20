@@ -5,7 +5,6 @@ import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
-import { getExperimentalToolSampling } from "../experimental.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { resolveReadPathAsync } from "./path-utils.ts";
 import { createReadRenderers } from "./renderers/read.ts";
@@ -97,7 +96,7 @@ export function createReadToolDefinition(
 		promptGuidelines: [...readToolSystemPromptContribution.guidelines],
 		executionMode: "parallel",
 		parameters: readSchema,
-		constrainedSampling: getExperimentalToolSampling(),
+		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		async execute(
 			_toolCallId,
 			{ path, offset, limit, full }: { path: string; offset?: number; limit?: number; full?: boolean },

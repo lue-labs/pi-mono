@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "@lue-labs/pi-ai";
-import { fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearAgentRecentRunsForTests, listAgentRecentRuns } from "../../../src/core/agents/status.ts";
 import { hookAgentsTools } from "../../../src/core/extensions/agents.ts";
@@ -35,8 +35,8 @@ interface ContextRecord {
 }
 
 /**
- * Recording response factory. Logs the context (used to inspect systemPrompt /
- * tools / messages from the test) and returns a static assistant reply so
+ * Recording response factory. Logs the context (used to inspect transcript
+ * system/tool state and messages from the test) and returns a static assistant reply so
  * agent loops terminate cleanly.
  */
 function recordingFactory(record: ContextRecord, label: string) {
@@ -203,7 +203,7 @@ describe("ctx.forkAgent", () => {
 		const details = await captured.handle!.wait();
 		expect(details.status).toBe("completed");
 		const child = record.contexts.find(isChildContext);
-		expect(child?.tools?.map((tool) => tool.name)).toContain("ctx_execute");
+		expect(getCurrentTools(child!.messages).map((tool) => tool.name)).toContain("ctx_execute");
 	});
 
 	it("routes forkAgent({ agentType }) through the named agent definition", async () => {
@@ -226,7 +226,7 @@ describe("ctx.forkAgent", () => {
 		expect(child).toBeDefined();
 		// Proves agentType reached the executor's agent resolver: the explore
 		// profile's stable read-only contract is in the task system prompt.
-		expect(child?.systemPrompt).toContain("read-only investigation");
+		expect(getCurrentSystemPrompt(child!.messages)).toContain("read-only investigation");
 	});
 
 	it("keeps named fork profiles as trailing guidance without narrowing inherited tools", async () => {
@@ -244,7 +244,7 @@ describe("ctx.forkAgent", () => {
 		const details = await captured.handle!.wait();
 		const child = record.contexts.find(isChildContext);
 		const taskMessage = child?.messages.findLast((message) => message.role === "user");
-		expect(child?.systemPrompt).toBe(captured.parentSystemPrompts[0]);
+		expect(getCurrentSystemPrompt(child!.messages)).toBe(captured.parentSystemPrompts[0]);
 		expect(messageText(taskMessage!)).toContain("## Selected Agent role: reviewer");
 		expect(messageText(taskMessage!)).toContain("VERDICT: PASS|FAIL|PARTIAL");
 		expect(details.runs[0]?.effectiveTools).toContain("Bash");
@@ -372,7 +372,7 @@ describe("ctx.forkAgent", () => {
 
 		const childPrompts: string[] = [];
 		for (const ctx of record.contexts) {
-			if (isChildContext(ctx)) childPrompts.push(ctx.systemPrompt ?? "");
+			if (isChildContext(ctx)) childPrompts.push(getCurrentSystemPrompt(ctx.messages));
 		}
 		const parentPrompts = captured.parentSystemPrompts;
 
@@ -407,7 +407,7 @@ describe("ctx.forkAgent", () => {
 		const parentSystemPrompt = captured.parentSystemPrompts[0];
 		const child = record.contexts.find(isChildContext);
 		expect(parentSystemPrompt).toContain("Rewrite marker for fork.");
-		expect(child?.systemPrompt).toBe(parentSystemPrompt);
+		expect(getCurrentSystemPrompt(child!.messages)).toBe(parentSystemPrompt);
 	});
 
 	it("forkAgent preserves slim context semantics after system prompt rewrites", async () => {
@@ -430,8 +430,8 @@ describe("ctx.forkAgent", () => {
 		const parentSystemPrompt = captured.parentSystemPrompts[0];
 		const child = record.contexts.find(isChildContext);
 		expect(parentSystemPrompt).toContain("Rewrite marker for fork.");
-		expect(child?.systemPrompt).not.toBe(parentSystemPrompt);
-		expect(child?.systemPrompt).not.toContain("Rewrite marker for fork.");
+		expect(getCurrentSystemPrompt(child!.messages)).not.toBe(parentSystemPrompt);
+		expect(getCurrentSystemPrompt(child!.messages)).not.toContain("Rewrite marker for fork.");
 	});
 
 	it("forkAgent prefers a process-scoped engine override installed from a handler", async () => {
@@ -523,7 +523,7 @@ describe("ctx.forkAgent", () => {
 		harness.session.setActiveToolsByName(["agent"]);
 		harness.setResponses([
 			(context) => {
-				seenTools = context.tools?.map((tool) => tool.name) ?? [];
+				seenTools = getCurrentTools(context.messages).map((tool) => tool.name);
 				return fauxAssistantMessage(fauxToolCall("agent", { agent: "general", task: "noop" }), {
 					stopReason: "toolUse",
 				});
@@ -557,7 +557,7 @@ describe("ctx.forkAgent", () => {
 		expect(details.runs[0]?.effectiveTools).toEqual(["Bash"]);
 
 		const childContext = record.contexts.find(isChildContext);
-		const childToolNames = (childContext?.tools ?? []).map((tool) => tool.name);
+		const childToolNames = getCurrentTools(childContext!.messages).map((tool) => tool.name);
 		expect(childToolNames).toEqual(["Bash"]);
 	});
 

@@ -6,26 +6,11 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import * as _bundledPiAgentCore from "@lue-labs/pi-agent-core";
+import { fileURLToPath } from "node:url";
 import type { Provider } from "@lue-labs/pi-ai";
-import * as _bundledPiAi from "@lue-labs/pi-ai";
-import * as _bundledPiAiCompat from "@lue-labs/pi-ai/compat";
-import * as _bundledPiAiOauth from "@lue-labs/pi-ai/oauth";
-import * as _bundledPiAiProviders from "@lue-labs/pi-ai/providers/all";
 import type { KeyId } from "@lue-labs/pi-tui";
-import * as _bundledPiTui from "@lue-labs/pi-tui";
-import { createJiti } from "jiti/static";
-// Static imports of packages that extensions may use.
-// These MUST be static so Bun bundles them into the compiled binary.
-// The virtualModules option then makes them available to extensions.
-import * as _bundledTypebox from "typebox";
-import * as _bundledTypeboxCompile from "typebox/compile";
-import * as _bundledTypeboxValue from "typebox/value";
+import type { createJiti } from "jiti";
 import { CONFIG_DIR_NAME, getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
-// NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
-// avoiding a circular dependency. Extensions can import from @lue-labs/pi-coding-agent.
-import * as _bundledPiCodingAgent from "../../index.ts";
 import { resolvePath } from "../../utils/paths.ts";
 import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
@@ -56,62 +41,29 @@ import type {
 
 export { deleteExtensionProcessServiceForTests, getExtensionProcessService } from "./extension-api-fork.ts";
 
-/** Modules available to extensions via virtualModules (for compiled binaries) */
-const VIRTUAL_MODULES: Record<string, unknown> = {
-	typebox: _bundledTypebox,
-	"typebox/compile": _bundledTypeboxCompile,
-	"typebox/value": _bundledTypeboxValue,
-	"@sinclair/typebox": _bundledTypebox,
-	"@sinclair/typebox/compile": _bundledTypeboxCompile,
-	"@sinclair/typebox/value": _bundledTypeboxValue,
-	"@lue-labs/pi-agent-core": _bundledPiAgentCore,
-	"@lue-labs/pi-tui": _bundledPiTui,
-	"@lue-labs/pi-ai": _bundledPiAi,
-	// Fork-scope extensions opt into the legacy global dispatch API by importing
-	// the explicit /compat subpath; register it so the resolve succeeds in the
-	// compiled binary (the bare @lue-labs/pi-ai root stays the strict core).
-	"@lue-labs/pi-ai/compat": _bundledPiAiCompat,
-	"@lue-labs/pi-ai/oauth": _bundledPiAiOauth,
-	"@lue-labs/pi-ai/providers/all": _bundledPiAiProviders,
-	"@lue-labs/pi-coding-agent": _bundledPiCodingAgent,
-	// Legacy fork-scope compatibility keeps already-published @valkyriweb
-	// extensions working while consumers migrate to the organization scope.
-	"@valkyriweb/pi-agent-core": _bundledPiAgentCore,
-	"@valkyriweb/pi-tui": _bundledPiTui,
-	"@valkyriweb/pi-ai": _bundledPiAiCompat,
-	"@valkyriweb/pi-ai/compat": _bundledPiAiCompat,
-	"@valkyriweb/pi-ai/oauth": _bundledPiAiOauth,
-	"@valkyriweb/pi-ai/providers/all": _bundledPiAiProviders,
-	"@valkyriweb/pi-coding-agent": _bundledPiCodingAgent,
-	// Upstream package-name compatibility for third-party extensions that import
-	// the upstream scopes (@earendil-works/* current, @mariozechner/* legacy).
-	// Maps onto the same bundled fork modules so value imports resolve in the
-	// compiled binary (type-only imports already erase at runtime).
-	"@earendil-works/pi-agent-core": _bundledPiAgentCore,
-	"@earendil-works/pi-tui": _bundledPiTui,
-	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
-	// superset of the core entrypoint): existing extensions using the old
-	// global API keep working at runtime until compat is removed.
-	"@earendil-works/pi-ai": _bundledPiAiCompat,
-	"@earendil-works/pi-ai/compat": _bundledPiAiCompat,
-	"@earendil-works/pi-ai/oauth": _bundledPiAiOauth,
-	"@earendil-works/pi-ai/providers/all": _bundledPiAiProviders,
-	"@earendil-works/pi-coding-agent": _bundledPiCodingAgent,
-	"@mariozechner/pi-agent-core": _bundledPiAgentCore,
-	"@mariozechner/pi-tui": _bundledPiTui,
-	"@mariozechner/pi-ai": _bundledPiAiCompat,
-	"@mariozechner/pi-ai/compat": _bundledPiAiCompat,
-	"@mariozechner/pi-ai/oauth": _bundledPiAiOauth,
-	"@mariozechner/pi-ai/providers/all": _bundledPiAiProviders,
-	"@mariozechner/pi-coding-agent": _bundledPiCodingAgent,
-};
-
 const require = createRequire(import.meta.url);
 
 const isNodeSeaBinary =
 	("sea" in process.features && process.features.sea === true) ||
 	process.getBuiltinModule("node:sea")?.isSea() === true;
 const isTypeScriptSourceRuntime = !isBunBinary && path.extname(fileURLToPath(import.meta.url)) === ".ts";
+const usesEmbeddedModules = isBunBinary || isNodeSeaBinary || isBundledNode;
+
+let createJitiPromise: Promise<typeof createJiti> | undefined;
+
+function getCreateJiti(): Promise<typeof createJiti> {
+	createJitiPromise ??= (usesEmbeddedModules ? import("./jiti-static-loader.ts") : import("./jiti-loader.ts")).then(
+		(module) => module.createJiti,
+	);
+	return createJitiPromise;
+}
+
+let virtualModulesPromise: Promise<Record<string, unknown>> | undefined;
+
+function getVirtualModules(): Promise<Record<string, unknown>> {
+	virtualModulesPromise ??= import("./virtual-modules.ts").then((module) => module.VIRTUAL_MODULES);
+	return virtualModulesPromise;
+}
 
 /**
  * Get aliases for jiti (used in built Node.js mode).
@@ -202,12 +154,12 @@ function getAliases(): Record<string, string> {
  * extension loading in the 0.80.x daily driver. Guarded by
  * loader-module-alias-symmetry.test.ts.
  */
-export function getExtensionModuleSpecifiersForTests(): {
+export async function getExtensionModuleSpecifiersForTests(): Promise<{
 	virtualModules: string[];
 	aliases: string[];
-} {
+}> {
 	return {
-		virtualModules: Object.keys(VIRTUAL_MODULES),
+		virtualModules: Object.keys(await getVirtualModules()),
 		aliases: Object.keys(getAliases()),
 	};
 }
@@ -226,14 +178,17 @@ export function getExtensionModuleSpecifiersForTests(): {
  * copy is exactly the kind of drift `loader-module-alias-symmetry.test.ts`
  * exists to catch for the two branches already in this module.
  */
-export function getExtensionJitiResolutionOptions():
+export async function getExtensionJitiResolutionOptions(): Promise<
 	| { virtualModules: Record<string, unknown>; tryNative: false }
 	| { virtualModules: Record<string, unknown>; tsconfigPaths: true }
-	| { alias: Record<string, string> } {
+	| { alias: Record<string, string> }
+> {
 	// Compiled binaries and the bundled Node distribution use embedded modules.
-	if (isBunBinary || isNodeSeaBinary || isBundledNode) return { virtualModules: VIRTUAL_MODULES, tryNative: false };
+	if (isBunBinary || isNodeSeaBinary || isBundledNode) {
+		return { virtualModules: await getVirtualModules(), tryNative: false };
+	}
 	// Source TypeScript reuses the host-resolved modules and root tsconfig paths.
-	if (isTypeScriptSourceRuntime) return { virtualModules: VIRTUAL_MODULES, tsconfigPaths: true };
+	if (isTypeScriptSourceRuntime) return { virtualModules: await getVirtualModules(), tsconfigPaths: true };
 	// Unbundled Node builds use dist aliases.
 	return { alias: getAliases() };
 }
@@ -399,15 +354,30 @@ function createExtensionAPI(
 		...createForkExtensionAPI(extension, runtime),
 
 		// Registration methods - write to extension
-		on(event: string, handler: HandlerFn): void {
+		on(event: string, handler: HandlerFn): () => void {
 			assertActive();
+			const registeredHandler: HandlerFn = (...args) => handler(...args);
 			const list = extension.handlers.get(event) ?? [];
-			list.push(handler);
+			list.push(registeredHandler);
 			extension.handlers.set(event, list);
+
+			return () => {
+				const handlers = extension.handlers.get(event);
+				if (!handlers) return;
+				const handlerIndex = handlers.indexOf(registeredHandler);
+				if (handlerIndex === -1) return;
+				handlers.splice(handlerIndex, 1);
+				if (handlers.length === 0) extension.handlers.delete(event);
+			};
 		},
 
 		registerTool(tool: ToolDefinition): void {
 			assertActive();
+			if (typeof tool.parameters !== "object" || tool.parameters === null || Array.isArray(tool.parameters)) {
+				throw new Error(
+					`Tool "${tool.name}" registered by extension "${extension.path}" must define an object parameter schema.`,
+				);
+			}
 			extension.tools.set(tool.name, {
 				definition: tool,
 				sourceInfo: extension.sourceInfo,
@@ -635,33 +605,18 @@ async function loadExtensionModule(extensionPath: string, cacheToken?: Extension
 		}
 	}
 
-	// Pre-compiled .js/.mjs extensions can be loaded with native import() —
-	// no jiti/babel overhead. Only use jiti for .ts files.
-	if (/\.[mc]?js$/.test(extensionPath)) {
-		try {
-			const url = pathToFileURL(extensionPath).href;
-			const module = await import(url);
-			const factory = (module.default ?? module) as ExtensionFactory;
-			if (typeof factory === "function" && isCurrentCacheToken(cacheToken)) {
-				extensionCache.set(extensionPath, factory);
-			}
-			return typeof factory === "function" ? factory : undefined;
-		} catch {
-			// Fall through to jiti (handles CommonJS / alias needs)
-		}
-	}
-
-	const jiti = createJiti(import.meta.url, {
+	const createJitiImpl = await getCreateJiti();
+	// Compiled binaries and the bundled Node distribution use embedded modules.
+	// Source TypeScript reuses host modules and root tsconfig paths. Unbundled
+	// Node builds use dist aliases and do not need the bundled virtual modules.
+	const resolutionOptions = usesEmbeddedModules
+		? { virtualModules: await getVirtualModules(), tryNative: false }
+		: isTypeScriptSourceRuntime
+			? { virtualModules: await getVirtualModules(), tsconfigPaths: true }
+			: { alias: getAliases() };
+	const jiti = createJitiImpl(import.meta.url, {
 		moduleCache: false,
-		// Cache transpiled .ts extension source to disk so jiti/babel doesn't
-		// re-parse on every boot. Explicit path so it survives reboots
-		// (fsCache:true falls back to tmpdir which is wiped on reboot).
-		fsCache: path.join(getAgentDir(), ".jiti-cache"),
-		// In Bun binary/SEA/bundled Node: use virtualModules for bundled packages
-		// (no filesystem resolution). Also disable tryNative so jiti handles ALL
-		// imports (not just the entry point). In Node.js/dev: use aliases to
-		// resolve to node_modules paths.
-		...getExtensionJitiResolutionOptions(),
+		...resolutionOptions,
 	});
 
 	const module = await jiti.import(extensionPath, { default: true });

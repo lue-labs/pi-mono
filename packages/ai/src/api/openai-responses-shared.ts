@@ -17,23 +17,25 @@ import { calculateCost } from "../models.ts";
 import type {
 	Api,
 	AssistantMessage,
-	Context,
 	ImageContent,
 	Model,
 	StopReason,
+	SystemMessage,
 	TextContent,
 	TextSignatureV1,
 	ThinkingContent,
 	Tool,
 	ToolCall,
 	ToolReferenceContent,
+	TranscriptContext,
 	Usage,
 } from "../types.ts";
-import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
+import { getSystemMessageText, renderSystemMessageUpdate } from "../utils/text.ts";
+import { resolveTranscript, resolveTranscriptTools } from "../utils/transcript.ts";
 import {
 	appendGrammarToolInputJsonDelta,
 	type GrammarToolInputJsonBuffer,
@@ -42,7 +44,6 @@ import {
 	resolveGrammarConstrainedSampling,
 	resolveJsonSchemaStrictSampling,
 } from "./constrained-sampling.ts";
-import { splitSystemPromptAtDynamicBoundary } from "./openai-prompt-cache.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 // =============================================================================
@@ -124,16 +125,12 @@ export interface ConvertResponsesMessagesOptions {
 	includeSystemPrompt?: boolean;
 	grammarToolInputProperties?: ReadonlyMap<string, string>;
 	deferredTools?: ReadonlyMap<string, Tool>;
-	/**
-	 * Emit explicit `prompt_cache_breakpoint` markers (GPT-5.6+ prompt-cache API).
-	 * Places one breakpoint at the end of the stable system-prompt prefix (split at
-	 * `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`) and one on the previous user message, leaving
-	 * the implicit latest-message breakpoint and one spare write slot free (max 4
-	 * cache writes per request). Older models reject these fields — opt-in per model
-	 * via `OpenAIResponsesCompat.promptCacheApi: "breakpoints"`.
-	 */
 	promptCacheBreakpoints?: boolean;
 	deferredToolsMode?: "additional-tools" | "tool-search";
+	/** Whether later system messages are sent in place; otherwise they are folded into the leading prompt. */
+	supportsMidConvoSystemMessages?: boolean;
+	supportsAdditionalTools?: boolean;
+	supportsToolSearch?: boolean;
 	toolOptions?: ConvertResponsesToolsOptions;
 }
 
@@ -168,16 +165,12 @@ export interface ConvertResponsesToolsOptions {
 	strict?: boolean | null;
 	supportsStrictMode?: boolean;
 	supportsOpenAIGrammarTools?: boolean;
+	toolSearchResult?: boolean;
 	/** Sort tools and JSON Schema object keys for byte-stable prompt-cache prefixes. */
 	deterministic?: boolean;
-	/** Force `defer_loading: true` on every tool passed (used for a newly-surfaced deferred-tool batch). */
+	/** Force `defer_loading: true` on every tool passed. */
 	deferLoading?: boolean;
-	/**
-	 * Emit native `defer_loading: true` on tools with `deferLoading && !alwaysLoad`,
-	 * matching Codex CLI's `ResponsesApiTool` shape. The Codex backend honors this
-	 * field; the public OpenAI Responses API is not known to honor it, so callers
-	 * (i.e. `openai-codex-responses`) opt in explicitly.
-	 */
+	/** Emit native `defer_loading: true` for explicitly deferred tools. */
 	emitDeferLoading?: boolean;
 }
 
@@ -219,8 +212,6 @@ export function parseOpenAIResponsesUsage(usage: ResponsesUsageLike): Usage {
 	const cacheWrite1h = cacheWrite > 0 ? nestedCacheWrite1h || flatCacheWrite1h || undefined : undefined;
 	const inputTokens = positiveNumber(usage.input_tokens);
 	return {
-		// OpenAI includes cached tokens in input_tokens; provider-compatible cache
-		// write fields are also prompt-side tokens, so subtract both buckets.
 		input: Math.max(0, inputTokens - cacheRead - cacheWrite),
 		output: positiveNumber(usage.output_tokens),
 		cacheRead,
@@ -238,12 +229,12 @@ export function parseOpenAIResponsesUsage(usage: ResponsesUsageLike): Usage {
 
 export function convertResponsesMessages<TApi extends Api>(
 	model: Model<TApi>,
-	context: Context,
+	context: TranscriptContext,
 	allowedToolCallProviders: ReadonlySet<string>,
 	options?: ConvertResponsesMessagesOptions,
 ): ResponseInput {
+	const normalizedContext = resolveTranscript(context, options?.supportsMidConvoSystemMessages);
 	const messages: ResponseInput = [];
-	const loadedToolNames = new Set<string>();
 
 	const normalizeIdPart = (part: string): string => {
 		const sanitized = part.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -270,41 +261,57 @@ export function convertResponsesMessages<TApi extends Api>(
 		return `${normalizedCallId}|${normalizedItemId}`;
 	};
 
-	const transformedMessages = transformMessages(context.messages, model, normalizeToolCallId);
-
-	const includeSystemPrompt = options?.includeSystemPrompt ?? true;
-	if (includeSystemPrompt && context.systemPrompt) {
-		const compat = model.compat as { supportsDeveloperRole?: boolean } | undefined;
-		const role = model.reasoning && compat?.supportsDeveloperRole !== false ? "developer" : "system";
-		if (options?.promptCacheBreakpoints) {
-			// Stable prefix carries an explicit breakpoint; the dynamic tail stays
-			// unmarked so per-session content never busts the shared static prefix.
-			const { stable, dynamic } = splitSystemPromptAtDynamicBoundary(context.systemPrompt);
-			const content: ResponseInputContent[] = [];
-			if (stable) {
-				content.push({
-					type: "input_text",
-					text: sanitizeSurrogates(stable),
-					prompt_cache_breakpoint: EXPLICIT_PROMPT_CACHE_BREAKPOINT,
-				} satisfies ResponseInputText);
-			}
-			if (dynamic) {
-				content.push({ type: "input_text", text: sanitizeSurrogates(dynamic) } satisfies ResponseInputText);
-			}
-			if (content.length > 0) {
-				messages.push({ role, content });
-			}
-		} else {
+	const transformedMessages = transformMessages(normalizedContext.messages, model, normalizeToolCallId);
+	const transcriptTools = resolveTranscriptTools(
+		normalizedContext.messages,
+		(options?.supportsAdditionalTools ?? false) || (options?.supportsToolSearch ?? false),
+	);
+	const appendSystemToolAdditions = (message: SystemMessage, seed: string): void => {
+		const tools = transcriptTools.anchorsAdditions ? (message.toolsAdded ?? []) : [];
+		if (tools.length === 0) return;
+		if (options?.supportsAdditionalTools) {
 			messages.push({
-				role,
-				content: sanitizeSurrogates(stripSystemPromptDynamicBoundary(context.systemPrompt)),
-			});
+				type: "additional_tools",
+				role: "developer",
+				tools: convertResponsesTools(tools, options.toolOptions),
+			} satisfies ResponseInputItem);
+			return;
 		}
-	}
+		if (!options?.supportsToolSearch) return;
+		const names = tools.map((tool) => tool.name);
+		const callId = `pi_tool_load_${shortHash(`${seed}:${names.join(",")}`)}`;
+		messages.push({
+			type: "tool_search_call",
+			call_id: callId,
+			execution: "client",
+			status: "completed",
+			arguments: { query: names.join(" "), limit: names.length },
+		} satisfies ResponseInputItem);
+		messages.push({
+			type: "tool_search_output",
+			call_id: callId,
+			execution: "client",
+			status: "completed",
+			tools: convertResponsesTools(tools, { ...options.toolOptions, toolSearchResult: true }),
+		} satisfies ResponseToolSearchOutputItemParam);
+	};
+	const includeInitialSystemMessage = options?.includeSystemPrompt ?? true;
+	const compat = model.compat as { supportsDeveloperRole?: boolean } | undefined;
+	const instructionRole = model.reasoning && compat?.supportsDeveloperRole !== false ? "developer" : "system";
 
 	let msgIndex = 0;
+	let sourceIndex = 0;
 	for (const msg of transformedMessages) {
-		if (msg.role === "user") {
+		const isLeadingSystemMessage = sourceIndex++ === 0 && msg.role === "system";
+		if (msg.role === "system") {
+			if (!isLeadingSystemMessage) appendSystemToolAdditions(msg, `system:${msgIndex}`);
+			if (!isLeadingSystemMessage || includeInitialSystemMessage) {
+				const text = isLeadingSystemMessage ? getSystemMessageText(msg) : renderSystemMessageUpdate(msg);
+				if (text.length > 0) {
+					messages.push({ role: instructionRole, content: sanitizeSurrogates(text) });
+				}
+			}
+		} else if (msg.role === "user") {
 			if (typeof msg.content === "string") {
 				messages.push({
 					role: "user",
@@ -383,8 +390,6 @@ export function convertResponsesMessages<TApi extends Api>(
 						itemId = undefined;
 					}
 
-					const canReplayNamespace = isSameModel || options?.deferredTools?.has(toolCall.name) === true;
-
 					if (customInputProperty !== undefined) {
 						output.push({
 							type: "custom_tool_call",
@@ -394,9 +399,7 @@ export function convertResponsesMessages<TApi extends Api>(
 							input: sanitizeSurrogates(
 								getGrammarToolInput(toolCall.name, toolCall.arguments, customInputProperty),
 							),
-							...(canReplayNamespace && toolCall.namespace !== undefined
-								? { namespace: toolCall.namespace }
-								: {}),
+							...(isSameModel && toolCall.namespace !== undefined ? { namespace: toolCall.namespace } : {}),
 						} satisfies ResponseOutputItem);
 					} else {
 						output.push({
@@ -405,9 +408,7 @@ export function convertResponsesMessages<TApi extends Api>(
 							call_id: callId,
 							name: toolCall.name,
 							arguments: JSON.stringify(toolCall.arguments),
-							...(canReplayNamespace && toolCall.namespace !== undefined
-								? { namespace: toolCall.namespace }
-								: {}),
+							...(isSameModel && toolCall.namespace !== undefined ? { namespace: toolCall.namespace } : {}),
 						});
 					}
 				}
@@ -431,43 +432,8 @@ export function convertResponsesMessages<TApi extends Api>(
 					output,
 				});
 			}
-
-			const deferredTools: Tool[] = [];
-			for (const name of msg.addedToolNames ?? []) {
-				const tool = options?.deferredTools?.get(name);
-				if (!tool || loadedToolNames.has(name)) continue;
-				loadedToolNames.add(name);
-				deferredTools.push(tool);
-			}
-			if (deferredTools.length > 0 && options?.deferredToolsMode === "additional-tools") {
-				messages.push({
-					type: "additional_tools",
-					role: "developer",
-					tools: convertResponsesTools(deferredTools, options.toolOptions),
-				} satisfies ResponseInputItem);
-			} else if (deferredTools.length > 0 && options?.deferredToolsMode === "tool-search") {
-				const names = deferredTools.map((tool) => tool.name);
-				const searchCallId = `pi_tool_load_${shortHash(`${msg.toolCallId}:${names.join(",")}`)}`;
-				messages.push({
-					type: "tool_search_call",
-					call_id: searchCallId,
-					execution: "client",
-					status: "completed",
-					arguments: { query: names.join(" "), limit: names.length },
-				} satisfies ResponseInputItem);
-				messages.push({
-					type: "tool_search_output",
-					call_id: searchCallId,
-					execution: "client",
-					status: "completed",
-					tools: convertResponsesTools(deferredTools, {
-						...options.toolOptions,
-						deferLoading: true,
-					}),
-				} satisfies ResponseToolSearchOutputItemParam);
-			}
 		}
-		msgIndex++;
+		if (!isLeadingSystemMessage) msgIndex++;
 	}
 
 	if (options?.promptCacheBreakpoints) {
@@ -519,7 +485,7 @@ export function convertResponsesTools(tools: readonly Tool[], options?: ConvertR
 					syntax: grammar.format,
 					definition: grammar.definition,
 				},
-				...(deferLoading ? { defer_loading: true } : {}),
+				...(options?.toolSearchResult ? { defer_loading: true } : {}),
 			} satisfies OpenAITool;
 		}
 
@@ -534,7 +500,7 @@ export function convertResponsesTools(tools: readonly Tool[], options?: ConvertR
 			parameters: (options?.deterministic
 				? sortJsonSchemaForCache(getJsonSchemaToolParameters(tool, strict === true))
 				: getJsonSchemaToolParameters(tool, strict === true)) as Record<string, unknown>,
-			...(deferLoading ? { defer_loading: true } : {}),
+			...(options?.toolSearchResult || deferLoading ? { defer_loading: true } : {}),
 		};
 		if (supportsStrictMode) {
 			functionTool.strict = strict;

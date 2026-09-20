@@ -60,7 +60,6 @@ export function getAssistantTexts(harness: Harness): string[] {
 export interface HarnessOptions {
 	models?: FauxModelDefinition[];
 	settings?: Partial<Settings>;
-	systemPrompt?: string;
 	tools?: AgentTool[];
 	initialActiveToolNames?: string[];
 	allowedToolNames?: string[];
@@ -69,6 +68,7 @@ export interface HarnessOptions {
 	extensionFactories?: Array<InlineExtension | CreateTestExtensionsResultInput>;
 	withConfiguredAuth?: boolean;
 	provider?: string;
+	systemPrompt?: string;
 	/** Identity of the agent run this session represents (for telemetry-identity tests). */
 	agentRunIdentity?: AgentRunIdentity;
 	modelsJson?: Record<string, unknown>;
@@ -163,7 +163,7 @@ async function createHarnessWithTempDir(
 		streamFn: streamSimple,
 		initialState: {
 			model,
-			systemPrompt: options.systemPrompt ?? "You are a test assistant.",
+			systemPrompt: options.systemPrompt ?? "",
 			tools: [],
 		},
 		convertToLlm,
@@ -212,6 +212,9 @@ async function createHarnessWithTempDir(
 		extensionRunnerRef,
 		agentRunIdentity: options.agentRunIdentity,
 	});
+	if (options.systemPrompt !== undefined) {
+		session.overrideBaseSystemPrompt(options.systemPrompt);
+	}
 
 	const events: AgentSessionEvent[] = [];
 	session.subscribe((event) => {

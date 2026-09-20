@@ -42,6 +42,7 @@ export {
 	InMemoryAuthStorageBackend,
 	readStoredCredential,
 } from "./core/auth-storage.ts";
+export type { CacheWarmingDecision, CacheWarmingStatus } from "./core/cache-warmer.ts";
 // Compaction
 export {
 	type BranchPreparation,
@@ -70,6 +71,7 @@ export type { ContextFile } from "./core/context-file-imports.ts";
 export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
 // Extension system
 export type {
+	AfterProviderResponseEvent,
 	AgentEndEvent,
 	AgentEngine,
 	AgentHandle,
@@ -88,8 +90,11 @@ export type {
 	BeforeProviderRequestEvent,
 	BeforeProviderRequestEventResult,
 	BuildSystemPromptOptions,
+	CacheWarmingDecisionEvent,
+	CacheWarmingDecisionEventResult,
 	CompactOptions,
 	ContextEvent,
+	ContextEventResult,
 	ContextUsage,
 	CustomToolCallEvent,
 	EditToolCallEvent,
@@ -136,10 +141,14 @@ export type {
 	MarkdownTransformContext,
 	MarkdownTransformer,
 	MessageEndEvent,
+	MessageEndEventResult,
 	MessageRenderer,
 	MessageRenderOptions,
 	MessageStartEvent,
 	MessageUpdateEvent,
+	ModelSelectEvent,
+	ModelSelectSource,
+	NormalizedBuildSystemPromptOptions,
 	PowerShellToolCallEvent,
 	ProjectTrustContext,
 	ProjectTrustEvent,
@@ -152,11 +161,18 @@ export type {
 	RegisteredCommand,
 	RegisteredTool,
 	ResolvedCommand,
+	ResourcesDiscoverEvent,
+	ResourcesDiscoverResult,
 	SessionBeforeCompactEvent,
+	SessionBeforeCompactResult,
 	SessionBeforeForkEvent,
+	SessionBeforeForkResult,
 	SessionBeforeSwitchEvent,
+	SessionBeforeSwitchResult,
 	SessionBeforeTreeEvent,
+	SessionBeforeTreeResult,
 	SessionCompactEvent,
+	SessionCompactFailedEvent,
 	SessionInfoChangedEvent,
 	SessionShutdownEvent,
 	SessionStartEvent,
@@ -166,6 +182,7 @@ export type {
 	SourceInfo,
 	TelemetryEvent,
 	TerminalInputHandler,
+	ThinkingLevelSelectEvent,
 	ToolCallEvent,
 	ToolCallEventResult,
 	ToolDefinition,
@@ -176,6 +193,7 @@ export type {
 	ToolInfo,
 	ToolRenderResultOptions,
 	ToolResultEvent,
+	ToolResultEventResult,
 	TranscriptApi,
 	TranscriptEntry,
 	TurnEndEvent,
@@ -300,6 +318,8 @@ export {
 	type ThinkingLevelChangeEntry,
 } from "./core/session-manager.ts";
 export {
+	type CacheWarmingMode,
+	type CompactionModelOverride,
 	type CompactionSettings,
 	type DefaultProjectTrust,
 	type FullscreenExitOutput,

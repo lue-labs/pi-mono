@@ -2,8 +2,18 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { convertMessages } from "../src/api/openai-completions.ts";
 import { getModel, streamSimple } from "../src/compat.ts";
-import type { Api, AssistantMessage, Context, Model, Tool, ToolResultMessage, UserMessage } from "../src/types.ts";
+import type {
+	Api,
+	AssistantMessage,
+	Context,
+	Model,
+	OpenAIResponsesCompat,
+	Tool,
+	ToolResultMessage,
+	UserMessage,
+} from "../src/types.ts";
 import { estimateContextTokens } from "../src/utils/estimate.ts";
+import { pickModel } from "./helpers/models.ts";
 
 interface AnthropicToolPayload {
 	name: string;
@@ -561,7 +571,7 @@ describe("deferred tools", () => {
 
 	it("uses the normal tool list when OpenAI tool search is explicitly disabled", async () => {
 		const model: Model<"openai-responses"> = {
-			...getModel("openai", "gpt-5.4"),
+			...pickModel("openai", (candidate) => candidate.id === "gpt-5.4"),
 			provider: "openai-proxy",
 			compat: { supportsToolSearch: false },
 		};
@@ -580,7 +590,10 @@ describe("deferred tools", () => {
 			makeCodexToken(),
 		);
 		const toolSearch = await capturePayload<OpenAIPayload>(
-			getModel("openai-codex", "gpt-5.4"),
+			pickModel("openai-codex", (candidate) => {
+				const compat = candidate.compat as OpenAIResponsesCompat | undefined;
+				return compat?.supportsToolSearch === true && compat.supportsAdditionalTools !== true;
+			}),
 			context,
 			makeCodexToken(),
 		);

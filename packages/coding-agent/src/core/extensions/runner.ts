@@ -9,13 +9,19 @@ import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { AgentChainDefinition } from "../agents/chains.ts";
 import { setAgentExtensionDefinitionsProvider } from "../agents/extension-source.ts";
 import { type AgentDefinition, FORK_INHERITED_SYSTEM_PROMPT } from "../agents/types.ts";
+import type { CacheWarmingAction } from "../cache-warmer.ts";
 import type { ResourceDiagnostic } from "../diagnostics.ts";
-import type { EventBus } from "../event-bus.ts";
+import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
 import type { SessionManager } from "../session-manager.ts";
-import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import {
+	type BuildSystemPromptOptions,
+	buildSystemPrompt,
+	type NormalizedBuildSystemPromptOptions,
+	normalizeBuildSystemPromptOptions,
+} from "../system-prompt.ts";
 import { recordTiming, timingsEnabled } from "../timings.ts";
 import { loadDeferredExtensionsBatch } from "./deferred-loading.ts";
 import { applyFilters, extensionHookNames } from "./extension-hooks.ts";
@@ -36,6 +42,8 @@ import type {
 	BeforeAgentStartEventResult,
 	BeforeProviderHeadersEvent,
 	BeforeProviderRequestEvent,
+	CacheWarmingDecisionEvent,
+	CacheWarmingDecisionEventResult,
 	CompactOptions,
 	ContextEvent,
 	ContextEventResult,
@@ -146,10 +154,37 @@ const buildBuiltinKeybindings = (resolvedKeybindings: KeybindingsConfig): BuiltI
 	return builtinKeybindings;
 };
 
-/** Combined result from all before_agent_start handlers */
+function isUserBashEventResult(value: unknown): value is UserBashEventResult {
+	if (typeof value !== "object" || value === null) return false;
+	const candidate = value as Record<string, unknown>;
+	const hasOperations = candidate.operations !== undefined;
+	const hasResult = candidate.result !== undefined;
+	if (hasOperations === hasResult) return false;
+
+	if (hasOperations) {
+		const operations = candidate.operations;
+		if (typeof operations !== "object" || operations === null) return false;
+		return typeof (operations as Record<string, unknown>).exec === "function";
+	}
+
+	const result = candidate.result;
+	if (typeof result !== "object" || result === null) return false;
+	const resultRecord = result as Record<string, unknown>;
+	return (
+		typeof resultRecord.output === "string" &&
+		"exitCode" in resultRecord &&
+		(resultRecord.exitCode === undefined || typeof resultRecord.exitCode === "number") &&
+		typeof resultRecord.cancelled === "boolean" &&
+		typeof resultRecord.truncated === "boolean" &&
+		(resultRecord.fullOutputPath === undefined || typeof resultRecord.fullOutputPath === "string")
+	);
+}
+
+/** Combined result from all before_agent_start handlers. */
 interface BeforeAgentStartCombinedResult {
-	messages?: NonNullable<BeforeAgentStartEventResult["message"]>[];
-	systemPrompt?: string;
+	messages: NonNullable<BeforeAgentStartEventResult["message"]>[];
+	systemPromptOptions: NormalizedBuildSystemPromptOptions;
+	systemPrompt: string;
 }
 
 function abortErrorFromSignal(signal: AbortSignal): Error {
@@ -189,6 +224,7 @@ type RunnerEmitEvent = Exclude<
 	| ToolResultEvent
 	| UserBashEvent
 	| ContextEvent
+	| CacheWarmingDecisionEvent
 	| BeforeProviderRequestEvent
 	| BeforeProviderHeadersEvent
 	| BeforeAgentStartEvent
@@ -260,18 +296,19 @@ export async function emitSessionShutdownEvent(
 	return false;
 }
 
+function snapshotEventHandlers(extensions: Extension[], event: ExtensionEvent["type"]) {
+	return extensions.map((ext) => ({ ext, handlers: ext.handlers.get(event)?.slice() ?? [] }));
+}
+
 export async function emitProjectTrustEvent(
 	extensionsResult: LoadExtensionsResult,
 	event: ProjectTrustEvent,
 	ctx: ProjectTrustContext,
 ): Promise<{ result?: ProjectTrustEventResult; errors: ExtensionError[] }> {
 	const errors: ExtensionError[] = [];
-	for (const ext of extensionsResult.extensions) {
+	for (const { ext, handlers } of snapshotEventHandlers(extensionsResult.extensions, "project_trust")) {
 		// A single extension may register multiple handlers for the same event.
 		// The first project_trust handler that returns yes/no wins; undecided falls through.
-		const handlers = ext.handlers.get("project_trust");
-		if (!handlers || handlers.length === 0) continue;
-
 		for (const handler of handlers) {
 			try {
 				const handlerResult = (await handler(event, ctx)) as ProjectTrustEventResult;
@@ -356,7 +393,8 @@ export class ExtensionRunner {
 		throw new Error("forkAgent is not available in this runtime");
 	};
 	private transcriptAppendFn: (entry: TranscriptEntry) => void = () => {};
-	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
+	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () =>
+		normalizeBuildSystemPromptOptions({ cwd: this.cwd });
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
@@ -378,17 +416,38 @@ export class ExtensionRunner {
 		cwd: string,
 		sessionManager: SessionManager,
 		modelRegistry: ModelRegistry,
+		source?: InputSource,
+	);
+	constructor(
+		extensions: Extension[],
+		runtime: ExtensionRuntime,
+		cwd: string,
+		sessionManager: SessionManager,
+		modelRegistry: ModelRegistry,
+		source?: InputSource,
+	);
+	constructor(
+		extensions: Extension[],
+		deferredExtensionsOrRuntime: DeferredExtension[] | ExtensionRuntime,
+		runtimeOrCwd: ExtensionRuntime | string,
+		eventBusOrSessionManager: EventBus | SessionManager,
+		cwdOrModelRegistry: string | ModelRegistry,
+		sessionManagerOrSource?: SessionManager | InputSource,
+		modelRegistry?: ModelRegistry,
 		source: InputSource = "interactive",
 	) {
 		this.extensions = extensions;
-		this.deferredExtensions = deferredExtensions;
-		this.runtime = runtime;
-		this.eventBus = eventBus;
+		const legacy = !Array.isArray(deferredExtensionsOrRuntime);
+		this.deferredExtensions = legacy ? [] : deferredExtensionsOrRuntime;
+		this.runtime = legacy ? deferredExtensionsOrRuntime : (runtimeOrCwd as ExtensionRuntime);
+		this.eventBus = legacy ? createEventBus() : (eventBusOrSessionManager as EventBus);
 		this.uiContext = noOpUIContext;
-		this.cwd = cwd;
-		this.sessionManager = sessionManager;
-		this.modelRegistry = modelRegistry;
-		this.source = source;
+		this.cwd = legacy ? (runtimeOrCwd as string) : (cwdOrModelRegistry as string);
+		this.sessionManager = legacy
+			? (eventBusOrSessionManager as SessionManager)
+			: (sessionManagerOrSource as SessionManager);
+		this.modelRegistry = legacy ? (cwdOrModelRegistry as ModelRegistry) : (modelRegistry as ModelRegistry);
+		this.source = legacy ? ((sessionManagerOrSource as InputSource | undefined) ?? "interactive") : source;
 	}
 
 	bindCore(
@@ -443,7 +502,8 @@ export class ExtensionRunner {
 		this.getEffectiveSystemPromptFn = contextActions.getEffectiveSystemPrompt;
 		this.forkAgentFn = contextActions.forkAgent;
 		this.transcriptAppendFn = contextActions.transcriptAppend;
-		this.getSystemPromptOptionsFn = contextActions.getSystemPromptOptions ?? (() => ({ cwd: this.cwd }));
+		this.getSystemPromptOptionsFn =
+			contextActions.getSystemPromptOptions ?? (() => normalizeBuildSystemPromptOptions({ cwd: this.cwd }));
 
 		// Flush provider registrations queued during extension loading
 		for (const { name, config, extensionPath } of this.runtime.pendingProviderRegistrations) {
@@ -1094,10 +1154,7 @@ export class ExtensionRunner {
 		let result: SessionBeforeEventResult | undefined;
 		const timeHandlers = event.type === "session_start" && timingsEnabled();
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get(event.type);
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, event.type)) {
 			const startedAt = timeHandlers ? performance.now() : 0;
 			for (const handler of handlers) {
 				try {
@@ -1128,16 +1185,37 @@ export class ExtensionRunner {
 		return result as RunnerEmitResult<TEvent>;
 	}
 
+	/** Returns the event's own action unless a handler overrides it; the last override wins. */
+	async emitCacheWarmingDecision(event: CacheWarmingDecisionEvent): Promise<CacheWarmingAction> {
+		const ctx = this.createContext();
+		let action = event.action;
+
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, event.type)) {
+			for (const handler of handlers) {
+				try {
+					const result = (await handler(event, ctx)) as CacheWarmingDecisionEventResult | undefined;
+					if (result?.action !== undefined) action = result.action;
+				} catch (err) {
+					this.emitError({
+						extensionPath: ext.path,
+						event: event.type,
+						error: err instanceof Error ? err.message : String(err),
+						stack: err instanceof Error ? err.stack : undefined,
+					});
+				}
+			}
+		}
+
+		return action;
+	}
+
 	async emitMessageEnd(event: MessageEndEvent): Promise<AgentMessage | undefined> {
 		if (this.staleMessage) return undefined;
 		const ctx = this.createContext();
 		let currentMessage = event.message;
 		let modified = false;
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("message_end");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "message_end")) {
 			for (const handler of handlers) {
 				try {
 					const currentEvent: MessageEndEvent = { ...event, message: currentMessage };
@@ -1203,10 +1281,7 @@ export class ExtensionRunner {
 		const currentEvent: ToolResultEvent = { ...event };
 		let modified = false;
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("tool_result");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "tool_result")) {
 			for (const handler of handlers) {
 				try {
 					const handlerResult = (await handler(currentEvent, ctx)) as ToolResultEventResult | undefined;
@@ -1258,10 +1333,7 @@ export class ExtensionRunner {
 		const ctx = this.createContext();
 		let result: ToolCallEventResult | undefined;
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("tool_call");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { handlers } of snapshotEventHandlers(this.extensions, "tool_call")) {
 			for (const handler of handlers) {
 				let handlerResult: ToolCallEventResult | undefined;
 				try {
@@ -1296,16 +1368,17 @@ export class ExtensionRunner {
 		if (this.staleMessage) return undefined;
 		const ctx = this.createContext();
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("user_bash");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "user_bash")) {
 			for (const handler of handlers) {
 				try {
 					const handlerResult = await handler(event, ctx);
-					if (handlerResult) {
-						return handlerResult as UserBashEventResult;
+					if (handlerResult === undefined) continue;
+					if (!isUserBashEventResult(handlerResult)) {
+						throw new Error(
+							"Invalid user_bash handler result: return undefined for local execution or exactly one valid { operations } or { result } object",
+						);
 					}
+					return handlerResult;
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
 					const stack = err instanceof Error ? err.stack : undefined;
@@ -1315,6 +1388,7 @@ export class ExtensionRunner {
 						error: message,
 						stack,
 					});
+					throw err;
 				}
 			}
 		}
@@ -1332,10 +1406,7 @@ export class ExtensionRunner {
 		const signal = ctx.signal;
 		let currentMessages = structuredClone(messages);
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("context");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "context")) {
 			for (const handler of handlers) {
 				try {
 					const event: ContextEvent = { type: "context", messages: currentMessages };
@@ -1373,10 +1444,7 @@ export class ExtensionRunner {
 		const ctx = this.createContext();
 		let currentPayload = payload;
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("before_provider_request");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "before_provider_request")) {
 			for (const handler of handlers) {
 				try {
 					const event: BeforeProviderRequestEvent = {
@@ -1417,10 +1485,7 @@ export class ExtensionRunner {
 	async emitBeforeProviderHeaders(headers: ProviderHeaders): Promise<ProviderHeaders> {
 		const ctx = this.createContext();
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("before_provider_headers");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "before_provider_headers")) {
 			for (const handler of handlers) {
 				try {
 					// Handlers mutate `headers` in place; the return value is ignored.
@@ -1448,18 +1513,19 @@ export class ExtensionRunner {
 	async emitBeforeAgentStart(
 		prompt: string,
 		images: ImageContent[] | undefined,
-		systemPrompt: string,
-		systemPromptOptions: BuildSystemPromptOptions,
+		systemPromptOrOptions: string | BuildSystemPromptOptions,
+		systemPromptOptionsOrSource?: BuildSystemPromptOptions | InputSource,
 		source: InputSource = "interactive",
-	): Promise<BeforeAgentStartCombinedResult | undefined> {
-		return this._runBeforeAgentStart(prompt, images, systemPrompt, systemPromptOptions, false, source);
+	): Promise<BeforeAgentStartCombinedResult> {
+		const explicitSystemPrompt = typeof systemPromptOrOptions === "string" ? systemPromptOrOptions : undefined;
+		const systemPromptOptions =
+			typeof systemPromptOrOptions === "string"
+				? (systemPromptOptionsOrSource as BuildSystemPromptOptions)
+				: systemPromptOrOptions;
+		if (typeof systemPromptOptionsOrSource === "string") source = systemPromptOptionsOrSource;
+		return this._runBeforeAgentStart(prompt, images, explicitSystemPrompt, systemPromptOptions, false, source);
 	}
 
-	/**
-	 * Dry-run preview: returns the system prompt after all `before_agent_start`
-	 * handlers have applied their rewrites, with `event.preview = true` so
-	 * handlers can skip side effects. Messages/other results are discarded.
-	 */
 	async previewSystemPromptRewrites(
 		systemPrompt: string,
 		systemPromptOptions: BuildSystemPromptOptions,
@@ -1472,15 +1538,9 @@ export class ExtensionRunner {
 			true,
 			"interactive",
 		);
-		return result?.systemPrompt ?? systemPrompt;
+		return result.systemPrompt;
 	}
 
-	/**
-	 * Apply extension-owned transforms before a child agent inherits a parent's
-	 * system prompt. This is deliberately separate from the per-turn prompt
-	 * hooks: it runs once during child setup, before fork-mode inheritance is
-	 * frozen, and never mutates the parent session.
-	 */
 	applyForkSystemPromptTransforms(systemPrompt: string): string {
 		if (this.staleMessage) return systemPrompt;
 		let current = systemPrompt;
@@ -1501,19 +1561,6 @@ export class ExtensionRunner {
 		return current;
 	}
 
-	/**
-	 * Apply only the `systemPrompt:build` filters (no before_agent_start
-	 * handlers) to a freshly rebuilt prompt.
-	 *
-	 * CACHE CRITICAL: the session rebuilds its base system prompt synchronously
-	 * when the active tool/skill set changes (`_rebuildSystemPrompt`), and that
-	 * raw build skips the filter chain. Without re-running these filters before
-	 * the next request, cache-stabilising transforms (time-context's `Current
-	 * date:` strip, cache-base-prompt's dynamic-boundary relocation) are lost on
-	 * every tool change, mutating the cached prefix and bursting the prompt
-	 * cache. This is the filter-only counterpart to `_runBeforeAgentStart` and
-	 * deliberately does NOT run handlers (no `setActiveTools` re-entrancy).
-	 */
 	async applySystemPromptBuildFilters(
 		systemPrompt: string,
 		systemPromptOptions: BuildSystemPromptOptions,
@@ -1539,27 +1586,33 @@ export class ExtensionRunner {
 	private async _runBeforeAgentStart(
 		prompt: string,
 		images: ImageContent[] | undefined,
-		systemPrompt: string,
+		explicitSystemPrompt: string | undefined,
 		systemPromptOptions: BuildSystemPromptOptions,
 		preview: boolean,
 		source: InputSource,
-	): Promise<BeforeAgentStartCombinedResult | undefined> {
-		if (this.staleMessage) return undefined;
-		let currentSystemPrompt = systemPrompt;
+	): Promise<BeforeAgentStartCombinedResult> {
+		const currentOptions = normalizeBuildSystemPromptOptions(systemPromptOptions);
+		const renderedOptions = buildSystemPrompt(currentOptions);
+		if (
+			explicitSystemPrompt !== undefined &&
+			(currentOptions.forceSystemPrompt !== undefined || explicitSystemPrompt !== renderedOptions)
+		) {
+			currentOptions.forceSystemPrompt = explicitSystemPrompt;
+		}
+		const initialPrompt = buildSystemPrompt(currentOptions);
+		const hadForcedPrompt = currentOptions.forceSystemPrompt !== undefined;
 		try {
-			// CACHE CRITICAL: systemPrompt:build feeds the cached system prefix.
-			// Keep output byte-stable across turns; put cwd/session/timestamp/file
-			// data in messages or after the cacheable prefix instead.
-			currentSystemPrompt = await applyFilters(
+			const filteredPrompt = await applyFilters(
 				extensionHookNames.systemPromptBuild,
-				currentSystemPrompt,
-				systemPromptOptions,
-				{
-					prompt,
-					images,
-					preview,
-				},
+				initialPrompt,
+				currentOptions,
+				{ prompt, images, preview },
 			);
+			if (filteredPrompt !== initialPrompt) {
+				currentOptions.forceSystemPrompt = filteredPrompt;
+			} else if (!hadForcedPrompt) {
+				currentOptions.forceSystemPrompt = undefined;
+			}
 		} catch (err) {
 			this.emitError({
 				extensionPath: "<hook-filter:systemPrompt:build>",
@@ -1568,13 +1621,14 @@ export class ExtensionRunner {
 				stack: err instanceof Error ? err.stack : undefined,
 			});
 		}
+		const renderCurrentSystemPrompt = (): string => buildSystemPrompt(currentOptions);
 		const ctx = Object.defineProperties(
 			{},
 			Object.getOwnPropertyDescriptors(this.createContext()),
 		) as ExtensionContext;
 		ctx.getSystemPrompt = () => {
 			this.assertActive();
-			return currentSystemPrompt;
+			return renderCurrentSystemPrompt();
 		};
 		ctx.forkAgent = (opts) => {
 			this.assertActive();
@@ -1582,38 +1636,33 @@ export class ExtensionRunner {
 			const shouldPreserveForkPrompt = context === "fork" && opts.systemPrompt === undefined;
 			return this.forkAgentFn(
 				shouldPreserveForkPrompt
-					? { ...opts, systemPrompt: currentSystemPrompt, [FORK_INHERITED_SYSTEM_PROMPT]: true }
+					? { ...opts, systemPrompt: renderCurrentSystemPrompt(), [FORK_INHERITED_SYSTEM_PROMPT]: true }
 					: opts,
 			);
 		};
 		const messages: NonNullable<BeforeAgentStartEventResult["message"]>[] = [];
-		let systemPromptModified = currentSystemPrompt !== systemPrompt;
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("before_agent_start");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "before_agent_start")) {
 			for (const handler of handlers) {
 				try {
 					const event: BeforeAgentStartEvent = {
 						type: "before_agent_start",
 						prompt,
 						images,
-						systemPrompt: currentSystemPrompt,
-						systemPromptOptions,
 						source,
-						...(preview ? { preview: true } : {}),
+						preview,
+						get systemPrompt() {
+							return renderCurrentSystemPrompt();
+						},
+						systemPromptOptions: currentOptions,
 					};
 					const handlerResult = await handler(event, ctx);
 
 					if (handlerResult) {
 						const result = handlerResult as BeforeAgentStartEventResult;
-						if (result.message && !preview) {
-							messages.push(result.message);
-						}
+						if (result.message) messages.push(result.message);
 						if (result.systemPrompt !== undefined) {
-							currentSystemPrompt = result.systemPrompt;
-							systemPromptModified = true;
+							currentOptions.forceSystemPrompt = result.systemPrompt;
 						}
 					}
 				} catch (err) {
@@ -1629,14 +1678,7 @@ export class ExtensionRunner {
 			}
 		}
 
-		if (messages.length > 0 || systemPromptModified) {
-			return {
-				messages: messages.length > 0 ? messages : undefined,
-				systemPrompt: systemPromptModified ? currentSystemPrompt : undefined,
-			};
-		}
-
-		return undefined;
+		return { messages, systemPromptOptions: currentOptions, systemPrompt: renderCurrentSystemPrompt() };
 	}
 
 	async emitResourcesDiscover(
@@ -1653,10 +1695,7 @@ export class ExtensionRunner {
 		const promptPaths: Array<{ path: string; extensionPath: string }> = [];
 		const themePaths: Array<{ path: string; extensionPath: string }> = [];
 
-		for (const ext of this.extensions) {
-			const handlers = ext.handlers.get("resources_discover");
-			if (!handlers || handlers.length === 0) continue;
-
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "resources_discover")) {
 			for (const handler of handlers) {
 				try {
 					const event: ResourcesDiscoverEvent = { type: "resources_discover", cwd, reason };
@@ -1700,8 +1739,8 @@ export class ExtensionRunner {
 		let currentText = text;
 		let currentImages = images;
 
-		for (const ext of this.extensions) {
-			for (const handler of ext.handlers.get("input") ?? []) {
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "input")) {
+			for (const handler of handlers) {
 				try {
 					const event: InputEvent = {
 						type: "input",

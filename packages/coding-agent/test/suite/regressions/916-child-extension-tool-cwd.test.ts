@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Context, fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
+import { type Context, fauxAssistantMessage, fauxToolCall, getCurrentTools } from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { executeAgentTool } from "../../../src/core/agents/executor.ts";
 import { waitForAgentRecentRun } from "../../../src/core/agents/status.ts";
@@ -111,7 +111,7 @@ describe("regression #916: child session extension-tool ctx.cwd", () => {
 		);
 
 		expect(details.status).toBe("completed");
-		expect(seenChildContexts[0]?.tools?.map((tool) => tool.name)).toContain("CwdProbe");
+		expect(getCurrentTools(seenChildContexts[0]?.messages ?? []).map((tool) => tool.name)).toContain("CwdProbe");
 		// Guard: core already threads the routed child cwd into ExtensionContext
 		// (each child session re-activates extensions with its own runner bound to
 		// task.cwd). A regression to parent-bound context would observe

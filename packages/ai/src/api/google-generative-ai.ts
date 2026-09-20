@@ -8,7 +8,6 @@ import { calculateCost, clampThinkingLevel } from "../models.ts";
 import type {
 	Api,
 	AssistantMessage,
-	Context,
 	Model,
 	ProviderHeaders,
 	SimpleStreamOptions,
@@ -18,17 +17,20 @@ import type {
 	ThinkingBudgets,
 	ThinkingContent,
 	ToolCall,
+	TranscriptContext,
 } from "../types.ts";
-import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
 import { getPiUserAgent } from "../utils/pi-user-agent.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
+import { getSystemMessageText } from "../utils/text.ts";
+import { collapseSystemMessages, getCurrentTools, getInitialSystemMessage } from "../utils/transcript.ts";
 import type { GoogleApiThinkingLevel, ResolvedGoogleThinkingLevel } from "./google-shared.ts";
 import {
 	convertMessages,
 	convertTools,
+	getDisabledGoogleThinkingConfig,
 	isThinkingPart,
 	mapStopReason,
 	resolveGoogleFunctionCallingMode,
@@ -36,6 +38,9 @@ import {
 	retainThoughtSignature,
 	retryGoogleRequest,
 	supportsGoogleStrictToolSampling,
+	toGoogleSdkThinkingLevel,
+	toGoogleThinkingLevel,
+	usesGoogleThinkingLevel,
 } from "./google-shared.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 
@@ -53,10 +58,11 @@ let toolCallCounter = 0;
 
 export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 	model: Model<"google-generative-ai">,
-	context: Context,
+	context: TranscriptContext,
 	options?: GoogleOptions,
 ): AssistantMessageEventStream => {
 	const stream = new AssistantMessageEventStream();
+	const normalizedContext = collapseSystemMessages(context);
 
 	(async () => {
 		const output: AssistantMessage = {
@@ -86,7 +92,7 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 				throw new Error(`No API key for provider: ${model.provider}`);
 			}
 			const client = createClient(model, apiKey, options?.headers);
-			let params = buildParams(model, context, options);
+			let params = buildParams(model, normalizedContext, options);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as GenerateContentParameters;
@@ -297,7 +303,7 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 
 export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOptions> = (
 	model: Model<"google-generative-ai">,
-	context: Context,
+	context: TranscriptContext,
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream => {
 	const apiKey = options?.apiKey;
@@ -314,23 +320,17 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 	}
 
 	const clampedReasoning = clampThinkingLevel(model, options.reasoning);
-	const googleReasoning =
-		clampedReasoning === "off" ||
-		clampedReasoning === "adaptive" ||
-		clampedReasoning === "xhigh" ||
-		clampedReasoning === "max" ||
-		clampedReasoning === "ultra"
-			? "high"
-			: clampedReasoning;
-	const resolvedLevel = resolveGoogleThinkingLevel(model, googleReasoning);
-	const googleModel = model as Model<"google-generative-ai">;
+	if (clampedReasoning === "off") {
+		return stream(model, context, { ...base, thinking: { enabled: false } } satisfies GoogleOptions);
+	}
+	const resolvedLevel = resolveGoogleThinkingLevel(model, clampedReasoning);
 
-	if (isGemini3ProModel(googleModel) || isGemini3FlashModel(googleModel) || isGemma4Model(googleModel)) {
+	if (usesGoogleThinkingLevel(model)) {
 		return stream(model, context, {
 			...base,
 			thinking: {
 				enabled: true,
-				level: getThinkingLevel(resolvedLevel, googleModel),
+				level: toGoogleThinkingLevel(resolvedLevel),
 			},
 		} satisfies GoogleOptions);
 	}
@@ -339,7 +339,7 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 		...base,
 		thinking: {
 			enabled: true,
-			budgetTokens: getGoogleBudget(googleModel, resolvedLevel, options.thinkingBudgets),
+			budgetTokens: getGoogleBudget(model, resolvedLevel, options.thinkingBudgets),
 		},
 	} satisfies GoogleOptions);
 };
@@ -367,10 +367,12 @@ function createClient(
 
 function buildParams(
 	model: Model<"google-generative-ai">,
-	context: Context,
+	context: TranscriptContext,
 	options: GoogleOptions = {},
 ): GenerateContentParameters {
 	const contents = convertMessages(model, context);
+	const initialSystemMessage = getInitialSystemMessage(context.messages);
+	const currentTools = getCurrentTools(context.messages);
 
 	const generationConfig: GenerateContentConfig = {};
 	if (options.temperature !== undefined) {
@@ -381,18 +383,17 @@ function buildParams(
 	}
 
 	const supportsStrictMode = supportsGoogleStrictToolSampling(model.id);
-	const functionCallingMode = context.tools?.length
-		? resolveGoogleFunctionCallingMode(context.tools, options.toolChoice, supportsStrictMode)
-		: undefined;
+	const functionCallingMode =
+		currentTools.length > 0
+			? resolveGoogleFunctionCallingMode(currentTools, options.toolChoice, supportsStrictMode)
+			: undefined;
+	const systemInstruction = initialSystemMessage ? getSystemMessageText(initialSystemMessage) : "";
 	const config: GenerateContentConfig = {
 		...(Object.keys(generationConfig).length > 0 && generationConfig),
-		...(context.systemPrompt && {
-			systemInstruction: sanitizeSurrogates(stripSystemPromptDynamicBoundary(context.systemPrompt)),
+		...(systemInstruction && { systemInstruction: sanitizeSurrogates(systemInstruction) }),
+		...(currentTools.length > 0 && {
+			tools: convertTools(currentTools, false, supportsStrictMode),
 		}),
-		...(context.tools &&
-			context.tools.length > 0 && {
-				tools: convertTools(context.tools, false, supportsStrictMode),
-			}),
 		...(functionCallingMode !== undefined && {
 			toolConfig: { functionCallingConfig: { mode: functionCallingMode } },
 		}),
@@ -401,14 +402,13 @@ function buildParams(
 	if (options.thinking?.enabled && model.reasoning) {
 		const thinkingConfig: ThinkingConfig = { includeThoughts: true };
 		if (options.thinking.level !== undefined) {
-			// Cast to any since our GoogleApiThinkingLevel mirrors Google's ThinkingLevel enum values
-			thinkingConfig.thinkingLevel = options.thinking.level as any;
+			thinkingConfig.thinkingLevel = toGoogleSdkThinkingLevel(options.thinking.level);
 		} else if (options.thinking.budgetTokens !== undefined) {
 			thinkingConfig.thinkingBudget = options.thinking.budgetTokens;
 		}
 		config.thinkingConfig = thinkingConfig;
 	} else if (model.reasoning && options.thinking && !options.thinking.enabled) {
-		config.thinkingConfig = getDisabledThinkingConfig(model);
+		config.thinkingConfig = getDisabledGoogleThinkingConfig(model);
 	}
 
 	if (options.signal) {
@@ -425,73 +425,6 @@ function buildParams(
 	};
 
 	return params;
-}
-
-function isGemma4Model(model: Model<"google-generative-ai">): boolean {
-	return /gemma-?4/.test(model.id.toLowerCase());
-}
-
-function isGemini3ProModel(model: Model<"google-generative-ai">): boolean {
-	return /gemini-3(?:\.\d+)?-pro/.test(model.id.toLowerCase());
-}
-
-function isGemini3FlashModel(model: Model<"google-generative-ai">): boolean {
-	const id = model.id.toLowerCase();
-	return /gemini-3(?:\.\d+)?-flash/.test(id) || id === "gemini-flash-latest" || id === "gemini-flash-lite-latest";
-}
-
-function getDisabledThinkingConfig(model: Model<"google-generative-ai">): ThinkingConfig {
-	// Google docs: Gemini 3.1 Pro cannot disable thinking, and Gemini 3 Flash / Flash-Lite
-	// do not support full thinking-off either. For Gemini 3 models, use the lowest supported
-	// thinkingLevel without includeThoughts so hidden thinking remains invisible to pi.
-	if (isGemini3ProModel(model)) {
-		return { thinkingLevel: "LOW" as any };
-	}
-	if (isGemini3FlashModel(model)) {
-		return { thinkingLevel: "MINIMAL" as any };
-	}
-	if (isGemma4Model(model)) {
-		return { thinkingLevel: "MINIMAL" as any };
-	}
-
-	// Gemini 2.x supports disabling via thinkingBudget = 0.
-	return { thinkingBudget: 0 };
-}
-
-function getThinkingLevel(
-	effort: ResolvedGoogleThinkingLevel,
-	model: Model<"google-generative-ai">,
-): GoogleApiThinkingLevel {
-	if (isGemini3ProModel(model)) {
-		switch (effort) {
-			case "minimal":
-			case "low":
-				return "LOW";
-			case "medium":
-			case "high":
-				return "HIGH";
-		}
-	}
-	if (isGemma4Model(model)) {
-		switch (effort) {
-			case "minimal":
-			case "low":
-				return "MINIMAL";
-			case "medium":
-			case "high":
-				return "HIGH";
-		}
-	}
-	switch (effort) {
-		case "minimal":
-			return "MINIMAL";
-		case "low":
-			return "LOW";
-		case "medium":
-			return "MEDIUM";
-		case "high":
-			return "HIGH";
-	}
 }
 
 function getGoogleBudget(

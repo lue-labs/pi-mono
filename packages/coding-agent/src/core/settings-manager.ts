@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@lue-labs/pi-agent-core";
-import type { Transport } from "@lue-labs/pi-ai";
+import { DEFAULT_MAX_AGENT_RETRY_DELAY_MS, type Model, type Transport } from "@lue-labs/pi-ai";
 import type { TuiMode as RendererTuiMode, ScrollViewScrollbar, TerminalCapabilities } from "@lue-labs/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -11,12 +11,25 @@ import { stripBom } from "../utils/text.ts";
 import type { ExtensionLoadMode } from "./extensions/types.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 
+export interface CompactionModelOverride {
+	reserveTokens?: number;
+	keepRecentTokens?: number;
+}
+
+type CompactionModel = Pick<Model<string>, "provider" | "id"> & Partial<Pick<Model<string>, "contextWindow">>;
+
+const DEFAULT_COMPACTION_TOKEN_SETTINGS: Required<CompactionModelOverride> = {
+	reserveTokens: 16384,
+	keepRecentTokens: 20000,
+};
+
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
 	triggerTokens?: number; // absolute context-token threshold; when set and contextWindow is known, derives reserveTokens as (contextWindow - triggerTokens)
 	keepRecentTokens?: number; // default: 20000
-	residentPrune?: boolean; // default: true - stub summarized payloads in resident memory after successful compaction (opt out with false or PI_RESIDENT_SESSION_PRUNE=0)
+	modelOverrides?: Record<string, CompactionModelOverride>; // exact "provider/modelId" keys
+	residentPrune?: boolean; // default: true - stub summarized payloads in resident memory after successful compaction
 }
 
 export interface BranchSummarySettings {
@@ -34,6 +47,7 @@ export interface RetrySettings {
 	enabled?: boolean; // default: true
 	maxRetries?: number; // default: 3
 	baseDelayMs?: number; // default: 2000 (exponential backoff: 2s, 4s, 8s)
+	maxAgentDelayMs?: number; // default: 60000
 	provider?: ProviderRetrySettings;
 }
 
@@ -85,31 +99,29 @@ export interface SubagentDefaultSettings {
 export interface SubagentSettings {
 	defaults?: SubagentDefaultSettings;
 	providers?: Record<string, SubagentDefaultSettings>;
-	/**
-	 * Maximum nested delegation depth for the `agent` tool (children spawning
-	 * their own children). Top-level delegation is always allowed; this caps how
-	 * many further levels a child may nest. 0 (default) = no nesting, preserving
-	 * upstream single-layer behaviour. Capped at 16.
-	 */
 	maxDelegationDepth?: number;
 }
 
 export interface CacheHeartbeatWorkingHoursSettings {
-	start?: string; // local HH:mm, default: "08:00"
-	end?: string; // local HH:mm, default: "18:00"
-	days?: number[]; // local day numbers, 0=Sunday; default: Monday-Friday
+	start?: string;
+	end?: string;
+	days?: number[];
 }
 
 export interface CacheHeartbeatSettings {
-	enabled?: boolean; // default: false - paid background LLM calls must be opt-in
-	intervalMs?: number; // default: 55 minutes
-	providers?: string[]; // default: ["openai-codex/", "claude-bridge/"]
-	basePrompt?: boolean; // default: true - warm the base-system-prompt cache once per provider/model per process
-	sessionPrompt?: boolean; // default: true - refresh each active session once per idle turn
+	enabled?: boolean;
+	intervalMs?: number;
+	providers?: string[];
+	basePrompt?: boolean;
+	sessionPrompt?: boolean;
 	workingHours?: CacheHeartbeatWorkingHoursSettings;
-	maxTokens?: number; // default: 1
-	rateLimitCooldownMs?: number; // default: 5 minutes
+	maxTokens?: number;
+	rateLimitCooldownMs?: number;
 }
+
+/** Cache-warming profile. "idle" also warms between agent runs. */
+export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const;
+export type CacheWarmingMode = (typeof CACHE_WARMING_MODES)[number];
 
 export interface MarkdownSettings {
 	codeBlockIndent?: string; // default: "  "
@@ -205,6 +217,7 @@ export interface Settings {
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
 	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
+	cacheWarming?: CacheWarmingMode; // default: "streaming"; global only because each refresh costs money
 	websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
 	/**
 	 * Per-extension tuning, keyed by extension namespace. Unknown keys survive
@@ -951,7 +964,35 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getCompactionReserveTokens(contextWindow?: number): number {
+	private getCompactionTokenSetting(field: keyof CompactionModelOverride, model?: CompactionModel): number {
+		const compaction = this.settings.compaction;
+		const ordinary = compaction?.[field];
+		if (ordinary !== undefined && (typeof ordinary !== "number" || !Number.isSafeInteger(ordinary) || ordinary < 0)) {
+			throw new Error(
+				`Invalid compaction.${field} setting: ${String(ordinary)}. Expected a non-negative safe integer.`,
+			);
+		}
+
+		const modelKey = model ? `${model.provider}/${model.id}` : undefined;
+		const entry = modelKey !== undefined ? compaction?.modelOverrides?.[modelKey] : undefined;
+		if (entry !== undefined && !isMergeableObject(entry)) {
+			throw new Error(
+				`Invalid compaction.modelOverrides["${modelKey}"] setting: ${String(entry)}. Expected an object.`,
+			);
+		}
+		const override = entry?.[field];
+		if (override !== undefined && (typeof override !== "number" || !Number.isSafeInteger(override) || override < 0)) {
+			throw new Error(
+				`Invalid compaction.modelOverrides["${modelKey}"].${field} setting: ${String(override)}. Expected a non-negative safe integer.`,
+			);
+		}
+		return override ?? ordinary ?? DEFAULT_COMPACTION_TOKEN_SETTINGS[field];
+	}
+
+	getCompactionReserveTokens(modelOrContextWindow?: CompactionModel | number): number {
+		const model = typeof modelOrContextWindow === "number" ? undefined : modelOrContextWindow;
+		const contextWindow =
+			typeof modelOrContextWindow === "number" ? modelOrContextWindow : modelOrContextWindow?.contextWindow;
 		const triggerTokens = this.settings.compaction?.triggerTokens;
 		if (
 			typeof triggerTokens === "number" &&
@@ -963,32 +1004,31 @@ export class SettingsManager {
 		) {
 			return Math.max(0, Math.floor(contextWindow - triggerTokens));
 		}
-		return this.settings.compaction?.reserveTokens ?? 16384;
+		return this.getCompactionTokenSetting("reserveTokens", model);
 	}
 
-	getCompactionKeepRecentTokens(): number {
-		return this.settings.compaction?.keepRecentTokens ?? 20000;
+	getCompactionKeepRecentTokens(model?: CompactionModel): number {
+		return this.getCompactionTokenSetting("keepRecentTokens", model);
 	}
 
 	getCompactionResidentPruneEnabled(): boolean {
-		// Defaults on to bound resident heap after compaction. Env override wins over
-		// settings; an explicit boolean setting wins over the default.
 		if (process.env.PI_RESIDENT_SESSION_PRUNE === "1") return true;
 		if (process.env.PI_RESIDENT_SESSION_PRUNE === "0") return false;
-		if (typeof this.settings.compaction?.residentPrune === "boolean") return this.settings.compaction.residentPrune;
-		return true;
+		return this.settings.compaction?.residentPrune ?? true;
 	}
 
-	getCompactionSettings(contextWindow?: number): {
+	/** Resolve each token setting through model override, ordinary setting, then built-in default. */
+	getCompactionSettings(modelOrContextWindow?: CompactionModel | number): {
 		enabled: boolean;
 		reserveTokens: number;
 		keepRecentTokens: number;
 		residentPrune: boolean;
 	} {
+		const model = typeof modelOrContextWindow === "number" ? undefined : modelOrContextWindow;
 		return {
 			enabled: this.getCompactionEnabled(),
-			reserveTokens: this.getCompactionReserveTokens(contextWindow),
-			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			reserveTokens: this.getCompactionReserveTokens(modelOrContextWindow),
+			keepRecentTokens: this.getCompactionKeepRecentTokens(model),
 			residentPrune: this.getCompactionResidentPruneEnabled(),
 		};
 	}
@@ -1017,11 +1057,12 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getRetrySettings(): { enabled: boolean; maxRetries: number; baseDelayMs: number } {
+	getRetrySettings(): { enabled: boolean; maxRetries: number; baseDelayMs: number; maxAgentDelayMs: number } {
 		return {
 			enabled: this.getRetryEnabled(),
 			maxRetries: this.settings.retry?.maxRetries ?? 3,
 			baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,
+			maxAgentDelayMs: this.settings.retry?.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_RETRY_DELAY_MS,
 		};
 	}
 
@@ -1035,6 +1076,18 @@ export class SettingsManager {
 		}
 		this.globalSettings.httpIdleTimeoutMs = Math.floor(timeoutMs);
 		this.markModified("httpIdleTimeoutMs");
+		this.save();
+	}
+
+	/** Read from global settings only because warming costs money. */
+	getCacheWarmingMode(): CacheWarmingMode {
+		const mode = this.globalSettings.cacheWarming;
+		return mode !== undefined && CACHE_WARMING_MODES.includes(mode) ? mode : "streaming";
+	}
+
+	setCacheWarmingMode(mode: CacheWarmingMode): void {
+		this.globalSettings.cacheWarming = mode;
+		this.markModified("cacheWarming");
 		this.save();
 	}
 

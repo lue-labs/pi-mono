@@ -1,7 +1,15 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentTool, ThinkingLevel } from "@lue-labs/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type Model, type ToolResultMessage, type Usage } from "@lue-labs/pi-ai";
+import type { AgentMessage, AgentTool, ThinkingLevel } from "@lue-labs/pi-agent-core";
+import {
+	fauxAssistantMessage,
+	fauxToolCall,
+	getCurrentSystemPrompt,
+	type JsonObject,
+	type Model,
+	type ToolResultMessage,
+	type Usage,
+} from "@lue-labs/pi-ai";
 import { registerFauxProvider } from "@lue-labs/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -472,7 +480,12 @@ describe("AgentSession model and extension characterization", () => {
 
 		expect(getAssistantTexts(harness)).toContain("patched result");
 		const toolResult = harness.session.messages.find(
-			(message) => message.role === "toolResult" && message.details?.patched === true,
+			(message) =>
+				message.role === "toolResult" &&
+				typeof message.details === "object" &&
+				message.details !== null &&
+				!Array.isArray(message.details) &&
+				(message.details as JsonObject).patched === true,
 		);
 		expect(observedToolUsage).toEqual(toolUsage);
 		expect(toolResult).toBeDefined();
@@ -915,7 +928,7 @@ describe("AgentSession model and extension characterization", () => {
 		let sawInjectedUserMessage = false;
 		harness.setResponses([
 			(context) => {
-				providerSystemPrompt = context.systemPrompt ?? "";
+				providerSystemPrompt = getCurrentSystemPrompt(context.messages);
 				sawInjectedUserMessage = context.messages.some(
 					(message) =>
 						message.role === "user" &&
@@ -941,13 +954,13 @@ describe("AgentSession model and extension characterization", () => {
 		// systemPrompt:build filter (time-context's `Current date:` strip,
 		// cache-base-prompt's boundary relocation) is dropped on a mid-turn tool
 		// change, mutating the cached prefix and bursting the prompt cache. This
-		// idempotent filter rewrites the real `Current working directory:` line that
+		// idempotent filter marks the real `<cwd>` section that
 		// buildSystemPrompt emits; a before_agent_start handler forces a rebuild every
 		// turn (setActiveTools is not idempotent). The bug only surfaces from turn 2
 		// on, when the already-filtered prompt is fed back in and systemPromptModified
 		// is false, so the clobbered unfiltered rebuild would otherwise ship.
-		const dispose = addFilter<string>("systemPrompt:build", "test.rewrite-cwd-line", (sp) =>
-			typeof sp === "string" ? sp.replace("Current working directory:", "CWD:") : sp,
+		const dispose = addFilter<string>("systemPrompt:build", "test.rewrite-cwd-section", (sp) =>
+			typeof sp === "string" ? sp.replace("<cwd>\n", "<cwd>\nCWD: ") : sp,
 		);
 		// Captured session ref: the handler must clobber the base prompt DURING the
 		// before_agent_start window (after this turn's filter pass), which is the only
@@ -967,8 +980,8 @@ describe("AgentSession model and extension characterization", () => {
 			ref.session = harness.session;
 			harnesses.push(harness);
 			const sentSystemPrompts: string[] = [];
-			const capture = (context: { systemPrompt?: string }) => {
-				sentSystemPrompts.push(context.systemPrompt ?? "");
+			const capture = (context: { messages: AgentMessage[] }) => {
+				sentSystemPrompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("done");
 			};
 			harness.setResponses([capture, capture]);
@@ -980,7 +993,7 @@ describe("AgentSession model and extension characterization", () => {
 			// send path must re-filter the clobbered rebuild so the filter still applies.
 			expect(sentSystemPrompts.length).toBe(2);
 			expect(sentSystemPrompts[1]).toContain("CWD:");
-			expect(sentSystemPrompts[1]).not.toContain("Current working directory:");
+			expect(sentSystemPrompts[1]).not.toContain("<cwd>\n/");
 		} finally {
 			dispose();
 		}

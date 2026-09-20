@@ -1,4 +1,4 @@
-import { type Context, fauxAssistantMessage } from "@lue-labs/pi-ai";
+import { type Context, fauxAssistantMessage, getCurrentTools } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
@@ -65,7 +65,10 @@ describe("setDeferredToolOverrides (post-registration deferral seam)", () => {
 		let captured: Array<{ name: string; deferLoading?: boolean }> = [];
 		harness.setResponses([
 			(context: Context) => {
-				captured = (context.tools ?? []).map((tool) => ({ name: tool.name, deferLoading: tool.deferLoading }));
+				captured = getCurrentTools(context.messages).map((tool) => ({
+					name: tool.name,
+					deferLoading: tool.deferLoading,
+				}));
 				return fauxAssistantMessage("done");
 			},
 		]);

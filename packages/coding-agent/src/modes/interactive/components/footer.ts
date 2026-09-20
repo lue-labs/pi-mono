@@ -3,6 +3,7 @@ import { type Component, truncateToWidth, visibleWidth } from "@lue-labs/pi-tui"
 import type { AgentSession } from "../../../core/agent-session.ts";
 import { computeCacheHealth } from "../../../core/cache-health.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
+import { addUsageToTotals, createUsageTotals } from "../../../core/usage-totals.ts";
 import { theme } from "../theme/theme.ts";
 import { FooterUsageTracker, type UsageTotals } from "./footer-usage.ts";
 
@@ -199,6 +200,29 @@ export class FooterComponent implements Component {
 			followsUserTurn,
 		} = this.getUsageTotals();
 
+		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)
+		const usageTotals = createUsageTotals();
+		let _latestCacheHitRate: number | undefined;
+
+		for (const entry of this.session.sessionManager.getEntries()) {
+			if (entry.type === "usage") {
+				addUsageToTotals(usageTotals, entry.usage);
+			} else if (entry.type === "message" && entry.message.role === "assistant") {
+				addUsageToTotals(usageTotals, entry.message.usage);
+
+				const latestPromptTokens =
+					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
+				_latestCacheHitRate =
+					latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
+			} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
+				addUsageToTotals(usageTotals, entry.message.usage);
+			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
+				addUsageToTotals(usageTotals, entry.usage);
+			}
+		}
+
+		// Calculate context usage from session (handles compaction correctly).
+		// After compaction, tokens are unknown until the next LLM response.
 		const contextUsage = this.session.getContextUsage();
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
 		const contextUsageDetails = contextUsage?.details;

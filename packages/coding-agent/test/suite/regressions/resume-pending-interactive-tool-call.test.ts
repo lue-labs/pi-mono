@@ -100,6 +100,7 @@ describe("resumability: pending interactive tool call re-presents on resume", ()
 
 			expect(harness.session.messages.map((message) => message.role)).toEqual([
 				"assistant",
+				"system",
 				"toolResult",
 				"assistant",
 			]);

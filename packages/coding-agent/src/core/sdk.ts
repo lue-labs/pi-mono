@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@lue-labs/pi-agent-core";
+import type { ModelsSimpleStreamOptions } from "@lue-labs/pi-ai";
 import { clampThinkingLevel, type Message, type Model, modelsAreEqual, streamSimple } from "@lue-labs/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
@@ -7,7 +8,7 @@ import { type AgentRunIdentity, AgentSession } from "./agent-session.ts";
 import type { AgentToolParentServices } from "./agents/executor.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
-import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
+import { CacheWarmer } from "./cache-warmer.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { applyFilters, extensionHookNames } from "./extensions/extension-hooks.ts";
 import type {
@@ -183,7 +184,7 @@ function getDefaultAgentDir(): string {
 	return getAgentDir();
 }
 
-function isClaudeBridgeModel(model: Model<any>): boolean {
+function _isClaudeBridgeModel(model: Model<any>): boolean {
 	return (
 		model.provider === "claude-bridge" ||
 		model.baseUrl.includes("127.0.0.1:9100") ||
@@ -191,7 +192,7 @@ function isClaudeBridgeModel(model: Model<any>): boolean {
 	);
 }
 
-function getClaudeBridgeHeaders(
+function _getClaudeBridgeHeaders(
 	sessionManager: SessionManager,
 	source: InputSource | undefined,
 ): Record<string, string> {
@@ -254,7 +255,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const modelRuntime = options.modelRuntime ?? (await ModelRuntime.create({ authPath, modelsPath }));
 	// Kept for AgentToolParentServices / child-agent tooling, which still consumes
 	// AuthStorage + the ModelRegistry compat facade directly.
-	const authStorage = AuthStorage.create(authPath);
+	const _authStorage = AuthStorage.create(authPath);
 	const modelRegistry = new ModelRegistry(modelRuntime);
 
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
@@ -492,6 +493,66 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	};
 
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
+	const cacheWarmer = new CacheWarmer(
+		modelRuntime,
+		sessionManager,
+		() => settingsManager.getCacheWarmingMode(),
+		async (event) => extensionRunnerRef.current?.emitCacheWarmingDecision(event) ?? event.action,
+	);
+	const buildRequestOptions = (
+		requestModel: Model<any>,
+		options: ModelsSimpleStreamOptions = {},
+	): ModelsSimpleStreamOptions => {
+		const providerRetrySettings = settingsManager.getProviderRetrySettings();
+		const httpIdleTimeoutMs = settingsManager.getHttpIdleTimeoutMs();
+		const effectiveTimeoutMs = httpIdleTimeoutMs === 0 ? 2147483647 : httpIdleTimeoutMs;
+		const headerRunner = extensionRunnerRef.current;
+		return {
+			...options,
+			timeoutMs: options.timeoutMs ?? providerRetrySettings.timeoutMs ?? effectiveTimeoutMs,
+			websocketConnectTimeoutMs: options.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs(),
+			maxRetries: options.maxRetries ?? providerRetrySettings.maxRetries,
+			maxRetryDelayMs: options.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
+			transformHeaders: async (requestHeaders) => {
+				const headers = mergeProviderAttributionHeaders(
+					requestModel,
+					settingsManager,
+					options.sessionId,
+					requestHeaders,
+				);
+				return headerRunner?.hasHandlers("before_provider_headers")
+					? headerRunner.emitBeforeProviderHeaders(headers ?? {})
+					: (headers ?? {});
+			},
+		};
+	};
+	const cacheContextIsCurrent = (requestModel: Model<any>) => {
+		const messages = agent.state.messages;
+		return () => {
+			const currentModel = agent.state.model;
+			const currentMessages = agent.state.messages;
+			return (
+				currentModel.provider === requestModel.provider &&
+				currentModel.id === requestModel.id &&
+				messages.length <= currentMessages.length &&
+				messages.every((message, index) => currentMessages[index] === message)
+			);
+		};
+	};
+	const transformProviderPayload = async (payload: unknown) => {
+		const runner = extensionRunnerRef.current;
+		if (!runner?.hasHandlers("before_provider_request")) return payload;
+		return runner.emitBeforeProviderRequest(payload);
+	};
+	const handleProviderResponse: NonNullable<ModelsSimpleStreamOptions["onResponse"]> = async (response) => {
+		const runner = extensionRunnerRef.current;
+		if (!runner?.hasHandlers("after_provider_response")) return;
+		await runner.emit({
+			type: "after_provider_response",
+			status: response.status,
+			headers: response.headers,
+		});
+	};
 
 	agent = new Agent({
 		initialState: {
@@ -502,53 +563,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		},
 		convertToLlm: convertToLlmWithBlockImages,
 		streamFn: async (model, context, options) => {
-			const providerRetrySettings = settingsManager.getProviderRetrySettings();
-			const httpIdleTimeoutMs = settingsManager.getHttpIdleTimeoutMs();
-			// SDKs treat timeout=0 as 0ms (immediate timeout), not "no timeout".
-			// Use max int32 to effectively disable the timeout.
-			const effectiveTimeoutMs = httpIdleTimeoutMs === 0 ? 2147483647 : httpIdleTimeoutMs;
-			const timeoutMs = options?.timeoutMs ?? providerRetrySettings.timeoutMs ?? effectiveTimeoutMs;
-			const websocketConnectTimeoutMs =
-				options?.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs();
-			const bridgeHeaders = isClaudeBridgeModel(model)
-				? getClaudeBridgeHeaders(sessionManager, sessionSource)
-				: undefined;
-			const headerRunner = extensionRunnerRef.current;
-			return modelRuntime.streamSimple(model, context, {
-				...options,
-				cacheAffinityKey: options?.cacheAffinityKey ?? createPromptCacheAffinityKey(model, context),
-				timeoutMs,
-				websocketConnectTimeoutMs,
-				maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
-				maxRetryDelayMs: options?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
-				transformHeaders: async (requestHeaders) => {
-					const headers = mergeProviderAttributionHeaders(
-						model,
-						settingsManager,
-						options?.sessionId,
-						bridgeHeaders,
-						requestHeaders,
-					);
-					return headerRunner?.hasHandlers("before_provider_headers")
-						? headerRunner.emitBeforeProviderHeaders(headers ?? {})
-						: (headers ?? {});
-				},
-			});
-		},
-		onPayload: async (payload, _model) => {
-			return extensionRunnerRef.current?.emitBeforeProviderRequest(payload) ?? payload;
-		},
-		onResponse: async (response, _model) => {
-			const runner = extensionRunnerRef.current;
-			if (!runner?.hasHandlers("after_provider_response")) {
-				return;
+			const requestOptions = buildRequestOptions(model, options);
+			// Compaction and summaries use their own routing ids; only session requests
+			// replace the cache entry, so warming restarts from them. Keep warming while
+			// the current transcript still extends the request's prefix. Agent state may
+			// shallow-copy the messages array or refresh the model object without changing
+			// the provider request, so top-level object identity is not a valid cache key.
+			if (options?.sessionId === sessionManager.getSessionId()) {
+				cacheWarmer.start({ model, context, options: requestOptions }, cacheContextIsCurrent(model));
 			}
-			await runner.emit({
-				type: "after_provider_response",
-				status: response.status,
-				headers: response.headers,
-			});
+			return modelRuntime.streamSimple(model, context, requestOptions);
 		},
+		onPayload: transformProviderPayload,
+		onResponse: handleProviderResponse,
 		sessionId: sessionManager.getSessionId(),
 		cacheAffinityKey: undefined,
 		transformContext: async (messages) => {
@@ -611,10 +638,18 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		customTools: options.customTools,
 		modelRegistry,
 		modelRuntime,
+		cacheWarmer,
 		// Honour an explicit disabled state before falling back to top-level services.
 		agentToolServices: options.disableAgentToolServices
 			? undefined
-			: (options.agentToolServices ?? { cwd, agentDir, authStorage, settingsManager, modelRegistry, modelRuntime }),
+			: (options.agentToolServices ?? {
+					cwd,
+					agentDir,
+					authStorage: _authStorage,
+					settingsManager,
+					modelRegistry,
+					modelRuntime,
+				}),
 		agentRunIdentity: options.agentRunIdentity,
 		initialActiveToolNames,
 		allowedToolNames,
@@ -626,6 +661,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			? { requestedModel: pendingRequestedModel, routingMetadata: options.routingMetadata }
 			: undefined,
 	});
+
 	const extensionsResult = resourceLoader.getExtensions();
 
 	return {

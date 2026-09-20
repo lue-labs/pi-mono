@@ -1,6 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Context, fauxAssistantMessage, fauxToolCall, type Tool } from "@lue-labs/pi-ai";
+import {
+	type Context,
+	fauxAssistantMessage,
+	fauxToolCall,
+	getCurrentSystemPrompt,
+	getCurrentTools,
+	type Tool,
+} from "@lue-labs/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildAgentSystemAppend } from "../../src/core/agents/context.ts";
 import { getBuiltinAgentDefinitions } from "../../src/core/agents/definitions.ts";
@@ -53,7 +60,7 @@ describe("agent tool suite: context modes", () => {
 		writeFileSync(join(harness.tempDir, ".pi", "APPEND_SYSTEM.md"), "PROJECT APPEND");
 		harness.setResponses([
 			(context: Context) => {
-				childPrompts.push(context.systemPrompt);
+				childPrompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("decompose done");
 			},
 		]);
@@ -88,11 +95,11 @@ describe("agent tool suite: context modes", () => {
 		);
 		harness.setResponses([
 			(context: Context) => {
-				childPrompts.push(context.systemPrompt);
+				childPrompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("explore done");
 			},
 			(context: Context) => {
-				childPrompts.push(context.systemPrompt);
+				childPrompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("plan done");
 			},
 		]);
@@ -127,8 +134,8 @@ describe("agent tool suite: context modes", () => {
 		writeFileSync(join(harness.tempDir, ".pi", "APPEND_SYSTEM.md"), "GENERAL APPEND MARKER");
 		harness.setResponses([
 			(context: Context) => {
-				childPrompt = context.systemPrompt;
-				childTools = (context.tools ?? []).map((tool) => tool.name);
+				childPrompt = getCurrentSystemPrompt(context.messages);
+				childTools = getCurrentTools(context.messages).map((tool) => tool.name);
 				return fauxAssistantMessage("general done");
 			},
 		]);
@@ -190,17 +197,19 @@ describe("agent tool suite: context modes", () => {
 				parentActiveTools: harness.session.getActiveToolNames(),
 				parentProviderTools: harness.session.getActiveToolProviderSchemas(),
 				parentCacheAffinityKey,
-				parentSystemPrompt: parentContext?.systemPrompt,
+				parentSystemPrompt: parentContext ? getCurrentSystemPrompt(parentContext.messages) : undefined,
 				onChildSessionStart: (session) => {
-					childCacheAffinityKey = session.agent.cacheAffinityKey;
+					childCacheAffinityKey = session.getPromptCacheAffinityKey();
 				},
 			},
 		);
 
 		expect(childContext).toBeDefined();
-		expect(JSON.stringify(childContext?.tools)).toBe(JSON.stringify(parentContext?.tools));
-		const parentSystem = parentContext?.systemPrompt ?? "";
-		const childSystem = childContext?.systemPrompt ?? "";
+		expect(JSON.stringify(getCurrentTools(childContext!.messages))).toBe(
+			JSON.stringify(getCurrentTools(parentContext!.messages)),
+		);
+		const parentSystem = getCurrentSystemPrompt(parentContext!.messages);
+		const childSystem = getCurrentSystemPrompt(childContext!.messages);
 		expect(childSystem).toBe(parentSystem);
 		expect(JSON.stringify(childContext?.messages)).toContain(
 			"Complete the requested outcome within the stated scope",
@@ -216,8 +225,8 @@ describe("agent tool suite: context modes", () => {
 		harnesses.push(harness);
 		harness.setResponses([
 			(context: Context) => {
-				childProviderToolNames = (context.tools ?? []).map((tool) => tool.name);
-				childSystemPrompt = context.systemPrompt;
+				childProviderToolNames = getCurrentTools(context.messages).map((tool) => tool.name);
+				childSystemPrompt = getCurrentSystemPrompt(context.messages);
 				return fauxAssistantMessage("general done");
 			},
 		]);
@@ -267,7 +276,7 @@ describe("agent tool suite: context modes", () => {
 		harness.setResponses([
 			fauxAssistantMessage("parent warm"),
 			(context: Context) => {
-				childSystemPrompt = context.systemPrompt;
+				childSystemPrompt = getCurrentSystemPrompt(context.messages);
 				return fauxAssistantMessage("general done");
 			},
 		]);
@@ -482,11 +491,11 @@ Specialized General.`,
 		writeFileSync(join(harness.tempDir, ".pi", "APPEND_SYSTEM.md"), "PROJECT APPEND");
 		harness.setResponses([
 			(context: Context) => {
-				childPrompts.push(context.systemPrompt);
+				childPrompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("slim done");
 			},
 			(context: Context) => {
-				childPrompts.push(context.systemPrompt);
+				childPrompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("none done");
 			},
 		]);
@@ -572,14 +581,14 @@ Specialized General.`,
 		);
 		harness.setResponses([
 			(context: Context) => {
-				providerTools.push(context.tools ?? []);
+				providerTools.push(getCurrentTools(context.messages));
 				return fauxAssistantMessage(
 					fauxToolCall("child_session_start_second", { second: "execute child handler" }),
 					{ stopReason: "toolUse" },
 				);
 			},
 			(context: Context) => {
-				providerTools.push(context.tools ?? []);
+				providerTools.push(getCurrentTools(context.messages));
 				return fauxAssistantMessage("child done");
 			},
 		]);

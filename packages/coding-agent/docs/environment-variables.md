@@ -88,6 +88,7 @@ These variables are read by Pi itself:
 | `PI_BASH_TIMEOUT_SECONDS` | Default foreground bash timeout in seconds when a call omits `timeout`; overrides `bashTimeoutSeconds` (`0` disables the default) |
 | `PI_STRICT_EXTENSIONS` | Set to `1` to make every extension load failure fatal. By default an auto-discovered extension that fails to load is skipped with a warning; see [Extensions](extensions.md#when-an-extension-fails-to-load) |
 | `PI_SHARE_VIEWER_URL` | Override the base URL used by `/share` |
+| `PI_RADIUS_GATEWAY` | Override the Radius gateway origin used by `/bug` uploads and Radius relay connections |
 | `PI_HARDWARE_CURSOR` | Set to `1` to show the hardware cursor; see [Terminal setup](terminal-setup.md) |
 | `PI_HYPERLINKS` | Override OSC 8 hyperlink detection with `1`, `0`, or `auto` |
 | `PI_IMAGE_PROTOCOL` | Override inline image detection with `kitty`, `iterm2`, `none`, or `auto` |

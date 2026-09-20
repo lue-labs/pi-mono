@@ -16,7 +16,7 @@ import { getExtensionModuleSpecifiersForTests } from "../src/core/extensions/loa
 // static check (tsgo, build-gate) stayed green — only a compiled-binary boot
 // reproduced it. This test makes the map drift itself fail fast.
 
-const { virtualModules, aliases } = getExtensionModuleSpecifiersForTests();
+const { virtualModules, aliases } = await getExtensionModuleSpecifiersForTests();
 
 // Current fork scope, legacy fork scope, and the two upstream scopes bridged
 // for third-party extensions.

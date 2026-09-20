@@ -175,8 +175,8 @@ export function transformMessages<TApi extends Api>(
 
 	// First pass: transform messages (unsupported image downgrade, thinking blocks, tool call ID normalization)
 	const transformed = imageAwareMessages.map((msg) => {
-		// User messages pass through unchanged
-		if (msg.role === "user") {
+		// System and user messages pass through unchanged
+		if (msg.role === "system" || msg.role === "user") {
 			return msg;
 		}
 
@@ -265,7 +265,11 @@ export function transformMessages<TApi extends Api>(
 	let pendingToolCalls: ToolCall[] = [];
 	let existingToolResultIds = new Set<string>();
 	const droppedToolCallIds = new Set<string>();
-	const insertSyntheticToolResults = () => {
+	// System messages are transparent to tool-call accounting: one that lands between a tool
+	// call and its results is held back and emitted after the results (synthetic ones
+	// included), so it never causes a duplicate result for a call that is answered later.
+	const heldSystemMessages: Message[] = [];
+	const closePendingToolCalls = () => {
 		if (pendingToolCalls.length > 0) {
 			for (const tc of pendingToolCalls) {
 				if (!existingToolResultIds.has(tc.id)) {
@@ -282,6 +286,8 @@ export function transformMessages<TApi extends Api>(
 			pendingToolCalls = [];
 			existingToolResultIds = new Set();
 		}
+		result.push(...heldSystemMessages);
+		heldSystemMessages.length = 0;
 	};
 
 	for (let i = 0; i < adjacent.length; i++) {
@@ -289,7 +295,7 @@ export function transformMessages<TApi extends Api>(
 
 		if (msg.role === "assistant") {
 			// If we have pending orphaned tool calls from a previous assistant, insert synthetic results now
-			insertSyntheticToolResults();
+			closePendingToolCalls();
 
 			// Skip errored/aborted assistant messages entirely.
 			// These are incomplete turns that shouldn't be replayed:
@@ -321,15 +327,20 @@ export function transformMessages<TApi extends Api>(
 			if (droppedToolCallIds.has(msg.toolCallId)) continue;
 			existingToolResultIds.add(msg.toolCallId);
 			result.push(msg);
+		} else if (msg.role === "system") {
+			if (pendingToolCalls.length > 0) {
+				heldSystemMessages.push(msg);
+			} else {
+				result.push(msg);
+			}
 		} else if (msg.role === "user") {
-			// CACHE CRITICAL: hidden/empty hook messages must not interrupt the
-			// assistant tool_use -> toolResult adjacency. Providers drop these
-			// messages later; synthesizing missing results before that creates
-			// duplicate tool_result blocks and Anthropic rejects the request.
+			// Hidden/empty hook messages do not interrupt the tool flow. Providers
+			// discard them later, so synthesizing results here would create duplicate
+			// tool_result blocks for results that are already present.
 			if (!hasVisibleUserContent(msg)) continue;
 
-			// User message interrupts tool flow - insert synthetic results for orphaned calls
-			insertSyntheticToolResults();
+			// A new user turn interrupts tool flow - insert synthetic results for orphaned calls
+			closePendingToolCalls();
 			result.push(msg);
 		} else {
 			result.push(msg);
@@ -337,7 +348,7 @@ export function transformMessages<TApi extends Api>(
 	}
 
 	// If the conversation ends with unresolved tool calls, synthesize results now.
-	insertSyntheticToolResults();
+	closePendingToolCalls();
 
 	return result;
 }

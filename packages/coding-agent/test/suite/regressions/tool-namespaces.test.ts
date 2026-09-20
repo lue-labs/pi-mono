@@ -1,4 +1,4 @@
-import { type Context, fauxAssistantMessage } from "@lue-labs/pi-ai";
+import { type Context, fauxAssistantMessage, getCurrentTools } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
@@ -64,7 +64,7 @@ describe("setToolNamespaces (post-registration namespace seam)", () => {
 		let captured: Array<{ name: string; namespace?: string }> = [];
 		harness.setResponses([
 			(context: Context) => {
-				captured = (context.tools ?? []).map((tool) => ({
+				captured = getCurrentTools(context.messages).map((tool) => ({
 					name: tool.name,
 					namespace: (tool as { namespace?: string }).namespace,
 				}));

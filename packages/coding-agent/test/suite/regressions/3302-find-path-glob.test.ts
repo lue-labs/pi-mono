@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGlobToolDefinition } from "../../../src/core/tools/glob.ts";
 
 /**
- * Regression test for https://github.com/earendil-works/pi-mono/issues/3302
+ * Regression test for https://github.com/earendil-works/pi/issues/3302
  *
  * The `Glob` tool advertises glob patterns like `src/**\/*.spec.ts`, but the
  * default fd-backed implementation used `fd --glob <pattern>` without

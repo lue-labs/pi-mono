@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { Compile } from "typebox/compile";
 import { describe, expect, it } from "vitest";
-import type { Tool, ToolCall } from "../src/types.ts";
+import type { JsonObject, JsonValue, Tool, ToolCall } from "../src/types.ts";
 import { validateToolArguments } from "../src/utils/validation.ts";
 
 function createToolCallWithPlainSchema(
@@ -27,7 +27,7 @@ function createToolCallWithPlainSchema(
 		type: "toolCall",
 		id: "tool-1",
 		name: "echo",
-		arguments: { value },
+		arguments: { value: value as JsonValue },
 	};
 
 	return { tool, toolCall };
@@ -114,7 +114,7 @@ describe("validateToolArguments", () => {
 			arguments: {
 				tasks: '[{"agent":"explore","task":"look"},{"agent":"plan","task":"think"}]',
 				concurrency: "3",
-			} as unknown as Record<string, unknown>,
+			} as unknown as JsonObject,
 		};
 		expect(validateToolArguments(arrayTool, arrayCall)).toEqual({
 			tasks: [
@@ -135,7 +135,7 @@ describe("validateToolArguments", () => {
 			type: "toolCall",
 			id: "t2",
 			name: "echo",
-			arguments: { payload: '{"a":1,"b":"x"}' } as unknown as Record<string, unknown>,
+			arguments: { payload: '{"a":1,"b":"x"}' } as unknown as JsonObject,
 		};
 		expect(validateToolArguments(objectTool, objectCall)).toEqual({ payload: { a: 1, b: "x" } });
 	});

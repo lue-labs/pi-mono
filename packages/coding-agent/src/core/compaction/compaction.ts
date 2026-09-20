@@ -6,7 +6,14 @@
  */
 
 import type { AgentMessage, StreamFn, ThinkingLevel } from "@lue-labs/pi-agent-core";
-import { contentText, type RetryCallbacks, type RetryPolicy, retryAssistantCall, uuidv7 } from "@lue-labs/pi-ai";
+import {
+	contentText,
+	normalizeContext,
+	type RetryCallbacks,
+	type RetryPolicy,
+	retryAssistantCall,
+	uuidv7,
+} from "@lue-labs/pi-ai";
 import type {
 	AssistantMessage,
 	Context,
@@ -14,6 +21,7 @@ import type {
 	Model,
 	SimpleStreamOptions,
 	Tool,
+	TranscriptContext,
 	Usage,
 } from "@lue-labs/pi-ai/compat";
 import { completeSimple } from "@lue-labs/pi-ai/compat";
@@ -89,7 +97,9 @@ function getMessageFromEntryForCompaction(entry: SessionEntry): AgentMessage | u
 	if (entry.type === "compaction") {
 		return undefined;
 	}
-	return sessionEntryToContextMessages(entry)[0];
+	// System messages are prompt state, not conversation; the compaction entry carries their replay.
+	const message = sessionEntryToContextMessages(entry)[0];
+	return message?.role === "system" ? undefined : message;
 }
 
 /** Result from compact() - SessionManager adds uuid/parentUuid when saving */
@@ -440,27 +450,10 @@ export function findCutPoint(
 
 		// Check if we've exceeded the budget
 		if (accumulatedTokens >= keepRecentTokens) {
-			// Find the closest valid cut point at or after this entry. If the
-			// budget is exceeded by a trailing non-cuttable entry (for example a
-			// tool result), cut at the nearest preceding valid message so the
-			// owning assistant/tool-result pair stays together instead of keeping
-			// the whole branch and skipping compaction.
-			let selectedCutPoint: number | undefined;
-			for (let c = 0; c < cutPoints.length; c++) {
-				if (cutPoints[c] >= i) {
-					selectedCutPoint = cutPoints[c];
-					break;
-				}
-			}
-			if (selectedCutPoint === undefined) {
-				for (let c = cutPoints.length - 1; c >= 0; c--) {
-					if (cutPoints[c] < i) {
-						selectedCutPoint = cutPoints[c];
-						break;
-					}
-				}
-			}
-			cutIndex = selectedCutPoint ?? cutIndex;
+			// Prefer the closest valid cut point at or after this entry. If trailing
+			// tool results exceed the budget by themselves, keep their preceding
+			// assistant tool call instead of falling back to the first message.
+			cutIndex = cutPoints.find((candidate) => candidate >= i) ?? cutPoints[cutPoints.length - 1];
 			break;
 		}
 	}
@@ -671,7 +664,7 @@ function buildCacheSafeSummaryPrompt(customInstructions?: string): string {
  */
 export async function completeSummarization(
 	model: Model<any>,
-	context: Context,
+	context: TranscriptContext,
 	options: SimpleStreamOptions,
 	streamFn?: StreamFn,
 	retry?: RetryPolicy,
@@ -734,8 +727,8 @@ export async function generateSummary(
 }
 
 /** Build the provider context for a standalone summary request. */
-function buildSummarizationContext(promptText: string): Context {
-	return {
+function buildSummarizationContext(promptText: string): TranscriptContext {
+	return normalizeContext({
 		systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
 		messages: [
 			{
@@ -744,7 +737,7 @@ function buildSummarizationContext(promptText: string): Context {
 				timestamp: Date.now(),
 			},
 		],
-	};
+	});
 }
 
 /** Generate or update a conversation summary and return its provider usage. */
@@ -995,7 +988,7 @@ export async function compact(
 	let summaryUsage: Usage;
 
 	if (isSplitTurn && turnPrefixMessages.length > 0) {
-		let historyText = "No prior history.";
+		let historyText = previousSummary ?? "No prior history.";
 		let historyUsage: Usage | undefined;
 		if (messagesToSummarize.length > 0) {
 			const historyResult = await generateSummaryWithUsage(
