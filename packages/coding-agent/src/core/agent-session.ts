@@ -4096,16 +4096,34 @@ export class AgentSession {
 				this._consecutiveCompactionFailures++;
 				if (this._consecutiveCompactionFailures >= COMPACTION_FAILURE_TRIP_COUNT) {
 					this._autoCompactDisabledThisSession = true;
+					const circuitBreakerErrorMessage =
+						"Auto-compaction circuit breaker tripped after 3 consecutive failures — auto-compaction is disabled for the rest of this session. Try /new to start fresh or switch to a larger-context model.";
+					this._emit({
+						type: "compaction_end",
+						reason,
+						result: undefined,
+						aborted: false,
+						willRetry: false,
+						errorMessage: circuitBreakerErrorMessage,
+					});
+					if (started) {
+						await this._emitSessionCompactFailed({
+							reason,
+							errorMessage: circuitBreakerErrorMessage,
+							aborted: false,
+							willRetry: false,
+							fromExtension,
+						});
+					}
+					return false;
 				}
 			}
 			if (started) {
 				const errorMessage = aborted
 					? undefined
-					: this._autoCompactDisabledThisSession
-						? "Auto-compaction circuit breaker tripped after 3 consecutive failures — auto-compaction is disabled for the rest of this session. Try /new to start fresh or switch to a larger-context model."
-						: reason === "overflow"
-							? `Context overflow recovery failed: ${message}`
-							: `Auto-compaction failed: ${message}`;
+					: reason === "overflow"
+						? `Context overflow recovery failed: ${message}`
+						: `Auto-compaction failed: ${message}`;
 				this._emit({
 					type: "compaction_end",
 					reason,

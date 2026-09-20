@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Provider } from "@lue-labs/pi-ai";
 import type { KeyId } from "@lue-labs/pi-tui";
 import type { createJiti } from "jiti";
@@ -602,6 +602,22 @@ async function loadExtensionModule(extensionPath: string, cacheToken?: Extension
 		const cachedFactory = extensionCache.get(extensionPath);
 		if (cachedFactory) {
 			return cachedFactory;
+		}
+	}
+
+	// Pre-compiled JavaScript extensions do not need jiti's transform or virtual
+	// module setup. Keep the native path fast so deferred extensions can finish
+	// loading before the first user turn without paying the TypeScript loader cost.
+	if (/\.[mc]?js$/.test(extensionPath)) {
+		try {
+			const module = await import(pathToFileURL(extensionPath).href);
+			const factory = (module.default ?? module) as ExtensionFactory;
+			if (typeof factory === "function" && isCurrentCacheToken(cacheToken)) {
+				extensionCache.set(extensionPath, factory);
+			}
+			if (typeof factory === "function") return factory;
+		} catch {
+			// Fall through to jiti for CommonJS and extensions that need aliases.
 		}
 	}
 

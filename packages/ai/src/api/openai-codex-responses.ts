@@ -30,6 +30,7 @@ import { registerSessionResourceCleanup } from "../session-resources.ts";
 import type {
 	Api,
 	AssistantMessage,
+	Context,
 	Model,
 	ProviderEnv,
 	ProviderHeaders,
@@ -41,6 +42,7 @@ import type {
 } from "../types.ts";
 import { combineAbortSignals } from "../utils/abort-signals.ts";
 import { resolveCacheRetention } from "../utils/cache-retention.ts";
+import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import {
 	appendAssistantMessageDiagnostic,
 	createAssistantMessageDiagnostic,
@@ -606,13 +608,12 @@ export {
 
 function buildRequestBody(
 	model: Model<"openai-codex-responses">,
-	context: TranscriptContext,
+	context: Context | TranscriptContext,
 	options: OpenAICodexResponsesOptions | undefined,
-	grammarToolInputProperties: ReadonlyMap<string, string> = createGrammarToolInputProperties(
-		getDeclaredTools(context.messages),
-		model.compat?.supportsOpenAIGrammarTools ?? false,
-	),
+	grammarToolInputProperties?: ReadonlyMap<string, string>,
 ): RequestBody {
+	const normalizedContext =
+		"systemPrompt" in context || "tools" in context ? normalizeContext(context as Context) : context;
 	// Client-side tool search (same mechanism as openai-responses.ts): supported
 	// Codex models can defer a tool's definition until the tool result that
 	// surfaces it, keeping the cached prompt prefix stable. Unsupported models
@@ -621,17 +622,34 @@ function buildRequestBody(
 	const supportsOpenAIGrammarTools = model.compat?.supportsOpenAIGrammarTools ?? false;
 	const supportsAdditionalTools = model.compat?.supportsAdditionalTools ?? false;
 	const supportsToolSearch = model.compat?.supportsToolSearch ?? false;
-	const transcriptTools = resolveTranscriptTools(context.messages, supportsAdditionalTools || supportsToolSearch);
-	const messages = convertResponsesMessages(model, context, CODEX_TOOL_CALL_PROVIDERS, {
+	const resolvedGrammarToolInputProperties =
+		grammarToolInputProperties ??
+		createGrammarToolInputProperties(getDeclaredTools(normalizedContext.messages), supportsOpenAIGrammarTools);
+	const transcriptTools = resolveTranscriptTools(
+		normalizedContext.messages,
+		supportsAdditionalTools || supportsToolSearch,
+	);
+	const deferredToolsMode = supportsAdditionalTools
+		? "additional-tools"
+		: supportsToolSearch
+			? "tool-search"
+			: undefined;
+	const toolPlacement = splitDeferredTools(
+		{ messages: normalizedContext.messages, tools: transcriptTools.requestTools },
+		deferredToolsMode !== undefined,
+	);
+	const messages = convertResponsesMessages(model, normalizedContext, CODEX_TOOL_CALL_PROVIDERS, {
 		includeSystemPrompt: false,
-		grammarToolInputProperties,
+		grammarToolInputProperties: resolvedGrammarToolInputProperties,
+		deferredTools: toolPlacement.deferred,
+		deferredToolsMode,
 		supportsMidConvoSystemMessages: model.compat?.supportsMidConvoSystemMessages ?? false,
 		supportsAdditionalTools,
 		supportsToolSearch,
 		toolOptions: { strict: null, supportsStrictMode, supportsOpenAIGrammarTools },
 	});
 
-	const initialSystemMessage = getInitialSystemMessage(context.messages);
+	const initialSystemMessage = getInitialSystemMessage(normalizedContext.messages);
 	const instructions = initialSystemMessage ? getSystemMessageText(initialSystemMessage) : "";
 	const body: RequestBody = {
 		model: model.id,
@@ -662,8 +680,8 @@ function buildRequestBody(
 		body.service_tier = options.serviceTier;
 	}
 
-	if (transcriptTools.requestTools.length > 0) {
-		const convertedTools = convertResponsesTools(transcriptTools.requestTools, {
+	if (toolPlacement.immediate.length > 0) {
+		const convertedTools = convertResponsesTools(toolPlacement.immediate, {
 			strict: null,
 			supportsStrictMode,
 			supportsOpenAIGrammarTools,
@@ -682,12 +700,17 @@ function buildRequestBody(
 	}
 
 	if (options?.reasoningEffort !== undefined) {
-		const effort =
+		const configuredEffort =
 			options.reasoningEffort === "none"
 				? model.thinkingLevelMap?.off === undefined
 					? "none"
 					: model.thinkingLevelMap.off
 				: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
+		const effort =
+			typeof configuredEffort === "string" &&
+			(configuredEffort.toLowerCase() === "ultra" || configuredEffort.toLowerCase() === "max")
+				? "max"
+				: configuredEffort;
 		if (effort !== null) {
 			body.reasoning = {
 				effort,
@@ -698,10 +721,9 @@ function buildRequestBody(
 		body.reasoning = { effort: model.thinkingLevelMap?.off ?? "none" };
 	}
 
+	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 	body.prompt_cache_key =
-		options?.cacheRetention === "none"
-			? undefined
-			: codexPromptCacheKey(options?.cacheAffinityKey, options?.sessionId, body);
+		cacheRetention === "none" ? undefined : codexPromptCacheKey(options?.cacheAffinityKey, options?.sessionId, body);
 
 	return body;
 }

@@ -84,3 +84,10 @@ For the full first-run flow, see [Quickstart](quickstart.md).
 ## Development
 
 - [Development](development.md) - local setup, project structure, and debugging.
+
+## Parity research and handoffs
+
+- [Claude Code 2.1.144 tool opportunities](claude-code-2.1.144-tool-opportunities.md)
+- [Claude Code 2.1.145 read truncation handoff](claude-code-2.1.145-read-truncation-handoff.md)
+- [Claude Code 2.1.232 agents view parity](claude-code-2.1.232-agents-view-parity.md)
+- [Tool parity slice handoff](tool-parity-slice-handoff.md)

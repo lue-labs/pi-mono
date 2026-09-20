@@ -98,6 +98,23 @@ function hasToolHistory(messages: Message[]): boolean {
 	return false;
 }
 
+function getDeferredToolNames(messages: Message[]): Set<string> {
+	const names = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "toolResult") continue;
+		for (const name of message.addedToolNames ?? []) names.add(name);
+	}
+	return names;
+}
+
+function getToolsByName(tools: Tool[] | undefined, names: Iterable<string>): Tool[] {
+	if (!tools) return [];
+	const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+	return Array.from(names)
+		.map((name) => toolsByName.get(name))
+		.filter((tool): tool is Tool => tool !== undefined);
+}
+
 function isTextContentBlock(block: { type: string }): block is TextContent {
 	return block.type === "text";
 }
@@ -799,6 +816,9 @@ function buildParams(
 		context.messages,
 		compat.supportsMidConvoSystemMessages === true && compat.supportsMidConvoToolAdditions === true,
 	);
+	const deferredToolNames =
+		compat.deferredToolsMode === "kimi" ? getDeferredToolNames(context.messages) : new Set<string>();
+	const requestTools = transcriptTools.requestTools.filter((tool) => !deferredToolNames.has(tool.name));
 	const messages = convertMessages(model, context, compat, {
 		grammarToolInputProperties,
 	});
@@ -840,8 +860,8 @@ function buildParams(
 		params.temperature = options.temperature;
 	}
 
-	if (transcriptTools.requestTools.length > 0) {
-		params.tools = convertTools(transcriptTools.requestTools, compat);
+	if (requestTools.length > 0) {
+		params.tools = convertTools(requestTools, compat);
 		if (compat.zaiToolStream) {
 			(params as any).tool_stream = true;
 		}
@@ -956,7 +976,8 @@ function buildParams(
 		}
 	} else if (options?.reasoningEffort && model.reasoning && compat.supportsReasoningEffort) {
 		// OpenAI-style reasoning_effort
-		(params as any).reasoning_effort = model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort;
+		const configuredEffort = model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort;
+		(params as any).reasoning_effort = configuredEffort === "ultra" ? "max" : configuredEffort;
 	} else if (!options?.reasoningEffort && model.reasoning && compat.supportsReasoningEffort) {
 		const offValue = model.thinkingLevelMap?.off;
 		if (typeof offValue === "string") {
@@ -1390,6 +1411,7 @@ export function convertMessages(
 			params.push(assistantMsg);
 		} else if (msg.role === "toolResult") {
 			const imageBlocks: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+			const deferredToolNames = new Set<string>();
 			let j = i;
 
 			for (; j < transformedMessages.length && transformedMessages[j].role === "toolResult"; j++) {
@@ -1416,6 +1438,12 @@ export function convertMessages(
 				}
 				params.push(toolResultMsg);
 
+				if (compat.deferredToolsMode === "kimi") {
+					for (const name of toolMsg.addedToolNames ?? []) {
+						deferredToolNames.add(name);
+					}
+				}
+
 				if (hasImages && model.input.includes("image")) {
 					for (const block of toolMsg.content) {
 						if (isImageContentBlock(block)) {
@@ -1431,6 +1459,18 @@ export function convertMessages(
 			}
 
 			i = j - 1;
+
+			const deferredTools =
+				compat.deferredToolsMode === "kimi"
+					? getToolsByName(getDeclaredTools(normalizedContext.messages), deferredToolNames)
+					: [];
+			if (deferredTools.length > 0) {
+				const kimiToolMessage: KimiToolSystemMessageParam = {
+					role: "system",
+					tools: convertTools(deferredTools, compat),
+				};
+				params.push(kimiToolMessage as unknown as ChatCompletionMessageParam);
+			}
 
 			if (imageBlocks.length > 0) {
 				if (compat.requiresAssistantAfterToolResult) {

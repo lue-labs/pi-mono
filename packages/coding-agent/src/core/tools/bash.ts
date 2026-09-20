@@ -14,12 +14,19 @@ import {
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
-import { BASH_MAX_OUTPUT_BYTES, type BashBgDetails, disposeBashTimeout, spawnBashBackground } from "../bash-bg-jobs.ts";
+import {
+	BASH_MAX_OUTPUT_BYTES,
+	type BashBgDetails,
+	disposeBashTimeout,
+	getBashBgJob,
+	spawnBashBackground,
+} from "../bash-bg-jobs.ts";
 import {
 	checkBashPolicy,
 	currentBashPolicy,
 	redundantCdError,
 	redundantCdToCurrentWorkingDirectory,
+	semanticExitForBashCommand,
 } from "../bash-policy.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import {
@@ -28,7 +35,7 @@ import {
 	GUIDELINE_READ_EDIT_WRITE,
 } from "../prompt-guidelines.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
-import { BASH_UPDATE_THROTTLE_MS, createShellRenderers, resolveBashTimeout } from "./renderers/bash.ts";
+import { BASH_UPDATE_THROTTLE_MS, createShellRenderers, formatDuration, resolveBashTimeout } from "./renderers/bash.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_LINES, formatSize, type TruncationResult } from "./truncate.ts";
 
@@ -574,7 +581,7 @@ export function createShellToolDefinition(
 
 			try {
 				let exitCode: number | null;
-				let _backgroundedJobId: string | undefined;
+				let backgroundedJobId: string | undefined;
 				try {
 					const result = await ops.exec(spawnContext.command, spawnContext.cwd, {
 						onData: handleData,
@@ -584,7 +591,7 @@ export function createShellToolDefinition(
 						ownerSessionId,
 					});
 					exitCode = result.exitCode;
-					_backgroundedJobId = result.backgroundedJobId;
+					backgroundedJobId = result.backgroundedJobId;
 				} catch (err) {
 					const snapshot = await finishOutput();
 					const { text } = formatOutput(snapshot, "");
@@ -617,11 +624,42 @@ export function createShellToolDefinition(
 
 				const snapshot = await finishOutput();
 				const { text: outputText, details } = formatOutput(snapshot);
+				if (backgroundedJobId) {
+					const job = getBashBgJob(backgroundedJobId);
+					const status =
+						`Command exceeded ${timeoutSeconds}s and is still running — detached into background job bgId=${backgroundedJobId}` +
+						(job?.pid ? ` (pid=${job.pid})` : "") +
+						`. The process was NOT killed. Read live output with bash_output(bgId="${backgroundedJobId}"); stop it with bash_kill(bgId="${backgroundedJobId}").` +
+						` To keep a command like this in the foreground, pass an explicit timeout:<seconds> or raise the default with the bashTimeoutSeconds setting / ${BASH_TIMEOUT_ENV_VAR}.`;
+					return {
+						content: [{ type: "text", text: appendStatus(outputText, status) }],
+						details: job ? ({ ...job, fullOutputPath: job.logPath } as unknown as BashBgDetails) : details,
+					};
+				}
+				if (tui_only) {
+					const durationStr = formatDuration(Date.now() - startedAt);
+					const sizeStr = `${snapshot.truncation.totalLines} lines, ${formatSize(snapshot.truncation.totalBytes)}`;
+					const pathHint = snapshot.fullOutputPath ? ` Saved: ${snapshot.fullOutputPath}` : "";
+					const summary = `[tui_only] Command exited ${exitCode ?? "null"} after ${durationStr} (${sizeStr}). Output streamed to TUI only.${pathHint}`;
+					if (
+						exitCode !== 0 &&
+						exitCode !== null &&
+						(config.name !== "bash" || !semanticExitForBashCommand(command, exitCode))
+					) {
+						throw new Error(summary);
+					}
+					return { content: [{ type: "text", text: summary }], details };
+				}
 				if (exitCode === null) {
 					throw new Error(appendStatus(outputText, "Command terminated without an exit code"));
 				}
 				if (exitCode !== 0) {
-					throw new Error(appendStatus(outputText, `Command exited with code ${exitCode}`));
+					const semanticExit = config.name === "bash" ? semanticExitForBashCommand(command, exitCode) : undefined;
+					if (!semanticExit) {
+						throw new Error(appendStatus(outputText, `Command exited with code ${exitCode}`));
+					}
+					const status = `Command exited with code ${exitCode} (${semanticExit.summary}; treated as success).`;
+					return { content: [{ type: "text", text: appendStatus(outputText, status) }], details };
 				}
 				return { content: [{ type: "text", text: outputText }], details };
 			} finally {

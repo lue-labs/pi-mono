@@ -839,14 +839,15 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						output.responseId = event.message.id;
 						const transformations = event.message.input_transformations;
 						if (Array.isArray(transformations)) inputTransformations = transformations;
-						output.model = event.message.model;
+						output.responseModel = event.message.model === model.id ? undefined : event.message.model;
 						const fallbackCost =
-							output.model === model.id
+							event.message.model === model.id
 								? undefined
 								: model.compat?.allowedFallbackModels?.find(
-										(fallback) => fallback.provider === model.provider && fallback.model === output.model,
+										(fallback) =>
+											fallback.provider === model.provider && fallback.model === event.message.model,
 									)?.cost;
-						usageModel = fallbackCost ? { ...model, id: output.model, cost: fallbackCost } : model;
+						usageModel = fallbackCost ? { ...model, id: event.message.model, cost: fallbackCost } : model;
 						// Capture initial token usage from message_start event
 						// This ensures we have input token counts even if the stream is aborted early.
 						// On pause_turn resumes, add to carryOverUsage so totals stay cumulative.
@@ -1252,7 +1253,8 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 		// and zero visible output. When there isn't room for a meaningful thinking
 		// budget plus an answer, disable thinking for this request. Mirrors the
 		// budget-based floor guard below (which needs max_tokens >= 2 * the floor).
-		if ((base.maxTokens ?? model.maxTokens) < MIN_THINKING_BUDGET * 2) {
+		const hasReliableOutputRoom = options?.maxTokens !== undefined || model.contextWindow > model.maxTokens;
+		if (hasReliableOutputRoom && (base.maxTokens ?? model.maxTokens) < MIN_THINKING_BUDGET * 2) {
 			return stream(model, context, { ...base, thinkingEnabled: false } satisfies AnthropicOptions);
 		}
 		// "adaptive" level = fully unconstrained: send thinking.type=adaptive with no effort cap,
@@ -1449,9 +1451,17 @@ function buildParams(
 	const systemPrompt = initialSystemMessage ? getSystemMessageText(initialSystemMessage) : undefined;
 	const initialTools = initialSystemMessage?.toolsAdded ?? [];
 	const currentTools = getCurrentTools(context.messages);
+	const hasExplicitToolChanges = context.messages
+		.slice(1)
+		.some(
+			(message) =>
+				message.role === "system" &&
+				((message.toolsAdded?.length ?? 0) > 0 || (message.toolsRemoved?.length ?? 0) > 0),
+		);
 	const nativeToolChanges =
 		compat.supportsMidConvoSystemMessages &&
 		compat.supportsMidConvoToolChanges &&
+		hasExplicitToolChanges &&
 		initialTools.length > 0 &&
 		!hasToolRedefinitions(context.messages);
 	const declaredTools = nativeToolChanges ? getDeclaredTools(context.messages) : currentTools;
@@ -1921,7 +1931,7 @@ function convertMessages(
 			// displaced sibling content from reference-bearing results.
 			params.push({
 				role: "user",
-				content: toolResults,
+				content: [...toolResults, ...siblingContent],
 			});
 		}
 	}

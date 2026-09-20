@@ -250,8 +250,8 @@ describe("session selector path/delete interactions", () => {
 	});
 
 	it("does not start redundant All loads when toggling scopes while All is already loading", async () => {
-		const currentSessions = [makeSession({ id: "current" })];
-		const allSessions = [makeSession({ id: "all" })];
+		const currentSessions = [makeSession({ id: "current", name: "Current" })];
+		const allSessions = [makeSession({ id: "all", name: "All" })];
 		const allDeferred = createDeferred<SessionInfo[]>();
 		let allLoadCalls = 0;
 

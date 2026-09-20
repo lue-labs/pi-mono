@@ -31,7 +31,7 @@ class BashResultRenderComponent extends Container {
 		cachedSkipped: undefined,
 	};
 }
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
 	const seconds = ms / 1000;
 	if (seconds < 60) return `${seconds.toFixed(1)}s`;
 

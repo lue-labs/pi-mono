@@ -30,6 +30,7 @@ import type {
 	TranscriptContext,
 	Usage,
 } from "../types.ts";
+import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
@@ -44,6 +45,7 @@ import {
 	resolveGrammarConstrainedSampling,
 	resolveJsonSchemaStrictSampling,
 } from "./constrained-sampling.ts";
+import { splitSystemPromptAtDynamicBoundary } from "./openai-prompt-cache.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 // =============================================================================
@@ -235,6 +237,7 @@ export function convertResponsesMessages<TApi extends Api>(
 ): ResponseInput {
 	const normalizedContext = resolveTranscript(context, options?.supportsMidConvoSystemMessages);
 	const messages: ResponseInput = [];
+	const loadedToolNames = new Set<string>();
 
 	const normalizeIdPart = (part: string): string => {
 		const sanitized = part.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -308,7 +311,31 @@ export function convertResponsesMessages<TApi extends Api>(
 			if (!isLeadingSystemMessage || includeInitialSystemMessage) {
 				const text = isLeadingSystemMessage ? getSystemMessageText(msg) : renderSystemMessageUpdate(msg);
 				if (text.length > 0) {
-					messages.push({ role: instructionRole, content: sanitizeSurrogates(text) });
+					if (isLeadingSystemMessage && options?.promptCacheBreakpoints) {
+						const { stable, dynamic } = splitSystemPromptAtDynamicBoundary(text);
+						const content: ResponseInputContent[] = [];
+						if (stable) {
+							content.push({
+								type: "input_text",
+								text: sanitizeSurrogates(stable),
+								prompt_cache_breakpoint: EXPLICIT_PROMPT_CACHE_BREAKPOINT,
+							} satisfies ResponseInputText);
+						}
+						if (dynamic) {
+							content.push({
+								type: "input_text",
+								text: sanitizeSurrogates(dynamic),
+							} satisfies ResponseInputText);
+						}
+						if (content.length > 0) messages.push({ role: instructionRole, content });
+					} else {
+						messages.push({
+							role: instructionRole,
+							content: sanitizeSurrogates(
+								isLeadingSystemMessage ? stripSystemPromptDynamicBoundary(text) : text,
+							),
+						});
+					}
 				}
 			}
 		} else if (msg.role === "user") {
@@ -431,6 +458,41 @@ export function convertResponsesMessages<TApi extends Api>(
 					call_id: callId,
 					output,
 				});
+			}
+
+			const deferredTools: Tool[] = [];
+			for (const name of msg.addedToolNames ?? []) {
+				const tool = options?.deferredTools?.get(name);
+				if (!tool || loadedToolNames.has(name)) continue;
+				loadedToolNames.add(name);
+				deferredTools.push(tool);
+			}
+			if (deferredTools.length > 0 && options?.deferredToolsMode === "additional-tools") {
+				messages.push({
+					type: "additional_tools",
+					role: "developer",
+					tools: convertResponsesTools(deferredTools, options.toolOptions),
+				} satisfies ResponseInputItem);
+			} else if (deferredTools.length > 0 && options?.deferredToolsMode === "tool-search") {
+				const names = deferredTools.map((tool) => tool.name);
+				const searchCallId = `pi_tool_load_${shortHash(`${msg.toolCallId}:${names.join(",")}`)}`;
+				messages.push({
+					type: "tool_search_call",
+					call_id: searchCallId,
+					execution: "client",
+					status: "completed",
+					arguments: { query: names.join(" "), limit: names.length },
+				} satisfies ResponseInputItem);
+				messages.push({
+					type: "tool_search_output",
+					call_id: searchCallId,
+					execution: "client",
+					status: "completed",
+					tools: convertResponsesTools(deferredTools, {
+						...options.toolOptions,
+						toolSearchResult: true,
+					}),
+				} satisfies ResponseToolSearchOutputItemParam);
 			}
 		}
 		if (!isLeadingSystemMessage) msgIndex++;

@@ -4312,7 +4312,9 @@ export class InteractiveMode {
 			skipLeadingCompactionSummary?: boolean;
 		} = {},
 	): void {
-		const items = entries.flatMap((entry): RenderSessionItem[] => {
+		const visibleEntries =
+			options.skipLeadingCompactionSummary && entries[0]?.type === "compaction" ? entries.slice(1) : entries;
+		const items = visibleEntries.flatMap((entry): RenderSessionItem[] => {
 			if (entry.type === "custom" || (entry.type === "usage" && entry.kind === "cache_warm")) {
 				return [entry];
 			}

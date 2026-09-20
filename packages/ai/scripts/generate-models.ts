@@ -2363,8 +2363,14 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 		}
 
 		// Process Kimi For Coding models
-		if (data["kimi-code-plan-global"]?.models) {
-			const kimiModels = data["kimi-code-plan-global"].models as Record<string, ModelsDevModel>;
+		const KIMI_CODING_MODELS_DEV_KEYS = [
+			"kimi-code-plan-global",
+			"kimi-for-coding",
+			"kimi-code-plan-cn",
+		] as const;
+		const kimiCodingSourceKey = KIMI_CODING_MODELS_DEV_KEYS.find((key) => data[key]?.models);
+		if (kimiCodingSourceKey) {
+			const kimiModels = data[kimiCodingSourceKey].models as Record<string, ModelsDevModel>;
 			const hasCanonicalModel = Object.prototype.hasOwnProperty.call(kimiModels, "kimi-for-coding");
 
 			const kimiAliases = new Set(["k2p5", "k2p6", "k2p7"]);
@@ -2406,18 +2412,6 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				});
 				recordModelsDevReasoningOptions("kimi-coding", normalizedId, m);
 			}
-		} else {
-			// Absence is legitimate here: every provider block in this file tolerates a
-			// missing models.dev key, and tests drive the generator with partial
-			// catalogs containing only the provider under test. Warn so a rename is
-			// visible in the log, and let the existing hydrate guard decide — it throws
-			// "Cannot hydrate missing providers" only when the generated aggregator
-			// actually demands this provider, which is the condition that matters.
-			console.warn(
-				`models.dev exposed none of the known Kimi For Coding provider keys (${KIMI_CODING_MODELS_DEV_KEYS.join(", ")}); ` +
-					"skipping kimi-coding. If this provider is expected, it was likely renamed again — " +
-					"update KIMI_CODING_MODELS_DEV_KEYS in packages/ai/scripts/generate-models.ts.",
-			);
 		}
 
 		// Process Moonshot AI models

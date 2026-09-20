@@ -30,7 +30,7 @@ export function createInitialSystemMessage(
 export function normalizeContext(context: Context): TranscriptContext {
 	const initialMessage = createInitialSystemMessage(context.systemPrompt, context.tools);
 	const messages = initialMessage ? [initialMessage, ...context.messages] : context.messages;
-	return { ...context, messages } as TranscriptContext;
+	return { messages } as TranscriptContext;
 }
 
 /**
@@ -116,7 +116,8 @@ export function resolveTranscript(
 	context: TranscriptContext,
 	supportsMidConvoSystemMessages: boolean | undefined,
 ): TranscriptContext {
-	return supportsMidConvoSystemMessages ? context : collapseSystemMessages(context);
+	const normalized = "systemPrompt" in context || "tools" in context ? normalizeContext(context) : context;
+	return supportsMidConvoSystemMessages ? normalized : collapseSystemMessages(normalized);
 }
 
 /** Strip executable and display-only fields from a tool before transcript comparison or persistence. */

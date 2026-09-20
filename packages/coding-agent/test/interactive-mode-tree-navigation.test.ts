@@ -37,6 +37,7 @@ function createTreeUI() {
 		isInitialized: true,
 		footer: { invalidate: vi.fn() },
 		ui: { terminal: { rows: 24, setProgress: vi.fn() }, requestRender: vi.fn() },
+		clearChatForRebuild: vi.fn(() => ui.chatContainer.clear()),
 		showSelector: (
 			create: (done: () => void) => { component: TreeSelectorComponent; focus: TreeSelectorComponent },
 		) => {
