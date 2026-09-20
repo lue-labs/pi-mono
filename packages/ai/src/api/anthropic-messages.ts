@@ -1451,17 +1451,9 @@ function buildParams(
 	const systemPrompt = initialSystemMessage ? getSystemMessageText(initialSystemMessage) : undefined;
 	const initialTools = initialSystemMessage?.toolsAdded ?? [];
 	const currentTools = getCurrentTools(context.messages);
-	const hasExplicitToolChanges = context.messages
-		.slice(1)
-		.some(
-			(message) =>
-				message.role === "system" &&
-				((message.toolsAdded?.length ?? 0) > 0 || (message.toolsRemoved?.length ?? 0) > 0),
-		);
 	const nativeToolChanges =
 		compat.supportsMidConvoSystemMessages &&
 		compat.supportsMidConvoToolChanges &&
-		hasExplicitToolChanges &&
 		initialTools.length > 0 &&
 		!hasToolRedefinitions(context.messages);
 	const declaredTools = nativeToolChanges ? getDeclaredTools(context.messages) : currentTools;
@@ -1567,18 +1559,22 @@ function buildParams(
 			const initialNames = new Set(initialTools.map((tool) => tool.name));
 			const laterTools = wireTools.filter((tool) => !initialNames.has(tool.name));
 			const laterWireNames = new Set(laterTools.map((tool) => normalizeToolName(tool.name)));
+			const convertedInitialTools = convertTools(
+				initialTools,
+				model,
+				isOAuthToken,
+				compat.supportsEagerToolInputStreaming,
+				compat.supportsDeferredTools,
+				canonicalToWire,
+				deferredToolNames,
+				!isOAuthToken && compat.supportsCacheControlOnTools ? cacheControl : undefined,
+			);
+			const hasInitialDeferredTool = convertedInitialTools.some(
+				(tool) => "defer_loading" in tool && tool.defer_loading === true,
+			);
 			params.tools = [
-				...convertTools(
-					initialTools,
-					model,
-					isOAuthToken,
-					compat.supportsEagerToolInputStreaming,
-					compat.supportsDeferredTools,
-					canonicalToWire,
-					deferredToolNames,
-					!isOAuthToken && compat.supportsCacheControlOnTools ? cacheControl : undefined,
-				),
-				DEFERRED_TOOL_PLACEHOLDER,
+				...convertedInitialTools,
+				...(hasInitialDeferredTool ? [] : [DEFERRED_TOOL_PLACEHOLDER]),
 				...convertTools(
 					laterTools,
 					model,

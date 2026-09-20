@@ -6,6 +6,10 @@ Release numbers track the fork's GitHub Packages releases, versioned in lockstep
 
 ## [Unreleased]
 
+### Fixed
+
+- **Anthropic native mid-conversation tool changes keep a stable initial tool prefix.** Native-capable requests now declare deferred scaffolding from the first request, so a later `tool_addition` or `tool_removal` does not invalidate the cached prefix. When the serialized initial tool set already contains a real deferred tool, the reserved placeholder is omitted. This repairs the deterministic CI regression merged in [#542](https://github.com/lue-labs/pi-mono/pull/542).
+
 ### Changed
 
 - **Upstream sync (2026-09-20): integrated exact upstream Pi 0.86.0 (`d1230ea20`).** The semantic merge keeps the fork's `@lue-labs` package/release identity, exact internal pins, cache-retention and prompt-affinity behavior, structured system-prompt and deferred-extension seams, custom-trigger turn parity, post-compaction queued-message delivery, and the Grok Completions `toolChoice: "none"` gate while adopting upstream's 0.86.0 package, provider, durable harness, compaction, TUI, clipboard, and evaluation changes.
