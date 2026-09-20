@@ -2,7 +2,6 @@ import type { AgentTool } from "@lue-labs/pi-agent-core";
 import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
-import { getExperimentalToolSampling } from "../experimental.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
 import { resolveToCwd } from "./path-utils.ts";
@@ -65,7 +64,7 @@ export function createWriteToolDefinition(
 		promptGuidelines: [...writeToolSystemPromptContribution.guidelines],
 		executionMode: "sequential",
 		parameters: writeSchema,
-		constrainedSampling: getExperimentalToolSampling(),
+		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		async execute(
 			_toolCallId,
 			{ path, content }: { path: string; content: string },

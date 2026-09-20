@@ -382,7 +382,7 @@ export function getSelfUpdateUnavailableInstruction(
 	const method = detectInstallMethod();
 	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	if (method === "bun-binary") {
-		return `Download from: https://github.com/earendil-works/pi-mono/releases/latest`;
+		return `Download from: https://github.com/earendil-works/pi/releases/latest`;
 	}
 	if (method === "source-checkout") {
 		return `This installation is a source checkout. Configure a source update command with PI_SOURCE_UPDATE_COMMAND or settings.sourceUpdateCommand.`;

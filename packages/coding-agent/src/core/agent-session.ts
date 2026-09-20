@@ -32,12 +32,13 @@ import type {
 	ImageContent,
 	Model,
 	ProviderHeaders,
+	SystemMessage,
 	TextContent,
 	Tool,
 	ToolResultMessage,
 	Usage,
 } from "@lue-labs/pi-ai";
-import { contentText } from "@lue-labs/pi-ai";
+import { contentText, getCurrentSystemMessage, retryDelayMs } from "@lue-labs/pi-ai";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -65,9 +66,11 @@ import type { AgentToolParentServices } from "./agents/executor.ts";
 import type { AgentBackgroundCompletion } from "./agents/types.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
+import { generateBugReportSummary } from "./bug-report.ts";
 import { createPromptCacheAffinityKey } from "./cache-affinity.ts";
 import { type CacheHealthMetrics, computeCacheHealth } from "./cache-health.ts";
 import { CacheHeartbeatManager } from "./cache-heartbeat.ts";
+import type { CacheWarmer, CacheWarmingStatus } from "./cache-warmer.ts";
 import {
 	COMPACTION_FAILURE_TRIP_COUNT,
 	type CompactionPreparation,
@@ -135,10 +138,16 @@ import type {
 	SessionManager,
 } from "./session-manager.ts";
 import { getLatestCompactionEntry } from "./session-manager.ts";
-import type { SettingsManager } from "./settings-manager.ts";
+import type { CacheWarmingMode, SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
-import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
+import {
+	buildSystemPrompt,
+	buildSystemPromptSections,
+	diffSystemPromptSections,
+	type NormalizedBuildSystemPromptOptions,
+	normalizeBuildSystemPromptOptions,
+} from "./system-prompt.ts";
 import {
 	capMidRunCompactionToolResultText,
 	capModelFacingToolResultText,
@@ -148,7 +157,6 @@ import {
 	retireOutOfBudgetContextImages,
 	stripModelFacingContextImages,
 } from "./tool-artifacts.ts";
-
 import {
 	type BackgroundShellNotification,
 	type BashOperations,
@@ -156,7 +164,6 @@ import {
 	subscribeBashBgNotificationForOwner,
 } from "./tools/bash.ts";
 import { allToolNames, createAllToolDefinitions, type ToolName } from "./tools/index.ts";
-
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, createUsageTotals } from "./usage-totals.ts";
 
@@ -199,7 +206,7 @@ export interface PendingAutoModelRequest {
 const IDLE_CACHE_HINT_MS = 55 * 60 * 1000;
 
 /** Order-independent equality for two string sets. */
-function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+function _sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 	if (a.size !== b.size) return false;
 	for (const value of a) {
 		if (!b.has(value)) return false;
@@ -208,7 +215,7 @@ function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean 
 }
 
 /** Order-independent key+value equality for two string maps. */
-function sameStringMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
+function _sameStringMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
 	if (a.size !== b.size) return false;
 	for (const [key, value] of a) {
 		if (b.get(key) !== value) return false;
@@ -334,7 +341,9 @@ export interface AgentSessionConfig {
 	modelRegistry: ModelRegistry;
 	/** Canonical model/auth runtime used by coding-agent internals. */
 	modelRuntime: ModelRuntime;
-	/** Initial active built-in tool names. Default: all built-in tools. */
+	/** Keeps the prompt cache entry of the last session request warm. */
+	cacheWarmer?: Pick<CacheWarmer, "cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed">;
+	/** Initial active built-in tool names. Default: [read, bash, edit, write] */
 	initialActiveToolNames?: string[];
 	/** Optional allowlist of tool names. When provided, only these tool names are exposed. */
 	allowedToolNames?: string[];
@@ -446,10 +455,6 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 }
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-// ============================================================================
 // AgentSession Class
 // ============================================================================
 
@@ -480,6 +485,7 @@ export class AgentSession {
 	private _unsubscribeAgent?: () => void;
 	private _eventListeners: AgentSessionEventListener[] = [];
 	private _isAgentRunActive = false;
+	private _agentRunAbortRequested = false;
 	private _queuedMessageDrainAfterAgentSettles = false;
 	private _abortAndResumeQueuedPromise: Promise<void> | undefined;
 	private _idleWaitPromise: Promise<void> | undefined;
@@ -497,17 +503,9 @@ export class AgentSession {
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
-	/** Consecutive rapid-refill streak: incremented when a new auto-compaction fires within
-	 *  RAPID_REFILL_WINDOW turns of the previous one; trips the thrashing breaker at
-	 *  RAPID_REFILL_TRIP_COUNT (CC 2.1.201 autocompact-thrashing detector parity). */
 	private _consecutiveRapidRefills = 0;
-	/** Consecutive auto-compaction failures; trips the failure circuit breaker at
-	 *  COMPACTION_FAILURE_TRIP_COUNT and disables auto-compaction for the rest of the session. */
 	private _consecutiveCompactionFailures = 0;
-	/** Set once the failure circuit breaker trips; short-circuits all further auto-compaction
-	 *  attempts for the remainder of this session. */
 	private _autoCompactDisabledThisSession = false;
-	/** Set when the agent loop was stopped at a turn boundary by the mid-run compaction cap. */
 	private _midRunCompactionStop = false;
 	/** Tool results retained only to resume a turn after mid-run compaction. */
 	private _midRunCompactionToolResults: ToolResultMessage[] = [];
@@ -560,21 +558,12 @@ export class AgentSession {
 
 	private _modelRuntime: ModelRuntime;
 	private _modelRegistry: ModelRegistry;
+	private _cacheWarmer?: Pick<CacheWarmer, "cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed">;
 
 	// Tool registry for extension getTools/setTools
 	private _toolRegistry: Map<string, AgentTool> = new Map();
 	private _toolDefinitions: Map<string, ToolDefinitionEntry> = new Map();
-	// Post-registration deferral seam (cache-critical). Names here are forced to
-	// `deferLoading:true` on every registry rebuild so they ride tools[] as
-	// `defer_loading` stubs instead of full schemas. Source of truth — applied by
-	// _applyDeferredOverrides() inside _refreshToolRegistry(). See
-	// setDeferredToolOverrides().
 	private _deferredOverrides: Set<string> = new Set();
-	// Post-registration namespace seam (cache-critical). Maps tool name -> namespace
-	// label, stamped onto the freshly rebuilt registry/definitions on every rebuild
-	// so provider serializers can group related tools natively. Source of truth —
-	// applied by _applyToolNamespaces() inside _refreshToolRegistry(). See
-	// setToolNamespaces().
 	private _toolNamespaces: Map<string, string> = new Map();
 	private _toolPromptSnippets: Map<string, string> = new Map();
 	private _toolPromptGuidelines: Map<string, string[]> = new Map();
@@ -583,25 +572,16 @@ export class AgentSession {
 	private _inheritedForkToolFallbacks?: Map<string, AgentTool>;
 	private _activeToolProviderSchemaCache = new WeakMap<AgentTool, AgentTool>();
 
-	// Base system prompt (without extension appends) - used to apply fresh appends each turn
 	private _baseSystemPrompt = "";
-	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
-	// When true, before_agent_start extension handlers must not overwrite agent.state.systemPrompt.
-	// Set by overrideBaseSystemPrompt() for fork children inheriting the parent's frozen prompt.
+	private _baseSystemPromptOptions!: NormalizedBuildSystemPromptOptions;
+	/** Prompt options after before_agent_start mutations for the active run. */
+	private _runSystemPromptOptions?: NormalizedBuildSystemPromptOptions;
 	private _systemPromptFrozen = false;
-	// Set when a synchronous `_rebuildSystemPrompt` (tool/skill change) replaces
-	// the base prompt with an UNFILTERED build. `_runAgentPrompt` re-applies the
-	// `systemPrompt:build` filters before sending so cache-stabilising transforms
-	// (date strip, base-boundary relocation) are not lost — see _rebuildSystemPrompt.
 	private _systemPromptNeedsRefilter = false;
-	private _systemPromptOverride?: string;
 	private _source: InputSource = "interactive";
 	private _pendingAutoModelRequest?: PendingAutoModelRequest;
-	/** Single-flight guard so overlapping prompt() calls cannot resolve the same pending auto-model twice. */
 	private _autoModelResolveInFlight?: Promise<void>;
-	/** Session calls that can start or resume a turn, including asynchronous preflight. */
 	private _activeTurnCalls = 0;
-	/** Turn calls entered by the current async context, so isIdle can exclude the caller's own call. */
 	private _turnCallScope = new AsyncLocalStorage<number>();
 
 	constructor(config: AgentSessionConfig) {
@@ -614,6 +594,10 @@ export class AgentSession {
 		this._cwd = config.cwd;
 		this._modelRuntime = config.modelRuntime;
 		this._modelRegistry = config.modelRegistry;
+		this._cacheWarmer = config.cacheWarmer;
+		if (this._cacheWarmer) {
+			this._cacheWarmer.onWarmed = (entry) => this._emit({ type: "entry_appended", entry });
+		}
 		this._extensionRunnerRef = config.extensionRunnerRef;
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
@@ -659,11 +643,13 @@ export class AgentSession {
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
 		this._installAgentNextTurnRefresh();
+		this._installAgentForcedPromptProjection();
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
 			includeAllExtensionTools: true,
 		});
+		if (this._initialActiveToolNames === undefined) this._restoreToolsFromTranscript();
 	}
 
 	get modelRuntime(): ModelRuntime {
@@ -679,7 +665,10 @@ export class AgentSession {
 		return this._source;
 	}
 
-	private async _getRequiredRequestAuth(model: Model<any>): Promise<{
+	private async _getRequiredRequestAuth(
+		model: Model<any>,
+		signal?: AbortSignal,
+	): Promise<{
 		model: Model<any>;
 		apiKey?: string;
 		headers?: Record<string, string>;
@@ -687,7 +676,7 @@ export class AgentSession {
 	}> {
 		let result: AuthResult | undefined;
 		try {
-			result = await this._modelRuntime.getAuth(model);
+			result = await this._modelRuntime.getAuth(model, { signal });
 		} catch (error) {
 			const cause = error instanceof Error ? error.cause : undefined;
 			if (cause instanceof Error && cause.message === "authHeader requires a resolved API key") {
@@ -716,18 +705,21 @@ export class AgentSession {
 		throw new Error(formatNoApiKeyFoundMessage(model.provider));
 	}
 
-	private async _getSummarizationRequestAuth(model: Model<any>): Promise<{
+	private async _getSummarizationRequestAuth(
+		model: Model<any>,
+		signal?: AbortSignal,
+	): Promise<{
 		model: Model<any>;
 		apiKey?: string;
 		headers?: Record<string, string>;
 		env?: Record<string, string>;
 	}> {
 		if (this.agent.streamFunction === streamSimple) {
-			return this._getRequiredRequestAuth(model);
+			return this._getRequiredRequestAuth(model, signal);
 		}
 
 		try {
-			const result = await this._modelRuntime.getAuth(model);
+			const result = await this._modelRuntime.getAuth(model, { signal });
 			if (!result) return { model };
 			const requestModel = result.auth.baseUrl ? { ...model, baseUrl: result.auth.baseUrl } : model;
 			return {
@@ -736,7 +728,8 @@ export class AgentSession {
 				headers: withoutDeletedHeaders(result.auth.headers),
 				env: result.env,
 			};
-		} catch {
+		} catch (error) {
+			if (signal?.aborted) throw error;
 			return { model };
 		}
 	}
@@ -843,7 +836,7 @@ export class AgentSession {
 			}
 
 			if (!hasMoreToolCalls && !this.agent.hasQueuedMessages()) return false;
-			const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
+			const settings = this.settingsManager.getCompactionSettings(this.model);
 			if (!settings.enabled) return false;
 			const contextWindow = this.model?.contextWindow ?? 0;
 			if (!shouldCompact(calculateContextTokens(message.usage), contextWindow, settings)) return false;
@@ -857,7 +850,7 @@ export class AgentSession {
 
 	private async _compactBeforeNextAssistantResponse(context: AgentContext): Promise<AgentContext> {
 		const model = this.model;
-		const settings = this.settingsManager.getCompactionSettings();
+		const settings = this.settingsManager.getCompactionSettings(model);
 
 		if (
 			!model ||
@@ -884,14 +877,26 @@ export class AgentSession {
 			const context = await this._compactBeforeNextAssistantResponse(turn.context);
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.({ ...turn, context }, signal);
 			const nextContext = previousSnapshot?.context ?? context;
+			const runOptions = this._runSystemPromptOptions ?? this._baseSystemPromptOptions;
+			const options = normalizeBuildSystemPromptOptions({
+				...runOptions,
+				selectedTools: this.getActiveToolNames(),
+				toolSnippets: { ...this._baseSystemPromptOptions.toolSnippets, ...runOptions.toolSnippets },
+				toolGuidelines: { ...this._baseSystemPromptOptions.toolGuidelines, ...runOptions.toolGuidelines },
+			});
+			const updateMessage = this._preparePromptAndToolLoadout(options, nextContext.messages);
+			// Keep session.systemPrompt and ctx.getSystemPrompt() in step with what the provider sees.
+			this._runSystemPromptOptions = options;
 
 			return {
 				...previousSnapshot,
 				context: {
 					...nextContext,
-					systemPrompt: this._systemPromptOverride ?? this._baseSystemPrompt,
 					tools: this.agent.state.tools.slice(),
 				},
+				messages: updateMessage
+					? [...(previousSnapshot?.messages ?? []), updateMessage]
+					: previousSnapshot?.messages,
 				model: this.agent.state.model,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			};
@@ -947,6 +952,7 @@ export class AgentSession {
 	}
 
 	private async _emitAgentSettled(): Promise<void> {
+		this._cacheWarmer?.onAgentSettled();
 		this._isAgentRunActive = false;
 		try {
 			await this._extensionRunner.emit({ type: "agent_settled" });
@@ -954,7 +960,6 @@ export class AgentSession {
 		} finally {
 			this._resolveIdleWaitIfIdle();
 			if (this._queuedMessageDrainAfterAgentSettles) {
-				this._queuedMessageDrainAfterAgentSettles = false;
 				this._drainQueuedMessagesPostCompaction();
 			}
 		}
@@ -1024,6 +1029,7 @@ export class AgentSession {
 					event.message.modelVisible,
 				);
 			} else if (
+				event.message.role === "system" ||
 				event.message.role === "user" ||
 				event.message.role === "assistant" ||
 				event.message.role === "toolResult"
@@ -1176,6 +1182,7 @@ export class AgentSession {
 	}
 
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
+		if (this._agentRunAbortRequested) return false;
 		const settings = this.settingsManager.getRetrySettings();
 		if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {
 			return false;
@@ -1419,10 +1426,9 @@ export class AgentSession {
 		);
 		this._disconnectFromAgent();
 		this._eventListeners = [];
-		this._cacheHeartbeat.dispose();
-		if (this._idleWakeTimer) {
-			clearTimeout(this._idleWakeTimer);
-			this._idleWakeTimer = undefined;
+		if (this._cacheWarmer) {
+			this._cacheWarmer.onWarmed = undefined;
+			this._cacheWarmer.cancel();
 		}
 		cleanupSessionResources(this.sessionId);
 	}
@@ -1434,6 +1440,17 @@ export class AgentSession {
 	/** Full agent state */
 	get state(): AgentState {
 		return this.agent.state;
+	}
+
+	/** Current cache-warming state and the policy inputs that produced it. */
+	get cacheWarmingStatus(): CacheWarmingStatus | undefined {
+		return this._cacheWarmer?.status;
+	}
+
+	/** Persist the cache-warming mode and immediately reconcile active warming. */
+	setCacheWarmingMode(mode: CacheWarmingMode): void {
+		this.settingsManager.setCacheWarmingMode(mode);
+		this._cacheWarmer?.onModeChanged();
 	}
 
 	/** Current model (may be undefined if not yet selected) */
@@ -1473,9 +1490,9 @@ export class AgentSession {
 		);
 	}
 
-	/** Current effective system prompt (includes any per-turn extension modifications) */
+	/** Current effective system prompt, including changes not yet sent to the model. */
 	get systemPrompt(): string {
-		return this.agent.state.systemPrompt;
+		return buildSystemPrompt(this._runSystemPromptOptions ?? this._baseSystemPromptOptions);
 	}
 
 	/**
@@ -1493,7 +1510,7 @@ export class AgentSession {
 	 */
 	overrideBaseSystemPrompt(prompt: string): void {
 		this._baseSystemPrompt = prompt;
-		this.agent.state.systemPrompt = prompt;
+		this._baseSystemPromptOptions.forceSystemPrompt = prompt;
 		this._systemPromptFrozen = true;
 	}
 
@@ -1741,122 +1758,50 @@ export class AgentSession {
 				validToolNames.push(name);
 			}
 		}
-		// CACHE CRITICAL (cache law #4): if the rebuilt tools[] is element-for-element
-		// reference-identical to the current state, do NOT rewrite state.tools or
-		// rebuild the system prompt — an unconditional refresh bursts the
-		// within-session tools[] (and system) cache prefix. This absorbs the no-op
-		// _refreshToolRegistry → setActiveToolsByName churn on tools_changed events.
-		//
-		// Reference-equality (not name-set equality) is the correct guard: pi rebuilds
-		// the registry with NEW object refs whenever a definition changes (e.g. a tool
-		// gains deferLoading, or an allowlist empties out), so a genuine change yields
-		// different refs and the rebuild proceeds; only a true no-op call (same refs in
-		// same order) early-returns. This mirrors pi-ai's convertedToolCache WeakMap,
-		// which memoizes serialization by tool reference.
-		//
-		// Skip the guard until the base prompt has been built at least once
-		// (_baseSystemPromptOptions is set only by _rebuildSystemPrompt). On init the
-		// empty→empty case is reference-equal but the prompt has never been built, and
-		// there is no warm cache to protect — the first build must run.
 		const providerStableTools = this._applyActiveToolProviderSchemaOverrides(tools);
 		const current = this.agent.state.tools;
 		if (
 			this._baseSystemPromptOptions &&
 			current.length === providerStableTools.length &&
-			current.every((t, i) => t === providerStableTools[i])
-		)
+			current.every((tool, index) => tool === providerStableTools[index])
+		) {
 			return;
+		}
 
 		this.agent.state.tools = providerStableTools;
 		if (this._systemPromptFrozen) return;
 
-		// Rebuild base system prompt with new tool set. The rebuild is UNFILTERED
-		// (skips systemPrompt:build); mark for re-filtering before the next send.
 		this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
-		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
 		this._systemPromptNeedsRefilter = true;
 	}
 
-	/**
-	 * Post-registration deferral seam (cache-critical).
-	 *
-	 * Marks already-registered tools as `deferLoading:true` so EVERY consumer
-	 * agrees the tool is a deferred stub rather than a full schema:
-	 * `getToolDefinitions()`, core `isDeferredTool`, and the pi-ai providers that
-	 * serialize `defer_loading`. This lets an extension (e.g. tool-search) make a
-	 * tool deferrable without the tool's own registration opting in.
-	 *
-	 * Generic and idempotent. Apply ONCE before the first request: calling with an
-	 * unchanged override set is a no-op so the within-session `tools[]` cache prefix
-	 * is not burst by a needless refresh. Names that are `alwaysLoad`, or already
-	 * natively `deferLoading` (and not part of this override), are ignored — those
-	 * are never forced. Dropping a name from the set restores its original
-	 * `deferLoading` on the next rebuild (the registry is reconstructed from the
-	 * base/extension definitions, so the original value returns automatically).
-	 */
 	setDeferredToolOverrides(names: string[]): void {
 		const desired = new Set<string>();
 		for (const name of names) {
 			const entry = this._toolDefinitions.get(name);
 			if (!entry) continue;
 			const definition = entry.definition;
-			// Never override alwaysLoad tools.
 			if (definition.alwaysLoad === true) continue;
-			// Skip tools that are natively deferLoading on their own (not via this
-			// override) — there is nothing to force. Tools already in the override set
-			// report deferLoading:true because WE set it, so keep them to stay idempotent.
 			if (definition.deferLoading === true && !this._deferredOverrides.has(name)) continue;
 			desired.add(name);
 		}
 
-		// CACHE CRITICAL: an unchanged set must not trigger a refresh — an
-		// unconditional rebuild bursts the within-session tools[] cache.
-		if (sameStringSet(this._deferredOverrides, desired)) return;
-
+		if (_sameStringSet(this._deferredOverrides, desired)) return;
 		this._deferredOverrides = desired;
-		// Rebuild via the same path registration uses; _applyDeferredOverrides()
-		// re-applies the override onto the freshly rebuilt registry/definitions.
 		this._refreshToolRegistry();
 	}
 
-	/**
-	 * Post-registration namespace seam (cache-critical).
-	 *
-	 * Annotates already-registered tools with a `namespace` label so provider
-	 * serializers can group related tools into a provider-native namespace. This is
-	 * pure serialization metadata — it does NOT change deferral, activation, or any
-	 * tool behavior. The policy owner (tool-search) computes name->namespace and
-	 * calls this once before the first request.
-	 *
-	 * Generic and idempotent. An unchanged map is a no-op so the within-session
-	 * `tools[]` cache prefix is not burst by a needless refresh. Passing an empty
-	 * map clears all namespaces on the next rebuild (the registry is reconstructed
-	 * from base/extension definitions, so the original undefined returns).
-	 */
 	setToolNamespaces(map: Record<string, string>): void {
 		const desired = new Map<string, string>();
 		for (const [name, namespace] of Object.entries(map)) {
-			if (!namespace) continue;
-			if (!this._toolDefinitions.has(name)) continue;
-			desired.set(name, namespace);
+			if (namespace && this._toolDefinitions.has(name)) desired.set(name, namespace);
 		}
 
-		// CACHE CRITICAL: an unchanged map must not trigger a refresh — an
-		// unconditional rebuild bursts the within-session tools[] cache.
-		if (sameStringMap(this._toolNamespaces, desired)) return;
-
+		if (_sameStringMap(this._toolNamespaces, desired)) return;
 		this._toolNamespaces = desired;
-		// Rebuild via the same path registration uses; _applyToolNamespaces()
-		// re-stamps the namespace onto the freshly rebuilt registry/definitions.
 		this._refreshToolRegistry();
 	}
 
-	/**
-	 * Stamp the `namespace` label from `_toolNamespaces` onto the freshly rebuilt
-	 * `_toolDefinitions` (shallow-copied so the shared base definition is untouched)
-	 * and `_toolRegistry` entries. Called from _refreshToolRegistry() so the
-	 * annotation survives every registry rebuild. No-op when the map is empty.
-	 */
 	private _applyToolNamespaces(): void {
 		if (this._toolNamespaces.size === 0) return;
 		for (const [name, namespace] of this._toolNamespaces) {
@@ -1865,18 +1810,10 @@ export class AgentSession {
 				entry.definition = { ...entry.definition, namespace };
 			}
 			const tool = this._toolRegistry.get(name);
-			if (tool && tool.namespace !== namespace) {
-				tool.namespace = namespace;
-			}
+			if (tool && tool.namespace !== namespace) tool.namespace = namespace;
 		}
 	}
 
-	/**
-	 * Force `deferLoading:true` on every name in `_deferredOverrides`, mutating the
-	 * freshly rebuilt `_toolDefinitions` (shallow-copied so the shared base
-	 * definition is untouched) and `_toolRegistry` entries. Called from
-	 * _refreshToolRegistry() so the override survives every registry rebuild.
-	 */
 	private _applyDeferredOverrides(): void {
 		if (this._deferredOverrides.size === 0) return;
 		for (const name of this._deferredOverrides) {
@@ -1885,9 +1822,7 @@ export class AgentSession {
 				entry.definition = { ...entry.definition, deferLoading: true };
 			}
 			const tool = this._toolRegistry.get(name);
-			if (tool && tool.alwaysLoad !== true && tool.deferLoading !== true) {
-				tool.deferLoading = true;
-			}
+			if (tool && tool.alwaysLoad !== true && tool.deferLoading !== true) tool.deferLoading = true;
 		}
 	}
 
@@ -1972,35 +1907,25 @@ export class AgentSession {
 	private _rebuildSystemPrompt(toolNames: string[]): string {
 		const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
 		const toolSnippets: Record<string, string> = {};
-		const promptGuidelines: string[] = [];
+		const toolGuidelines: Record<string, string[]> = {};
 		for (const name of validToolNames) {
-			// CACHE CRITICAL: deferred tools keep schemas out of the prefix via
-			// defer_loading; their prompt prose must follow. Guidelines/snippets for
-			// deferred tools are delivered in the tool_search result (transcript
-			// suffix) on discovery — never written into the cached system prompt.
 			const definition = this._toolDefinitions.get(name)?.definition;
 			if (definition && isDeferredTool(definition)) {
 				continue;
 			}
 			const snippet = this._toolPromptSnippets.get(name);
-			if (snippet) {
-				toolSnippets[name] = snippet;
-			}
-
-			const toolGuidelines = this._toolPromptGuidelines.get(name);
-			if (toolGuidelines) {
-				promptGuidelines.push(...toolGuidelines);
-			}
+			if (snippet) toolSnippets[name] = snippet;
+			const guidelines = this._toolPromptGuidelines.get(name);
+			if (guidelines) toolGuidelines[name] = guidelines;
 		}
 
 		const loaderSystemPrompt = this._resourceLoader.getSystemPrompt();
 		const loaderAppendSystemPrompt = this._resourceLoader.getAppendSystemPrompt();
-		const appendSystemPrompt =
-			loaderAppendSystemPrompt.length > 0 ? loaderAppendSystemPrompt.join("\n\n") : undefined;
+		const appendSystemPrompt = loaderAppendSystemPrompt.length > 0 ? loaderAppendSystemPrompt.join("\n\n") : "";
 		const loadedSkills = this._resourceLoader.getSkills().skills;
 		const loadedContextFiles = this._resourceLoader.getAgentsFiles().agentsFiles;
 
-		this._baseSystemPromptOptions = {
+		this._baseSystemPromptOptions = normalizeBuildSystemPromptOptions({
 			cwd: this._cwd,
 			skills: loadedSkills,
 			contextFiles: loadedContextFiles,
@@ -2008,9 +1933,79 @@ export class AgentSession {
 			appendSystemPrompt,
 			selectedTools: validToolNames,
 			toolSnippets,
-			promptGuidelines,
-		};
+			toolGuidelines,
+		});
 		return buildSystemPrompt(this._baseSystemPromptOptions);
+	}
+
+	/**
+	 * Apply a prompt and tool loadout for the next request. Sets the executable tools and
+	 * returns a system message patching the prompt sections the model currently has (replayed
+	 * from `messages`), or undefined when the prompt is unchanged. Tool changes are declared by
+	 * the agent loop before the request.
+	 *
+	 * A forced prompt does not affect the transcript: the structured sections are still diffed
+	 * and persisted, and the forced text is projected onto the request by
+	 * {@link _installAgentForcedPromptProjection}.
+	 */
+	private _preparePromptAndToolLoadout(
+		options: NormalizedBuildSystemPromptOptions,
+		messages: AgentMessage[] = this.agent.state.messages,
+	): SystemMessage | undefined {
+		options.selectedTools = [...new Set(options.selectedTools)].filter(
+			(name) => this._toolRegistry.has(name) || this._inheritedForkToolFallbacks?.has(name),
+		);
+		const tools = options.selectedTools.flatMap((name) => {
+			const tool = this._toolRegistry.get(name) ?? this._inheritedForkToolFallbacks?.get(name);
+			return tool ? [tool] : [];
+		});
+		this.agent.state.tools = this._applyActiveToolProviderSchemaOverrides(tools);
+		const sections = diffSystemPromptSections(
+			getCurrentSystemMessage(messages)?.sections ?? {},
+			buildSystemPromptSections(options),
+		);
+		return sections ? { role: "system", content: "", sections, timestamp: Date.now() } : undefined;
+	}
+
+	/**
+	 * Send a forced prompt as the provider's leading system prompt without recording it.
+	 *
+	 * A `before_agent_start` handler that returns `systemPrompt` needs that exact text at the
+	 * head of the request; a mid-conversation system message would leave the original prompt
+	 * in place. The forced text is a rendering of the current prompt, so the transcript keeps
+	 * its structured sections and the request is projected instead: the system messages
+	 * collapse into one head holding the forced text and the current tools. Runs after the
+	 * `context` extension handlers.
+	 */
+	private _installAgentForcedPromptProjection(): void {
+		const previousTransformContext = this.agent.transformContext;
+		this.agent.transformContext = async (messages, signal) => {
+			const transformed = previousTransformContext ? await previousTransformContext(messages, signal) : messages;
+			const forced = this._runSystemPromptOptions?.forceSystemPrompt;
+			if (forced === undefined) return transformed;
+			const current = getCurrentSystemMessage(transformed);
+			const head: SystemMessage = {
+				role: "system",
+				content: forced,
+				...(current?.toolsAdded ? { toolsAdded: current.toolsAdded } : {}),
+				timestamp: current?.timestamp ?? Date.now(),
+			};
+			return [head, ...transformed.filter((message) => message.role !== "system")];
+		};
+	}
+
+	/** Restore the active tool loadout declared by the session transcript, if it declares one. */
+	private _restoreToolsFromTranscript(): void {
+		const current = getCurrentSystemMessage(this.sessionManager.buildSessionContext().messages);
+		if (!current) return;
+		const toolNames = (current.toolsAdded ?? [])
+			.map((tool) => tool.name)
+			.filter((name) => this._toolRegistry.has(name));
+		this.agent.state.tools = toolNames.flatMap((name) => {
+			const registered = this._toolRegistry.get(name);
+			return registered ? [registered] : [];
+		});
+		this._rebuildSystemPrompt(toolNames);
 	}
 
 	/**
@@ -2039,7 +2034,10 @@ export class AgentSession {
 		);
 		if (filtered === this._baseSystemPrompt) return;
 		this._baseSystemPrompt = filtered;
-		this.agent.state.systemPrompt = filtered;
+		const runOptions =
+			this._runSystemPromptOptions ?? normalizeBuildSystemPromptOptions(this._baseSystemPromptOptions);
+		runOptions.forceSystemPrompt = filtered;
+		this._runSystemPromptOptions = runOptions;
 	}
 
 	// =========================================================================
@@ -2056,15 +2054,14 @@ export class AgentSession {
 			// busy (the settling prompt's own call was still unwinding); wake waiters
 			// so they re-check isIdle in their own context.
 			this._resolveIdleWaitIfIdle();
+			if (this._activeTurnCalls === 0 && this._queuedMessageDrainAfterAgentSettles) {
+				setTimeout(() => this._drainQueuedMessagesPostCompaction(), 0);
+			}
 		}
 	}
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
-		// Deferred extensions may register provider-visible tools. Never let the
-		// first request race their startup load, or tools[] changes after turn one
-		// and invalidates the prompt-cache prefix. The load is memoized, so callers
-		// that already prepared the turn pay no additional cost here.
-		await this._extensionRunner.loadDeferredExtensions();
+		this._agentRunAbortRequested = false;
 		this._isAgentRunActive = true;
 		try {
 			// A turn is starting — cancel any pending idle wake. The notification
@@ -2077,10 +2074,12 @@ export class AgentSession {
 			this._cacheHeartbeat.noteActivity();
 			await this.agent.prompt(messages);
 			while (await this._handlePostAgentRun()) {
+				if (this._agentRunAbortRequested) break;
 				await this.agent.continue();
 			}
 		} finally {
-			this._systemPromptOverride = undefined;
+			if (this._agentRunAbortRequested) this._finishCancelledRetry();
+			this._runSystemPromptOptions = undefined;
 			this._flushPendingBashMessages();
 			await this._emitAgentSettled();
 		}
@@ -2089,6 +2088,10 @@ export class AgentSession {
 	private async _handlePostAgentRun(): Promise<boolean> {
 		const msg = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
+		if (this._agentRunAbortRequested) {
+			this._finishCancelledRetry();
+			return false;
+		}
 		if (!msg) {
 			return false;
 		}
@@ -2098,7 +2101,12 @@ export class AgentSession {
 		}
 
 		if (this._isRetryableError(msg) && (await this._prepareRetry(msg))) {
-			return true;
+			if (this._agentRunAbortRequested) this._finishCancelledRetry();
+			return !this._agentRunAbortRequested;
+		}
+		if (this._agentRunAbortRequested) {
+			this._finishCancelledRetry();
+			return false;
 		}
 
 		if (msg.stopReason === "error" && this._retryAttempt > 0) {
@@ -2111,32 +2119,40 @@ export class AgentSession {
 			this._retryAttempt = 0;
 		}
 
-		this._cacheHeartbeat.setSessionTarget(msg.timestamp);
-		this._cacheHeartbeat.noteActivity();
 		if (this._midRunCompactionStop) {
-			// The loop was stopped at a turn boundary by the mid-run cap. Compact
-			// now ("run", not "defer") and always resume — the interrupted run
-			// still has tool results or queued messages waiting for the model.
-			// A trailing tool result has no later assistant boundary, so it would
-			// otherwise survive verbatim regardless of keepRecentTokens. Let its
-			// size select that safe compaction boundary, then replace only the live
-			// retained result with an artifact-backed preview; durable history stays
-			// complete and the continuation starts slim.
 			this._midRunCompactionStop = false;
 			await this._checkCompaction(msg, true, "run");
-			// If compaction was skipped or failed, still bound the pending
-			// continuation. A successful compaction applies the cap before its
-			// estimatedTokensAfter/compaction_end event.
 			this._capMidRunCompactionToolResults();
-			return true;
+			return !this._agentRunAbortRequested;
 		}
+
 		if (await this._checkCompaction(msg, true, "defer")) {
-			return true;
+			return !this._agentRunAbortRequested;
 		}
 
 		// The agent loop drains both queues before emitting agent_end. Any messages
 		// here were queued by agent_end extension handlers and need a continuation.
-		return this.agent.hasQueuedMessages();
+		return !this._agentRunAbortRequested && this.agent.hasQueuedMessages();
+	}
+
+	private async _runInputHandlers(
+		text: string,
+		images: ImageContent[] | undefined,
+		source: InputSource,
+		streamingBehavior?: "steer" | "followUp",
+	): Promise<{ text: string; images: ImageContent[] | undefined } | undefined> {
+		if (!this._extensionRunner.hasHandlers("input")) {
+			return { text, images };
+		}
+
+		const inputResult = await this._extensionRunner.emitInput(text, images, source, streamingBehavior);
+		if (inputResult.action === "handled") {
+			return undefined;
+		}
+		if (inputResult.action === "transform") {
+			return { text: inputResult.text, images: inputResult.images ?? images };
+		}
+		return { text, images };
 	}
 
 	/**
@@ -2148,8 +2164,15 @@ export class AgentSession {
 	 * message queued (pre-drain status quo) rather than crashing the caller.
 	 */
 	private _drainQueuedMessagesPostCompaction(): void {
-		if (this._disposed || !this.agent.hasQueuedMessages()) return;
-		if (this.isStreaming || this.isCompacting || this.agent.isProcessing) return;
+		if (this._disposed || !this.agent.hasQueuedMessages()) {
+			this._queuedMessageDrainAfterAgentSettles = false;
+			return;
+		}
+		if (this.isStreaming || this.isCompacting || this.agent.isProcessing || this._activeTurnCalls > 0) {
+			this._queuedMessageDrainAfterAgentSettles = true;
+			return;
+		}
+		this._queuedMessageDrainAfterAgentSettles = false;
 		void this._withActiveTurnCall(async () => {
 			try {
 				await this._extensionRunner.loadDeferredExtensions();
@@ -2169,12 +2192,11 @@ export class AgentSession {
 					await this._refilterSystemPromptIfNeeded();
 					this._cacheHeartbeat.setSessionTarget(this._findLastAssistantMessage()?.timestamp);
 					this._cacheHeartbeat.noteActivity();
-					await this.agent.continue();
+					await this.agent.continueQueuedMessage();
 					while (await this._handlePostAgentRun()) {
 						await this.agent.continue();
 					}
 				} finally {
-					this._systemPromptOverride = undefined;
 					this._flushPendingBashMessages();
 					await this._emitAgentSettled();
 				}
@@ -2237,24 +2259,17 @@ export class AgentSession {
 			}
 
 			// Emit input event for extension interception (before skill/template expansion)
-			let currentText = text;
-			let currentImages = options?.images;
-			if (this._extensionRunner.hasHandlers("input")) {
-				const inputResult = await this._extensionRunner.emitInput(
-					currentText,
-					currentImages,
-					options?.source ?? "interactive",
-					this.isStreaming ? options?.streamingBehavior : undefined,
-				);
-				if (inputResult.action === "handled") {
-					preflightResult?.(true);
-					return;
-				}
-				if (inputResult.action === "transform") {
-					currentText = inputResult.text;
-					currentImages = inputResult.images ?? currentImages;
-				}
+			const processedInput = await this._runInputHandlers(
+				text,
+				options?.images,
+				options?.source ?? "interactive",
+				this.isStreaming ? options?.streamingBehavior : undefined,
+			);
+			if (!processedInput) {
+				preflightResult?.(true);
+				return;
 			}
+			const { text: currentText, images: currentImages } = processedInput;
 
 			// Expand skill commands (/skill:name args) and prompt templates (/template args)
 			let expandedText = currentText;
@@ -2347,49 +2362,35 @@ export class AgentSession {
 			}
 			this._pendingNextTurnMessages = [];
 
-			// Emit before_agent_start extension event. Forward the prompt's source
-			// (defaulting to "interactive") so hooks can discriminate user-driven
-			// turns from machine-driven ones (child-agent runs, extension steers).
+			// Emit before_agent_start extension event
+			const selectedToolsBefore = this._baseSystemPromptOptions.selectedTools;
 			const result = await this._extensionRunner.emitBeforeAgentStart(
 				expandedText,
 				currentImages,
-				this._baseSystemPrompt,
 				this._baseSystemPromptOptions,
 				options?.source ?? "interactive",
 			);
-			// Add all custom messages from extensions
-			if (result?.messages) {
-				for (const msg of result.messages) {
-					messages.push({
-						role: "custom",
-						customType: msg.customType,
-						// Untyped extensions can pass null/missing content; normalize at ingestion.
-						content: msg.content ?? [],
-						display: msg.display,
-						details: msg.details,
-						timestamp: Date.now(),
-					});
-				}
+			// Handlers may edit event.systemPromptOptions.selectedTools or call setActiveTools(),
+			// which updates the live loadout instead. An explicit edit wins; otherwise the live
+			// loadout is authoritative, so a setActiveTools() call is not undone here.
+			const handlerEditedTools =
+				result.systemPromptOptions.selectedTools.length !== selectedToolsBefore.length ||
+				result.systemPromptOptions.selectedTools.some((name, index) => name !== selectedToolsBefore[index]);
+			if (!handlerEditedTools) result.systemPromptOptions.selectedTools = this.getActiveToolNames();
+			for (const msg of result.messages) {
+				messages.push({
+					role: "custom",
+					customType: msg.customType,
+					// Untyped extensions can pass null/missing content; normalize at ingestion.
+					content: msg.content ?? [],
+					display: msg.display,
+					details: msg.details,
+					timestamp: Date.now(),
+				});
 			}
-			// Apply extension-modified system prompt, or reset to base.
-			// Skip when the prompt is frozen (fork child inheriting parent's bytes) —
-			// extensions would double-inject goal/recall context that is already
-			// present in the parent's prompt, producing different bytes every turn.
-			if (!this._systemPromptFrozen) {
-				if (result?.systemPrompt !== undefined) {
-					// Promote to _baseSystemPrompt so subsequent turns that return no
-					// systemPrompt reset to this extended prompt, not the pre-injection
-					// base. Preserve it as an override during tool refresh as well.
-					this._baseSystemPrompt = result.systemPrompt;
-					this._systemPromptOverride = result.systemPrompt;
-					this.agent.state.systemPrompt = result.systemPrompt;
-				} else {
-					// Reset to stable base (covers pre-modification turns and all
-					// turns after a one-shot extension injection has promoted the base).
-					this._systemPromptOverride = undefined;
-					this.agent.state.systemPrompt = this._baseSystemPrompt;
-				}
-			}
+			const updateMessage = this._preparePromptAndToolLoadout(result.systemPromptOptions);
+			this._runSystemPromptOptions = result.systemPromptOptions;
+			if (updateMessage) messages.unshift(updateMessage);
 		} catch (error) {
 			preflightResult?.(false);
 			throw error;
@@ -2498,25 +2499,45 @@ export class AgentSession {
 		}
 	}
 
+	private async _queueUserInput(
+		text: string,
+		images: ImageContent[] | undefined,
+		behavior: "steer" | "followUp",
+		source: InputSource,
+	): Promise<void> {
+		if (text.startsWith("/")) {
+			this._throwIfExtensionCommand(text);
+		}
+
+		const processedInput = await this._runInputHandlers(
+			text,
+			images,
+			source,
+			this.isStreaming ? behavior : undefined,
+		);
+		if (!processedInput) return;
+
+		let expandedText = this._expandSkillCommand(processedInput.text);
+		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+
+		if (behavior === "steer") {
+			await this._queueSteer(expandedText, processedInput.images);
+		} else {
+			await this._queueFollowUp(expandedText, processedInput.images);
+		}
+	}
+
 	/**
 	 * Queue a steering message while the agent is running.
 	 * Delivered after the current assistant turn finishes executing its tool calls,
 	 * before the next LLM call.
 	 * Expands skill commands and prompt templates. Errors on extension commands.
 	 * @param images Optional image attachments to include with the message
+	 * @param options Input source; defaults to interactive
 	 * @throws Error if text is an extension command
 	 */
-	async steer(text: string, images?: ImageContent[]): Promise<void> {
-		// Check for extension commands (cannot be queued)
-		if (text.startsWith("/")) {
-			this._throwIfExtensionCommand(text);
-		}
-
-		// Expand skill commands and prompt templates
-		let expandedText = this._expandSkillCommand(text);
-		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
-
-		await this._queueSteer(expandedText, images);
+	async steer(text: string, images?: ImageContent[], options?: { source?: InputSource }): Promise<void> {
+		await this._queueUserInput(text, images, "steer", options?.source ?? "interactive");
 	}
 
 	/**
@@ -2524,19 +2545,11 @@ export class AgentSession {
 	 * Delivered only when agent has no more tool calls or steering messages.
 	 * Expands skill commands and prompt templates. Errors on extension commands.
 	 * @param images Optional image attachments to include with the message
+	 * @param options Input source; defaults to interactive
 	 * @throws Error if text is an extension command
 	 */
-	async followUp(text: string, images?: ImageContent[]): Promise<void> {
-		// Check for extension commands (cannot be queued)
-		if (text.startsWith("/")) {
-			this._throwIfExtensionCommand(text);
-		}
-
-		// Expand skill commands and prompt templates
-		let expandedText = this._expandSkillCommand(text);
-		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
-
-		await this._queueFollowUp(expandedText, images);
+	async followUp(text: string, images?: ImageContent[], options?: { source?: InputSource }): Promise<void> {
+		await this._queueUserInput(text, images, "followUp", options?.source ?? "interactive");
 	}
 
 	/**
@@ -2709,6 +2722,11 @@ export class AgentSession {
 						)
 					: undefined;
 				const extraMessages: AgentMessage[] = [];
+				if (beforeStart) {
+					const updateMessage = this._preparePromptAndToolLoadout(beforeStart.systemPromptOptions);
+					this._runSystemPromptOptions = beforeStart.systemPromptOptions;
+					if (updateMessage) extraMessages.push(updateMessage);
+				}
 				if (beforeStart?.messages) {
 					for (const msg of beforeStart.messages) {
 						const extraMessage: CustomMessage = {
@@ -2721,25 +2739,6 @@ export class AgentSession {
 						};
 						if (msg.modelVisible !== undefined) extraMessage.modelVisible = msg.modelVisible;
 						extraMessages.push(extraMessage);
-					}
-				}
-				if (!this._systemPromptFrozen) {
-					if (beforeStart?.systemPrompt) {
-						// Promote to _baseSystemPrompt for the same reason as in prompt():
-						// one-shot extension injections must persist as the stable prefix.
-						this._baseSystemPrompt = beforeStart.systemPrompt;
-						// CACHE CRITICAL: preserve as an override during mid-turn tool
-						// refresh, mirroring prompt(). Without it, a mid-turn
-						// setActiveTools (deferred-tool activation) swaps the raw
-						// rebuilt prompt onto the wire — dropping handler-returned
-						// content and mutating the stable system block, which busts the
-						// prompt cache on machine-driven turns (monitor wakes, goal
-						// continuations via sendCustomMessage({triggerTurn:true})).
-						this._systemPromptOverride = beforeStart.systemPrompt;
-						this.agent.state.systemPrompt = beforeStart.systemPrompt;
-					} else if (this._baseSystemPrompt) {
-						this._systemPromptOverride = undefined;
-						this.agent.state.systemPrompt = this._baseSystemPrompt;
 					}
 				}
 				const runOutcomePromise = this._runAgentPrompt(
@@ -2937,6 +2936,9 @@ export class AgentSession {
 	 * Abort current operation and wait for agent to become idle.
 	 */
 	async abort(): Promise<void> {
+		if (this._isAgentRunActive) {
+			this._agentRunAbortRequested = true;
+		}
 		this.abortRetry();
 		this.abortCompaction();
 		this.abortBranchSummary();
@@ -2979,7 +2981,6 @@ export class AgentSession {
 					}
 				}
 			} finally {
-				this._systemPromptOverride = undefined;
 				this._flushPendingBashMessages();
 				await this._emitAgentSettled();
 			}
@@ -3417,7 +3418,7 @@ export class AgentSession {
 		reason: "manual" | "threshold" | "overflow",
 		compactionEntryId: string,
 	): void {
-		const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
+		const settings = this.settingsManager.getCompactionSettings(this.model);
 		if (!settings.residentPrune) return;
 		const result = this.sessionManager.pruneResidentHistoryAfterCompaction(compactionEntryId);
 		this._emit({ type: "resident_prune", reason, result });
@@ -3523,16 +3524,23 @@ export class AgentSession {
 
 		this._emit({ type: "compaction_start", reason: "manual" });
 		let fromExtension = false;
+		let cancelledByExtension = false;
 
 		try {
-			if (!this.model) {
+			const model = this.model;
+			if (!model) {
 				throw new Error(formatNoModelSelectedMessage());
 			}
 
-			const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(this.model);
+			const settings = this.settingsManager.getCompactionSettings(model);
+			const {
+				model: requestModel,
+				apiKey,
+				headers,
+				env,
+			} = await this._getSummarizationRequestAuth(model, this._compactionAbortController.signal);
 
 			const pathEntries = this.sessionManager.getBranch();
-			const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
 
 			const preparation = prepareCompaction(pathEntries, settings);
 			if (!preparation) {
@@ -3558,6 +3566,7 @@ export class AgentSession {
 				})) as SessionBeforeCompactResult | undefined;
 
 				if (result?.cancel) {
+					cancelledByExtension = true;
 					throw new Error("Compaction cancelled");
 				}
 
@@ -3659,7 +3668,7 @@ export class AgentSession {
 			return compactionResult;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			const aborted = message === "Compaction cancelled" || (error instanceof Error && error.name === "AbortError");
+			const aborted = this._compactionAbortController.signal.aborted || cancelledByExtension;
 			const errorMessage = aborted ? undefined : `Compaction failed: ${message}`;
 			this._clearManualCompactionState(abortController);
 			this._emit({
@@ -3729,7 +3738,7 @@ export class AgentSession {
 		skipAbortedCheck = true,
 		thresholdMode: "run" | "defer" = "run",
 	): Promise<boolean> {
-		const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
+		const settings = this.settingsManager.getCompactionSettings(this.model);
 		if (!settings.enabled) return false;
 
 		// Skip if message was aborted (user cancelled) - unless skipAbortedCheck is false
@@ -3846,9 +3855,6 @@ export class AgentSession {
 	 * @returns Whether the post-run loop should call `agent.continue()`
 	 */
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
-		// Failure circuit breaker: checked before anything else, including the rapid-refill
-		// check below (CC 2.1.201 parity). Once tripped, auto-compaction is disabled for
-		// the rest of the session and this short-circuit must not emit repeatedly.
 		if (this._autoCompactDisabledThisSession) {
 			return false;
 		}
@@ -3861,13 +3867,19 @@ export class AgentSession {
 			return false;
 		}
 
-		const settings = this.settingsManager.getCompactionSettings(this.model?.contextWindow);
+		const model = this.model;
+		if (!model) {
+			return false;
+		}
+
+		const settings = this.settingsManager.getCompactionSettings(model);
 		const abortController = new AbortController();
 		this._autoCompactionAbortController = abortController;
 		let started = false;
 		let preflightComplete = false;
 		let drainQueuedMessages = false;
 		let fromExtension = false;
+		let cancelledByExtension = false;
 
 		try {
 			// Auto-compaction may issue its own provider request. Most callers already
@@ -3885,18 +3897,11 @@ export class AgentSession {
 				return false;
 			}
 
-			if (!this.model) {
-				return false;
-			}
-
 			// Fixed-prefix-overflow guard: if the immovable prefix (system prompt + tools,
 			// which compaction cannot remove) alone exceeds the compaction threshold,
 			// compaction is a structural no-op - skip instead of attempting-then-looping.
-			const compactionThreshold = this.model.contextWindow - settings.reserveTokens;
+			const compactionThreshold = model.contextWindow - settings.reserveTokens;
 			const fixedPrefixTokens = this._estimateFixedPrefixTokens();
-			// Scoped to the periodic "threshold" trigger only: an "overflow" recovery is a
-			// one-off reactive attempt (the provider already hard-stopped) and still deserves
-			// a real compaction attempt rather than a structural-no-op short-circuit.
 			if (reason === "threshold" && fixedPrefixTokens > compactionThreshold) {
 				this._emit({
 					type: "compaction_end",
@@ -3910,19 +3915,14 @@ export class AgentSession {
 				return false;
 			}
 
-			// Rapid-refill (thrashing) breaker: trips when context keeps refilling to the
-			// limit within RAPID_REFILL_WINDOW turns of the previous compaction, repeatedly.
 			const branchForRapidRefill = this.sessionManager.getBranch();
-			const hadPriorCompaction = getLatestCompactionEntry(branchForRapidRefill) !== null;
-			const turnsSinceCompaction = this._assistantTurnsAfterCompaction(branchForRapidRefill);
 			const rapidRefill = evaluateRapidRefill({
-				hadPriorCompaction,
-				turnsSinceCompaction,
+				hadPriorCompaction: getLatestCompactionEntry(branchForRapidRefill) !== null,
+				turnsSinceCompaction: this._assistantTurnsAfterCompaction(branchForRapidRefill),
 				consecutiveRapidRefills: this._consecutiveRapidRefills,
 			});
 			this._consecutiveRapidRefills = rapidRefill.consecutiveRapidRefills;
 			if (rapidRefill.action === "trip") {
-				// Reset so this does not re-emit on every subsequent compaction attempt.
 				this._consecutiveRapidRefills = 0;
 				this._emit({
 					type: "compaction_end",
@@ -3936,10 +3936,7 @@ export class AgentSession {
 				return false;
 			}
 
-			const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(this.model);
-
 			const pathEntries = this.sessionManager.getBranch();
-
 			const preparation = prepareCompaction(pathEntries, settings);
 			if (!preparation) {
 				return false;
@@ -3947,6 +3944,15 @@ export class AgentSession {
 
 			this._emit({ type: "compaction_start", reason });
 			started = true;
+			abortController.signal.throwIfAborted();
+
+			const {
+				model: requestModel,
+				apiKey,
+				headers,
+				env,
+			} = await this._getSummarizationRequestAuth(model, abortController.signal);
+			abortController.signal.throwIfAborted();
 
 			let extensionCompaction: CompactionResult | undefined;
 
@@ -3962,20 +3968,8 @@ export class AgentSession {
 				})) as SessionBeforeCompactResult | undefined;
 
 				if (extensionResult?.cancel) {
-					this._emit({
-						type: "compaction_end",
-						reason,
-						result: undefined,
-						aborted: true,
-						willRetry: false,
-					});
-					await this._emitSessionCompactFailed({
-						reason,
-						aborted: true,
-						willRetry: false,
-						fromExtension: false,
-					});
-					return false;
+					cancelledByExtension = true;
+					throw new Error("Compaction cancelled");
 				}
 
 				if (extensionResult?.compaction) {
@@ -3983,6 +3977,7 @@ export class AgentSession {
 					fromExtension = true;
 				}
 			}
+			abortController.signal.throwIfAborted();
 
 			let summary: string;
 			let firstKeptEntryId: string;
@@ -4005,8 +4000,6 @@ export class AgentSession {
 					apiKey,
 					headers,
 					undefined,
-					// Fork uses the local abortController (defense-in-depth vs. concurrent
-					// compaction races) rather than the this._autoCompactionAbortController field.
 					abortController.signal,
 					env,
 					reason,
@@ -4017,23 +4010,7 @@ export class AgentSession {
 				usage = compactResult.usage;
 				details = compactResult.details;
 			}
-
-			if (abortController.signal.aborted) {
-				this._emit({
-					type: "compaction_end",
-					reason,
-					result: undefined,
-					aborted: true,
-					willRetry: false,
-				});
-				await this._emitSessionCompactFailed({
-					reason,
-					aborted: true,
-					willRetry: false,
-					fromExtension,
-				});
-				return false;
-			}
+			abortController.signal.throwIfAborted();
 
 			const compactionEntryId = this.sessionManager.appendCompaction(
 				summary,
@@ -4097,11 +4074,9 @@ export class AgentSession {
 				drainQueuedMessages = true;
 				throw error;
 			}
-			const errorMessage = error instanceof Error ? error.message : "compaction failed";
-			// Transient provider-availability failures do not count toward the
-			// circuit breaker and do not reset an existing streak. The threshold
-			// check retries compaction on a later turn.
-			if (isTransientCompactionError(errorMessage)) {
+			const message = error instanceof Error ? error.message : "compaction failed";
+			const aborted = abortController?.signal.aborted === true || cancelledByExtension;
+			if (!aborted && isTransientCompactionError(message)) {
 				if (started) {
 					this._emit({
 						type: "compaction_end",
@@ -4111,51 +4086,56 @@ export class AgentSession {
 						willRetry: false,
 						errorMessage: `${
 							reason === "overflow" ? "Context overflow recovery" : "Auto-compaction"
-						} hit a transient provider error; it will be retried and does not count toward the circuit breaker: ${errorMessage}`,
+						} hit a transient provider error; it will be retried and does not count toward the circuit breaker: ${message}`,
 					});
 				}
 				return false;
 			}
 
-			this._consecutiveCompactionFailures++;
-			const formattedErrorMessage =
-				reason === "overflow"
-					? `Context overflow recovery failed: ${errorMessage}`
-					: `Auto-compaction failed: ${errorMessage}`;
-			if (this._consecutiveCompactionFailures >= COMPACTION_FAILURE_TRIP_COUNT) {
-				this._autoCompactDisabledThisSession = true;
-				const circuitBreakerErrorMessage =
-					"Auto-compaction circuit breaker tripped after 3 consecutive failures — auto-compaction is disabled for the rest of this session. Try /new to start fresh or switch to a larger-context model.";
-				this._emit({
-					type: "compaction_end",
-					reason,
-					result: undefined,
-					aborted: false,
-					willRetry: false,
-					errorMessage: circuitBreakerErrorMessage,
-				});
-				if (started) {
-					await this._emitSessionCompactFailed({
+			if (!aborted) {
+				this._consecutiveCompactionFailures++;
+				if (this._consecutiveCompactionFailures >= COMPACTION_FAILURE_TRIP_COUNT) {
+					this._autoCompactDisabledThisSession = true;
+					const circuitBreakerErrorMessage =
+						"Auto-compaction circuit breaker tripped after 3 consecutive failures — auto-compaction is disabled for the rest of this session. Try /new to start fresh or switch to a larger-context model.";
+					this._emit({
+						type: "compaction_end",
 						reason,
-						errorMessage: circuitBreakerErrorMessage,
+						result: undefined,
 						aborted: false,
 						willRetry: false,
-						fromExtension,
+						errorMessage: circuitBreakerErrorMessage,
 					});
+					if (started) {
+						await this._emitSessionCompactFailed({
+							reason,
+							errorMessage: circuitBreakerErrorMessage,
+							aborted: false,
+							willRetry: false,
+							fromExtension,
+						});
+					}
+					return false;
 				}
-			} else if (started) {
+			}
+			if (started) {
+				const errorMessage = aborted
+					? undefined
+					: reason === "overflow"
+						? `Context overflow recovery failed: ${message}`
+						: `Auto-compaction failed: ${message}`;
 				this._emit({
 					type: "compaction_end",
 					reason,
 					result: undefined,
-					aborted: false,
+					aborted,
 					willRetry: false,
-					errorMessage: formattedErrorMessage,
+					errorMessage,
 				});
 				await this._emitSessionCompactFailed({
 					reason,
-					errorMessage: formattedErrorMessage,
-					aborted: false,
+					errorMessage,
+					aborted,
 					willRetry: false,
 					fromExtension,
 				});
@@ -4248,9 +4228,7 @@ export class AgentSession {
 		};
 
 		this._resourceLoader.extendResources(extensionPaths);
-		this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
-		this.agent.state.systemPrompt = this._baseSystemPrompt;
-		this._systemPromptNeedsRefilter = true;
+		this._rebuildSystemPrompt(this.getActiveToolNames());
 	}
 
 	private buildExtensionResourcePaths(entries: Array<{ path: string; extensionPath: string }>): Array<{
@@ -5004,6 +4982,18 @@ export class AgentSession {
 		};
 	}
 
+	private _finishCancelledRetry(): void {
+		if (this._retryAttempt === 0) return;
+		const attempt = this._retryAttempt;
+		this._retryAttempt = 0;
+		this._emit({
+			type: "auto_retry_end",
+			success: false,
+			attempt,
+			finalError: "Retry cancelled",
+		});
+	}
+
 	/**
 	 * Prepare a retryable error for continuation with exponential backoff.
 	 * @returns true if the caller should continue the agent, false otherwise
@@ -5022,7 +5012,7 @@ export class AgentSession {
 			return false;
 		}
 
-		const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);
+		const delayMs = retryDelayMs(settings, this._retryAttempt);
 
 		this._emit({
 			type: "auto_retry_start",
@@ -5044,14 +5034,7 @@ export class AgentSession {
 			await sleep(delayMs, this._retryAbortController.signal);
 		} catch {
 			// Aborted during sleep - emit end event so UI can clean up
-			const attempt = this._retryAttempt;
-			this._retryAttempt = 0;
-			this._emit({
-				type: "auto_retry_end",
-				success: false,
-				attempt,
-				finalError: "Retry cancelled",
-			});
+			this._finishCancelledRetry();
 			return false;
 		} finally {
 			this._retryAbortController = undefined;
@@ -5240,10 +5223,10 @@ export class AgentSession {
 		if (this.isStreaming) {
 			throw new Error("Wait for the current response to finish before navigating the session tree.");
 		}
-		if (options.summarize) {
-			// Branch summarization bypasses the normal prompt lifecycle and may be
-			// the session's first provider request.
-			await this._extensionRunner.loadDeferredExtensions();
+		if (this.isCompacting) {
+			throw new Error(
+				"Wait for the current compaction or tree navigation to finish before navigating the session tree.",
+			);
 		}
 
 		const oldLeafId = this.sessionManager.getLeafId();
@@ -5418,6 +5401,7 @@ export class AgentSession {
 			// Update agent state
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
+			this._restoreToolsFromTranscript();
 
 			// Emit session_tree event
 			await this._extensionRunner.emit({
@@ -5471,7 +5455,9 @@ export class AgentSession {
 		const usageTotals = createUsageTotals();
 
 		for (const entry of this.sessionManager.getEntries()) {
-			if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
+			if (entry.type === "usage") {
+				addUsageToTotals(usageTotals, entry.usage);
+			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
 				addUsageToTotals(usageTotals, entry.usage);
 			}
 			if (entry.type !== "message") continue;
@@ -5616,6 +5602,31 @@ export class AgentSession {
 	 */
 	exportToJsonl(outputPath?: string): string {
 		return exportSessionToJsonl(this.sessionManager, outputPath);
+	}
+
+	/**
+	 * Ask the current model to describe what went wrong in this session for a bug report.
+	 * Used when the user declines to share the transcript itself.
+	 */
+	async summarizeForBugReport(options: { hint?: string; signal: AbortSignal }): Promise<string> {
+		const model = this.model;
+		if (!model) {
+			throw new Error("No model selected");
+		}
+		const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
+		return generateBugReportSummary({
+			messages: this.messages,
+			hint: options.hint,
+			model: requestModel,
+			apiKey,
+			headers,
+			env,
+			signal: options.signal,
+			thinkingLevel: this.thinkingLevel,
+			streamFn: this.agent.streamFunction,
+			retry: this.settingsManager.getRetrySettings(),
+			sessionId: this.sessionId,
+		});
 	}
 
 	// =========================================================================

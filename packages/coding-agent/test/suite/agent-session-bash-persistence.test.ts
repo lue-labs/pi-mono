@@ -326,8 +326,10 @@ describe("AgentSession bash and persistence characterization", () => {
 		await harness.session.prompt("start");
 
 		const entries = harness.sessionManager.getEntries();
+		// The prompt is declared by the first request, after the queued custom message.
 		expect(entries.map((entry) => entry.type)).toEqual([
 			"custom_message",
+			"message",
 			"message",
 			"message",
 			"custom",
@@ -342,6 +344,7 @@ describe("AgentSession bash and persistence characterization", () => {
 		).toEqual(["cache_health", "cache_health"]);
 		expect(harness.session.messages.map((message) => message.role)).toEqual([
 			"custom",
+			"system",
 			"user",
 			"assistant",
 			"toolResult",

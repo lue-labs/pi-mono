@@ -84,7 +84,7 @@ async function importAgentViewModule(specifier: string): Promise<AgentViewModule
 		const jiti = createJiti(import.meta.url, {
 			fsCache: false,
 			interopDefault: false,
-			...getExtensionJitiResolutionOptions(),
+			...(await getExtensionJitiResolutionOptions()),
 		});
 		const mod = (await jiti.import(specifier)) as Partial<AgentViewModule> & { default?: Partial<AgentViewModule> };
 		const candidate = mod.runAgentViewCli ? mod : mod.default;

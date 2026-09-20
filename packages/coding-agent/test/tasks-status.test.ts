@@ -129,7 +129,7 @@ describe("background task status formatting", () => {
 		expect(child?.needsInput).toBe(false);
 		expect(child?.endedAt).toBe(Date.parse(run.endedAt!));
 		const frozen = (child!.endedAt ?? 0) - child!.startedAt;
-		const later = (child!.endedAt! + 60_000) - child!.startedAt;
+		const later = child!.endedAt! + 60_000 - child!.startedAt;
 		expect(frozen).toBeGreaterThanOrEqual(0);
 		expect(frozen).toBeLessThan(later);
 		expect((child!.endedAt ?? later) - child!.startedAt).toBe(frozen);

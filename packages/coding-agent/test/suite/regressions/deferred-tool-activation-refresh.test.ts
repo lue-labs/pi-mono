@@ -1,4 +1,4 @@
-import { type Context, fauxAssistantMessage, fauxToolCall } from "@lue-labs/pi-ai";
+import { type Context, fauxAssistantMessage, fauxToolCall, getCurrentTools } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
@@ -55,15 +55,15 @@ describe("deferred tool activation refresh", () => {
 
 		harness.setResponses([
 			(context: Context) => {
-				seenToolNames.push(context.tools?.map((tool) => tool.name) ?? []);
+				seenToolNames.push(getCurrentTools(context.messages).map((tool) => tool.name));
 				return fauxAssistantMessage(fauxToolCall("tool_search", { query: "fake echo" }));
 			},
 			(context: Context) => {
-				seenToolNames.push(context.tools?.map((tool) => tool.name) ?? []);
+				seenToolNames.push(getCurrentTools(context.messages).map((tool) => tool.name));
 				return fauxAssistantMessage(fauxToolCall("fake_deferred_echo", {}));
 			},
 			(context: Context) => {
-				seenToolNames.push(context.tools?.map((tool) => tool.name) ?? []);
+				seenToolNames.push(getCurrentTools(context.messages).map((tool) => tool.name));
 				return fauxAssistantMessage("done");
 			},
 		]);
@@ -111,7 +111,7 @@ describe("deferred tool activation refresh", () => {
 			() =>
 				fauxAssistantMessage(fauxToolCall("tool_search", { query: "select:fake_deferred_one,fake_deferred_two" })),
 			(context: Context) => {
-				seenToolNames.push(context.tools?.map((tool) => tool.name) ?? []);
+				seenToolNames.push(getCurrentTools(context.messages).map((tool) => tool.name));
 				return fauxAssistantMessage("done");
 			},
 		]);

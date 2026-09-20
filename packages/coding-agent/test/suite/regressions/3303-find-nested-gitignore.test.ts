@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGlobToolDefinition } from "../../../src/core/tools/glob.ts";
 
 /**
- * Regression test for https://github.com/earendil-works/pi-mono/issues/3303
+ * Regression test for https://github.com/earendil-works/pi/issues/3303
  *
  * The `Glob` tool previously collected every `.gitignore` under the search
  * path and passed them to `fd` via `--ignore-file`. fd treats `--ignore-file`

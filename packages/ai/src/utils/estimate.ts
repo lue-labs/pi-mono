@@ -4,10 +4,11 @@ import type {
 	ImageContent,
 	Message,
 	TextContent,
-	Tool,
 	ToolReferenceContent,
+	TranscriptContext,
 	Usage,
 } from "../types.ts";
+import { getSystemMessageText } from "./text.ts";
 
 export interface ContextUsageEstimate {
 	/** Estimated total context tokens. */
@@ -22,6 +23,8 @@ export interface ContextUsageEstimate {
 
 const CHARS_PER_TOKEN = 4;
 const ESTIMATED_IMAGE_CHARS = 4800;
+const STALE_USAGE_RECOUNT_FACTOR = 2;
+const STALE_USAGE_MIN_TOKENS = 5_000;
 
 export function calculateContextTokens(usage: Usage): number {
 	return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
@@ -62,6 +65,13 @@ export function estimateTextAndImageContentTokens(
 export function estimateMessageTokens(message: Message): number {
 	let chars = 0;
 
+	if (message.role === "system") {
+		return (
+			estimateTextTokens(getSystemMessageText(message)) +
+			estimateToolsTokens(message.toolsAdded) +
+			estimateToolsTokens(message.toolsRemoved)
+		);
+	}
 	if (message.role === "user") return estimateTextAndImageContentTokens(message.content);
 	if (message.role === "toolResult") return estimateTextAndImageContentTokens(message.content);
 
@@ -105,7 +115,8 @@ function getLastAssistantUsageInfo(messages: readonly Message[]): { usage: Usage
 	return usageInfo;
 }
 
-function estimateMessages(messages: readonly Message[]): ContextUsageEstimate {
+export function estimateContextTokens(context: TranscriptContext | readonly Message[]): ContextUsageEstimate {
+	const messages = "messages" in context ? context.messages : context;
 	const usageInfo = getLastAssistantUsageInfo(messages);
 	if (usageInfo) {
 		const usageTokens = calculateContextTokens(usageInfo.usage);
@@ -113,89 +124,42 @@ function estimateMessages(messages: readonly Message[]): ContextUsageEstimate {
 		for (let i = usageInfo.index + 1; i < messages.length; i++) {
 			trailingTokens += estimateMessageTokens(messages[i]);
 		}
-		return { tokens: usageTokens + trailingTokens, usageTokens, trailingTokens, lastUsageIndex: usageInfo.index };
+		const legacyContext = Array.isArray(context) ? undefined : (context as Context);
+		if (legacyContext?.tools) {
+			const addedNames = new Set(
+				messages
+					.slice(usageInfo.index + 1)
+					.filter((message) => message.role === "toolResult")
+					.flatMap((message) => message.addedToolNames ?? []),
+			);
+			trailingTokens += estimateToolsTokens(legacyContext.tools.filter((tool) => addedNames.has(tool.name)));
+		}
+		const anchoredTokens = usageTokens + trailingTokens;
+		let recountTokens =
+			legacyContext?.systemPrompt === undefined ? 0 : estimateTextTokens(legacyContext.systemPrompt);
+		if (legacyContext?.tools) recountTokens += estimateToolsTokens(legacyContext.tools);
+		for (const message of messages) recountTokens += estimateMessageTokens(message);
+		if (
+			anchoredTokens > STALE_USAGE_MIN_TOKENS &&
+			recountTokens > 0 &&
+			anchoredTokens > recountTokens * STALE_USAGE_RECOUNT_FACTOR
+		) {
+			return { tokens: recountTokens, usageTokens: 0, trailingTokens: recountTokens, lastUsageIndex: null };
+		}
+		return { tokens: anchoredTokens, usageTokens, trailingTokens, lastUsageIndex: usageInfo.index };
 	}
 
 	let tokens = 0;
+	if (!Array.isArray(context)) {
+		const legacyContext = context as Context;
+		if (legacyContext.systemPrompt) tokens += estimateTextTokens(legacyContext.systemPrompt);
+		if (legacyContext.tools) tokens += estimateToolsTokens(legacyContext.tools);
+	}
 	for (const message of messages) tokens += estimateMessageTokens(message);
 	return { tokens, usageTokens: 0, trailingTokens: tokens, lastUsageIndex: null };
 }
 
-function estimateToolsTokens(tools: readonly Tool[] | undefined): number {
+function estimateToolsTokens(tools: readonly unknown[] | undefined): number {
 	if (!tools || tools.length === 0) return 0;
 	return estimateTextTokens(safeJsonStringify(tools));
-}
-
-function isMessageArray(value: Context | readonly Message[]): value is readonly Message[] {
-	return Array.isArray(value);
-}
-
-/**
- * A usage anchor is trusted only while it plausibly reflects the messages still
- * present. After compaction the retained assistant message keeps its
- * pre-compaction `usage.totalTokens`, which counts messages that were dropped -
- * a stale anchor that over-counts the real context by multiples. Trusting it
- * collapses the available output budget in `clampMaxTokensToContext` and
- * truncates (or empties) the next turn. When the anchored estimate exceeds a
- * fresh recount of the current messages + prefix by more than this factor, the
- * anchor is treated as stale and the recount is used instead. The factor is
- * generous because the char/4 recount under-counts real tokenization; only a
- * compaction-scale mismatch trips it.
- */
-const STALE_USAGE_RECOUNT_FACTOR = 2;
-
-/**
- * Absolute floor an anchored estimate must clear before it is even considered
- * for staleness. Compaction-stale anchors are always large (a pre-compaction
- * budget in the tens-to-hundreds-of-thousands range); small anchors can
- * legitimately dwarf a char/4 recount of a short conversation (system prompt
- * and protocol overhead the recount cannot see), so applying the ratio check
- * below this floor would misfire on ordinary short conversations.
- */
-const STALE_USAGE_MIN_TOKENS = 5_000;
-
-export function estimateContextTokens(context: Context | readonly Message[]): ContextUsageEstimate {
-	if (isMessageArray(context)) return estimateMessages(context);
-
-	const estimate = estimateMessages(context.messages);
-	const prefixTokens =
-		(context.systemPrompt ? estimateTextTokens(context.systemPrompt) : 0) + estimateToolsTokens(context.tools);
-
-	if (estimate.lastUsageIndex !== null) {
-		const addedNames = new Set(
-			context.messages
-				.slice(estimate.lastUsageIndex + 1)
-				.filter((message) => message.role === "toolResult")
-				.flatMap((message) => message.addedToolNames ?? []),
-		);
-		const addedToolTokens = estimateToolsTokens(context.tools?.filter((tool) => addedNames.has(tool.name)));
-		const anchored = {
-			tokens: estimate.tokens + addedToolTokens,
-			usageTokens: estimate.usageTokens,
-			trailingTokens: estimate.trailingTokens + addedToolTokens,
-			lastUsageIndex: estimate.lastUsageIndex,
-		};
-
-		// `anchored.tokens` (usage.totalTokens already includes the system + tools
-		// prefix) is compared against an independent recount of everything currently
-		// in context. A wide gap means the anchor still counts messages that
-		// compaction dropped - use the recount instead of the stale usage total.
-		let recountTokens = prefixTokens;
-		for (const message of context.messages) recountTokens += estimateMessageTokens(message);
-		if (
-			anchored.tokens > STALE_USAGE_MIN_TOKENS &&
-			recountTokens > 0 &&
-			anchored.tokens > recountTokens * STALE_USAGE_RECOUNT_FACTOR
-		) {
-			return { tokens: recountTokens, usageTokens: 0, trailingTokens: recountTokens, lastUsageIndex: null };
-		}
-		return anchored;
-	}
-
-	return {
-		tokens: estimate.tokens + prefixTokens,
-		usageTokens: estimate.usageTokens,
-		trailingTokens: estimate.trailingTokens + prefixTokens,
-		lastUsageIndex: estimate.lastUsageIndex,
-	};
 }

@@ -52,7 +52,7 @@
 	},
 	"dependencies": {
 		"@lue-labs/pi-protocol": "0.84.11",
-		"@earendil-works/chord": "0.85.1"
+		"@earendil-works/chord": "0.86.0"
 	},
 	"devDependencies": {
 		"shx": "0.4.0",

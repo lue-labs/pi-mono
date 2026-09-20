@@ -22,6 +22,8 @@ import type { AgentMessage } from "@lue-labs/pi-agent-core";
 import type {
 	AssistantMessage,
 	ImageContent,
+	JsonObject,
+	JsonValue,
 	StopReason,
 	TextContent,
 	ToolCall,
@@ -91,6 +93,14 @@ function estimateEntryPayloadBytes(entry: SessionEntry): number {
 			return jsonByteLength(entry.label);
 		case "model_change":
 			return jsonByteLength(entry.provider) + jsonByteLength(entry.modelId);
+		case "usage":
+			return (
+				jsonByteLength(entry.kind) +
+				jsonByteLength(entry.provider) +
+				jsonByteLength(entry.model) +
+				jsonByteLength(entry.usage) +
+				jsonByteLength(entry.note)
+			);
 		case "thinking_level_change":
 			return jsonByteLength(entry.thinkingLevel);
 		case "session_info":
@@ -161,13 +171,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function keepRecoverableDetails(details: unknown): Record<string, unknown> | undefined {
+function keepRecoverableDetails(details: unknown): JsonValue | undefined {
 	if (!isRecord(details)) return undefined;
-	const retained: Record<string, unknown> = {};
+	const retained: JsonObject = {};
 	for (const key of ["recoverableOutput", "fullOutputPath", "outputPath", "outputFile", "rawOutputPath"]) {
-		if (key in details) {
-			retained[key] = details[key];
-		}
+		const value = details[key];
+		if (typeof value === "string") retained[key] = value;
 	}
 	return Object.keys(retained).length > 0 ? retained : undefined;
 }

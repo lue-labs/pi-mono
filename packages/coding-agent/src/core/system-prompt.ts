@@ -2,7 +2,7 @@
  * System prompt construction and project context loading
  */
 
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@lue-labs/pi-ai";
+import { getSystemMessageText } from "@lue-labs/pi-ai";
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import type { ContextFile } from "./context-file-imports.ts";
 import {
@@ -13,16 +13,22 @@ import {
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
 
 export interface BuildSystemPromptOptions {
-	/** Custom system prompt (replaces default). */
+	/** Custom system prompt (replaces the default prefix). */
 	customPrompt?: string;
-	/** Tools to include in prompt. Default: all built-in tools. */
+	/** Exact full prompt replacement set by a before_agent_start handler. */
+	forceSystemPrompt?: string;
+	/** Tools to include in prompt. Default: [read, bash, edit, write]. */
 	selectedTools?: string[];
 	/** Optional one-line tool snippets keyed by tool name. */
 	toolSnippets?: Record<string, string>;
-	/** Additional guideline bullets appended to the default system prompt guidelines. */
+	/** Guideline bullets contributed by each tool, keyed by tool name. */
+	toolGuidelines?: Record<string, string[]>;
+	/** Additional guideline bullets appended to the default system prompt rules. */
 	promptGuidelines?: string[];
-	/** Text to append to system prompt. */
+	/** Text appended from user configuration before project context, skills, and cwd. */
 	appendSystemPrompt?: string;
+	/** Additional XML-wrapped prompt sections keyed by tag name. */
+	sections?: Record<string, string>;
 	/** Working directory. */
 	cwd: string;
 	/** Pre-loaded context files. */
@@ -31,192 +37,230 @@ export interface BuildSystemPromptOptions {
 	skills?: Skill[];
 }
 
-/** Build the system prompt with tools, guidelines, and context */
-export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-	const {
-		customPrompt,
-		selectedTools,
-		toolSnippets,
-		promptGuidelines,
-		appendSystemPrompt,
-		cwd,
-		contextFiles: providedContextFiles,
-		skills: providedSkills,
-	} = options;
-	const promptCwd = cwd.replace(/\\/g, "/");
+export type NormalizedBuildSystemPromptOptions = BuildSystemPromptOptions & {
+	selectedTools: string[];
+	toolSnippets: Record<string, string>;
+	toolGuidelines: Record<string, string[]>;
+	promptGuidelines: string[];
+	appendSystemPrompt: string;
+	sections: Record<string, string>;
+	contextFiles: Array<{ path: string; content: string }>;
+	skills: Skill[];
+};
 
-	const appendSection = appendSystemPrompt ? `\n\n${appendSystemPrompt}` : "";
+/**
+ * Ordered system prompt sections, keyed by name. `preamble` is untagged text; every other
+ * section is wrapped in a tag of the same name so the model can match later updates to it.
+ * These become `SystemMessage.sections` in the transcript.
+ */
+export type SystemPromptSections = Record<string, string>;
 
-	const contextFiles = providedContextFiles ?? [];
-	const skills = providedSkills ?? [];
-	const tools = selectedTools || ["Read", "Bash", "Edit", "Write", "Grep", "Glob"];
-	// Fork tool names are capitalized (Read/Bash/Grep/Glob); match either casing.
-	const toolNamesLower = new Set(tools.map((name) => name.toLowerCase()));
-	const skillFileReadTool = (["read", "bash"] as const).find((tool) => toolNamesLower.has(tool));
+const SYSTEM_PROMPT_SECTION_NAME = /^[a-z][a-z0-9_-]*$/;
+/** Normalize prompt input into the mutable, collection-complete shape exposed to extensions. */
+export function normalizeBuildSystemPromptOptions(input: BuildSystemPromptOptions): NormalizedBuildSystemPromptOptions {
+	return {
+		customPrompt: input.customPrompt,
+		forceSystemPrompt: input.forceSystemPrompt,
+		selectedTools: [...(input.selectedTools ?? ["read", "bash", "edit", "write", "grep", "glob"])],
+		toolSnippets: { ...(input.toolSnippets ?? {}) },
+		toolGuidelines: Object.fromEntries(
+			Object.entries(input.toolGuidelines ?? {}).map(([name, guidelines]) => [name, [...guidelines]]),
+		),
+		promptGuidelines: [...(input.promptGuidelines ?? [])],
+		appendSystemPrompt: input.appendSystemPrompt ?? "",
+		sections: { ...(input.sections ?? {}) },
+		cwd: input.cwd,
+		contextFiles: (input.contextFiles ?? []).map((file) => ({ ...file })),
+		skills: (input.skills ?? []).map((skill) => ({ ...skill })),
+	};
+}
 
-	if (customPrompt) {
-		let prompt = customPrompt;
+function renderProjectContext(contextFiles: Array<{ path: string; content: string }>): string {
+	return [
+		"Project-specific instructions and guidelines:",
+		...contextFiles.map(
+			({ path, content }) => `<project_instructions path="${path}">\n${content}\n</project_instructions>`,
+		),
+	].join("\n\n");
+}
 
-		if (appendSection) {
-			prompt += appendSection;
-		}
+function findCaseInsensitiveEntry<T>(record: Record<string, T>, name: string): [string, T] | undefined {
+	const normalizedName = name.toLowerCase();
+	return Object.entries(record).find(([key]) => key.toLowerCase() === normalizedName);
+}
 
-		// Tool-provided guidelines travel with the tools, even under a custom prompt.
-		// They are stable for a given tools[] set, so they stay in the cached prefix
-		// (before the dynamic boundary). Deduped + trimmed like the default path.
-		const customGuidelines: string[] = [];
-		const customGuidelinesSeen = new Set<string>();
-		for (const guideline of promptGuidelines ?? []) {
-			const normalized = guideline.trim();
-			if (normalized.length > 0 && !customGuidelinesSeen.has(normalized)) {
-				customGuidelinesSeen.add(normalized);
-				customGuidelines.push(normalized);
-			}
-		}
-		if (customGuidelines.length > 0) {
-			prompt += `\n\nTool guidelines:\n${customGuidelines.map((g) => `- ${g}`).join("\n")}`;
-		}
+function renderGuidelines(guidelines: string[]): string {
+	const seen = new Set<string>();
+	const normalized = guidelines
+		.map((guideline) => guideline.trim())
+		.filter((guideline) => guideline.length > 0 && !seen.has(guideline) && seen.add(guideline));
+	return normalized.map((guideline) => `- ${guideline}`).join("\n");
+}
 
-		prompt += `\n\n${SYSTEM_PROMPT_DYNAMIC_BOUNDARY}`;
-
-		// Append project context files
-		if (contextFiles.length > 0) {
-			prompt += "\n\n<project_context>\n\n";
-			prompt += "Project-specific instructions and guidelines:\n\n";
-			for (const { path: filePath, content } of contextFiles) {
-				prompt += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
-			}
-			prompt += "</project_context>\n";
-		}
-
-		// Append skills when a tool capable of reading their files is available.
-		if (skillFileReadTool && skills.length > 0) {
-			prompt += formatSkillsForPrompt(skills, skillFileReadTool);
-		}
-
-		prompt += `\nCurrent working directory: ${promptCwd}\n`;
-
-		return prompt;
-	}
-
-	// Get absolute paths to documentation and examples
-	const readmePath = getReadmePath();
-	const docsPath = getDocsPath();
-	const examplesPath = getExamplesPath();
-
-	// Build tools list based on selected tools.
-	// A tool appears in Available tools only when the caller provides a one-line snippet.
-	const visibleTools = tools.filter((name) => !!toolSnippets?.[name]);
-	const toolsList =
-		visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets![name]}`).join("\n") : "(none)";
-
-	// Build guidelines based on which tools are actually available
-	const guidelinesList: string[] = [];
-	const guidelinesSet = new Set<string>();
-	const addGuideline = (guideline: string): void => {
-		if (guidelinesSet.has(guideline)) {
-			return;
-		}
-		guidelinesSet.add(guideline);
-		guidelinesList.push(guideline);
+function buildRules(
+	selectedTools: string[],
+	toolGuidelines: Record<string, string[]>,
+	promptGuidelines: string[],
+): string {
+	const rules: string[] = [];
+	const seen = new Set<string>();
+	const addRule = (rule: string): void => {
+		const normalized = rule.trim();
+		if (!normalized || seen.has(normalized)) return;
+		seen.add(normalized);
+		rules.push(normalized);
 	};
 
-	const hasBash = tools.includes("bash") || tools.includes("Bash");
-	const hasPowerShell = tools.includes("powershell");
-	const hasGrep = tools.includes("grep") || tools.includes("Grep");
-	const hasGlob = tools.includes("Glob");
-	const hasLs = tools.includes("ls") || tools.includes("Ls");
-	const hasRead = tools.includes("read") || tools.includes("Read");
+	const selectedToolNames = new Set(selectedTools.map((name) => name.toLowerCase()));
+	const hasBash = selectedToolNames.has("bash");
+	const hasPowerShell = selectedToolNames.has("powershell");
+	const hasGrep = selectedToolNames.has("grep");
+	const hasGlob = selectedToolNames.has("glob");
+	const hasFind = selectedToolNames.has("find");
+	const hasLs = selectedToolNames.has("ls");
+	const hasRead = selectedToolNames.has("read");
 
-	// File exploration guidelines
-	if ((hasBash || hasPowerShell) && !hasGrep && !hasGlob && !hasLs) {
+	if ((hasBash || hasPowerShell) && !hasGrep && !hasFind && !hasLs) {
 		if (hasBash && hasPowerShell) {
-			addGuideline("Use Bash or PowerShell for file operations like listing, searching, and finding files");
+			addRule("Use Bash or PowerShell for file operations like listing, searching, and finding files");
 		} else if (hasPowerShell) {
-			addGuideline("Use PowerShell for file operations like listing, searching, and finding files");
+			addRule("Use PowerShell for file operations like listing, searching, and finding files");
 		} else {
-			addGuideline("Use Bash for file operations like ls, rg, find");
+			addRule("Use Bash for file operations like ls, rg, find");
 		}
 	} else if (hasBash && (hasGrep || hasGlob || hasLs)) {
 		// Shared with bash.ts promptGuidelines via prompt-guidelines.ts so
 		// addGuideline deduplicates by exact string match.
-		addGuideline(GUIDELINE_NATIVE_FILE_TOOLS);
-		addGuideline(GUIDELINE_BASH_SHELL_WORK);
-		addGuideline(GUIDELINE_READ_EDIT_WRITE);
+		addRule(GUIDELINE_NATIVE_FILE_TOOLS);
+		addRule(GUIDELINE_BASH_SHELL_WORK);
+		addRule(GUIDELINE_READ_EDIT_WRITE);
 	}
 
 	if (hasRead || hasGrep || hasGlob || hasLs) {
-		addGuideline(
+		addRule(
 			"Batch independent tool calls in a single message: when several calls have no data dependency on each other — reads, directory listings, searches, bounded reads, independent read-only bash queries, edits to different files, or multiple Agent launches — emit them together in one assistant message instead of one call per turn. Serialize only when a later call needs an earlier call's result.",
 		);
 	}
 
 	if (hasBash) {
-		addGuideline(
+		addRule(
 			"Run bash commands from the current working directory unless the command truly needs another directory. To run in another directory, pass the bash `workdir` parameter (absolute path) instead of `cd <dir> && ...`; or use command-native flags like `git -C <dir>` or `npm --prefix <dir>`.",
 		);
 	}
 
-	for (const guideline of promptGuidelines ?? []) {
-		const normalized = guideline.trim();
-		if (normalized.length > 0) {
-			addGuideline(normalized);
+	for (const name of selectedTools) {
+		for (const rule of findCaseInsensitiveEntry(toolGuidelines, name)?.[1] ?? []) addRule(rule);
+	}
+	for (const rule of promptGuidelines) addRule(rule);
+	addRule("Be concise in your responses");
+	addRule("Show file paths clearly when working with files");
+	return rules.map((rule) => `- ${rule}`).join("\n");
+}
+
+/** Build the ordered, independently replaceable sections of the structured system prompt. */
+export function buildSystemPromptSections(input: BuildSystemPromptOptions): SystemPromptSections {
+	const options = normalizeBuildSystemPromptOptions(input);
+	const {
+		customPrompt,
+		selectedTools,
+		toolSnippets,
+		toolGuidelines,
+		promptGuidelines,
+		appendSystemPrompt,
+		sections: customSections,
+		cwd,
+		contextFiles,
+		skills,
+	} = options;
+
+	for (const name of Object.keys(customSections)) {
+		if (!SYSTEM_PROMPT_SECTION_NAME.test(name) || name === "preamble") {
+			throw new Error(`Invalid system prompt section name: ${name}`);
 		}
 	}
 
-	// Always include these
-	addGuideline("Show file paths clearly when working with files");
-
-	const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
-
-	// Route Pi development through the `pi` skill when the model can actually load it;
-	// otherwise keep the self-contained doc map so the paths still resolve.
-	const hasPiSkill = hasRead && skills.some((skill) => skill.name === "pi" && !skill.disableModelInvocation);
-	const piDocsSection = hasPiSkill
-		? `Pi documentation: load skill \`pi\`; it routes runtime identity, updates, and the installed docs/examples at ${readmePath}, ${docsPath}, and ${examplesPath}.`
-		: `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
-- Main documentation: ${readmePath}
-- Additional docs: ${docsPath}
-- Examples: ${examplesPath} (extensions, custom tools, SDK)
+	const promptSections: Record<string, string> = {};
+	if (customPrompt) {
+		promptSections.preamble = customPrompt;
+		const customGuidelines = renderGuidelines(promptGuidelines);
+		if (customGuidelines) promptSections.tool_guidelines = `Tool guidelines:\n${customGuidelines}`;
+	} else {
+		promptSections.preamble =
+			"You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.";
+		const visibleTools = selectedTools
+			.map((name) => findCaseInsensitiveEntry(toolSnippets, name))
+			.filter((entry): entry is [string, string] => entry !== undefined);
+		const tools =
+			visibleTools.length > 0 ? visibleTools.map(([name, snippet]) => `- ${name}: ${snippet}`).join("\n") : "(none)";
+		promptSections.tools = `${tools}\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.`;
+		promptSections.rules = buildRules(selectedTools, toolGuidelines, promptGuidelines);
+		const selectedToolNames = new Set(selectedTools.map((name) => name.toLowerCase()));
+		const hasPiSkill =
+			selectedToolNames.has("read") && skills.some((skill) => skill.name === "pi" && !skill.disableModelInvocation);
+		promptSections.docs = hasPiSkill
+			? `Pi documentation: load skill \`pi\`; it routes runtime identity, updates, and the installed docs/examples at ${getReadmePath()}, ${getDocsPath()}, and ${getExamplesPath()}.`
+			: `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+- Main documentation: ${getReadmePath()}
+- Additional docs: ${getDocsPath()}
+- Examples: ${getExamplesPath()} (extensions, custom tools, SDK)
 - When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
 - When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
 - When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
 - Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
-
-	let prompt = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
-
-Available tools:
-${toolsList}
-
-In addition to the tools above, you may have access to other custom tools depending on the project.
-
-Guidelines:
-${guidelines}
-
-${piDocsSection}`;
-
-	prompt += `\n\n${SYSTEM_PROMPT_DYNAMIC_BOUNDARY}`;
-
-	if (appendSection) {
-		prompt += appendSection;
 	}
 
-	// Append project context files
-	if (contextFiles.length > 0) {
-		prompt += "\n\n<project_context>\n\n";
-		prompt += "Project-specific instructions and guidelines:\n\n";
-		for (const { path: filePath, content } of contextFiles) {
-			prompt += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
-		}
-		prompt += "</project_context>\n";
-	}
-
-	// Append skills when a tool capable of reading their files is available.
+	if (appendSystemPrompt) promptSections.addendum = appendSystemPrompt;
+	if (contextFiles.length > 0) promptSections.project_context = renderProjectContext(contextFiles);
+	const selectedToolNames = new Set(selectedTools.map((name) => name.toLowerCase()));
+	const skillFileReadTool = (["read", "bash"] as const).find((tool) => selectedToolNames.has(tool));
 	if (skillFileReadTool && skills.length > 0) {
-		prompt += formatSkillsForPrompt(skills, skillFileReadTool);
+		const skillsPrompt = formatSkillsForPrompt(skills, skillFileReadTool).trim();
+		if (skillsPrompt) promptSections.skills = skillsPrompt;
+	}
+	promptSections.cwd = cwd.replace(/\\/g, "/");
+	for (const [name, content] of Object.entries(customSections)) {
+		if (content) promptSections[name] = content;
 	}
 
-	prompt += `\nCurrent working directory: ${promptCwd}`;
+	const sections: SystemPromptSections = { preamble: promptSections.preamble };
+	for (const [name, content] of Object.entries(promptSections)) {
+		if (name !== "preamble") sections[name] = `<${name}>\n${content}\n</${name}>`;
+	}
+	return sections;
+}
 
-	return prompt;
+/**
+ * The complete prompt state for `input`. A forced prompt is opaque and lives in `content`
+ * with no sections; otherwise `content` is empty and the structured sections carry the prompt.
+ */
+export function buildSystemPromptState(input: BuildSystemPromptOptions): {
+	content: string;
+	sections?: SystemPromptSections;
+} {
+	if (input.forceSystemPrompt !== undefined) return { content: input.forceSystemPrompt };
+	return { content: "", sections: buildSystemPromptSections(input) };
+}
+
+/** Build the system prompt text, rendered exactly as the transcript's system message replays it. */
+export function buildSystemPrompt(input: BuildSystemPromptOptions): string {
+	return getSystemMessageText({ role: "system", ...buildSystemPromptState(input), timestamp: 0 });
+}
+
+/**
+ * Diff the sections the model currently has (replayed from the transcript, so never null)
+ * against the desired ones. Returns a `SystemMessage.sections` patch, or undefined when
+ * nothing changed.
+ */
+export function diffSystemPromptSections(
+	previous: Record<string, string | null>,
+	current: SystemPromptSections,
+): Record<string, string | null> | undefined {
+	const patch: Record<string, string | null> = {};
+	for (const [name, text] of Object.entries(current)) {
+		if (previous[name] !== text) patch[name] = text;
+	}
+	for (const name of Object.keys(previous)) {
+		if (current[name] === undefined) patch[name] = null;
+	}
+	return Object.keys(patch).length > 0 ? patch : undefined;
 }

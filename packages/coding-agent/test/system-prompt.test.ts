@@ -1,4 +1,3 @@
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@lue-labs/pi-ai";
 import { describe, expect, test } from "vitest";
 import type { Skill } from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
@@ -23,7 +22,7 @@ describe("buildSystemPrompt", () => {
 				cwd: process.cwd(),
 			});
 
-			expect(prompt).toContain("Available tools:\n(none)");
+			expect(prompt).toContain("<tools>\n(none)\n");
 		});
 
 		test("shows file paths guideline even with no tools", () => {
@@ -35,6 +34,43 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt).toContain("Show file paths clearly");
+		});
+	});
+
+	describe("prompt structure", () => {
+		test("keeps the default and custom prompt prefixes exact", () => {
+			const defaultPrompt = buildSystemPrompt({ cwd: "/tmp", selectedTools: [], contextFiles: [], skills: [] });
+			const customPrompt = buildSystemPrompt({
+				customPrompt: "You are Exact.",
+				cwd: "/tmp",
+				selectedTools: [],
+				contextFiles: [],
+				skills: [],
+			});
+
+			expect(defaultPrompt.startsWith("You are an expert coding assistant operating inside pi")).toBe(true);
+			expect(customPrompt.startsWith("You are Exact.\n\n<cwd>")).toBe(true);
+		});
+
+		test("preserves an exact forced prompt without sections", () => {
+			expect(buildSystemPrompt({ forceSystemPrompt: "exact", cwd: "/tmp" })).toBe("exact");
+		});
+
+		test("maps appended instructions and project context to stable sections", () => {
+			const prompt = buildSystemPrompt({
+				customPrompt: "You are Exact.",
+				appendSystemPrompt: "Additional instructions.",
+				contextFiles: [{ path: "/tmp/AGENTS.md", content: "Project instructions." }],
+				selectedTools: [],
+				skills: [],
+				cwd: "/tmp",
+			});
+
+			expect(prompt).toContain("<addendum>\nAdditional instructions.\n</addendum>");
+			expect(prompt).toContain(
+				'<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path="/tmp/AGENTS.md">',
+			);
+			expect(prompt).toContain("<cwd>\n/tmp\n</cwd>");
 		});
 	});
 
@@ -168,8 +204,8 @@ describe("buildSystemPrompt", () => {
 		});
 	});
 
-	describe("cache boundary", () => {
-		test("places dynamic context after the stable boundary", () => {
+	describe("structured ordering", () => {
+		test("places project context and cwd after the stable default sections", () => {
 			const prompt = buildSystemPrompt({
 				selectedTools: [],
 				contextFiles: [{ path: "/repo/AGENTS.md", content: "Project rules" }],
@@ -177,10 +213,9 @@ describe("buildSystemPrompt", () => {
 				cwd: "/repo",
 			});
 
-			const boundary = prompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
-			expect(boundary).toBeGreaterThan(0);
-			expect(prompt.indexOf("<project_context>")).toBeGreaterThan(boundary);
-			expect(prompt.indexOf("Current working directory:")).toBeGreaterThan(boundary);
+			expect(prompt.indexOf("<project_context>")).toBeGreaterThan(prompt.indexOf("<docs>"));
+			expect(prompt.indexOf("<cwd>")).toBeGreaterThan(prompt.indexOf("<project_context>"));
+			expect(prompt).toContain("<cwd>\n/repo\n</cwd>");
 		});
 	});
 
@@ -272,7 +307,7 @@ describe("buildSystemPrompt", () => {
 	});
 
 	describe("custom prompt guidelines", () => {
-		test("includes tool promptGuidelines under a custom prompt, inside the cached prefix", () => {
+		test("includes tool promptGuidelines under a custom prompt before dynamic context", () => {
 			const prompt = buildSystemPrompt({
 				customPrompt: "You are a child agent.",
 				selectedTools: ["read", "dynamic_tool"],
@@ -282,10 +317,10 @@ describe("buildSystemPrompt", () => {
 				cwd: "/repo",
 			});
 
-			const boundary = prompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
 			const guidelineIdx = prompt.indexOf("- Use dynamic_tool for project summaries.");
 			expect(guidelineIdx).toBeGreaterThan(0);
-			expect(guidelineIdx).toBeLessThan(boundary);
+			expect(prompt.indexOf("<tool_guidelines>")).toBeLessThan(prompt.indexOf("<cwd>"));
+			expect(guidelineIdx).toBeLessThan(prompt.indexOf("<cwd>"));
 			expect(prompt).toContain("Tool guidelines:");
 		});
 
@@ -359,6 +394,7 @@ describe("buildSystemPrompt", () => {
 				cwd: process.cwd(),
 			});
 
+			expect(prompt).toContain("<skills>");
 			expect(prompt).toContain("<available_skills>");
 			expect(prompt).toContain('name="test-skill"');
 			expect(prompt).toContain("Use bash to load a skill's file");

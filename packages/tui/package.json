@@ -10,18 +10,25 @@
 		"build:native:darwin": "native/darwin/build.sh",
 		"build:native:win32": "node native/win32/build.mjs",
 		"test": "node --test --test-reporter=dot --test-reporter-destination=stdout test/*.test.ts",
-		"prepublishOnly": "npm run clean && npm run build"
+		"prepublishOnly": "npm run clean && npm run build",
+		"build:native:linux": "native/linux/build.sh"
 	},
 	"files": [
 		"dist/**/*",
+		"native/napi.h",
+		"native/clipboard.h",
 		"native/win32/prebuilds/**/*.node",
 		"native/win32/src/**/*.c",
 		"native/win32/build.mjs",
 		"native/win32/README.md",
 		"native/darwin/prebuilds/**/*.node",
-		"native/darwin/src/**/*.c",
+		"native/darwin/src/**/*.m",
 		"native/darwin/build.sh",
 		"native/darwin/README.md",
+		"native/linux/prebuilds/**/*.node",
+		"native/linux/src/**/*.{c,h}",
+		"native/linux/build.sh",
+		"native/linux/README.md",
 		"README.md"
 	],
 	"keywords": [
@@ -46,14 +53,14 @@
 	"types": "./dist/index.d.ts",
 	"dependencies": {
 		"get-east-asian-width": "1.6.0",
-		"marked": "18.0.5"
+		"marked": "18.0.11"
 	},
 	"optionalDependencies": {
 		"koffi": "2.16.2"
 	},
 	"devDependencies": {
 		"@xterm/headless": "5.5.0",
-		"chalk": "5.6.2"
+		"chalk": "6.0.0"
 	},
 	"publishConfig": {
 		"registry": "https://npm.pkg.github.com",

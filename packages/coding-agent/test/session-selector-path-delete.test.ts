@@ -250,14 +250,16 @@ describe("session selector path/delete interactions", () => {
 	});
 
 	it("does not start redundant All loads when toggling scopes while All is already loading", async () => {
-		const currentSessions = [makeSession({ id: "current" })];
+		const currentSessions = [makeSession({ id: "current", name: "Current" })];
+		const allSessions = [makeSession({ id: "all", name: "All" })];
 		const allDeferred = createDeferred<SessionInfo[]>();
 		let allLoadCalls = 0;
 
 		const selector = new SessionSelectorComponent(
 			async () => currentSessions,
-			async () => {
+			async (onProgress) => {
 				allLoadCalls++;
+				onProgress?.(1, 2, allSessions);
 				return allDeferred.promise;
 			},
 			() => {},
@@ -274,8 +276,10 @@ describe("session selector path/delete interactions", () => {
 		list.handleInput("\t"); // current -> all again while load pending
 
 		expect(allLoadCalls).toBe(1);
+		expect(selector.getSessionList().getSelectedSessionPath()).toBe(allSessions[0]!.path);
+		expect(selector.render(120).join("\n")).toContain("Loading");
 
-		allDeferred.resolve([makeSession({ id: "all" })]);
+		allDeferred.resolve(allSessions);
 		await flushPromises();
 	});
 

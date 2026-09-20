@@ -37,8 +37,10 @@ function createModel(baseUrl: string, provider = "test-anthropic"): Model<"anthr
 
 function createContext(tools: Tool[]): Context {
 	return {
-		messages: [{ role: "user", content: "use the tool", timestamp: Date.now() }],
-		...(tools.length > 0 ? { tools } : {}),
+		messages: [
+			...(tools.length > 0 ? [{ role: "system" as const, content: "", toolsAdded: tools, timestamp: 0 }] : []),
+			{ role: "user", content: "use the tool", timestamp: Date.now() },
+		],
 	};
 }
 

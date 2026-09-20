@@ -1,6 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Context, fauxAssistantMessage, fauxText, fauxToolCall } from "@lue-labs/pi-ai";
+import {
+	type Context,
+	fauxAssistantMessage,
+	fauxText,
+	fauxToolCall,
+	getCurrentSystemPrompt,
+	getCurrentTools,
+} from "@lue-labs/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../../src/core/agent-session.ts";
 import { executeAgentTool } from "../../src/core/agents/executor.ts";
@@ -206,8 +213,8 @@ describe("agent tool suite: nested delegation depth", () => {
 		harness.appendResponses([
 			(context) => {
 				resumeContext = JSON.stringify(context.messages.at(-1));
-				resumeSystemPrompt = context.systemPrompt ?? "";
-				resumeTools = context.tools?.map((tool) => tool.name) ?? [];
+				resumeSystemPrompt = getCurrentSystemPrompt(context.messages);
+				resumeTools = getCurrentTools(context.messages).map((tool) => tool.name);
 				return fauxAssistantMessage("finished after resume");
 			},
 		]);
@@ -276,19 +283,19 @@ describe("agent tool suite: nested delegation depth", () => {
 		const prompts: string[] = [];
 		harness.setResponses([
 			(context) => {
-				prompts.push(context.systemPrompt ?? "");
+				prompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("fork");
 			},
 			(context) => {
-				prompts.push(context.systemPrompt ?? "");
+				prompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("explicit");
 			},
 			(context) => {
-				prompts.push(context.systemPrompt ?? "");
+				prompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("slim");
 			},
 			(context) => {
-				prompts.push(context.systemPrompt ?? "");
+				prompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("none");
 			},
 		]);
@@ -317,7 +324,7 @@ describe("agent tool suite: nested delegation depth", () => {
 
 		harness.setResponses([
 			(context) => {
-				prompts.push(context.systemPrompt ?? "");
+				prompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("initial persistent");
 			},
 		]);
@@ -335,7 +342,7 @@ describe("agent tool suite: nested delegation depth", () => {
 
 		harness.appendResponses([
 			(context) => {
-				prompts.push(context.systemPrompt ?? "");
+				prompts.push(getCurrentSystemPrompt(context.messages));
 				return fauxAssistantMessage("resumed persistent");
 			},
 		]);
@@ -368,7 +375,13 @@ describe("agent tool suite: nested delegation depth", () => {
 		// while its execution engine stays unbound so the leaf cannot nest again.
 		expect(details.runs[0]?.sessionId).toBeTruthy();
 		expect(details.runs[0]?.deniedTools).toContain("agent");
-		expect(seen[0]?.tools?.map((tool) => tool.name)).toEqual(["read", "bash", "edit", "write", "agent"]);
+		expect(getCurrentTools(seen[0]?.messages ?? []).map((tool) => tool.name)).toEqual([
+			"read",
+			"bash",
+			"edit",
+			"write",
+			"agent",
+		]);
 		expect(JSON.stringify(seen[0]?.messages)).toContain("`agent` tool is not available in this task");
 	});
 });

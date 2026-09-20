@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@lue-labs/pi-agent-core";
-import { type AssistantMessage, type AssistantMessageEvent, EventStream } from "@lue-labs/pi-ai";
+import {
+	type AssistantMessage,
+	type AssistantMessageEvent,
+	EventStream,
+	getCurrentSystemPrompt,
+	getCurrentTools,
+} from "@lue-labs/pi-ai";
 import { getModel } from "@lue-labs/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -287,8 +293,8 @@ describe("AgentSession dynamic tool registration", () => {
 				getApiKey: () => "test-key",
 				initialState: { model, systemPrompt: "Test", tools: [] },
 				streamFn: (_model, context) => {
-					providerToolNames = context.tools?.map((tool) => tool.name) ?? [];
-					systemPromptAtProvider = context.systemPrompt ?? "";
+					providerToolNames = getCurrentTools(context.messages).map((tool) => tool.name);
+					systemPromptAtProvider = getCurrentSystemPrompt(context.messages);
 					const stream = new MockAssistantStream();
 					queueMicrotask(() => {
 						const message = stoppedAssistantMessage();

@@ -16,7 +16,8 @@ import {
 	resetOpenAICodexWebSocketDebugStats,
 	stream as streamOpenAICodexResponses,
 } from "../src/api/openai-codex-responses.ts";
-import type { AssistantMessage, Context, Message, Model, Tool, ToolResultMessage, Transport } from "../src/types.ts";
+import { normalizeContext } from "../src/compat.ts";
+import type { AssistantMessage, Message, Model, Tool, ToolResultMessage, Transport } from "../src/types.ts";
 import { pickModel } from "./helpers/models.ts";
 
 type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -171,12 +172,12 @@ async function main(): Promise<void> {
 	if (!apiKey) {
 		throw new Error("No OpenAI Codex API key found in coding-agent auth storage.");
 	}
-	const context: Context = {
+	const context = normalizeContext({
 		systemPrompt:
 			"You are participating in a benchmark. For each benchmark turn, call deterministic_probe exactly once before the final answer. Keep final answers minimal.",
 		messages: [],
 		tools: [deterministicProbeTool()],
-	};
+	});
 	const elapsed: number[] = [];
 	resetOpenAICodexWebSocketDebugStats(args.sessionId);
 

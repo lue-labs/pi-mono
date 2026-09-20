@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
-import { getModel } from "../src/compat.ts";
+import { getModel, normalizeContext } from "../src/compat.ts";
 import { getSupportedThinkingLevels } from "../src/models.ts";
-import type { Context, Model } from "../src/types.ts";
+import type { Model } from "../src/types.ts";
 import { allOf, pickModel } from "./helpers/models.ts";
 
 const mockState = vi.hoisted(() => ({
@@ -53,10 +53,10 @@ vi.mock("@anthropic-ai/sdk", () => {
 });
 
 describe("Copilot Claude via Anthropic Messages", () => {
-	const context: Context = {
+	const context = normalizeContext({
 		systemPrompt: "You are a helpful assistant.",
 		messages: [{ role: "user", content: "Hello", timestamp: Date.now() }],
-	};
+	});
 
 	it("applies Copilot-specific adaptive thinking effort overrides", () => {
 		const opus47 = getModel("github-copilot", "claude-opus-4.7");

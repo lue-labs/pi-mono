@@ -1246,7 +1246,7 @@ function applyParentCacheAffinityIfCompatible(options: {
 		tools: [...parentProviderTools],
 	});
 	const childPrefixKey = createPromptCacheAffinityKey(session.model, {
-		systemPrompt: session.agent.state.systemPrompt,
+		systemPrompt: session.systemPrompt,
 		tools: [...parentProviderTools],
 	});
 	if (childPrefixKey !== parentPrefixKey) return;

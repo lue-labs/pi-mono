@@ -52,6 +52,7 @@ describe("AgentSession extension stop after turn", () => {
 
 		expect(harness.getPendingResponseCount()).toBe(1);
 		expect(harness.session.messages.map((message) => message.role)).toEqual([
+			"system",
 			"user",
 			"assistant",
 			"toolResult",
@@ -104,7 +105,12 @@ describe("AgentSession extension stop after turn", () => {
 		await harness.session.prompt("wait on the goal");
 
 		expect(harness.getPendingResponseCount()).toBe(1);
-		expect(harness.session.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
+		expect(harness.session.messages.map((message) => message.role)).toEqual([
+			"system",
+			"user",
+			"assistant",
+			"toolResult",
+		]);
 		expect(harness.eventsOfType("agent_end")).toHaveLength(1);
 	});
 });

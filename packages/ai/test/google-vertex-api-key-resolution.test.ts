@@ -47,14 +47,14 @@ vi.mock("@google/genai", () => {
 });
 
 import { stream as streamGoogleVertex } from "../src/api/google-vertex.ts";
-import type { Context, Model } from "../src/types.ts";
-import { pickModel } from "./helpers/models.ts";
+import { getModel, normalizeContext } from "../src/compat.ts";
+import type { Model } from "../src/types.ts";
 
 const PI_USER_AGENT = `pi (${platform()} ${release()}; ${arch()})`;
-const model = pickModel("google-vertex");
-const context: Context = {
+const model = getModel("google-vertex", "gemini-3-flash-preview");
+const context = normalizeContext({
 	messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
-};
+});
 
 const originalGoogleCloudApiKey = process.env.GOOGLE_CLOUD_API_KEY;
 

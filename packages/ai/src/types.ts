@@ -107,6 +107,12 @@ export interface ThinkingBudgets {
 // Base options all providers share
 export type CacheRetention = "none" | "short" | "long";
 
+/**
+ * Best-effort prompt cache lifetime in seconds for each retention tier a request can ask for.
+ * A missing tier means the lifetime is unknown; pi does not warm such caches.
+ */
+export type ModelPromptCache = Partial<Record<Exclude<CacheRetention, "none">, number>>;
+
 export type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
 
 export type SessionAffinityFormat = "openai" | "openai-nosession" | "openrouter";
@@ -276,8 +282,12 @@ export type ApiStreamOptions<TApi extends Api> = TApi extends keyof ApiOptionsMa
  * `Provider.stream()` via `ApiStreamOptions`.
  */
 export interface ProviderStreams {
-	stream(model: Model<Api>, context: Context, options?: StreamOptions): AssistantMessageEventStream;
-	streamSimple(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream;
+	stream(model: Model<Api>, context: TranscriptContext, options?: StreamOptions): AssistantMessageEventStream;
+	streamSimple(
+		model: Model<Api>,
+		context: TranscriptContext,
+		options?: SimpleStreamOptions,
+	): AssistantMessageEventStream;
 	fetchDeferred?(
 		model: Model<Api>,
 		handle: DeferredHandle,
@@ -330,6 +340,8 @@ export interface SimpleStreamOptions extends StreamOptions {
 // Generic StreamFunction with typed options.
 //
 // Contract:
+// - Receives a normalized transcript: the system prompt and tools live in the
+//   leading system message, never on the context itself.
 // - Must return an AssistantMessageEventStream.
 // - Direct streamSimple() calls may throw synchronously when request auth is
 //   missing. Once a stream is returned, request/model/runtime failures should
@@ -338,7 +350,7 @@ export interface SimpleStreamOptions extends StreamOptions {
 //   "error" or "aborted" and errorMessage, emitted via the stream protocol.
 export type StreamFunction<TApi extends Api = Api, TOptions extends StreamOptions = StreamOptions> = (
 	model: Model<TApi>,
-	context: Context,
+	context: TranscriptContext,
 	options?: TOptions,
 ) => AssistantMessageEventStream;
 
@@ -385,7 +397,7 @@ export interface ToolCall {
 	type: "toolCall";
 	id: string;
 	name: string;
-	arguments: Record<string, any>;
+	arguments: JsonObject;
 	thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
 	/** OpenAI Responses namespace for calls to dynamically loaded or namespaced tools. */
 	namespace?: string;
@@ -416,7 +428,53 @@ export interface Usage {
 
 export type StopReason = "pending" | "stop" | "length" | "toolUse" | "error" | "aborted" | "deferred";
 
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue = null | boolean | number | string | readonly JsonValue[] | JsonObject;
+export type JsonObject = { [key: string]: JsonValue };
+
+type IsAny<T> = 0 extends 1 & T ? true : false;
+type IsExactlyJsonValue<T> = [T] extends [JsonValue] ? ([JsonValue] extends [T] ? true : false) : false;
+type IsJsonProperty<T> = IsAny<T> extends true
+	? false
+	: unknown extends T
+		? false
+		: [Exclude<T, undefined>] extends [never]
+			? true
+			: IsJsonCompatible<Exclude<T, undefined>>;
+type InvalidJsonKeys<T extends object> = {
+	[TKey in keyof T]-?: TKey extends string | number ? (IsJsonProperty<T[TKey]> extends true ? never : TKey) : TKey;
+}[keyof T];
+type IsJsonCompatible<T> = IsAny<T> extends true
+	? false
+	: unknown extends T
+		? false
+		: IsExactlyJsonValue<T> extends true
+			? true
+			: T extends null | boolean | number | string
+				? true
+				: T extends undefined
+					? false
+					: T extends readonly (infer TItem)[]
+						? IsJsonCompatible<TItem>
+						: T extends (...args: never[]) => unknown
+							? false
+							: T extends object
+								? [InvalidJsonKeys<T>] extends [never]
+									? true
+									: false
+								: false;
+
+/** The JSON representation of a typed in-memory value. Optional object properties remain optional. */
+export type JsonRepresentation<T> = IsAny<T> extends true
+	? JsonValue
+	: unknown extends T
+		? JsonValue
+		: [T] extends [JsonValue]
+			? T
+			: T extends readonly unknown[]
+				? { [TKey in keyof T]: JsonRepresentation<Exclude<T[TKey], undefined>> }
+				: T extends object
+					? { [TKey in keyof T]: JsonRepresentation<Exclude<T[TKey], undefined>> }
+					: never;
 
 export interface DeferredHandle {
 	provider: string;
@@ -428,6 +486,34 @@ export interface DeferredHandle {
 	pollAfterMs?: number;
 	/** Provider conversion data required to reconstruct the final assistant message. */
 	data?: JsonValue;
+}
+
+/**
+ * System instructions and tool declarations at one point in the transcript.
+ *
+ * The leading system message is the system prompt. Later system messages change it:
+ * `content` adds instructions from that point on, `sections` replace or remove named
+ * prompt sections, and `toolsAdded`/`toolsRemoved` change the tool set. Replaying
+ * every system message in order yields the current prompt and tools. Providers that
+ * accept system messages mid-conversation send each one in place; other providers
+ * rebuild the leading system message from the replayed state.
+ */
+export interface SystemMessage {
+	role: "system";
+	/** Instruction text. On the leading message this is the base prompt; later, additional instructions. */
+	content: string | TextContent[];
+	/**
+	 * Named, ordered prompt sections rendered verbatim after `content`. The leading message
+	 * declares them; later messages replace sections by name, and `null` removes one. Keep
+	 * each section self-delimiting (a tag, a heading) so the model can relate an update to
+	 * the original. Avoid integer-like names; JSON objects reorder those.
+	 */
+	sections?: Record<string, string | null>;
+	/** Complete definitions of tools that become available at this point. */
+	toolsAdded?: Tool[];
+	/** Tools that stop being available at this point. */
+	toolsRemoved?: ToolReference[];
+	timestamp: number; // Unix timestamp in milliseconds
 }
 
 export interface UserMessage {
@@ -442,7 +528,7 @@ export interface AssistantMessage {
 	api: Api;
 	provider: ProviderId;
 	model: string;
-	responseModel?: string; // Concrete `chunk.model` when different from the requested `model` (e.g. OpenRouter `auto` -> `anthropic/...`)
+	responseModel?: string; // Concrete model reported by the provider when different from the requested `model`
 	responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
 	/** Exact provider-native effort level used for this response. Absent for legacy or unmanaged responses. */
 	providerThinkingLevel?: string;
@@ -460,25 +546,26 @@ export interface AssistantMessage {
 	timestamp: number; // Unix timestamp in milliseconds
 }
 
-export interface ToolResultMessage<TDetails = any> {
-	role: "toolResult";
-	toolCallId: string;
-	toolName: string;
-	content: (TextContent | ImageContent | ToolReferenceContent)[]; // Supports text, images, and provider-native tool references
-	details?: TDetails;
-	/** Usage from the tool execution itself, if available. Not part of main LLM context accounting. */
-	usage?: Usage;
-	/**
-	 * Names from `Context.tools` that became available after this result.
-	 * Providers with native deferred tool loading use this as the load point;
-	 * other providers ignore it and use `Context.tools` normally.
-	 */
-	addedToolNames?: string[];
-	isError: boolean;
-	timestamp: number; // Unix timestamp in milliseconds
-}
+export type ToolResultMessage<TDetails = JsonValue> = IsJsonCompatible<TDetails> extends true
+	? {
+			role: "toolResult";
+			toolCallId: string;
+			toolName: string;
+			content: (TextContent | ImageContent | ToolReferenceContent)[];
+			details?: JsonRepresentation<TDetails>;
+			/** Usage from the tool execution itself, if available. Not part of main LLM context accounting. */
+			usage?: Usage;
+			/**
+			 * Names from `Context.tools` that became available after this result.
+			 * Providers with native deferred tool loading use this as the load point.
+			 */
+			addedToolNames?: string[];
+			isError: boolean;
+			timestamp: number; // Unix timestamp in milliseconds
+		}
+	: never;
 
-export type Message = UserMessage | AssistantMessage | ToolResultMessage;
+export type Message = SystemMessage | UserMessage | AssistantMessage | ToolResultMessage;
 
 export type ImagesInputContent = TextContent | ImageContent;
 export type ImagesOutputContent = TextContent | ImageContent;
@@ -561,17 +648,39 @@ export interface Tool<TParameters extends TSchema = TSchema> {
 	constrainedSampling?: false | ConstrainedSamplingConfig;
 }
 
+export interface ToolReference {
+	name: string;
+}
+
+/**
+ * Request input accepted by the public stream entry points (`Models.stream()`,
+ * `streamSimple()`, ...). `systemPrompt` and `tools` are shorthand for a leading
+ * system message; `normalizeContext()` folds them into one before the request
+ * reaches a provider.
+ */
 export interface Context {
 	systemPrompt?: string;
 	messages: Message[];
 	tools?: Tool[];
 }
 
-/** A single source/result surfaced by a provider-executed (server-side) web tool. */
+/** A single source/result surfaced by a provider-executed server-side tool. */
 export interface ServerToolSource {
 	title?: string;
 	url: string;
 }
+
+declare const transcriptContextBrand: unique symbol;
+
+/**
+ * Normalized request context passed to providers and API implementations. The
+ * prompt and tool declarations are carried by the transcript's system messages.
+ * Only `normalizeContext()` produces this type, so a raw `Context` cannot reach
+ * provider code by accident.
+ */
+export type TranscriptContext = Context & {
+	readonly [transcriptContextBrand]?: true;
+};
 
 /**
  * Event protocol for AssistantMessageEventStream.
@@ -683,11 +792,15 @@ export interface OpenAICompletionsCompat {
 	supportsThinkingTokenBudget?: boolean;
 	/** Whether the provider supports OpenAI custom tools with Lark/regex grammar formats. When false, grammar-constrained tools fall back to normal function tools. Default: false; the generated model catalog enables it for capable models. */
 	supportsOpenAIGrammarTools?: boolean;
+	/** Whether the exact model accepts system or developer messages after the conversation has started. When false, later system messages are folded into the leading system message. Default: false; the generated model catalog enables it for verified models. */
+	supportsMidConvoSystemMessages?: boolean;
+	/** Whether system messages can introduce additional tools mid-conversation. Requires `supportsMidConvoSystemMessages`. Default: false; the generated model catalog enables it for capable models. */
+	supportsMidConvoToolAdditions?: boolean;
 	/** Whether the provider supports the `strict` field in tool definitions. Default: true. */
 	supportsStrictMode?: boolean;
 	/** Cache control convention for prompt caching. "anthropic" applies Anthropic-style `cache_control` markers to the system prompt, last tool definition, and last user, assistant, or tool-result text content. */
 	cacheControlFormat?: "anthropic";
-	/** Whether to send known session-affinity headers (`session_id`, `x-client-request-id`, `x-session-affinity`) from `options.sessionId` when caching is enabled. Default: false. */
+	/** Whether to send session-affinity data from `options.sessionId`. Default: true for OpenRouter endpoints, false otherwise. */
 	sendSessionAffinityHeaders?: boolean;
 	/** Provider-specific deferred tool serialization mode. */
 	deferredToolsMode?: "kimi";
@@ -708,7 +821,9 @@ export interface OpenAICompletionsCompat {
 export interface OpenAIResponsesCompat {
 	/** Whether the provider supports the `developer` role (vs `system`). Default: true. */
 	supportsDeveloperRole?: boolean;
-	/** Session-affinity header format. Default: auto-detected. */
+	/** Whether the exact model accepts developer or system messages after the conversation has started. When false, later system messages are folded into the leading system message. Default: false; the generated model catalog enables it for verified models. */
+	supportsMidConvoSystemMessages?: boolean;
+	/** Session-affinity header format: `openai` sends `session_id` and `x-client-request-id`; `openai-nosession` sends `x-client-request-id`; `openrouter` sends `x-session-id`. Does not affect the `prompt_cache_key` body param, which is governed by cache retention. Default: auto-detected. */
 	sessionAffinityFormat?: SessionAffinityFormat;
 	/** Whether the provider supports long prompt cache retention. This uses `prompt_cache_options.ttl: "30m"` on GPT-5.6+ and `prompt_cache_retention: "24h"` on earlier models. Default: true. */
 	supportsLongCacheRetention?: boolean;
@@ -718,7 +833,7 @@ export interface OpenAIResponsesCompat {
 	supportsOpenAIGrammarTools?: boolean;
 	/** Whether the model supports message-anchored `additional_tools` input items. Default: false. */
 	supportsAdditionalTools?: boolean;
-	/** Whether the model supports client-executed tool search for deferred tools. Default: false. */
+	/** Whether the model supports client-executed tool search for transcript-anchored additions. Default: false. */
 	supportsToolSearch?: boolean;
 	/**
 	 * Prompt-cache API generation. `"legacy"` (default) sends `prompt_cache_retention`;
@@ -785,6 +900,8 @@ export interface AnthropicMessagesCompat {
 	 * Default: false.
 	 */
 	sendSessionAffinityHeaders?: boolean;
+	/** Session-affinity format. `"openrouter"` sends `x-session-id`; when unset, sends `x-session-affinity`. */
+	sessionAffinityFormat?: "openrouter";
 	/**
 	 * Whether the provider supports Anthropic-style `cache_control` markers on
 	 * tool definitions. When false, `cache_control` is omitted from tool params.
@@ -815,6 +932,10 @@ export interface AnthropicMessagesCompat {
 	supportsStrictTools?: boolean;
 	/** Whether the exact model transport supports effort-only system messages and thinking binding controls. Default: false. */
 	supportsMidConvoEffort?: boolean;
+	/** Whether the exact model accepts system-role messages inside the conversation. When false, later system messages are folded into the top-level system prompt. Default: false. */
+	supportsMidConvoSystemMessages?: boolean;
+	/** Whether the exact model accepts mid-conversation `tool_addition` and `tool_removal` blocks. Requires `supportsMidConvoSystemMessages`. Default: false. */
+	supportsMidConvoToolChanges?: boolean;
 	/**
 	 * Models Anthropic accepts in `fallbacks` for server-side refusal fallback,
 	 * with local pricing metadata for returned fallback responses. When absent or
@@ -828,6 +949,12 @@ export interface AnthropicMessagesCompat {
 export interface BedrockCompat {
 	/** Whether the model supports Bedrock strict tool schemas. Default: false. */
 	supportsStrictMode?: boolean;
+}
+
+/** Compatibility settings for the Mistral chat API. */
+export interface MistralConversationsCompat {
+	/** Whether the exact model accepts system messages after the conversation has started. When false, later system messages are folded into the leading system message. Default: false. */
+	supportsMidConvoSystemMessages?: boolean;
 }
 
 /**
@@ -947,6 +1074,8 @@ export interface Model<TApi extends Api> {
 	thinkingLevelMap?: ThinkingLevelMap;
 	input: ("text" | "image")[];
 	cost: ModelCost;
+	/** Prompt cache lifetimes per retention tier. Unset when the provider's cache behavior is unknown. */
+	promptCache?: ModelPromptCache;
 	contextWindow: number;
 	maxTokens: number;
 	/** Default sampling parameters for this model. See {@link StreamOptions.samplingParams}; per-request keys override these. */
@@ -961,7 +1090,9 @@ export interface Model<TApi extends Api> {
 				? AnthropicMessagesCompat
 				: TApi extends "bedrock-converse-stream"
 					? BedrockCompat
-					: never;
+					: TApi extends "mistral-conversations"
+						? MistralConversationsCompat
+						: never;
 }
 
 export interface ImagesModel<TApi extends ImagesApi>

@@ -37,9 +37,9 @@ import type {
 	SimpleStreamOptions,
 	StreamFunction,
 	StreamOptions,
+	TranscriptContext,
 	Usage,
 } from "../types.ts";
-import { stripSystemPromptDynamicBoundary } from "../types.ts";
 import { combineAbortSignals } from "../utils/abort-signals.ts";
 import { resolveCacheRetention } from "../utils/cache-retention.ts";
 import { splitDeferredTools } from "../utils/deferred-tools.ts";
@@ -53,6 +53,14 @@ import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
 import { getPiUserAgent } from "../utils/pi-user-agent.ts";
+import { getSystemMessageText } from "../utils/text.ts";
+import {
+	getDeclaredTools,
+	getInitialSystemMessage,
+	normalizeContext,
+	resolveTranscript,
+	resolveTranscriptTools,
+} from "../utils/transcript.ts";
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
@@ -266,10 +274,11 @@ function compressRequestBodyZstd(bodyJson: string): Uint8Array | null {
 
 export const stream: StreamFunction<"openai-codex-responses", OpenAICodexResponsesOptions> = (
 	model: Model<"openai-codex-responses">,
-	context: Context,
+	context: TranscriptContext,
 	options?: OpenAICodexResponsesOptions,
 ): AssistantMessageEventStream => {
 	const stream = new AssistantMessageEventStream();
+	const normalizedContext = resolveTranscript(context, model.compat?.supportsMidConvoSystemMessages);
 
 	(async () => {
 		const output: AssistantMessage = {
@@ -298,20 +307,13 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 
 			const accountId = model.compat?.sendChatgptAccountId === false ? undefined : extractAccountId(apiKey);
 			const grammarToolInputProperties = createGrammarToolInputProperties(
-				context.tools,
+				getDeclaredTools(normalizedContext.messages),
 				model.compat?.supportsOpenAIGrammarTools ?? false,
 			);
-			// Two session ids, split by who can observe them. localSessionId is the real
-			// Pi session and stays ungated for local-only bookkeeping (SSE-fallback state,
-			// failure records) so a retention-free turn still remembers that WebSocket
-			// transport failed. cacheSessionId is the retention-gated id and must be the
-			// input to everything the provider can see or retain: prompt_cache_key, the
-			// session-id / thread-id / x-client-request-id headers, and socket pooling
-			// (a reused socket carries connection-scoped previous_response_id state).
 			const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 			const localSessionId = options?.sessionId;
 			const cacheSessionId = cacheRetention === "none" ? undefined : localSessionId;
-			let body = buildRequestBody(model, context, options, grammarToolInputProperties);
+			let body = buildRequestBody(model, normalizedContext, options, grammarToolInputProperties);
 			const nextBody = await options?.onPayload?.(body, model);
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
@@ -427,7 +429,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							output,
 							createAssistantMessageDiagnostic("provider_transport_failure", error, {
 								configuredTransport: transport,
-								fallbackTransport: websocketStarted ? undefined : "sse",
+								...(websocketStarted ? {} : { fallbackTransport: "sse" }),
 								eventsEmitted: websocketStarted,
 								phase: websocketStarted ? "after_message_stream_start" : "before_message_stream_start",
 								requestBytes: new TextEncoder().encode(bodyJson).byteLength,
@@ -571,7 +573,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 
 export const streamSimple: StreamFunction<"openai-codex-responses", SimpleStreamOptions> = (
 	model: Model<"openai-codex-responses">,
-	context: Context,
+	context: TranscriptContext,
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream => {
 	const apiKey = options?.apiKey;
@@ -606,45 +608,54 @@ export {
 
 function buildRequestBody(
 	model: Model<"openai-codex-responses">,
-	context: Context,
+	context: Context | TranscriptContext,
 	options: OpenAICodexResponsesOptions | undefined,
-	grammarToolInputProperties: ReadonlyMap<string, string> = createGrammarToolInputProperties(
-		context.tools,
-		model.compat?.supportsOpenAIGrammarTools ?? false,
-	),
+	grammarToolInputProperties?: ReadonlyMap<string, string>,
 ): RequestBody {
+	const normalizedContext =
+		"systemPrompt" in context || "tools" in context ? normalizeContext(context as Context) : context;
 	// Client-side tool search (same mechanism as openai-responses.ts): supported
 	// Codex models can defer a tool's definition until the tool result that
 	// surfaces it, keeping the cached prompt prefix stable. Unsupported models
 	// fall back to sending every tool immediately.
 	const supportsStrictMode = model.compat?.supportsStrictMode ?? true;
 	const supportsOpenAIGrammarTools = model.compat?.supportsOpenAIGrammarTools ?? false;
-	const deferredToolsMode = model.compat?.supportsAdditionalTools
+	const supportsAdditionalTools = model.compat?.supportsAdditionalTools ?? false;
+	const supportsToolSearch = model.compat?.supportsToolSearch ?? false;
+	const resolvedGrammarToolInputProperties =
+		grammarToolInputProperties ??
+		createGrammarToolInputProperties(getDeclaredTools(normalizedContext.messages), supportsOpenAIGrammarTools);
+	const transcriptTools = resolveTranscriptTools(
+		normalizedContext.messages,
+		supportsAdditionalTools || supportsToolSearch,
+	);
+	const deferredToolsMode = supportsAdditionalTools
 		? "additional-tools"
-		: model.compat?.supportsToolSearch
+		: supportsToolSearch
 			? "tool-search"
 			: undefined;
-	const toolPlacement = splitDeferredTools(context, deferredToolsMode !== undefined);
-	const messages = convertResponsesMessages(model, context, CODEX_TOOL_CALL_PROVIDERS, {
+	const toolPlacement = splitDeferredTools(
+		{ messages: normalizedContext.messages, tools: transcriptTools.requestTools },
+		deferredToolsMode !== undefined,
+	);
+	const messages = convertResponsesMessages(model, normalizedContext, CODEX_TOOL_CALL_PROVIDERS, {
 		includeSystemPrompt: false,
-		grammarToolInputProperties,
+		grammarToolInputProperties: resolvedGrammarToolInputProperties,
 		deferredTools: toolPlacement.deferred,
 		deferredToolsMode,
-		toolOptions: {
-			strict: null,
-			supportsStrictMode,
-			supportsOpenAIGrammarTools,
-		},
+		supportsMidConvoSystemMessages: model.compat?.supportsMidConvoSystemMessages ?? false,
+		supportsAdditionalTools,
+		supportsToolSearch,
+		toolOptions: { strict: null, supportsStrictMode, supportsOpenAIGrammarTools },
 	});
 
-	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
+	const initialSystemMessage = getInitialSystemMessage(normalizedContext.messages);
+	const instructions = initialSystemMessage ? getSystemMessageText(initialSystemMessage) : "";
 	const body: RequestBody = {
 		model: model.id,
 		store: false,
 		stream: true,
-		instructions: context.systemPrompt
-			? stripSystemPromptDynamicBoundary(context.systemPrompt)
-			: "You are a helpful assistant.",
+		instructions: instructions || "You are a helpful assistant.",
 		input: messages,
 		text: { verbosity: options?.textVerbosity || "low" },
 		include: ["reasoning.encrypted_content"],
@@ -670,14 +681,6 @@ function buildRequestBody(
 	}
 
 	if (toolPlacement.immediate.length > 0) {
-		// Codex backend understands `defer_loading: true` natively (see Codex CLI
-		// `ResponsesApiTool` in codex-rs/tools/src/responses_api.rs). Emission is
-		// byte-stable per tool definition so prompt-cache prefix bytes are
-		// unaffected; explicitly-marked deferred tools (`tool.deferLoading`) are
-		// surfaced via Pi's `tool_search` fallback active-list mutation (no
-		// client-side roundtrip via the OpenAI API). Message-anchored deferral
-		// (client-side, gated by `supportsToolSearch`) is handled separately by
-		// `toolPlacement`/`convertResponsesMessages` above.
 		const convertedTools = convertResponsesTools(toolPlacement.immediate, {
 			strict: null,
 			supportsStrictMode,
@@ -698,20 +701,27 @@ function buildRequestBody(
 
 	if (options?.reasoningEffort !== undefined) {
 		const configuredEffort =
-			options.reasoningEffort === "ultra"
+			options.reasoningEffort === "none"
+				? model.thinkingLevelMap?.off === undefined
+					? "none"
+					: model.thinkingLevelMap.off
+				: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
+		const effort =
+			typeof configuredEffort === "string" &&
+			(configuredEffort.toLowerCase() === "ultra" || configuredEffort.toLowerCase() === "max")
 				? "max"
-				: options.reasoningEffort === "none"
-					? (model.thinkingLevelMap?.off ?? "none")
-					: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
-		const effort = configuredEffort === "ultra" ? "max" : configuredEffort;
+				: configuredEffort;
 		if (effort !== null) {
 			body.reasoning = {
 				effort,
 				summary: options.reasoningSummary ?? "auto",
 			};
 		}
+	} else if (model.reasoning && model.thinkingLevelMap?.off !== null) {
+		body.reasoning = { effort: model.thinkingLevelMap?.off ?? "none" };
 	}
 
+	const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
 	body.prompt_cache_key =
 		cacheRetention === "none" ? undefined : codexPromptCacheKey(options?.cacheAffinityKey, options?.sessionId, body);
 
@@ -1668,10 +1678,15 @@ async function processWebSocketStream(
 		if (options?.signal?.aborted) {
 			keepConnection = false;
 		} else if (useCachedContext && entry && output.responseId) {
-			const responseItems = convertResponsesMessages(model, { messages: [output] }, CODEX_TOOL_CALL_PROVIDERS, {
-				includeSystemPrompt: false,
-				grammarToolInputProperties,
-			}).filter((item) => item.type !== "function_call_output" && item.type !== "custom_tool_call_output");
+			const responseItems = convertResponsesMessages(
+				model,
+				normalizeContext({ messages: [output] }),
+				CODEX_TOOL_CALL_PROVIDERS,
+				{
+					includeSystemPrompt: false,
+					grammarToolInputProperties,
+				},
+			).filter((item) => item.type !== "function_call_output" && item.type !== "custom_tool_call_output");
 			entry.continuations.unshift({
 				lastRequestBody: fullBody,
 				lastResponseId: output.responseId,
