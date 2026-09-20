@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Fix: interrupted local-agent child snapshots now set `endedAt` from the parent stop time and inherit `resumable` when the parent is a single durable run, so flattened panel elapsed freezes and a resumable interrupt stays visible. Parallel non-resumable children are unchanged.
+
 - Chore: remove unused `warnDeprecation` helper (`src/utils/deprecation.ts`). No remaining callers after the legacy config migration; behaviour unchanged ([#537](https://github.com/lue-labs/pi-mono/pull/537)).
 
 - Custom extension messages can remain durable in the UI/session feed without entering provider context, keeping UI-only monitor status updates cache-neutral while preserving model-visible wake messages across persistence, compaction, and resume.

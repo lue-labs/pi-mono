@@ -79,11 +79,19 @@ function childSnapshotFromRun(run: AgentRecentRun, detail: AgentRunDetails, inde
 		needsInput: false,
 		hidden: run.hidden,
 		startedAt,
+		// Interrupted is settled for elapsed/retention even though it is not a
+		// terminal TaskStatus. Leaving endedAt unset made flattened panel rows
+		// keep ticking after the parent run had already stopped.
 		endedAt:
-			status === "running" || status === "idle" || status === "interrupted"
+			status === "running" || status === "idle"
 				? undefined
-				: startedAt + detail.durationMs,
-		resumable: Boolean(followsPersistentParent && run.resumable),
+				: status === "interrupted" && run.endedAt
+					? Date.parse(run.endedAt)
+					: startedAt + detail.durationMs,
+		// A single-child run is resumable at the parent; the flattened panel row
+		// is that child, so it must carry the same flag or a durable interrupt
+		// is hidden as a non-actionable leftover.
+		resumable: Boolean(run.resumable && run.runs.length === 1),
 		error: detail.error,
 		controlId: run.id,
 	};
