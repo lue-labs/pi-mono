@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -108,6 +108,53 @@ describe("background task status formatting", () => {
 		const footer = formatTaskFooterStatus();
 		expect(footer).not.toContain("needs input");
 		expect(footer).toBe("← for agents");
+	});
+
+	test("an interrupted child snapshot freezes endedAt so elapsed cannot keep ticking", async () => {
+		const startedAt = Date.parse("2026-09-20T00:00:00.000Z");
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [{ ...runningRunDetail(), startedAt }],
+		});
+		attachAgentRecentRunController(run.id, { interrupt: async () => {} });
+		await interruptAgentRecentRun(run.id);
+
+		const snapshot = LocalAgentTask.snapshot(run.id);
+		const child = snapshot?.children?.[0];
+		expect(snapshot?.status).toBe("interrupted");
+		expect(snapshot?.needsInput).toBe(false);
+		expect(child?.status).toBe("interrupted");
+		expect(child?.needsInput).toBe(false);
+		expect(child?.endedAt).toBe(Date.parse(run.endedAt!));
+		const frozen = (child!.endedAt ?? 0) - child!.startedAt;
+		const later = (child!.endedAt! + 60_000) - child!.startedAt;
+		expect(frozen).toBeGreaterThanOrEqual(0);
+		expect(frozen).toBeLessThan(later);
+		expect((child!.endedAt ?? later) - child!.startedAt).toBe(frozen);
+	});
+
+	test("a single interrupted child is resumable when the parent session is durable", async () => {
+		const sessionPath = join(bashTempDir, "child.jsonl");
+		writeFileSync(sessionPath, "{}\n");
+		const run = startAgentRecentRun("single", [{ agent: "scout", task: "Map files" }], { background: true });
+		updateAgentRecentRunProgress(run, {
+			mode: "single",
+			status: "running",
+			runs: [{ ...runningRunDetail(), sessionPath }],
+		});
+		attachAgentRecentRunController(run.id, { interrupt: async () => {} });
+		await interruptAgentRecentRun(run.id);
+
+		const snapshot = LocalAgentTask.snapshot(run.id);
+		expect(snapshot?.resumable).toBe(true);
+		expect(snapshot?.children?.[0]).toMatchObject({
+			status: "interrupted",
+			resumable: true,
+			controlId: run.id,
+			endedAt: Date.parse(run.endedAt!),
+		});
 	});
 
 	test("a failed agent run never reports needs input", () => {
