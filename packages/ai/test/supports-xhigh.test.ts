@@ -173,8 +173,8 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toContain("max");
 	});
 
-	it("includes xhigh but not off or max for xAI Grok 4.6", () => {
-		const model = getModel("xai", "grok-4.6");
+	it.each(["grok-4.6", "grok-4.7"])("includes xhigh but not off or max for xAI %s", (modelId) => {
+		const model = getModel("xai", modelId);
 		expect(model).toBeDefined();
 		expect(getSupportedThinkingLevels(model!)).toEqual(["low", "medium", "high", "xhigh"]);
 	});
