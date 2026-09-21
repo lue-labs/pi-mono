@@ -9,6 +9,7 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Export `generateTurnPrefixSummary` from the package entry point, alongside its peers `generateSummary` and `completeSummarization`. Cost evaluations of the cache-safe compaction path need to invoke the turn-prefix call directly and attribute usage to it: `compact()` combines turn-prefix and history usage into one figure, so the public path cannot answer what the turn-prefix call alone cost. Without this seam a harness must hand-rebuild the request, and a reconstruction that drifts produces confidently wrong numbers. Behaviour is unchanged.
 - Fix: interrupted local-agent child snapshots now set `endedAt` from the parent stop time and inherit `resumable` when the parent is a single durable run, so flattened panel elapsed freezes and a resumable interrupt stays visible. Parallel non-resumable children are unchanged.
 
 - Chore: remove unused `warnDeprecation` helper (`src/utils/deprecation.ts`). No remaining callers after the legacy config migration; behaviour unchanged ([#537](https://github.com/lue-labs/pi-mono/pull/537)).
