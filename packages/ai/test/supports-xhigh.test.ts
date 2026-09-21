@@ -173,7 +173,7 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toContain("max");
 	});
 
-	it.each(["grok-4.6", "grok-4.7"])("includes xhigh but not off or max for xAI %s", (modelId) => {
+	it.each(["grok-4.6", "grok-4.7"] as const)("includes xhigh but not off or max for xAI %s", (modelId) => {
 		const model = getModel("xai", modelId);
 		expect(model).toBeDefined();
 		expect(getSupportedThinkingLevels(model!)).toEqual(["low", "medium", "high", "xhigh"]);
