@@ -9,6 +9,8 @@ This package's release notes are split:
 
 ## Unreleased
 
+- Chore: remove unused empty zoomed UI stubs (`zoomed-bash.ts`, `zoomed-task.ts`, `zoomed-session-transcript.ts`). Extraction tombstones after the UI moved to pi-agent-ui; nothing imported them.
+
 - Fix: interrupted local-agent child snapshots now set `endedAt` from the parent stop time and inherit `resumable` when the parent is a single durable run, so flattened panel elapsed freezes and a resumable interrupt stays visible. Parallel non-resumable children are unchanged.
 
 - Chore: remove unused `warnDeprecation` helper (`src/utils/deprecation.ts`). No remaining callers after the legacy config migration; behaviour unchanged ([#537](https://github.com/lue-labs/pi-mono/pull/537)).
