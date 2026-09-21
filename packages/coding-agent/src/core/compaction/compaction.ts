@@ -1123,7 +1123,20 @@ function buildTurnBoundaryExcerpt(turnPrefixMessages: AgentMessage[]): string {
 	return `The split-turn prefix ends with this ${last.role} message (summarize everything in the final turn up to and including it):\n\n${excerpt}`;
 }
 
-async function generateTurnPrefixSummary(
+/**
+ * Summarize the prefix half of a split turn.
+ *
+ * Exported for measurement, alongside its peers `generateSummary` and
+ * `completeSummarization`. Cost evaluations of the cache-safe path need to invoke this
+ * directly and attribute usage to it: `compact()` combines turn-prefix and history usage
+ * into one figure, so the public path cannot answer "what did the turn-prefix call cost?".
+ * Without this seam a harness has to hand-rebuild the request, and a reconstruction that
+ * drifts from this function produces confidently wrong numbers.
+ *
+ * Exporting does not widen behaviour: it is the same function the compaction path already
+ * calls, with no added parameters.
+ */
+export async function generateTurnPrefixSummary(
 	messages: AgentMessage[],
 	model: Model<any>,
 	reserveTokens: number,

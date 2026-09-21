@@ -62,6 +62,7 @@ export {
 	generateBranchSummary,
 	generateSummary,
 	generateSummaryWithUsage,
+	generateTurnPrefixSummary,
 	getLastAssistantUsage,
 	prepareBranchEntries,
 	serializeConversation,
