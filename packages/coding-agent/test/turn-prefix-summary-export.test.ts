@@ -1,8 +1,7 @@
-import { afterEach, expect, test } from "vitest";
-
-import { generateTurnPrefixSummary } from "../src/index.ts";
 import type { Context } from "@lue-labs/pi-ai";
 import { registerApiProvider, unregisterApiProviders } from "@lue-labs/pi-ai/compat";
+import { afterEach, expect, test } from "vitest";
+import { generateTurnPrefixSummary } from "../src/index.ts";
 import { createHarness, type Harness } from "./suite/harness.ts";
 
 const harnesses: Harness[] = [];
