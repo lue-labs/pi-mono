@@ -3458,6 +3458,13 @@ export class AgentSession {
 			this.settingsManager.getRetrySettings(),
 			this._summarizationRetryCallbacks({ source: "compaction", reason }),
 			cacheSafeContext,
+			// Route the summary request with the live routing session. The prefix above is only
+			// cached on the node that served this session's turns, and providers key cache
+			// affinity off that ID; omitting it sends a request that matches the cached
+			// prefix to a node that has never seen it. This must be the agent's routing id
+			// (what the main loop sends on every turn), not AgentSession.sessionId, which is
+			// the session-manager's persistence id and is unrelated to cache affinity.
+			this.agent.sessionId,
 		);
 	}
 

@@ -16,7 +16,7 @@ import {
 } from "@lue-labs/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { estimateTokens, prepareCompaction } from "../../src/core/compaction/index.ts";
+import { DEFAULT_COMPACTION_SETTINGS, estimateTokens, prepareCompaction } from "../../src/core/compaction/index.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import {
 	capMidRunCompactionToolResultText,
@@ -337,6 +337,41 @@ describe("AgentSession compaction characterization", () => {
 		);
 	});
 
+	it("keeps every split-turn prefix message inside the cache-safe context", async () => {
+		// PREREQUISITE for dropping the duplicated <split-turn-prefix> text blob.
+		//
+		// generateTurnPrefixSummary re-serializes turnPrefixMessages into the prompt as plain
+		// text. Those messages come from persisted pathEntries, while cacheSafeContext.messages
+		// comes from the live agent.state.messages — different sources. Removing the blob is only
+		// safe if the live context already contains every prefix message; otherwise the blob is
+		// the sole copy and dropping it would silently summarize nothing.
+		const harness = await createHarness({ settings: { compaction: { keepRecentTokens: 1 } } });
+		harnesses.push(harness);
+
+		await harness.session.prompt("first turn");
+		await harness.session.prompt("second turn");
+		await harness.session.prompt("third turn");
+
+		const preparation = prepareCompaction(harness.sessionManager.getEntries(), {
+			...DEFAULT_COMPACTION_SETTINGS,
+			keepRecentTokens: 1,
+		});
+
+		// Only meaningful when a split actually happened.
+		if (!preparation || !preparation.isSplitTurn || preparation.turnPrefixMessages.length === 0) {
+			throw new Error(
+				`BRANCH NOT EXERCISED: prep=${!!preparation} split=${preparation?.isSplitTurn} n=${preparation?.turnPrefixMessages.length}`,
+			);
+		}
+
+		const liveText = harness.session.messages.map((m) => getMessageText(m as AgentMessage)).join("\n");
+		for (const prefixMessage of preparation.turnPrefixMessages) {
+			const text = getMessageText(prefixMessage as AgentMessage);
+			if (text.trim().length === 0) continue;
+			expect(liveText).toContain(text.slice(0, 40));
+		}
+	});
+
 	it("leaves resident history untouched when resident prune is explicitly disabled", async () => {
 		const harness = await createHarness({
 			settings: { compaction: { keepRecentTokens: 1, residentPrune: false } },
@@ -634,9 +669,19 @@ describe("AgentSession compaction characterization", () => {
 		expect(transformContext).not.toHaveBeenCalled();
 		expect(requestContext?.systemPrompt).toBe(harness.session.systemPrompt);
 		expect(getCurrentTools(requestContext?.messages ?? [])).toEqual([]);
-		expect(JSON.stringify(requestContext?.messages)).toContain("<split-turn-prefix>");
-		expect(requestOptions).toMatchObject({ cacheRetention: "none" });
-		expect(requestOptions?.sessionId).not.toBe("active-routing-session");
+		// The split-turn prefix is already in the replayed messages; the request must not
+		// re-serialize it as a text blob after the cached prefix (see generateTurnPrefixSummary).
+		expect(JSON.stringify(requestContext?.messages)).not.toContain("<split-turn-prefix>");
+		expect(JSON.stringify(requestContext?.messages.at(-1))).toContain("active session context");
+		expect(JSON.stringify(requestContext?.messages.at(-1))).toContain("<boundary>");
+		// The assertions above establish that this request replays the live prefix
+		// verbatim: same system prompt, same tools, live conversation plus the summary ask.
+		// That prefix is already cached by the main loop, so the request must keep caching on
+		// to read it, and must keep the live routing session so it lands on the node holding
+		// it. Asserting "none" here would assert the bug: build a cache-reusable prefix, then
+		// forbid the reuse and cold-write the whole context instead.
+		expect(requestOptions).toMatchObject({ cacheRetention: "long" });
+		expect(requestOptions?.sessionId).toBe("active-routing-session");
 		expect(requestOptions?.transport).toBeUndefined();
 	});
 

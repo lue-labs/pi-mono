@@ -132,7 +132,11 @@ describe("generateSummary reasoning options", () => {
 		expect(sessionIds[0]).not.toBe(sessionIds[1]);
 	});
 
-	it("honors caller-supplied routing session and tool choice without prompt caching", async () => {
+	it("honors caller-supplied routing session, retention, and tool choice", async () => {
+		// A caller that sets cacheRetention has built a request whose prefix matches a live,
+		// already-cached conversation. Overriding it to "none" would force a cold write of that
+		// whole prefix and, because anthropic-messages.ts drops cacheSessionId when retention is
+		// "none", would silently throw away sticky routing as well.
 		await completeSummarization(createModel(false), normalizeContext({ systemPrompt: "Summarize", messages: [] }), {
 			sessionId: "current-routing-session",
 			cacheRetention: "long",
@@ -141,9 +145,58 @@ describe("generateSummary reasoning options", () => {
 
 		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({
 			sessionId: "current-routing-session",
-			cacheRetention: "none",
+			cacheRetention: "long",
 			toolChoice: "auto",
 		});
+	});
+
+	it("reads the live cached prefix when compaction is cache-safe", async () => {
+		// The fork builds cacheSafeContext so the summary request replays the live conversation
+		// prefix verbatim. That prefix is already cached by the main loop, so the request must
+		// keep caching on to READ it. Forcing "none" here cold-writes the whole context instead:
+		// the measured symptom was a 266,090-token write while the loop sat at 98% cached.
+		await generateSummaryWithUsage(
+			messages,
+			createModel(false),
+			2000,
+			"test-key",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ systemPrompt: "Live system prompt", messages: [], tools: [] },
+			"live-session-id",
+		);
+
+		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({
+			cacheRetention: "long",
+			sessionId: "live-session-id",
+		});
+	});
+
+	it("keeps caching off for standalone compaction without a cache-safe context", async () => {
+		// Without cacheSafeContext the prompt is a <conversation> text blob that matches no live
+		// prefix, so caching would buy a write nobody reads. This is vanilla pi's shape.
+		await generateSummaryWithUsage(messages, createModel(false), 2000, "test-key");
+
+		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({ cacheRetention: "none" });
+	});
+
+	it("still defaults to no caching when the caller omits retention", async () => {
+		// Branch summarization and other standalone callers pass no retention. They serialize the
+		// conversation into a text blob that shares no prefix with a live session, so a cache write
+		// here could never be read back. They must keep the "none" default.
+		await completeSummarization(createModel(false), normalizeContext({ systemPrompt: "Summarize", messages: [] }), {
+			toolChoice: "auto",
+		});
+
+		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({ cacheRetention: "none" });
+		expect(completeSimpleMock.mock.calls[0][2]?.sessionId).toEqual(expect.any(String));
 	});
 
 	it("preserves the previous summary without an empty history request for a split turn", async () => {
@@ -370,7 +423,9 @@ describe("generateSummary reasoning options", () => {
 		const preparation: CompactionPreparation = {
 			firstKeptEntryId: "entry-keep",
 			messagesToSummarize: messages,
-			turnPrefixMessages: [{ ...mockSummaryResponse, content: [{ type: "text", text: "early turn work" }] }],
+			turnPrefixMessages: [
+				{ ...mockSummaryResponse, content: [{ type: "text", text: "UNIQUE_PREFIX_BODY_MARKER early turn work" }] },
+			],
 			isSplitTurn: true,
 			tokensBefore: 100000,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
@@ -398,7 +453,12 @@ describe("generateSummary reasoning options", () => {
 
 		expect(completeSimpleMock).toHaveBeenCalledTimes(2);
 		const turnPrefixPrompt = getTextFromSummaryPromptCall(1);
-		expect(turnPrefixPrompt).toContain("<split-turn-prefix>");
+		// The cache-safe path must NOT re-serialize the turn prefix into the prompt: those
+		// messages are already in cacheSafeContext.messages, and duplicating them is billed as a
+		// never-read cache write on every compaction. It points at the boundary instead.
+		expect(turnPrefixPrompt).not.toContain("<split-turn-prefix>");
+		expect(turnPrefixPrompt).toContain("<boundary>");
+		expect(turnPrefixPrompt).toContain("UNIQUE_PREFIX_BODY_MARKER");
 		expect(turnPrefixPrompt).toContain("## Original Request");
 		expect(turnPrefixPrompt).toContain("## Early Progress");
 		expect(turnPrefixPrompt).toContain("## Context for Suffix");
