@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-coding-agent",
-	"version": "0.87.1",
+	"version": "0.88.0",
 	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
 	"type": "module",
 	"piConfig": {
@@ -52,9 +52,9 @@
 	"dependencies": {
 		"@pierre/diffs": "1.2.12",
 		"@silvia-odwyer/photon-node": "0.3.4",
-		"@lue-labs/pi-agent-core": "0.87.1",
-		"@lue-labs/pi-ai": "0.87.1",
-		"@lue-labs/pi-tui": "0.87.1",
+		"@lue-labs/pi-agent-core": "0.88.0",
+		"@lue-labs/pi-ai": "0.88.0",
+		"@lue-labs/pi-tui": "0.88.0",
 		"chalk": "6.0.0",
 		"cross-spawn": "7.0.6",
 		"diff": "8.0.4",
@@ -87,9 +87,9 @@
 		"shx": "0.4.0",
 		"typescript": "7.0.2",
 		"vitest": "4.1.9",
-		"@lue-labs/pi-client": "0.87.1",
-		"@lue-labs/pi-protocol": "0.87.1",
-		"@lue-labs/pi-server": "0.87.1"
+		"@lue-labs/pi-client": "0.88.0",
+		"@lue-labs/pi-protocol": "0.88.0",
+		"@lue-labs/pi-server": "0.88.0"
 	},
 	"keywords": [
 		"coding-agent",

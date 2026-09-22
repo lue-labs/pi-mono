@@ -11,8 +11,8 @@
 		"test": "vitest run --config vitest.test.config.ts"
 	},
 	"devDependencies": {
-		"@lue-labs/pi-ai": "0.87.1",
-		"@lue-labs/pi-coding-agent": "0.87.1",
+		"@lue-labs/pi-ai": "0.88.0",
+		"@lue-labs/pi-coding-agent": "0.88.0",
 		"shx": "0.4.0",
 		"typescript": "5.9.3",
 		"vitest-evals": "0.15.0",

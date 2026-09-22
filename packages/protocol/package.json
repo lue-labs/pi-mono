@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-protocol",
-	"version": "0.87.1",
+	"version": "0.88.0",
 	"description": "Transport-neutral CBOR protocol for remote pi sessions",
 	"type": "module",
 	"main": "./dist/index.js",
