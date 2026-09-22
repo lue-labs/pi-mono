@@ -1,19 +1,19 @@
 {
 	"name": "@lue-labs/pi-coding-agent",
-	"version": "0.87.1",
+	"version": "0.88.0",
 	"lockfileVersion": 3,
 	"requires": true,
 	"packages": {
 		"": {
 			"name": "@lue-labs/pi-coding-agent",
-			"version": "0.87.1",
+			"version": "0.88.0",
 			"license": "MIT",
 			"dependencies": {
 				"@pierre/diffs": "1.2.12",
 				"@silvia-odwyer/photon-node": "0.3.4",
-				"@lue-labs/pi-agent-core": "0.87.1",
-				"@lue-labs/pi-ai": "0.87.1",
-				"@lue-labs/pi-tui": "0.87.1",
+				"@lue-labs/pi-agent-core": "0.88.0",
+				"@lue-labs/pi-ai": "0.88.0",
+				"@lue-labs/pi-tui": "0.88.0",
 				"chalk": "6.0.0",
 				"cross-spawn": "7.0.6",
 				"diff": "8.0.4",
@@ -806,11 +806,11 @@
 			"optional": true
 		},
 		"node_modules/@lue-labs/pi-agent-core": {
-			"version": "0.87.1",
+			"version": "0.88.0",
 			"license": "MIT",
 			"dependencies": {
-				"@lue-labs/pi-ai": "0.87.1",
-				"@lue-labs/pi-telemetry": "0.87.1",
+				"@lue-labs/pi-ai": "0.88.0",
+				"@lue-labs/pi-telemetry": "0.88.0",
 				"@earendil-works/chord": "^0.87.0",
 				"diff": "8.0.4",
 				"ignore": "7.0.8",
@@ -837,12 +837,12 @@
 			"license": "MIT"
 		},
 		"node_modules/@lue-labs/pi-ai": {
-			"version": "0.87.1",
+			"version": "0.88.0",
 			"license": "MIT",
 			"dependencies": {
 				"@anthropic-ai/sdk": "0.124.0",
 				"@aws-sdk/client-bedrock-runtime": "3.1127.0",
-				"@lue-labs/pi-telemetry": "^0.87.1",
+				"@lue-labs/pi-telemetry": "^0.88.0",
 				"@google/genai": "2.21.0",
 				"@smithy/node-http-handler": "4.12.1",
 				"http-proxy-agent": "9.1.0",
@@ -1001,14 +1001,14 @@
 			"license": "MIT"
 		},
 		"node_modules/@lue-labs/pi-telemetry": {
-			"version": "0.87.1",
+			"version": "0.88.0",
 			"license": "MIT",
 			"engines": {
 				"node": ">=22.19.0"
 			}
 		},
 		"node_modules/@lue-labs/pi-tui": {
-			"version": "0.87.1",
+			"version": "0.88.0",
 			"license": "MIT",
 			"dependencies": {
 				"get-east-asian-width": "1.6.0",
