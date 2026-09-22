@@ -125,6 +125,13 @@ export interface OpenAIResponsesStreamOptions {
 
 export interface ConvertResponsesMessagesOptions {
 	includeSystemPrompt?: boolean;
+	/**
+	 * Tag each replayed same-model assistant turn with the provider effort it was generated at
+	 * (`AssistantMessage.providerThinkingLevel`) so `insertConfigurationUpdates` can rebuild the
+	 * `configuration_update` items that preceded it. Only meaningful for models with
+	 * `compat.supportsMidConvoEffort`.
+	 */
+	midConvoEffort?: boolean;
 	grammarToolInputProperties?: ReadonlyMap<string, string>;
 	deferredTools?: ReadonlyMap<string, Tool>;
 	promptCacheBreakpoints?: boolean;
@@ -137,6 +144,91 @@ export interface ConvertResponsesMessagesOptions {
 }
 
 const EXPLICIT_PROMPT_CACHE_BREAKPOINT = { mode: "explicit" } as const;
+
+// =============================================================================
+// Mid-conversation reasoning effort (`configuration_update`)
+// =============================================================================
+
+/** Effort values a `configuration_update` item accepts (OpenAI GPT-6 Astra). */
+export type ConfigurationUpdateEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export function isConfigurationUpdateEffort(value: unknown): value is ConfigurationUpdateEffort {
+	return value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max";
+}
+
+/**
+ * Provider effort to persist on the response (`AssistantMessage.providerThinkingLevel`) when the
+ * model transport supports `configuration_update`; `undefined` keeps legacy request-level effort.
+ */
+export function resolveMidConvoEffort<TApi extends Api>(
+	model: Model<TApi>,
+	wireEffort: unknown,
+): ConfigurationUpdateEffort | undefined {
+	const compat = model.compat as { supportsMidConvoEffort?: boolean } | undefined;
+	return compat?.supportsMidConvoEffort === true && isConfigurationUpdateEffort(wireEffort) ? wireEffort : undefined;
+}
+
+const assistantEffortTag = Symbol("openaiAssistantEffort");
+type TaggedResponseInputItem = ResponseInputItem & { [assistantEffortTag]?: ConfigurationUpdateEffort };
+
+interface ConfigurationUpdateItem {
+	type: "configuration_update";
+	reasoning: { effort: ConfigurationUpdateEffort };
+}
+
+export interface MidConvoEffortPlan {
+	input: ResponseInput;
+	/** Request-level `reasoning.effort`: pinned to the effort the conversation started with. */
+	requestEffort: ConfigurationUpdateEffort;
+}
+
+/**
+ * Express effort changes as positional `configuration_update` items instead of a new
+ * request-level `reasoning.effort`, which is part of the prompt-cache key and misses the whole
+ * prefix when it changes (`reasoning_effort_changed`). The request-level value stays pinned to
+ * the first replayed turn's effort; each later turn re-emits the update that preceded it, so
+ * the replayed prefix is byte-stable and only the trailing update for `activeEffort` moves.
+ * Two updates are never adjacent (the API rejects that): a change with no turn in between
+ * replaces the previous update in place.
+ */
+export function insertConfigurationUpdates(
+	input: ResponseInput,
+	activeEffort: ConfigurationUpdateEffort,
+): MidConvoEffortPlan {
+	const output: ResponseInput = [];
+	let requestEffort: ConfigurationUpdateEffort | undefined;
+	let effectiveEffort: ConfigurationUpdateEffort | undefined;
+	const pushUpdate = (effort: ConfigurationUpdateEffort) => {
+		const last = output[output.length - 1] as unknown as ConfigurationUpdateItem | undefined;
+		if (last?.type === "configuration_update") {
+			last.reasoning = { effort };
+		} else {
+			output.push({ type: "configuration_update", reasoning: { effort } } as unknown as ResponseInputItem);
+		}
+		effectiveEffort = effort;
+	};
+	for (const item of input) {
+		const historicalEffort = (item as TaggedResponseInputItem)[assistantEffortTag];
+		if (historicalEffort === undefined) {
+			output.push(item);
+			continue;
+		}
+		if (requestEffort === undefined) {
+			requestEffort = historicalEffort;
+			effectiveEffort = historicalEffort;
+		} else if (historicalEffort !== effectiveEffort) {
+			pushUpdate(historicalEffort);
+		}
+		const { [assistantEffortTag]: _tag, ...untagged } = item as TaggedResponseInputItem;
+		output.push(untagged as ResponseInputItem);
+	}
+	if (requestEffort === undefined) {
+		requestEffort = activeEffort;
+		effectiveEffort = activeEffort;
+	}
+	if (effectiveEffort !== activeEffort) pushUpdate(activeEffort);
+	return { input: output, requestEffort };
+}
 
 /**
  * Mark the last breakpoint-capable content block of the previous (second-to-last)
@@ -441,6 +533,13 @@ export function convertResponsesMessages<TApi extends Api>(
 				}
 			}
 			if (output.length === 0) continue;
+			if (
+				options?.midConvoEffort &&
+				isSameProviderAndApi &&
+				isConfigurationUpdateEffort(assistantMsg.providerThinkingLevel)
+			) {
+				(output[0] as TaggedResponseInputItem)[assistantEffortTag] = assistantMsg.providerThinkingLevel;
+			}
 			messages.push(...output);
 		} else if (msg.role === "toolResult") {
 			const [callId] = msg.toolCallId.split("|");

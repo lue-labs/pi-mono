@@ -461,6 +461,8 @@ Some Anthropic models require adaptive thinking (`thinking.type: "adaptive"` plu
 
 Claude models with per-turn effort support use `supportsMidConvoEffort`. Pi then persists each response's provider effort, reconstructs effort-only system messages on later requests, and sends thinking binding controls with `prefix_mismatch_behavior: "drop_block"` to avoid stale signed-thinking prefixes causing persistent 400 responses. Set this only for the exact supported Claude model on a faithful Anthropic Messages transport; do not enable it for APIs that merely imitate the Messages shape.
 
+The same flag exists for `openai-responses` and `openai-codex-responses` models that accept `configuration_update` input items (built-in `gpt-6-astra` sets it). Pi pins the request-level `reasoning.effort` to the effort of the first replayed assistant turn and expresses later changes as positional `configuration_update` items, so changing the thinking level mid-conversation extends the cached prefix instead of invalidating it (`reasoning_effort_changed`). Without the flag an effort change is still sent request-level and costs one full cache miss.
+
 Some Anthropic-compatible providers emit thinking blocks with empty signatures and still expect them on replay. Set `allowEmptySignature` to `true` only for those providers; real Anthropic rejects empty thinking signatures.
 
 Built-in Anthropic models enable `supportsStrictTools` in their model metadata. Custom Anthropic-compatible models must set it to `true` when their endpoint accepts strict JSON-schema tool definitions.
@@ -497,7 +499,7 @@ Built-in Anthropic models enable `supportsStrictTools` in their model metadata. 
 | `sendSessionAffinityHeaders` | Whether to send `x-session-affinity` from the session id when caching is enabled. Default: auto-detected for known providers. |
 | `supportsCacheControlOnTools` | Whether the provider accepts Anthropic-style `cache_control` markers on tool definitions. Default: `true`. |
 | `forceAdaptiveThinking` | Whether to send adaptive thinking (`thinking.type: "adaptive"` plus `output_config.effort`) for this model. Built-in adaptive models set this automatically. Default: `false`. |
-| `supportsMidConvoEffort` | Whether the exact Claude model transport supports per-turn effort system messages and thinking binding controls. Pi persists native effort levels and always sends `drop_block` when enabled. Default: `false`. |
+| `supportsMidConvoEffort` | Whether the exact Claude model transport supports per-turn effort system messages and thinking binding controls. Pi persists native effort levels and always sends `drop_block` when enabled. Also honored on `openai-responses` / `openai-codex-responses` models, where it enables positional `configuration_update` effort changes. Default: `false`. |
 | `allowEmptySignature` | Whether to replay empty thinking signatures as `signature: ""` instead of converting thinking to text. Default: `false`. |
 | `supportsStrictTools` | Whether the provider accepts strict JSON-schema tool definitions. Default: `false`; built-in Anthropic models enable it in generated metadata. |
 | `allowedFallbackModels` | Up to three server-side fallback models, each with `provider`, `model`, and complete `cost` metadata. An empty array disables fallback. |
