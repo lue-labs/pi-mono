@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-agent-core",
-	"version": "0.87.0",
+	"version": "0.87.1",
 	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -63,8 +63,8 @@
 		"test:session:conformance": "vitest --run --config vitest.harness.config.ts test/harness/memory-conformance.test.ts"
 	},
 	"dependencies": {
-		"@lue-labs/pi-ai": "0.87.0",
-		"@lue-labs/pi-telemetry": "0.87.0",
+		"@lue-labs/pi-ai": "0.87.1",
+		"@lue-labs/pi-telemetry": "0.87.1",
 		"@earendil-works/chord": "^0.87.0",
 		"diff": "8.0.4",
 		"ignore": "7.0.8",
