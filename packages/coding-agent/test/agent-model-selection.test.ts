@@ -136,10 +136,11 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("claude-haiku-4-5");
 	});
 
-	test('"fast" alias prefers gpt-5.6-luna for clawrouter GPT parents', () => {
+	test('"fast" alias prefers the dynamic GPT-6 Luna route for clawrouter GPT parents', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
+			{ id: "openai/gpt-6-sol-200k", name: "GPT-6 Sol 200k", reasoning: true },
 			{ id: "claude-haiku-4-5", name: "Claude Haiku", reasoning: true },
+			{ id: "openai/gpt-6-luna-200k", name: "GPT-6 Luna 200k", reasoning: true },
 			{ id: "gpt-5.6-luna", name: "GPT 5.6 Luna", reasoning: true },
 		]);
 		const explore = getBuiltinAgentDefinitions().find((definition) => definition.id === "explore");
@@ -152,7 +153,7 @@ describe("agent model and thinking selection", () => {
 			onWarning: (warning) => warnings.push(warning),
 		});
 		expect(selected?.provider).toBe("clawrouter");
-		expect(selected?.id).toBe("gpt-5.6-luna");
+		expect(selected?.id).toBe("openai/gpt-6-luna-200k");
 		expect(warnings).toEqual([]);
 	});
 
@@ -276,16 +277,17 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("gpt-5.3-codex-spark");
 	});
 
-	test('"medium" alias prefers gpt-5.6-terra for clawrouter GPT parents', () => {
+	test('"medium" alias prefers the dynamic GPT-6 Luna route for clawrouter GPT parents', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
+			{ id: "openai/gpt-6-sol-200k", name: "GPT-6 Sol 200k", reasoning: true },
 			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
+			{ id: "openai/gpt-6-luna-200k", name: "GPT-6 Luna 200k", reasoning: true },
 			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "medium" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("clawrouter");
-		expect(selected?.id).toBe("gpt-5.6-terra");
+		expect(selected?.id).toBe("openai/gpt-6-luna-200k");
 	});
 
 	test('"medium" alias falls back to Spark when clawrouter Terra is unavailable', () => {
@@ -311,8 +313,15 @@ describe("agent model and thinking selection", () => {
 		expect(selected?.id).toBe("claude-sonnet-4-6");
 	});
 
-	test('"frontier" alias no longer includes Opus 4.8 fallbacks', () => {
+	test('"frontier" alias prefers Opus 5.5, retains Opus 5, and excludes Opus 4.8', () => {
 		expect(tierModelCandidatesForParent({ reference: "frontier", parentProvider: "anthropic" })).toEqual([
+			"claude-opus-5-5",
+			"claude-opus-5",
+		]);
+		expect(tierModelCandidatesForParent({ reference: "frontier", parentProvider: "claude-bridge" })).toEqual([
+			"claude-opus-5-5-200k",
+			"claude-opus-5-5",
+			"claude-opus-5-200k",
 			"claude-opus-5",
 		]);
 		expect(
@@ -321,33 +330,42 @@ describe("agent model and thinking selection", () => {
 				parentProvider: "clawrouter",
 				parentModelId: "claude-sonnet-5",
 			}),
-		).toEqual(["claude-opus-5-200k", "claude-opus-5", "gpt-5.6-sol"]);
+		).toEqual([
+			"claude-opus-5-5-200k",
+			"claude-opus-5-5",
+			"claude-opus-5-200k",
+			"claude-opus-5",
+			"openai/gpt-6-sol-200k",
+			"gpt-5.6-sol",
+		]);
 	});
 
-	test('"frontier" alias keeps clawrouter GPT parents on gpt-5.6-sol', () => {
+	test('"frontier" alias prefers the dynamic GPT-6 Sol route for clawrouter GPT parents', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
-			{ id: "gpt-5.6-terra", name: "GPT 5.6 Terra", reasoning: true },
-			{ id: "claude-opus-4-8-200k", name: "Claude Opus", reasoning: true },
+			{ id: "openai/gpt-6-luna-200k", name: "GPT-6 Luna 200k", reasoning: true },
+			{ id: "claude-opus-5-5-200k", name: "Claude Opus 5.5 200k", reasoning: true },
+			{ id: "openai/gpt-6-sol-200k", name: "GPT-6 Sol 200k", reasoning: true },
 			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "frontier" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("clawrouter");
-		expect(selected?.id).toBe("gpt-5.6-sol");
+		expect(selected?.id).toBe("openai/gpt-6-sol-200k");
 	});
 
-	test('"frontier" alias keeps clawrouter Claude parents on claude-opus-5-200k', () => {
+	test('"frontier" alias prefers claude-opus-5-5-200k for clawrouter Claude parents', () => {
 		const { registry, parent } = createStaticRegistry("clawrouter", [
 			{ id: "claude-sonnet-5", name: "Claude Sonnet", reasoning: true },
-			{ id: "gpt-5.6-sol", name: "GPT 5.6 Sol", reasoning: true },
-			{ id: "claude-opus-4-8-200k", name: "Claude Opus 4.8 200k", reasoning: true },
+			{ id: "openai/gpt-6-sol-200k", name: "GPT-6 Sol 200k", reasoning: true },
 			{ id: "claude-opus-5", name: "Claude Opus 5", reasoning: true },
 			{ id: "claude-opus-5-200k", name: "Claude Opus 5 200k", reasoning: true },
+			{ id: "claude-opus-5-5", name: "Claude Opus 5.5", reasoning: true },
+			{ id: "claude-opus-5-5-200k", name: "Claude Opus 5.5 200k", reasoning: true },
 		]);
 		const agent = { ...getBuiltinAgentDefinitions()[0], model: "frontier" };
 		const selected = resolveAgentModel({ agent, parentModel: parent, modelRegistry: registry });
 		expect(selected?.provider).toBe("clawrouter");
-		expect(selected?.id).toBe("claude-opus-5-200k");
+		expect(selected?.id).toBe("claude-opus-5-5-200k");
 	});
 
 	test('"ultra" alias uses fable now and GPT-5.6 for GPT parents when available', () => {

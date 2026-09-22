@@ -278,8 +278,9 @@ const EAGER_TOOL_INPUT_STREAMING_UNSUPPORTED_ANTHROPIC_MODELS = new Set([
 	"github-copilot:claude-sonnet-4.5",
 ]);
 const ANTHROPIC_ALLOWED_FALLBACK_MODELS = {
-	"claude-fable-5": ["claude-opus-4-8", "claude-opus-5"],
+	"claude-fable-5": ["claude-opus-4-8", "claude-opus-5", "claude-opus-5-5"],
 	"claude-opus-5": ["claude-opus-4-8"],
+	"claude-opus-5-5": ["claude-opus-5"],
 } satisfies Record<string, string[]>;
 
 const DEEPSEEK_V4_THINKING_LEVEL_MAP = {
@@ -592,14 +593,14 @@ const MID_CONVO_EFFORT_UNSUPPORTED_ANTHROPIC_MODELS = new Set(["openrouter:anthr
 function supportsAnthropicMidConvoEffort(modelId: string): boolean {
 	const id = modelId.toLowerCase().replace(/^~?anthropic\//, "");
 	return (
-		/^claude-opus-5(?:-\d{8})?$/.test(id) ||
+		/^claude-opus-5(?:[.-]5)?(?:-\d{8})?$/.test(id) ||
 		/^claude-(?:fable|mythos)-5(?:[.-]1)(?:-\d{8})?$/.test(id)
 	);
 }
 
 function supportsAnthropicMidConvoSystemMessages(modelId: string): boolean {
 	return (
-		/^claude-opus-(?:4[.-]8|5)(?:-\d{8})?$/.test(modelId) ||
+		/^claude-opus-(?:4[.-]8|5(?:[.-]5)?)(?:-\d{8})?$/.test(modelId) ||
 		/^claude-(?:fable|mythos)-5(?:[.-]1)?(?:-\d{8})?$/.test(modelId)
 	);
 }
@@ -2880,6 +2881,27 @@ async function generateModels() {
 				output: 25,
 				cacheRead: 0.5,
 				cacheWrite: 6.25,
+			},
+			contextWindow: 1000000,
+			maxTokens: 128000,
+		});
+	}
+
+	// Add missing Claude Opus 5.5 until models.dev publishes it.
+	if (!allModels.some(m => m.provider === "anthropic" && m.id === "claude-opus-5-5")) {
+		allModels.push({
+			id: "claude-opus-5-5",
+			name: "Claude Opus 5.5",
+			api: "anthropic-messages",
+			baseUrl: "https://api.anthropic.com",
+			provider: "anthropic",
+			reasoning: true,
+			input: ["text", "image"],
+			cost: {
+				input: 4,
+				output: 20,
+				cacheRead: 0.2,
+				cacheWrite: 5,
 			},
 			contextWindow: 1000000,
 			maxTokens: 128000,

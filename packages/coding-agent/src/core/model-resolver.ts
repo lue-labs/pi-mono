@@ -55,7 +55,7 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 	anthropic: {
 		fast: ["claude-haiku-4-5"],
 		medium: ["claude-sonnet-4-6"],
-		frontier: ["claude-opus-5"],
+		frontier: ["claude-opus-5-5", "claude-opus-5"],
 		ultra: ["claude-fable-5-200k", "claude-fable-5"],
 	},
 	"amazon-bedrock": {
@@ -126,13 +126,26 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 	"claude-bridge": {
 		fast: ["claude-haiku-4-5"],
 		medium: ["claude-sonnet-5", "claude-sonnet-4-6"],
-		frontier: ["claude-opus-5-200k", "claude-opus-5"],
+		frontier: ["claude-opus-5-5-200k", "claude-opus-5-5", "claude-opus-5-200k", "claude-opus-5"],
 		ultra: ["claude-fable-5-200k", "claude-fable-5"],
 	},
 	clawrouter: {
-		fast: ["gpt-5.6-luna", "claude-haiku-4-5"],
-		medium: ["gpt-5.6-terra", "gpt-5.3-codex-spark", "claude-sonnet-5", "claude-sonnet-4-6"],
-		frontier: ["gpt-5.6-sol", "claude-opus-5-200k", "claude-opus-5"],
+		fast: ["openai/gpt-6-luna-200k", "gpt-5.6-luna", "claude-haiku-4-5"],
+		medium: [
+			"openai/gpt-6-luna-200k",
+			"gpt-5.6-terra",
+			"gpt-5.3-codex-spark",
+			"claude-sonnet-5",
+			"claude-sonnet-4-6",
+		],
+		frontier: [
+			"claude-opus-5-5-200k",
+			"claude-opus-5-5",
+			"claude-opus-5-200k",
+			"claude-opus-5",
+			"openai/gpt-6-sol-200k",
+			"gpt-5.6-sol",
+		],
 		ultra: ["gpt-5.6", "claude-fable-5-200k", "claude-fable-5"],
 	},
 };
@@ -145,9 +158,9 @@ const modelFamilyTierCandidatesByProvider: Record<
 		{
 			prefix: "gpt-",
 			candidates: {
-				fast: ["gpt-5.6-luna"],
-				medium: ["gpt-5.6-terra", "gpt-5.3-codex-spark"],
-				frontier: ["gpt-5.6-sol"],
+				fast: ["openai/gpt-6-luna-200k", "gpt-5.6-luna"],
+				medium: ["openai/gpt-6-luna-200k", "gpt-5.6-terra", "gpt-5.3-codex-spark"],
+				frontier: ["openai/gpt-6-sol-200k", "gpt-5.6-sol"],
 				ultra: ["gpt-5.6"],
 			},
 		},
@@ -156,7 +169,7 @@ const modelFamilyTierCandidatesByProvider: Record<
 			candidates: {
 				fast: ["claude-haiku-4-5"],
 				medium: ["claude-sonnet-5", "claude-sonnet-4-6"],
-				frontier: ["claude-opus-5-200k", "claude-opus-5"],
+				frontier: ["claude-opus-5-5-200k", "claude-opus-5-5", "claude-opus-5-200k", "claude-opus-5"],
 				ultra: ["claude-fable-5-200k", "claude-fable-5"],
 			},
 		},
@@ -170,8 +183,9 @@ export function tierModelCandidatesForParent(options: {
 }): string[] {
 	if (!options.parentProvider) return [];
 	const providerCandidates = modelTierCandidatesPerProvider[options.parentProvider]?.[options.reference] ?? [];
+	const normalizedParentModelId = options.parentModelId?.toLowerCase().replace(/^(?:anthropic|openai)\//, "");
 	const familyCandidates = modelFamilyTierCandidatesByProvider[options.parentProvider]?.find((family) =>
-		options.parentModelId?.toLowerCase().startsWith(family.prefix),
+		normalizedParentModelId?.startsWith(family.prefix),
 	)?.candidates[options.reference];
 	return [...new Set([...(familyCandidates ?? []), ...providerCandidates])];
 }
