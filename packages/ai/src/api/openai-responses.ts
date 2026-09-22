@@ -25,7 +25,14 @@ import { getDeclaredTools, resolveTranscript, resolveTranscriptTools } from "../
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
-import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
+import {
+	convertResponsesMessages,
+	convertResponsesTools,
+	effectiveRequestEffort,
+	insertConfigurationUpdates,
+	processResponsesStream,
+	resolveMidConvoEffort,
+} from "./openai-responses-shared.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 
 const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
@@ -61,6 +68,7 @@ function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCo
 		supportsOpenAIGrammarTools: model.compat?.supportsOpenAIGrammarTools ?? false,
 		supportsAdditionalTools: model.compat?.supportsAdditionalTools ?? false,
 		supportsToolSearch: model.compat?.supportsToolSearch ?? false,
+		supportsMidConvoEffort: model.compat?.supportsMidConvoEffort ?? false,
 		promptCacheApi: model.compat?.promptCacheApi ?? "legacy",
 		supportsExplicitPromptCacheMode: model.compat?.supportsExplicitPromptCacheMode ?? false,
 		supportsMaxOutputTokens: model.compat?.supportsMaxOutputTokens ?? true,
@@ -157,6 +165,9 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 					prompt_cache_options?: { mode?: "explicit"; ttl?: "30m" };
 				};
 			}
+			// Recorded after onPayload so a hook that rewrites effort cannot desync replay from the wire.
+			const providerThinkingLevel = effectiveRequestEffort(model, params);
+			if (providerThinkingLevel !== undefined) output.providerThinkingLevel = providerThinkingLevel;
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
@@ -277,6 +288,17 @@ function createClient(
 	});
 }
 
+/** Wire `reasoning.effort` for the requested level; `undefined` when no level or summary was requested. */
+function resolveReasoningEffort(
+	model: Model<"openai-responses">,
+	options: OpenAIResponsesOptions | undefined,
+): string | null | undefined {
+	if (!options?.reasoningEffort && !options?.reasoningSummary) return undefined;
+	const requestedEffort = options.reasoningEffort === "ultra" ? "max" : options.reasoningEffort;
+	const configuredEffort = requestedEffort ? (model.thinkingLevelMap?.[requestedEffort] ?? requestedEffort) : "medium";
+	return configuredEffort === "ultra" ? "max" : configuredEffort;
+}
+
 function buildParams(
 	model: Model<"openai-responses">,
 	context: TranscriptContext,
@@ -302,7 +324,10 @@ function buildParams(
 		{ messages: context.messages, tools: transcriptTools.requestTools },
 		deferredToolsMode !== undefined,
 	);
+	const effort = resolveReasoningEffort(model, options);
+	const midConvoEffort = resolveMidConvoEffort(model, effort);
 	const messages = convertResponsesMessages(model, context, OPENAI_TOOL_CALL_PROVIDERS, {
+		midConvoEffort: midConvoEffort !== undefined,
 		grammarToolInputProperties,
 		deferredTools: toolPlacement.deferred,
 		deferredToolsMode,
@@ -356,12 +381,15 @@ function buildParams(
 	}
 
 	if (model.reasoning) {
-		if (options?.reasoningEffort || options?.reasoningSummary) {
-			const requestedEffort = options?.reasoningEffort === "ultra" ? "max" : options?.reasoningEffort;
-			const configuredEffort = requestedEffort
-				? (model.thinkingLevelMap?.[requestedEffort] ?? requestedEffort)
-				: "medium";
-			const effort = configuredEffort === "ultra" ? "max" : configuredEffort;
+		if (midConvoEffort !== undefined) {
+			const plan = insertConfigurationUpdates(messages, midConvoEffort);
+			params.input = plan.input;
+			params.reasoning = {
+				effort: plan.requestEffort,
+				summary: options?.reasoningSummary || "auto",
+			};
+			params.include = ["reasoning.encrypted_content"];
+		} else if (effort !== undefined) {
 			params.reasoning = {
 				effort: effort as NonNullable<typeof params.reasoning>["effort"],
 				summary: options?.reasoningSummary || "auto",

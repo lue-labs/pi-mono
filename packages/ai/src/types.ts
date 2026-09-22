@@ -837,6 +837,15 @@ export interface OpenAIResponsesCompat {
 	/** Whether the model supports client-executed tool search for transcript-anchored additions. Default: false. */
 	supportsToolSearch?: boolean;
 	/**
+	 * Whether the exact model accepts `configuration_update` input items for mid-conversation
+	 * reasoning-effort changes (GPT-6 Astra, standard mode). When true, Pi pins the request-level
+	 * `reasoning.effort` to the conversation's first effort and expresses later changes as
+	 * positional updates, so a level change no longer misses the whole prompt-cache prefix
+	 * (`reasoning_effort_changed`). Pi persists each response's native effort to replay history.
+	 * Not for `-pro` models or transports that only imitate the Responses shape. Default: false.
+	 */
+	supportsMidConvoEffort?: boolean;
+	/**
 	 * Prompt-cache API generation. `"legacy"` (default) sends `prompt_cache_retention`;
 	 * `"breakpoints"` (GPT-5.6+) omits the deprecated retention field and marks explicit
 	 * `prompt_cache_breakpoint` blocks on the stable system-prompt prefix and the previous
@@ -931,7 +940,14 @@ export interface AnthropicMessagesCompat {
 	allowEmptySignature?: boolean;
 	/** Whether the provider supports Anthropic strict tool schemas. Default: false; generated Anthropic models enable it explicitly. */
 	supportsStrictTools?: boolean;
-	/** Whether the exact model transport supports effort-only system messages and thinking binding controls. Default: false. */
+	/**
+	 * Whether the exact model transport supports changing reasoning effort mid-conversation
+	 * without invalidating the prompt cache. Anthropic: effort-only system messages plus thinking
+	 * binding controls. OpenAI Responses / Codex Responses: positional `configuration_update`
+	 * items with the request-level `reasoning.effort` pinned to the conversation's first effort
+	 * (GPT-6 Astra). Pi persists each response's native effort to replay history faithfully.
+	 * Default: false.
+	 */
 	supportsMidConvoEffort?: boolean;
 	/** Whether the exact model accepts system-role messages inside the conversation. When false, later system messages are folded into the top-level system prompt. Default: false. */
 	supportsMidConvoSystemMessages?: boolean;

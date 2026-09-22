@@ -63,7 +63,14 @@ import {
 } from "../utils/transcript.ts";
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
-import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
+import {
+	convertResponsesMessages,
+	convertResponsesTools,
+	effectiveRequestEffort,
+	insertConfigurationUpdates,
+	processResponsesStream,
+	resolveMidConvoEffort,
+} from "./openai-responses-shared.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 
 // ============================================================================
@@ -318,6 +325,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
 			}
+			// Recorded after onPayload so a hook that rewrites effort cannot desync replay from the wire.
+			const providerThinkingLevel = effectiveRequestEffort(model, body);
+			if (providerThinkingLevel !== undefined) output.providerThinkingLevel = providerThinkingLevel;
 			// ChatGPT Codex Responses rejects `prompt_cache_retention` ("Unsupported
 			// parameter: prompt_cache_retention") — same backend constraint as
 			// `store: true` / `max_output_tokens`. Server-side prefix caching is keyed on
@@ -606,6 +616,24 @@ export {
 	buildWebSocketHeaders as _buildWebSocketHeadersForTests,
 };
 
+/** Wire `reasoning.effort` for the requested level; `null` = disabled, `undefined` = no level requested. */
+function resolveReasoningEffort(
+	model: Model<"openai-codex-responses">,
+	options: OpenAICodexResponsesOptions | undefined,
+): string | null | undefined {
+	if (options?.reasoningEffort === undefined) return undefined;
+	const configuredEffort =
+		options.reasoningEffort === "none"
+			? model.thinkingLevelMap?.off === undefined
+				? "none"
+				: model.thinkingLevelMap.off
+			: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
+	return typeof configuredEffort === "string" &&
+		(configuredEffort.toLowerCase() === "ultra" || configuredEffort.toLowerCase() === "max")
+		? "max"
+		: configuredEffort;
+}
+
 function buildRequestBody(
 	model: Model<"openai-codex-responses">,
 	context: Context | TranscriptContext,
@@ -638,8 +666,11 @@ function buildRequestBody(
 		{ messages: normalizedContext.messages, tools: transcriptTools.requestTools },
 		deferredToolsMode !== undefined,
 	);
+	const effort = resolveReasoningEffort(model, options);
+	const midConvoEffort = resolveMidConvoEffort(model, effort);
 	const messages = convertResponsesMessages(model, normalizedContext, CODEX_TOOL_CALL_PROVIDERS, {
 		includeSystemPrompt: false,
+		midConvoEffort: midConvoEffort !== undefined,
 		grammarToolInputProperties: resolvedGrammarToolInputProperties,
 		deferredTools: toolPlacement.deferred,
 		deferredToolsMode,
@@ -699,19 +730,12 @@ function buildRequestBody(
 			: convertedTools;
 	}
 
-	if (options?.reasoningEffort !== undefined) {
-		const configuredEffort =
-			options.reasoningEffort === "none"
-				? model.thinkingLevelMap?.off === undefined
-					? "none"
-					: model.thinkingLevelMap.off
-				: (model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort);
-		const effort =
-			typeof configuredEffort === "string" &&
-			(configuredEffort.toLowerCase() === "ultra" || configuredEffort.toLowerCase() === "max")
-				? "max"
-				: configuredEffort;
-		if (effort !== null) {
+	if (midConvoEffort !== undefined) {
+		const plan = insertConfigurationUpdates(messages, midConvoEffort);
+		body.input = plan.input;
+		body.reasoning = { effort: plan.requestEffort, summary: options?.reasoningSummary ?? "auto" };
+	} else if (options?.reasoningEffort !== undefined) {
+		if (effort !== null && effort !== undefined) {
 			body.reasoning = {
 				effort,
 				summary: options.reasoningSummary ?? "auto",

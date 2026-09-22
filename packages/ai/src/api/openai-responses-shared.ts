@@ -125,6 +125,14 @@ export interface OpenAIResponsesStreamOptions {
 
 export interface ConvertResponsesMessagesOptions {
 	includeSystemPrompt?: boolean;
+	/**
+	 * Tag each replayed assistant turn from the exact same model (provider, API, and model id) with
+	 * the provider effort it was generated at (`AssistantMessage.providerThinkingLevel`) so
+	 * `insertConfigurationUpdates` can rebuild the `configuration_update` items that preceded it.
+	 * Turns from other models never seed the effort history. Only meaningful for models with
+	 * `compat.supportsMidConvoEffort`.
+	 */
+	midConvoEffort?: boolean;
 	grammarToolInputProperties?: ReadonlyMap<string, string>;
 	deferredTools?: ReadonlyMap<string, Tool>;
 	promptCacheBreakpoints?: boolean;
@@ -137,6 +145,123 @@ export interface ConvertResponsesMessagesOptions {
 }
 
 const EXPLICIT_PROMPT_CACHE_BREAKPOINT = { mode: "explicit" } as const;
+
+// =============================================================================
+// Mid-conversation reasoning effort (`configuration_update`)
+// =============================================================================
+
+/** Effort values a `configuration_update` item accepts (OpenAI GPT-6 Astra). */
+export type ConfigurationUpdateEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export function isConfigurationUpdateEffort(value: unknown): value is ConfigurationUpdateEffort {
+	return value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max";
+}
+
+/**
+ * Provider effort to persist on the response (`AssistantMessage.providerThinkingLevel`) when the
+ * model transport supports `configuration_update`; `undefined` keeps legacy request-level effort.
+ */
+export type MidConvoEffortModel = Model<"openai-responses"> | Model<"openai-codex-responses">;
+
+export function supportsMidConvoEffort(model: MidConvoEffortModel): boolean {
+	return model.compat?.supportsMidConvoEffort === true;
+}
+
+export function resolveMidConvoEffort(
+	model: MidConvoEffortModel,
+	wireEffort: string | null | undefined,
+): ConfigurationUpdateEffort | undefined {
+	return supportsMidConvoEffort(model) && isConfigurationUpdateEffort(wireEffort) ? wireEffort : undefined;
+}
+
+/**
+ * Effort the provider will actually sample the next turn at, read back from the final request:
+ * the last `configuration_update` wins, otherwise the request-level `reasoning.effort`. Used to
+ * record `providerThinkingLevel` after `onPayload` so replay reflects the wire, not our intent.
+ */
+export function effectiveRequestEffort(
+	model: MidConvoEffortModel,
+	request: { input?: unknown; reasoning?: { effort?: unknown } | null },
+): ConfigurationUpdateEffort | undefined {
+	if (!supportsMidConvoEffort(model)) return undefined;
+	let effort: unknown = request.reasoning?.effort;
+	if (Array.isArray(request.input)) {
+		for (const item of request.input) {
+			// SAFETY: `configuration_update` is not in the SDK's input union yet; we only read the
+			// two fields the wire contract defines and validate the value before trusting it.
+			const candidate = item as { type?: unknown; reasoning?: { effort?: unknown } };
+			if (candidate?.type === "configuration_update") effort = candidate.reasoning?.effort;
+		}
+	}
+	return isConfigurationUpdateEffort(effort) ? effort : undefined;
+}
+
+const assistantEffortTag = Symbol("openaiAssistantEffort");
+type TaggedResponseInputItem = ResponseInputItem & { [assistantEffortTag]?: ConfigurationUpdateEffort };
+
+interface ConfigurationUpdateItem {
+	type: "configuration_update";
+	reasoning: { effort: ConfigurationUpdateEffort };
+}
+
+export interface MidConvoEffortPlan {
+	input: ResponseInput;
+	/** Request-level `reasoning.effort`: pinned to the effort the conversation started with. */
+	requestEffort: ConfigurationUpdateEffort;
+}
+
+/**
+ * Express effort changes as positional `configuration_update` items instead of a new
+ * request-level `reasoning.effort`, which is part of the prompt-cache key and misses the whole
+ * prefix when it changes (`reasoning_effort_changed`). The request-level value stays pinned to
+ * the first replayed turn's effort; each later turn re-emits the update that preceded it, so
+ * the replayed prefix is byte-stable and only the trailing update for `activeEffort` moves.
+ * Two updates are never adjacent (the API rejects that): a change with no turn in between
+ * replaces the previous update in place.
+ */
+export function insertConfigurationUpdates(
+	input: ResponseInput,
+	activeEffort: ConfigurationUpdateEffort,
+): MidConvoEffortPlan {
+	const output: ResponseInput = [];
+	let requestEffort: ConfigurationUpdateEffort | undefined;
+	let effectiveEffort: ConfigurationUpdateEffort | undefined;
+	// SAFETY: openai@6.46 has no `configuration_update` input type yet; the item shape follows the
+	// GPT-6 Astra docs and only this function writes or inspects it, so the casts through `unknown`
+	// are the single boundary between our typed plan and the SDK's `ResponseInputItem` union.
+	const pushUpdate = (effort: ConfigurationUpdateEffort) => {
+		const last = output[output.length - 1] as unknown as ConfigurationUpdateItem | undefined;
+		if (last?.type === "configuration_update") {
+			last.reasoning = { effort };
+		} else {
+			output.push({ type: "configuration_update", reasoning: { effort } } as unknown as ResponseInputItem);
+		}
+		effectiveEffort = effort;
+	};
+	for (const item of input) {
+		// SAFETY: the tag is a module-private symbol only `convertResponsesMessages` sets; reading it
+		// on an untagged item yields `undefined`, and the spread below removes it before the wire.
+		const historicalEffort = (item as TaggedResponseInputItem)[assistantEffortTag];
+		if (historicalEffort === undefined) {
+			output.push(item);
+			continue;
+		}
+		if (requestEffort === undefined) {
+			requestEffort = historicalEffort;
+			effectiveEffort = historicalEffort;
+		} else if (historicalEffort !== effectiveEffort) {
+			pushUpdate(historicalEffort);
+		}
+		const { [assistantEffortTag]: _tag, ...untagged } = item as TaggedResponseInputItem;
+		output.push(untagged as ResponseInputItem);
+	}
+	if (requestEffort === undefined) {
+		requestEffort = activeEffort;
+		effectiveEffort = activeEffort;
+	}
+	if (effectiveEffort !== activeEffort) pushUpdate(activeEffort);
+	return { input: output, requestEffort };
+}
 
 /**
  * Mark the last breakpoint-capable content block of the previous (second-to-last)
@@ -441,6 +566,15 @@ export function convertResponsesMessages<TApi extends Api>(
 				}
 			}
 			if (output.length === 0) continue;
+			if (
+				options?.midConvoEffort &&
+				isSameModel &&
+				isConfigurationUpdateEffort(assistantMsg.providerThinkingLevel)
+			) {
+				// SAFETY: `output` is non-empty here (an assistant turn always emits at least one item); the
+				// symbol-keyed tag is stripped by `insertConfigurationUpdates` before serialization.
+				(output[0] as TaggedResponseInputItem)[assistantEffortTag] = assistantMsg.providerThinkingLevel;
+			}
 			messages.push(...output);
 		} else if (msg.role === "toolResult") {
 			const [callId] = msg.toolCallId.split("|");

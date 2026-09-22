@@ -894,6 +894,18 @@ function applyOpenAIToolSearchMetadata(model: Model<Api>): void {
 	};
 }
 
+// GPT-6 Astra (standard mode only, not -pro) accepts positional `configuration_update`
+// input items, letting the reasoning effort change mid-conversation while the cached
+// prefix stays valid. Verified on the OpenAI Responses and ChatGPT Codex transports.
+const OPENAI_MID_CONVO_EFFORT_MODEL_IDS = new Set(["gpt-6-astra"]);
+
+function applyOpenAIMidConvoEffortMetadata(model: Model<Api>): void {
+	const isOpenAIResponses = model.provider === "openai" && model.api === "openai-responses";
+	const isOpenAICodex = model.provider === "openai-codex" && model.api === "openai-codex-responses";
+	if (!(isOpenAIResponses || isOpenAICodex) || !OPENAI_MID_CONVO_EFFORT_MODEL_IDS.has(model.id)) return;
+	model.compat = { ...(model.compat as OpenAIResponsesCompat | undefined), supportsMidConvoEffort: true };
+}
+
 // Moonshot Kimi K2.6/K2.7 accept system text after the conversation starts but reject
 // tool-bearing system messages. Kimi K3 accepts both forms; Fireworks and OpenCode pass
 // its tool-bearing form through. GitHub Copilot forwards K3 text but silently drops its
@@ -3306,6 +3318,7 @@ async function generateModels() {
 		applyStrictToolCompatMetadata(model);
 		applyOpenAIGrammarToolCompatMetadata(model);
 		applyOpenAIToolSearchMetadata(model);
+		applyOpenAIMidConvoEffortMetadata(model);
 		applyOpenAICompletionsTranscriptMetadata(model);
 		applyOpenAIResponsesTranscriptMetadata(model);
 		applyOpenAIExplicitPromptCacheMetadata(model);

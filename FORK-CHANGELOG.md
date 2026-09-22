@@ -6,6 +6,10 @@ Release numbers track the fork's GitHub Packages releases, versioned in lockstep
 
 ## [Unreleased]
 
+### Added
+
+- **Cache-safe mid-conversation reasoning effort on OpenAI Responses / Codex Responses (`gpt-6-astra`).** `supportsMidConvoEffort` is now honored on `openai-responses` and `openai-codex-responses`, mirroring the Anthropic mechanism: each response records its native effort in `providerThinkingLevel`, the request-level `reasoning.effort` stays pinned to the first replayed assistant turn, and later changes are emitted as positional `configuration_update` input items (collapsed so no two are adjacent, appended trailing when the active level differs). Changing `/thinking` mid-session on Astra therefore extends the cached prefix instead of triggering `reasoning_effort_changed` (measured via clawrouter: 7680 cache-read tokens on the switched step vs 0 with request-level effort). Models without the flag, or a disabled level (`off`/`none`), keep the legacy request-level path. Generated metadata sets the flag for `gpt-6-astra` on `openai` and `openai-codex` only.
+
 ### Fixed
 
 - **`getContextUsage()` no longer double-counts the system prompt.** Under the projection model the system prompt is materialized as a real message, so `estimateProjectedContextTokens()` already counts it; the fork's additional `+ estimateSystemPromptTokens(this.systemPrompt)` was correct only against the older `estimateContextTokens(this.messages)` surface. Every reading was inflated by the full prompt estimate (~966 tokens on the default loadout), which also pushed boundary-edit and overflow checks toward compaction earlier than the real context warranted. Now returns the projection estimate directly, matching upstream.
