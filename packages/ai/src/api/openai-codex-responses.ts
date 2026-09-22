@@ -66,6 +66,7 @@ import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import {
 	convertResponsesMessages,
 	convertResponsesTools,
+	effectiveRequestEffort,
 	insertConfigurationUpdates,
 	processResponsesStream,
 	resolveMidConvoEffort,
@@ -287,14 +288,12 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 	const normalizedContext = resolveTranscript(context, model.compat?.supportsMidConvoSystemMessages);
 
 	(async () => {
-		const providerThinkingLevel = resolveMidConvoEffort(model, resolveReasoningEffort(model, options));
 		const output: AssistantMessage = {
 			role: "assistant",
 			content: [],
 			api: "openai-codex-responses" as Api,
 			provider: model.provider,
 			model: model.id,
-			...(providerThinkingLevel === undefined ? {} : { providerThinkingLevel }),
 			usage: {
 				input: 0,
 				output: 0,
@@ -326,6 +325,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
 			}
+			// Recorded after onPayload so a hook that rewrites effort cannot desync replay from the wire.
+			const providerThinkingLevel = effectiveRequestEffort(model, body);
+			if (providerThinkingLevel !== undefined) output.providerThinkingLevel = providerThinkingLevel;
 			// ChatGPT Codex Responses rejects `prompt_cache_retention` ("Unsupported
 			// parameter: prompt_cache_retention") — same backend constraint as
 			// `store: true` / `max_output_tokens`. Server-side prefix caching is keyed on

@@ -126,9 +126,10 @@ export interface OpenAIResponsesStreamOptions {
 export interface ConvertResponsesMessagesOptions {
 	includeSystemPrompt?: boolean;
 	/**
-	 * Tag each replayed same-model assistant turn with the provider effort it was generated at
-	 * (`AssistantMessage.providerThinkingLevel`) so `insertConfigurationUpdates` can rebuild the
-	 * `configuration_update` items that preceded it. Only meaningful for models with
+	 * Tag each replayed assistant turn from the exact same model (provider, API, and model id) with
+	 * the provider effort it was generated at (`AssistantMessage.providerThinkingLevel`) so
+	 * `insertConfigurationUpdates` can rebuild the `configuration_update` items that preceded it.
+	 * Turns from other models never seed the effort history. Only meaningful for models with
 	 * `compat.supportsMidConvoEffort`.
 	 */
 	midConvoEffort?: boolean;
@@ -160,12 +161,39 @@ export function isConfigurationUpdateEffort(value: unknown): value is Configurat
  * Provider effort to persist on the response (`AssistantMessage.providerThinkingLevel`) when the
  * model transport supports `configuration_update`; `undefined` keeps legacy request-level effort.
  */
-export function resolveMidConvoEffort<TApi extends Api>(
-	model: Model<TApi>,
-	wireEffort: unknown,
+export type MidConvoEffortModel = Model<"openai-responses"> | Model<"openai-codex-responses">;
+
+export function supportsMidConvoEffort(model: MidConvoEffortModel): boolean {
+	return model.compat?.supportsMidConvoEffort === true;
+}
+
+export function resolveMidConvoEffort(
+	model: MidConvoEffortModel,
+	wireEffort: string | null | undefined,
 ): ConfigurationUpdateEffort | undefined {
-	const compat = model.compat as { supportsMidConvoEffort?: boolean } | undefined;
-	return compat?.supportsMidConvoEffort === true && isConfigurationUpdateEffort(wireEffort) ? wireEffort : undefined;
+	return supportsMidConvoEffort(model) && isConfigurationUpdateEffort(wireEffort) ? wireEffort : undefined;
+}
+
+/**
+ * Effort the provider will actually sample the next turn at, read back from the final request:
+ * the last `configuration_update` wins, otherwise the request-level `reasoning.effort`. Used to
+ * record `providerThinkingLevel` after `onPayload` so replay reflects the wire, not our intent.
+ */
+export function effectiveRequestEffort(
+	model: MidConvoEffortModel,
+	request: { input?: unknown; reasoning?: { effort?: unknown } | null },
+): ConfigurationUpdateEffort | undefined {
+	if (!supportsMidConvoEffort(model)) return undefined;
+	let effort: unknown = request.reasoning?.effort;
+	if (Array.isArray(request.input)) {
+		for (const item of request.input) {
+			// SAFETY: `configuration_update` is not in the SDK's input union yet; we only read the
+			// two fields the wire contract defines and validate the value before trusting it.
+			const candidate = item as { type?: unknown; reasoning?: { effort?: unknown } };
+			if (candidate?.type === "configuration_update") effort = candidate.reasoning?.effort;
+		}
+	}
+	return isConfigurationUpdateEffort(effort) ? effort : undefined;
 }
 
 const assistantEffortTag = Symbol("openaiAssistantEffort");
@@ -540,7 +568,7 @@ export function convertResponsesMessages<TApi extends Api>(
 			if (output.length === 0) continue;
 			if (
 				options?.midConvoEffort &&
-				isSameProviderAndApi &&
+				isSameModel &&
 				isConfigurationUpdateEffort(assistantMsg.providerThinkingLevel)
 			) {
 				// SAFETY: `output` is non-empty here (an assistant turn always emits at least one item); the

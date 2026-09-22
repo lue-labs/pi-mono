@@ -28,6 +28,7 @@ import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import {
 	convertResponsesMessages,
 	convertResponsesTools,
+	effectiveRequestEffort,
 	insertConfigurationUpdates,
 	processResponsesStream,
 	resolveMidConvoEffort,
@@ -121,14 +122,12 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 
 	// Start async processing
 	(async () => {
-		const providerThinkingLevel = resolveMidConvoEffort(model, resolveReasoningEffort(model, options));
 		const output: AssistantMessage = {
 			role: "assistant",
 			content: [],
 			api: model.api as Api,
 			provider: model.provider,
 			model: model.id,
-			...(providerThinkingLevel === undefined ? {} : { providerThinkingLevel }),
 			usage: {
 				input: 0,
 				output: 0,
@@ -166,6 +165,9 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 					prompt_cache_options?: { mode?: "explicit"; ttl?: "30m" };
 				};
 			}
+			// Recorded after onPayload so a hook that rewrites effort cannot desync replay from the wire.
+			const providerThinkingLevel = effectiveRequestEffort(model, params);
+			if (providerThinkingLevel !== undefined) output.providerThinkingLevel = providerThinkingLevel;
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),

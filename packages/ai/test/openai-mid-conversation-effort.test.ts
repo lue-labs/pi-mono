@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { _buildRequestBodyForTests as buildCodexRequestBody } from "../src/api/openai-codex-responses.ts";
+import {
+	_buildRequestBodyForTests as buildCodexRequestBody,
+	stream as streamCodex,
+} from "../src/api/openai-codex-responses.ts";
 import { stream as streamOpenAIResponses } from "../src/api/openai-responses.ts";
 import { insertConfigurationUpdates } from "../src/api/openai-responses-shared.ts";
 import { getModel } from "../src/compat.ts";
@@ -38,11 +41,13 @@ function codexModel(supportsMidConvoEffort = true): Model<"openai-codex-response
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 400000,
 		maxTokens: 128000,
-		compat: supportsMidConvoEffort ? { supportsMidConvoEffort: true } : {},
+		compat: { sendChatgptAccountId: false, ...(supportsMidConvoEffort ? { supportsMidConvoEffort: true } : {}) },
 	};
 }
 
-function assistant(model: Model<any>, level?: string, callId = "call_1"): AssistantMessage {
+type ModelIdentity = Pick<Model<"openai-responses"> | Model<"openai-codex-responses">, "api" | "provider" | "id">;
+
+function assistant(model: ModelIdentity, level?: string, callId = "call_1"): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [{ type: "toolCall", id: `${callId}|fc_${callId}`, name: "bash", arguments: { command: "echo" } }],
@@ -139,13 +144,22 @@ describe("OpenAI mid-conversation effort (configuration_update)", () => {
 		expect(updates(payload)).toEqual([]);
 	});
 
-	it("ignores legacy and other-provider assistants when reconstructing history", () => {
+	it("ignores legacy, other-provider, and other-model assistants when reconstructing history", () => {
 		const model = codexModel();
 		const legacy = assistant(model);
 		const foreign = { ...assistant(model, "low", "call_2"), provider: "other" };
+		const otherModel = { ...assistant(model, "low", "call_3"), model: "gpt-5.6-terra" };
 		const payload = codexPayload(
 			model,
-			[user("one", 1), legacy, toolResult("call_1", 2), foreign, toolResult("call_2", 3)],
+			[
+				user("one", 1),
+				legacy,
+				toolResult("call_1", 2),
+				foreign,
+				toolResult("call_2", 3),
+				otherModel,
+				toolResult("call_3", 4),
+			],
 			"medium",
 		);
 		expect(payload.reasoning?.effort).toBe("medium");
@@ -206,13 +220,12 @@ describe("OpenAI mid-conversation effort (configuration_update)", () => {
 
 	it("records the native effort on the response for later replay", async () => {
 		const model = codexModel();
-		const { stream } = await import("../src/api/openai-codex-responses.ts");
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response("data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
 		);
-		const result = stream(
+		const result = streamCodex(
 			model,
-			{ systemPrompt: "sys", messages: [user("one", 1)] } as unknown as Parameters<typeof stream>[1],
+			{ systemPrompt: "sys", messages: [user("one", 1)] } as unknown as Parameters<typeof streamCodex>[1],
 			{ apiKey: "test-key", cacheRetention: "none", reasoningEffort: "xhigh", transport: "sse" },
 		);
 		for await (const event of result) {
@@ -220,6 +233,35 @@ describe("OpenAI mid-conversation effort (configuration_update)", () => {
 		}
 		const message = await result.result();
 		expect(message.providerThinkingLevel).toBe("xhigh");
+	});
+
+	it("records the effort the wire actually carries when onPayload rewrites it", async () => {
+		const model = codexModel();
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
+		);
+		const result = streamCodex(
+			model,
+			{ systemPrompt: "sys", messages: [user("one", 1)] } as unknown as Parameters<typeof streamCodex>[1],
+			{
+				apiKey: "test-key",
+				cacheRetention: "none",
+				reasoningEffort: "xhigh",
+				transport: "sse",
+				onPayload: (value) => {
+					const body = value as WirePayload;
+					return {
+						...body,
+						input: [...body.input, { type: "configuration_update", reasoning: { effort: "low" } }],
+					};
+				},
+			},
+		);
+		for await (const event of result) {
+			if (event.type === "done" || event.type === "error") break;
+		}
+		const message = await result.result();
+		expect(message.providerThinkingLevel).toBe("low");
 	});
 
 	it("generates exact model and transport gates", () => {
