@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-telemetry",
-	"version": "0.89.0",
+	"version": "0.89.1",
 	"description": "Vendor-neutral telemetry contracts and typed schema utilities for pi",
 	"type": "module",
 	"main": "./dist/index.js",
