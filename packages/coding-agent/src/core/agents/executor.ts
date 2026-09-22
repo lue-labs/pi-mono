@@ -1343,7 +1343,7 @@ async function runChild(options: RunChildOptions): Promise<AgentRunDetails> {
 		}
 
 		if (policy.includeTranscript) {
-			session.state.messages = getFilteredForkMessages(options.parentSessionManager);
+			session.adoptInheritedForkMessages(getFilteredForkMessages(options.parentSessionManager));
 		}
 
 		const inheritedSystemPrompt =

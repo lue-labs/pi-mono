@@ -234,6 +234,14 @@ describe("Token Statistics on Abort", () => {
 		});
 	});
 
+	describe.skipIf(!process.env.META_API_KEY)("Meta Provider", () => {
+		const llm = getModel("meta", "muse-spark-1.3");
+
+		it("should include token stats when aborted mid-stream", { retry: 3, timeout: 30000 }, async () => {
+			await testTokensOnAbort(llm);
+		});
+	});
+
 	describe.skipIf(!process.env.AI_GATEWAY_API_KEY)("Vercel AI Gateway Provider", () => {
 		const llm = pickModel("vercel-ai-gateway");
 

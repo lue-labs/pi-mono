@@ -9,13 +9,13 @@ import {
 } from "../src/core/context-usage.ts";
 import { hookContextUsage } from "../src/core/extensions/context-usage.ts";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
-import type { SessionEntry } from "../src/core/session-manager.ts";
+import { buildSessionProjection, type SessionEntry } from "../src/core/session-manager.ts";
 
-function messageEntry(message: AgentMessage, id = "entry"): SessionEntry {
+function messageEntry(message: AgentMessage, id = "entry", parentId: string | null = null): SessionEntry {
 	return {
 		type: "message",
 		id,
-		parentId: null,
+		parentId,
 		timestamp: "2026-05-28T00:00:00.000Z",
 		message,
 	};
@@ -95,6 +95,7 @@ function getContextUsageFor(options: {
 		messages: [],
 		sessionManager: {
 			getBranch: () => branch,
+			buildSessionProjection: () => buildSessionProjection(branch),
 		},
 		_extensionRunner: {
 			getService: (id: string) => (id === CONTEXT_USAGE_SERVICE_ID ? service : undefined),
@@ -259,7 +260,7 @@ describe("AgentSession context usage", () => {
 			systemPrompt: "x".repeat(200),
 			branch: [
 				messageEntry(assistantMessage(110), "assistant"),
-				messageEntry(userMessage("u".repeat(40)), "trailing-user"),
+				messageEntry(userMessage("u".repeat(40)), "trailing-user", "assistant"),
 			],
 			toolDefinitions: [toolDefinition("active_tool", "a".repeat(400))],
 			activeToolNames: ["active_tool"],
@@ -280,7 +281,7 @@ describe("AgentSession context usage", () => {
 	it("keeps provider usage as the public token count while merging snapshot details", () => {
 		const branch = [
 			messageEntry(assistantMessage(110), "assistant"),
-			messageEntry(userMessage("u".repeat(40)), "trailing-user"),
+			messageEntry(userMessage("u".repeat(40)), "trailing-user", "assistant"),
 		];
 		const service: ContextUsageSnapshotService = {
 			get: () => ({
@@ -297,6 +298,7 @@ describe("AgentSession context usage", () => {
 			messages: branch.filter((entry) => entry.type === "message").map((entry) => entry.message),
 			sessionManager: {
 				getBranch: () => branch,
+				buildSessionProjection: () => buildSessionProjection(branch),
 			},
 			_extensionRunner: {
 				getService: (id: string) => (id === CONTEXT_USAGE_SERVICE_ID ? service : undefined),
@@ -344,6 +346,7 @@ describe("AgentSession context usage", () => {
 			messages: branch.filter((entry) => entry.type === "message").map((entry) => entry.message),
 			sessionManager: {
 				getBranch: () => branch,
+				buildSessionProjection: () => buildSessionProjection(branch),
 			},
 			_extensionRunner: {
 				getService: (id: string) => (id === CONTEXT_USAGE_SERVICE_ID ? service : undefined),
