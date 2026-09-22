@@ -130,20 +130,14 @@ export const modelTierCandidatesPerProvider: Record<string, TierCandidateMap> = 
 		ultra: ["claude-fable-5-200k", "claude-fable-5"],
 	},
 	clawrouter: {
-		fast: ["openai/gpt-6-luna-200k", "gpt-5.6-luna", "claude-haiku-4-5"],
-		medium: [
-			"openai/gpt-6-luna-200k",
-			"gpt-5.6-terra",
-			"gpt-5.3-codex-spark",
-			"claude-sonnet-5",
-			"claude-sonnet-4-6",
-		],
+		fast: ["gpt-6-luna-200k", "gpt-5.6-luna", "claude-haiku-4-5"],
+		medium: ["gpt-6-luna-200k", "gpt-5.6-terra", "gpt-5.3-codex-spark", "claude-sonnet-5", "claude-sonnet-4-6"],
 		frontier: [
 			"claude-opus-5-5-200k",
 			"claude-opus-5-5",
 			"claude-opus-5-200k",
 			"claude-opus-5",
-			"openai/gpt-6-sol-200k",
+			"gpt-6-sol-200k",
 			"gpt-5.6-sol",
 		],
 		ultra: ["gpt-5.6", "claude-fable-5-200k", "claude-fable-5"],
@@ -158,9 +152,9 @@ const modelFamilyTierCandidatesByProvider: Record<
 		{
 			prefix: "gpt-",
 			candidates: {
-				fast: ["openai/gpt-6-luna-200k", "gpt-5.6-luna"],
-				medium: ["openai/gpt-6-luna-200k", "gpt-5.6-terra", "gpt-5.3-codex-spark"],
-				frontier: ["openai/gpt-6-sol-200k", "gpt-5.6-sol"],
+				fast: ["gpt-6-luna-200k", "gpt-5.6-luna"],
+				medium: ["gpt-6-luna-200k", "gpt-5.6-terra", "gpt-5.3-codex-spark"],
+				frontier: ["gpt-6-sol-200k", "gpt-5.6-sol"],
 				ultra: ["gpt-5.6"],
 			},
 		},
