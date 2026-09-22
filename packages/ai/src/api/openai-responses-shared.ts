@@ -198,6 +198,9 @@ export function insertConfigurationUpdates(
 	const output: ResponseInput = [];
 	let requestEffort: ConfigurationUpdateEffort | undefined;
 	let effectiveEffort: ConfigurationUpdateEffort | undefined;
+	// SAFETY: openai@6.46 has no `configuration_update` input type yet; the item shape follows the
+	// GPT-6 Astra docs and only this function writes or inspects it, so the casts through `unknown`
+	// are the single boundary between our typed plan and the SDK's `ResponseInputItem` union.
 	const pushUpdate = (effort: ConfigurationUpdateEffort) => {
 		const last = output[output.length - 1] as unknown as ConfigurationUpdateItem | undefined;
 		if (last?.type === "configuration_update") {
@@ -208,6 +211,8 @@ export function insertConfigurationUpdates(
 		effectiveEffort = effort;
 	};
 	for (const item of input) {
+		// SAFETY: the tag is a module-private symbol only `convertResponsesMessages` sets; reading it
+		// on an untagged item yields `undefined`, and the spread below removes it before the wire.
 		const historicalEffort = (item as TaggedResponseInputItem)[assistantEffortTag];
 		if (historicalEffort === undefined) {
 			output.push(item);
@@ -538,6 +543,8 @@ export function convertResponsesMessages<TApi extends Api>(
 				isSameProviderAndApi &&
 				isConfigurationUpdateEffort(assistantMsg.providerThinkingLevel)
 			) {
+				// SAFETY: `output` is non-empty here (an assistant turn always emits at least one item); the
+				// symbol-keyed tag is stripped by `insertConfigurationUpdates` before serialization.
 				(output[0] as TaggedResponseInputItem)[assistantEffortTag] = assistantMsg.providerThinkingLevel;
 			}
 			messages.push(...output);
