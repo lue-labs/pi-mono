@@ -195,10 +195,17 @@ describe("Anthropic mid-conversation effort", () => {
 
 	it("generates exact model and transport gates", () => {
 		const direct = getModel("anthropic", "claude-fable-5-1");
+		const opus55 = getModel("anthropic", "claude-opus-5-5");
 		const openRouter = getModel("openrouter", "anthropic/claude-fable-5.1");
 		const unsupported = getModel("anthropic", "claude-opus-4-8");
 		expect(direct.compat?.supportsMidConvoEffort).toBe(true);
 		expect(direct.thinkingLevelMap?.off).toBeNull();
+		expect(opus55.compat?.supportsMidConvoEffort).toBe(true);
+		expect(opus55.compat?.supportsMidConvoSystemMessages).toBe(true);
+		expect(opus55.compat?.allowedFallbackModels?.map((fallback) => fallback.model)).toEqual(["claude-opus-5"]);
+		expect(opus55.cost).toEqual({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 });
+		expect(opus55.contextWindow).toBe(1_000_000);
+		expect(opus55.maxTokens).toBe(128_000);
 		expect(openRouter.api).toBe("anthropic-messages");
 		expect(openRouter.baseUrl).toBe("https://openrouter.ai/api");
 		expect(openRouter.compat?.supportsMidConvoEffort).toBe(true);
