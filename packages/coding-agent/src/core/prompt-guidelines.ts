@@ -1,6 +1,6 @@
 /**
  * Guideline strings shared between the default system prompt (system-prompt.ts)
- * and tool promptGuidelines (bash.ts). addGuideline() deduplicates by exact
+ * and tool promptGuidelines (bash.ts). addRule() (system-prompt.ts) deduplicates by exact
  * string match, so shared rules MUST be byte-identical — import these constants
  * instead of restating the text. (Scar: the two copies drifted once, and every
  * session prompt carried both near-duplicate bullets.)

@@ -359,7 +359,7 @@ describe("buildSystemPrompt", () => {
 			const bashGuidelines = createBashToolDefinition("/repo").promptGuidelines ?? [];
 
 			// The shared rules must be the exact constants — a hand-copied variant
-			// silently defeats addGuideline's exact-string dedupe.
+			// silently defeats addRule's exact-string dedupe.
 			for (const shared of [GUIDELINE_NATIVE_FILE_TOOLS, GUIDELINE_BASH_SHELL_WORK, GUIDELINE_READ_EDIT_WRITE]) {
 				expect(bashGuidelines).toContain(shared);
 			}

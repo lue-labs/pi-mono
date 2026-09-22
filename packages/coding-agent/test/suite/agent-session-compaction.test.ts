@@ -1983,7 +1983,12 @@ describe("AgentSession compaction characterization", () => {
 		// The continuation must retain an assistant/tool-result pair, but that
 		// live result is capped to an artifact-backed preview instead of bypassing
 		// keepRecentTokens with its original 20,000-token payload.
-		expect(resumedContextTokens).toBeLessThan(2_250);
+		// The 20,000-token tool result must be capped to an artifact-backed
+		// preview; the toContain check below is the direct assertion. This bound
+		// catches the uncapped case, which would land far above 3,000. Upstream's
+		// 2,250 is unreachable on the fork — measured floor ~2,289 tokens from
+		// the structured system prompt and the fork's larger tool schemas.
+		expect(resumedContextTokens).toBeLessThan(3_000);
 		const retainedToolResult = harness.session.messages.find((message) => message.role === "toolResult");
 		expect(getMessageText(retainedToolResult)).toContain("Full text saved to .pi/tool-results/");
 		const storedToolResult = harness.sessionManager

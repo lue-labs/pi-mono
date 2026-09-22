@@ -535,7 +535,13 @@ describe("AgentSession actionable boundaries", () => {
 		await harness.session.prompt("small prompt");
 
 		expect(harness.eventsOfType("compaction_start")).toEqual([]);
-		expect(harness.session.getContextUsage()?.tokens).toBeLessThan(2_000);
+		// The real guard here is the compaction_start assertion above. This bound
+		// is a secondary growth check: the omitted assistant reported 9,801
+		// tokens, so counting it would land far above 3,000. Upstream's 2,000 is
+		// unreachable on the fork — measured floor is ~2,289 tokens (structured
+		// system prompt + the fork's larger tool schemas), so the budget was
+		// raised rather than the schemas trimmed (they are load-bearing).
+		expect(harness.session.getContextUsage()?.tokens).toBeLessThan(3_000);
 	});
 
 	it("does not trigger successful-response overflow from usage captured before a boundary edit", async () => {
@@ -572,7 +578,10 @@ describe("AgentSession actionable boundaries", () => {
 		await harness.session.prompt("large input that is later omitted");
 
 		expect(harness.eventsOfType("compaction_start")).toEqual([]);
-		expect(harness.session.getContextUsage()?.tokens).toBeLessThan(2_000);
+		// As above: compaction_start is the real guard. The pre-edit usage
+		// reported 5,100 input tokens, so counting it would exceed 3,000.
+		// Measured fork floor here is ~2,287 tokens.
+		expect(harness.session.getContextUsage()?.tokens).toBeLessThan(3_000);
 	});
 
 	it("does not trigger threshold compaction from post-edit usage captured before a later compaction", async () => {
