@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-client",
-	"version": "0.84.11",
+	"version": "0.87.0",
 	"description": "Transport-neutral client for remote pi sessions over framed CBOR bytes",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -51,8 +51,8 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@lue-labs/pi-protocol": "0.84.11",
-		"@earendil-works/chord": "0.86.0"
+		"@lue-labs/pi-protocol": "0.87.0",
+		"@earendil-works/chord": "^0.87.0"
 	},
 	"devDependencies": {
 		"shx": "0.4.0",

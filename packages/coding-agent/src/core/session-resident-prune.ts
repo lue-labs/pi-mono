@@ -85,6 +85,10 @@ function estimateEntryPayloadBytes(entry: SessionEntry): number {
 			return jsonByteLength(entry.content) + jsonByteLength(entry.details);
 		case "custom":
 			return jsonByteLength(entry.data);
+		case "context_edit":
+			// Upstream entry type (0.87.0): the replacement content is the payload;
+			// targetId is a short id and not worth measuring separately.
+			return jsonByteLength(entry.replacement);
 		case "compaction":
 			return jsonByteLength(entry.summary) + jsonByteLength(entry.details);
 		case "branch_summary":

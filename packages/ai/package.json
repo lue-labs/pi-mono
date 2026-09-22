@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-ai",
-	"version": "0.84.11",
+	"version": "0.87.0",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -68,7 +68,7 @@
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.124.0",
 		"@aws-sdk/client-bedrock-runtime": "3.1127.0",
-		"@lue-labs/pi-telemetry": "^0.84.11",
+		"@lue-labs/pi-telemetry": "^0.87.0",
 		"@google/genai": "2.21.0",
 		"@smithy/node-http-handler": "4.12.1",
 		"http-proxy-agent": "9.1.0",

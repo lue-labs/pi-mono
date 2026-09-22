@@ -9,7 +9,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@lue-labs/pi-agent-core";
 import type { AuthEvent, AuthPrompt } from "@lue-labs/pi-ai";
-import type { AssistantMessage, ImageContent, Message, Model, Usage } from "@lue-labs/pi-ai/compat";
+import {
+	type AssistantMessage,
+	type ImageContent,
+	isRetryableAssistantError,
+	type Message,
+	type Model,
+	type Usage,
+} from "@lue-labs/pi-ai/compat";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -71,7 +78,7 @@ import {
 	detectCacheMiss,
 } from "../../core/cache-stats.ts";
 import { formatCacheWarmingStatus, formatCacheWarmingUsage } from "../../core/cache-warmer.ts";
-import { recordCrash, takeUnnotifiedCrash } from "../../core/crash-log.ts";
+import { findExtensionStackMatches, recordCrash, takeUnnotifiedCrash } from "../../core/crash-log.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "../../core/defaults.ts";
 import type {
 	AutocompleteProviderFactory,
@@ -91,7 +98,7 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
-import { createCompactionSummaryMessage } from "../../core/messages.ts";
+import { createCompactionSummaryMessage, createCustomMessage } from "../../core/messages.ts";
 import {
 	defaultModelPerProvider,
 	findExactModelReferenceMatch,
@@ -282,6 +289,23 @@ function isDeadTerminalError(error: unknown): boolean {
 	return code !== undefined && DEAD_TERMINAL_ERROR_CODES.has(code);
 }
 
+export function formatCrashExtensionHint(extensionMatches: readonly string[] | undefined): string | undefined {
+	const matches = Array.isArray(extensionMatches)
+		? extensionMatches.filter((match): match is string => typeof match === "string" && match.length > 0)
+		: [];
+	if (matches.length === 0) return undefined;
+	const quoted = matches.map((match) => `\`${match}\``);
+	const labels =
+		quoted.length === 1
+			? quoted[0]
+			: quoted.length === 2
+				? quoted.join(" and ")
+				: `${quoted.slice(0, -1).join(", ")}, and ${quoted[quoted.length - 1]}`;
+	const noun = matches.length === 1 ? "extension" : "extensions";
+	const pronoun = matches.length === 1 ? "it" : "them";
+	return `A stack frame came from loaded ${noun} ${labels}, which may be involved. Try disabling ${pronoun} with \`${APP_NAME} config\`, or run \`${APP_NAME} -ne\` to confirm.`;
+}
+
 const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
 	"Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage. Disable this warning in /settings.";
 
@@ -461,6 +485,7 @@ export class InteractiveMode {
 
 	// Streaming message tracking
 	private streamingComponent: AssistantMessageComponent | undefined = undefined;
+	private readonly entriesRenderedByBoundaryCompaction = new Set<string>();
 	private streamingMessage: AssistantMessage | undefined = undefined;
 
 	// Tool execution tracking: toolCallId -> component
@@ -2146,12 +2171,29 @@ export class InteractiveMode {
 	private async handleFatalRuntimeError(prefix: string, error: unknown): Promise<never> {
 		const message = error instanceof Error ? error.message : String(error);
 		this.showError(`${prefix}: ${message}`);
+		const extensionHint = this.getCrashExtensionHint(error);
+		if (extensionHint) {
+			this.chatContainer.addChild(new Text(theme.fg("warning", extensionHint), this.outputPad, 0));
+		}
 		if (this.recordCrash("fatal_error", error)) {
 			this.chatContainer.addChild(new Text(theme.fg("muted", this.crashReportInstructions()), this.outputPad, 0));
 		}
 		stopThemeWatcher();
 		this.stop("transcript");
 		process.exit(1);
+	}
+
+	private getCrashExtensionHint(error: unknown): string | undefined {
+		try {
+			return formatCrashExtensionHint(
+				findExtensionStackMatches(
+					error instanceof Error ? error.stack : undefined,
+					this.session.resourceLoader.getExtensions().extensions,
+				),
+			);
+		} catch {
+			return undefined;
+		}
 	}
 
 	/** Persist a crash so the next start can point the user at `/bug`. Returns false when nothing was written. */
@@ -2186,6 +2228,12 @@ export class InteractiveMode {
 			),
 		);
 		this.ui.requestRender();
+	}
+
+	private maybeSuggestBugReport(message: AssistantMessage): void {
+		if (message.stopReason !== "error" || isRetryableAssistantError(message)) return;
+		if (/\b(?:abort(?:ed)?|cancel(?:l?ed)?)\b/i.test(message.errorMessage ?? "")) return;
+		this.suggestBugReport();
 	}
 
 	private renderCurrentSessionState(): void {
@@ -3662,11 +3710,46 @@ export class InteractiveMode {
 				break;
 
 			case "entry_appended":
+				if (this.entriesRenderedByBoundaryCompaction.delete(event.entry.id)) break;
 				if (event.entry.type === "custom") {
 					this.addCustomEntryToChat(event.entry);
 					this.ui.requestRender();
 				} else if (event.entry.type === "usage" && event.entry.kind === "cache_warm") {
 					this.addCacheWarmingUsage(event.entry);
+					this.ui.requestRender();
+				} else if (event.entry.type === "custom_message" && event.entry.display) {
+					this.addMessageToChat(
+						createCustomMessage(
+							event.entry.customType,
+							event.entry.content,
+							event.entry.display,
+							event.entry.details,
+							event.entry.timestamp,
+						),
+					);
+					this.ui.requestRender();
+				} else if (event.entry.type === "compaction") {
+					const entries = this.sessionManager.buildContextEntries();
+					if (entries[0]?.id !== event.entry.id) break;
+					this.chatContainer.clear();
+					const branch = this.sessionManager.getBranch();
+					const compactionIndex = branch.findIndex((entry) => entry.id === event.entry.id);
+					const entriesAfterCompaction = new Set(branch.slice(compactionIndex + 1).map((entry) => entry.id));
+					const retainedEntries = entries.slice(1);
+					this.renderSessionEntries(retainedEntries.filter((entry) => !entriesAfterCompaction.has(entry.id)));
+					this.addMessageToChat(
+						createCompactionSummaryMessage(event.entry.summary, event.entry.tokensBefore, event.entry.timestamp),
+					);
+					if (event.entry.usage) {
+						this.addCompactionCostNotice({
+							type: "compaction_cost",
+							kind: "compaction",
+							usage: event.entry.usage,
+						});
+					}
+					this.renderSessionEntries(retainedEntries.filter((entry) => entriesAfterCompaction.has(entry.id)));
+					for (const entryId of entriesAfterCompaction) this.entriesRenderedByBoundaryCompaction.add(entryId);
+					this.footer.invalidate();
 					this.ui.requestRender();
 				}
 				break;
@@ -3803,7 +3886,7 @@ export class InteractiveMode {
 							this.pendingTools.clear();
 						}
 						this.pendingTools.clear();
-						if (this.streamingMessage.stopReason === "error") this.suggestBugReport();
+						this.maybeSuggestBugReport(this.streamingMessage);
 					} else {
 						// Args are now complete - trigger diff computation for edit tools
 						for (const [, component] of this.pendingTools.entries()) {
@@ -3979,7 +4062,6 @@ export class InteractiveMode {
 				// Show error only on final failure (success shows normal response)
 				if (!event.success) {
 					this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
-					this.suggestBugReport();
 				}
 				this.ui.requestRender();
 				break;
@@ -4583,6 +4665,8 @@ export class InteractiveMode {
 		} catch {}
 		console.error(`${APP_NAME} exiting due to uncaughtException:`);
 		console.error(error);
+		const extensionHint = this.getCrashExtensionHint(error);
+		if (extensionHint) console.error(`\n${extensionHint}`);
 		if (this.recordCrash("uncaught_exception", error)) {
 			console.error(`\n${this.crashReportInstructions()}`);
 		}

@@ -130,7 +130,7 @@ function buildRules(
 		}
 	} else if (hasBash && (hasGrep || hasGlob || hasLs)) {
 		// Shared with bash.ts promptGuidelines via prompt-guidelines.ts so
-		// addGuideline deduplicates by exact string match.
+		// addRule deduplicates by exact string match.
 		addRule(GUIDELINE_NATIVE_FILE_TOOLS);
 		addRule(GUIDELINE_BASH_SHELL_WORK);
 		addRule(GUIDELINE_READ_EDIT_WRITE);

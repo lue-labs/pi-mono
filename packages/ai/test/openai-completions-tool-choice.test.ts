@@ -1,8 +1,8 @@
 import { Type } from "typebox";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { convertMessages, stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
-import { getModel, normalizeContext, streamSimple } from "../src/compat.ts";
-import type { AssistantMessage, Model, Tool, ToolResultMessage } from "../src/types.ts";
+import { getModel, normalizeContext, stream, streamSimple } from "../src/compat.ts";
+import type { AssistantMessage, Model, SimpleStreamOptions, Tool, ToolResultMessage } from "../src/types.ts";
 import { allOf, hasCompatFlag, isReasoning, type ModelPredicate, pickModel, usesApi } from "./helpers/models.ts";
 
 const opencodeKimiThinking: ModelPredicate = (model) => {
@@ -79,6 +79,35 @@ const localOpenAICompletionsModel = {
 	contextWindow: 128000,
 	maxTokens: 8192,
 } satisfies Omit<Model<"openai-completions">, "id" | "name" | "compat">;
+
+type CapturedParams = {
+	chat_template_kwargs?: Record<string, unknown>;
+	thinking?: unknown;
+	reasoning_effort?: string;
+};
+
+async function captureSimpleParams(
+	model: Model<"openai-completions">,
+	reasoning?: SimpleStreamOptions["reasoning"],
+): Promise<CapturedParams> {
+	let payload: unknown;
+
+	await streamSimple(
+		model,
+		{
+			messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+		},
+		{
+			apiKey: "test",
+			reasoning,
+			onPayload: (params: unknown) => {
+				payload = params;
+			},
+		},
+	).result();
+
+	return (payload ?? mockState.lastParams) as CapturedParams;
+}
 
 describe("openai-completions tool_choice", () => {
 	beforeEach(() => {
@@ -224,8 +253,84 @@ describe("openai-completions tool_choice", () => {
 		expect("strict" in (tool ?? {})).toBe(false);
 	});
 
-	it("maps groq qwen3 reasoning levels to default reasoning_effort", async () => {
-		const model = pickModel("groq", (m) => m.id.includes("qwen3"));
+	it("defaults unknown OpenAI-compatible endpoints to non-strict tools", async () => {
+		// Regression test for #9816.
+		const model = {
+			...localOpenAICompletionsModel,
+			id: "local-model",
+			name: "Local Model",
+		} satisfies Model<"openai-completions">;
+		const tool: Tool = {
+			name: "ping",
+			description: "Ping tool",
+			parameters: Type.Object({
+				required: Type.String(),
+				optional: Type.Optional(Type.String()),
+			}),
+			constrainedSampling: { type: "json_schema", strict: "prefer" },
+		};
+		let payload: unknown;
+
+		await streamSimple(
+			model,
+			{
+				messages: [{ role: "user", content: "Call ping", timestamp: Date.now() }],
+				tools: [tool],
+			},
+			{
+				apiKey: "test",
+				onPayload: (params: unknown) => {
+					payload = params;
+				},
+			},
+		).result();
+
+		const params = (payload ?? mockState.lastParams) as {
+			tools?: Array<{ function?: { strict?: boolean; parameters?: { required?: string[] } } }>;
+		};
+		const functionTool = params.tools?.[0]?.function;
+		expect(functionTool).not.toHaveProperty("strict");
+		expect(functionTool?.parameters?.required).toEqual(["required"]);
+	});
+
+	it("preserves strict tools for capable built-in Chat Completions models", async () => {
+		const model = getModel("groq", "openai/gpt-oss-20b")!;
+		expect(model.compat?.supportsStrictMode).toBe(true);
+		const tool: Tool = {
+			name: "ping",
+			description: "Ping tool",
+			parameters: Type.Object({
+				required: Type.String(),
+				optional: Type.Optional(Type.String()),
+			}),
+			constrainedSampling: { type: "json_schema", strict: "prefer" },
+		};
+		let payload: unknown;
+
+		await streamSimple(
+			model,
+			{
+				messages: [{ role: "user", content: "Call ping", timestamp: Date.now() }],
+				tools: [tool],
+			},
+			{
+				apiKey: "test",
+				onPayload: (params: unknown) => {
+					payload = params;
+				},
+			},
+		).result();
+
+		const params = (payload ?? mockState.lastParams) as {
+			tools?: Array<{ function?: { strict?: boolean; parameters?: { required?: string[] } } }>;
+		};
+		const functionTool = params.tools?.[0]?.function;
+		expect(functionTool?.strict).toBe(true);
+		expect(functionTool?.parameters?.required).toEqual(["required", "optional"]);
+	});
+
+	it("maps Groq Qwen reasoning levels to default reasoning_effort", async () => {
+		const model = getModel("groq", "qwen/qwen3.6-27b")!;
 		let payload: unknown;
 
 		await streamSimple(
@@ -1764,5 +1869,167 @@ describe("openai-completions tool_choice", () => {
 		};
 		expect(params.reasoning).toEqual({ effort: "high" });
 		expect(params.reasoning_effort).toBeUndefined();
+	});
+
+	it("uses configurable chat template boolean thinking kwargs", async () => {
+		const model = {
+			...localOpenAICompletionsModel,
+			id: "deepseek-ai/DeepSeek-V3.1",
+			name: "DeepSeek V3.1 via vLLM",
+			compat: {
+				thinkingFormat: "chat-template",
+				supportsReasoningEffort: false,
+				chatTemplateKwargs: { thinking: { $var: "thinking.enabled" } },
+			},
+		} satisfies Model<"openai-completions">;
+
+		for (const testCase of [
+			{ reasoning: "high" as const, expected: true },
+			{ reasoning: undefined, expected: false },
+		]) {
+			const params = await captureSimpleParams(model, testCase.reasoning);
+
+			expect(params.chat_template_kwargs).toEqual({ thinking: testCase.expected });
+			expect(params.thinking).toBeUndefined();
+			expect(params.reasoning_effort).toBeUndefined();
+		}
+	});
+
+	it("uses qwen chat template thinking kwargs", async () => {
+		const model = {
+			...localOpenAICompletionsModel,
+			id: "Qwen/Qwen3-Coder",
+			name: "Qwen3 Coder via vLLM",
+			compat: {
+				thinkingFormat: "qwen-chat-template",
+				supportsReasoningEffort: false,
+			},
+		} satisfies Model<"openai-completions">;
+
+		for (const testCase of [
+			{ reasoning: "high" as const, expected: true },
+			{ reasoning: undefined, expected: false },
+		]) {
+			const params = await captureSimpleParams(model, testCase.reasoning);
+
+			expect(params.chat_template_kwargs).toEqual({
+				enable_thinking: testCase.expected,
+				preserve_thinking: true,
+			});
+			expect(params.reasoning_effort).toBeUndefined();
+		}
+	});
+
+	it("uses configurable chat template effort kwargs with static kwargs", async () => {
+		const model = {
+			...localOpenAICompletionsModel,
+			id: "unsloth/gpt-oss-120b-GGUF",
+			name: "GPT OSS via vLLM",
+			thinkingLevelMap: { xhigh: "max" },
+			compat: {
+				thinkingFormat: "chat-template",
+				supportsReasoningEffort: false,
+				chatTemplateKwargs: {
+					preserve_thinking: true,
+					reasoning_effort: { $var: "thinking.effort", omitWhenOff: true },
+				},
+			},
+		} satisfies Model<"openai-completions">;
+
+		const params = await captureSimpleParams(model, "xhigh");
+
+		expect(params.chat_template_kwargs).toEqual({ preserve_thinking: true, reasoning_effort: "max" });
+		expect(params.reasoning_effort).toBeUndefined();
+	});
+
+	it("uses Ant Ling compatibility metadata", async () => {
+		const model = getModel("ant-ling", "Ring-2.6-1T")!;
+		let payload: unknown;
+
+		expect(model.compat).toMatchObject({
+			supportsStore: false,
+			supportsDeveloperRole: false,
+			supportsReasoningEffort: false,
+			maxTokensField: "max_tokens",
+			thinkingFormat: "ant-ling",
+			supportsLongCacheRetention: false,
+		});
+		expect(model.compat?.supportsStrictMode).toBe(true);
+		expect(model.compat?.requiresReasoningContentOnAssistantMessages).toBeUndefined();
+
+		await streamSimple(
+			model,
+			{
+				systemPrompt: "Follow instructions.",
+				messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test",
+				maxTokens: 123,
+				reasoning: "high",
+				cacheRetention: "long",
+				sessionId: "ant-ling-session",
+				onPayload: (params: unknown) => {
+					payload = params;
+				},
+			},
+		).result();
+
+		const params = (payload ?? mockState.lastParams) as {
+			max_tokens?: number;
+			max_completion_tokens?: number;
+			messages?: Array<{ role?: string }>;
+			reasoning?: { effort?: string };
+			reasoning_effort?: string;
+			store?: boolean;
+			prompt_cache_key?: string;
+			prompt_cache_retention?: string;
+		};
+		expect(params.max_tokens).toBe(123);
+		expect(params.max_completion_tokens).toBeUndefined();
+		expect(params.messages?.[0]?.role).toBe("system");
+		expect(params.reasoning).toEqual({ effort: "high" });
+		expect(params.reasoning_effort).toBeUndefined();
+		expect(params.store).toBeUndefined();
+		expect(params.prompt_cache_key).toBeUndefined();
+		expect(params.prompt_cache_retention).toBeUndefined();
+	});
+
+	it("omits Ant Ling reasoning for unmapped direct reasoning efforts and non-reasoning models", async () => {
+		const ring = getModel("ant-ling", "Ring-2.6-1T")!;
+		let payload: unknown;
+
+		await stream(
+			ring,
+			{
+				messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test",
+				reasoningEffort: "medium",
+				onPayload: (params: unknown) => {
+					payload = params;
+				},
+			},
+		).result();
+
+		expect((payload ?? mockState.lastParams) as { reasoning?: unknown }).not.toHaveProperty("reasoning");
+
+		const ling = getModel("ant-ling", "Ling-2.6-flash")!;
+		await streamSimple(
+			ling,
+			{
+				messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test",
+				reasoning: "high",
+				onPayload: (params: unknown) => {
+					payload = params;
+				},
+			},
+		).result();
+
+		expect((payload ?? mockState.lastParams) as { reasoning?: unknown }).not.toHaveProperty("reasoning");
 	});
 });

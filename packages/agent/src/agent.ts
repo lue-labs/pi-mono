@@ -23,11 +23,13 @@ import type {
 	AgentMessage,
 	AgentState,
 	AgentTool,
+	AgentTurnContext,
 	BeforeToolCallContext,
 	BeforeToolCallResult,
+	FinishTurn,
 	PrepareNextTurnContext,
+	PrepareRequest,
 	QueueMode,
-	ShouldStopAfterTurnContext,
 	StreamFn,
 	ToolExecutionMode,
 } from "./types.ts";
@@ -120,7 +122,9 @@ export interface AgentOptions {
 	onResponse?: SimpleStreamOptions["onResponse"];
 	beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
-	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext, signal?: AbortSignal) => boolean | Promise<boolean>;
+	shouldStopAfterTurn?: (context: AgentTurnContext, signal?: AbortSignal) => boolean | Promise<boolean>;
+	finishTurn?: FinishTurn;
+	prepareRequest?: PrepareRequest;
 	prepareNextTurn?: (
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
@@ -161,19 +165,16 @@ class PendingMessageQueue {
 		return this.messages.pop();
 	}
 
-	drain(): AgentMessage[] {
-		if (this.mode === "all") {
-			const drained = this.messages.slice();
-			this.messages = [];
-			return drained;
-		}
-
+	peek(): AgentMessage[] {
+		if (this.mode === "all") return this.messages.slice();
 		const first = this.messages[0];
-		if (!first) {
-			return [];
-		}
-		this.messages = this.messages.slice(1);
-		return [first];
+		return first ? [first] : [];
+	}
+
+	drain(): AgentMessage[] {
+		const drained = this.peek();
+		this.messages = this.messages.slice(drained.length);
+		return drained;
 	}
 
 	prepend(messages: AgentMessage[]): void {
@@ -218,10 +219,9 @@ export class Agent {
 		signal?: AbortSignal,
 	) => Promise<AfterToolCallResult | undefined>;
 	/** Graceful stop hook checked after each turn. See {@link AgentLoopConfig.shouldStopAfterTurn}. */
-	public shouldStopAfterTurn?: (
-		context: ShouldStopAfterTurnContext,
-		signal?: AbortSignal,
-	) => boolean | Promise<boolean>;
+	public shouldStopAfterTurn?: (context: AgentTurnContext, signal?: AbortSignal) => boolean | Promise<boolean>;
+	public finishTurn?: FinishTurn;
+	public prepareRequest?: PrepareRequest;
 	public prepareNextTurn?: (
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
@@ -258,6 +258,8 @@ export class Agent {
 		this.beforeToolCall = runtimeOptions.beforeToolCall;
 		this.afterToolCall = runtimeOptions.afterToolCall;
 		this.shouldStopAfterTurn = runtimeOptions.shouldStopAfterTurn;
+		this.finishTurn = runtimeOptions.finishTurn;
+		this.prepareRequest = runtimeOptions.prepareRequest;
 		this.prepareNextTurn = runtimeOptions.prepareNextTurn;
 		this.prepareNextTurnWithContext = runtimeOptions.prepareNextTurnWithContext;
 		this.steeringQueue = new PendingMessageQueue(runtimeOptions.steeringMode ?? "one-at-a-time");
@@ -383,6 +385,12 @@ export class Agent {
 				throw error;
 			}
 		}
+	}
+
+	/** Preview the messages selected for the next turn without consuming them. */
+	peekQueuedMessages(): AgentMessage[] {
+		const steering = this.steeringQueue.peek();
+		return steering.length > 0 ? steering : this.followUpQueue.peek();
 	}
 
 	/** Active abort signal for the current run, if any. */
@@ -554,6 +562,8 @@ export class Agent {
 			shouldStopAfterTurn: shouldStopAfterTurn
 				? async (context) => await shouldStopAfterTurn(context, this.signal)
 				: undefined,
+			finishTurn: this.finishTurn,
+			prepareRequest: this.prepareRequest,
 			prepareNextTurn:
 				this.prepareNextTurnWithContext || this.prepareNextTurn
 					? async (context) => {

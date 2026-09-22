@@ -97,12 +97,15 @@ describe("AgentSession tool result images", () => {
 		expect(height).toBeLessThanOrEqual(2000);
 	});
 
-	it("honors images.autoResize being disabled", async () => {
+	it("honors images.autoResize being disabled and passes the model resize profile", async () => {
+		const resizeOptions = { maxWidth: 1200, maxHeight: 1000, maxBytes: 500000, jpegQuality: 70 };
 		const harness = await createHarness({
 			tools: [screenshotTool],
 			settings: { images: { autoResize: false } },
 		});
 		harnesses.push(harness);
+		if (!harness.session.model) throw new Error("Expected a model");
+		harness.session.model.inputLimits = { images: { resize: resizeOptions } };
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("screenshot", {})], { stopReason: "toolUse" }),
 			fauxAssistantMessage("done"),
@@ -113,6 +116,9 @@ describe("AgentSession tool result images", () => {
 		const images = getToolResultImages(harness);
 		expect(images).toHaveLength(1);
 		expect(images[0].data).toBe(OVERSIZED_PNG_BASE64);
-		expect(normalizeToolResultImages).toHaveBeenCalledWith(expect.any(Array), { autoResizeImages: false });
+		expect(normalizeToolResultImages).toHaveBeenCalledWith(expect.any(Array), {
+			autoResizeImages: false,
+			resizeOptions,
+		});
 	});
 });
