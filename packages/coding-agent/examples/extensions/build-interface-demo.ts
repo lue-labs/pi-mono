@@ -84,7 +84,7 @@ export default function buildInterfaceDemoExtension(pi: ExtensionAPI) {
 	// Register the tool itself so the agent can also call it. The harness here
 	// is the deterministic test fixture; swap for `createLLMHarness(...)` once
 	// a harness model is configured (see build-interface-llm.ts).
-	pi.registerTool(createBuildInterfaceToolDefinition({ harness: exampleQuestionsHarness }));
+	pi.registerTool(createBuildInterfaceToolDefinition({ harness: exampleQuestionsHarness, events: pi.events }));
 
 	// Slash commands let you fire the tool's body directly without going
 	// through an LLM round-trip — handy for trying the renderer interactively.

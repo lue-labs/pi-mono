@@ -1,6 +1,7 @@
 import type { Component } from "@lue-labs/pi-tui";
 import { Check } from "typebox/value";
 import { describe, expect, it } from "vitest";
+import type { EventBus } from "../../src/core/event-bus.ts";
 import type { ExtensionContext } from "../../src/core/extensions/types.ts";
 import {
 	type BuildInterfaceInput,
@@ -224,6 +225,20 @@ function mockUIContext(drive: (component: Component) => void): ExtensionContext 
 	return { hasUI: true, ui } as unknown as ExtensionContext;
 }
 
+/** Captures emissions in order so tests can assert the blocked/unblocked pair. */
+function recordingEventBus(): { bus: EventBus; emitted: Array<[string, unknown]> } {
+	const emitted: Array<[string, unknown]> = [];
+	return {
+		emitted,
+		bus: {
+			emit: (channel, data) => {
+				emitted.push([channel, data]);
+			},
+			on: () => () => {},
+		},
+	};
+}
+
 describe("executeBuildInterface", () => {
 	const questionsInput: BuildInterfaceInput = {
 		intent: "ask retry strategy",
@@ -271,6 +286,81 @@ describe("executeBuildInterface", () => {
 		await expect(executeBuildInterface(questionsInput, exampleQuestionsHarness, ctx)).rejects.toThrow(
 			/requires an interactive UI/,
 		);
+	});
+
+	it("brackets the mounted renderer with herdr:blocked", async () => {
+		const events = recordingEventBus();
+		const ctx = mockUIContext((component) => {
+			component.handleInput?.("\r");
+		});
+
+		await executeBuildInterface(questionsInput, exampleQuestionsHarness, ctx, undefined, events.bus);
+
+		expect(events.emitted).toEqual([
+			["herdr:blocked", { active: true, label: questionsInput.intent }],
+			["herdr:blocked", { active: false }],
+		]);
+	});
+
+	it("unblocks when the user cancels", async () => {
+		const events = recordingEventBus();
+		const ctx = mockUIContext((component) => {
+			component.handleInput?.("\x1b"); // esc
+		});
+
+		await executeBuildInterface(questionsInput, exampleQuestionsHarness, ctx, undefined, events.bus);
+
+		expect(events.emitted.at(-1)).toEqual(["herdr:blocked", { active: false }]);
+	});
+
+	// A refcount that only decrements on the happy path leaves the pane blocked
+	// for the rest of the session, with nothing on screen to explain it.
+	it("unblocks when the renderer throws", async () => {
+		const events = recordingEventBus();
+		const ctx = {
+			hasUI: true,
+			ui: {
+				custom: () => Promise.reject(new Error("renderer exploded")),
+			},
+		} as unknown as ExtensionContext;
+
+		await expect(
+			executeBuildInterface(questionsInput, exampleQuestionsHarness, ctx, undefined, events.bus),
+		).rejects.toThrow(/exploded/);
+		expect(events.emitted.at(-1)).toEqual(["herdr:blocked", { active: false }]);
+	});
+
+	it("never claims blocked when the harness fails before anything is mounted", async () => {
+		const events = recordingEventBus();
+		const ctx = mockUIContext(() => {});
+		const failing = () => Promise.reject(new Error("harness down"));
+
+		await expect(executeBuildInterface(questionsInput, failing, ctx, undefined, events.bus)).rejects.toThrow(
+			/harness down/,
+		);
+		expect(events.emitted).toEqual([]);
+	});
+
+	it("truncates a long intent to a glanceable pane label", async () => {
+		const events = recordingEventBus();
+		const ctx = mockUIContext((component) => {
+			component.handleInput?.("\r");
+		});
+		const intent = "a".repeat(200);
+
+		await executeBuildInterface({ ...questionsInput, intent }, exampleQuestionsHarness, ctx, undefined, events.bus);
+
+		const label = (events.emitted[0]?.[1] as { label: string }).label;
+		expect(label).toHaveLength(80);
+		expect(label.endsWith("…")).toBe(true);
+	});
+
+	it("works without an event bus", async () => {
+		const ctx = mockUIContext((component) => {
+			component.handleInput?.("\r");
+		});
+		const result = await executeBuildInterface(questionsInput, exampleQuestionsHarness, ctx);
+		expect(result.details.outcome.status).toBe("submitted");
 	});
 
 	it("respects a pre-aborted signal", async () => {
