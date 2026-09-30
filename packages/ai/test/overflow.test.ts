@@ -35,6 +35,19 @@ describe("isContextOverflow", () => {
 		expect(isContextOverflow(message, 32768)).toBe(true);
 	});
 
+	it("detects Anthropic input-plus-max_tokens context limit errors", () => {
+		// Returned when the prompt fits but prompt + max_tokens does not; it is context
+		// pressure and must route to compaction like "prompt is too long".
+		expect(
+			isContextOverflow(
+				createErrorMessage(
+					"input length and `max_tokens` exceed context limit: 196721 + 8000 > 200000, decrease input length or `max_tokens` and try again",
+					"anthropic",
+				),
+			),
+		).toBe(true);
+	});
+
 	it("detects z.ai prompt-too-long errors", () => {
 		// Regression for #9805.
 		const message = createErrorMessage('400 {"code":"1261","message":"Prompt too long"}', "zai");

@@ -249,6 +249,47 @@ describe("generateSummary reasoning options", () => {
 		expect(completeSimpleMock.mock.calls[0][2]).not.toHaveProperty("reasoning");
 	});
 
+	it("disables parent xhigh reasoning for compaction summaries", async () => {
+		// Re-port of fork #509, dropped by the 0.99.0 upstream re-base (c059384c9). Adaptive
+		// Claude at xhigh/max has no budget cap, so a bounded summary request (0.8 x
+		// reserveTokens, further clamped near the window) can be consumed entirely by
+		// thinking and return stopReason "length": "generation hit the token cap".
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: messages,
+			turnPrefixMessages: [],
+			isSplitTurn: false,
+			tokensBefore: 190000,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 10000, keepRecentTokens: 20000 },
+		};
+
+		await compact(preparation, createModel(true), "test-key", undefined, undefined, undefined, "xhigh");
+
+		expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+		expect(completeSimpleMock.mock.calls[0][2]).not.toHaveProperty("reasoning");
+		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({ maxTokens: 8000 });
+	});
+
+	it("disables parent xhigh reasoning for split-turn compaction summaries", async () => {
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: messages,
+			turnPrefixMessages: messages,
+			isSplitTurn: true,
+			tokensBefore: 190000,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 10000, keepRecentTokens: 20000 },
+		};
+
+		await compact(preparation, createModel(true), "test-key", undefined, undefined, undefined, "xhigh");
+
+		expect(completeSimpleMock).toHaveBeenCalledTimes(2);
+		for (const call of completeSimpleMock.mock.calls) {
+			expect(call[2]).not.toHaveProperty("reasoning");
+		}
+	});
+
 	it("leaves Anthropic refusal fallback handling to pi-ai model metadata", async () => {
 		await generateSummary(
 			messages,

@@ -12,10 +12,19 @@ import { estimateContextTokens } from "../utils/estimate.ts";
 const CONTEXT_SAFETY_TOKENS = 4096;
 const MIN_MAX_TOKENS = 1;
 
+/**
+ * Clamp the output cap to the room the context window leaves. When the estimate leaves less
+ * than {@link MIN_ANSWER_TOKENS}, the caller's cap is returned unchanged: a cap of 1 (the old
+ * floor) can only produce a 1-token `length` stop, which the session then "recovers" by
+ * compacting with the same clamp, so the loop can never succeed. Letting the provider
+ * adjudicate yields either a detectable context-overflow error (real window) or a normal
+ * response (a route whose real window is wider than the catalog entry).
+ */
 export function clampMaxTokensToContext(model: Model<Api>, context: TranscriptContext, maxTokens: number): number {
 	if (model.contextWindow <= 0) return Math.max(MIN_MAX_TOKENS, maxTokens);
 	const available = model.contextWindow - estimateContextTokens(context).tokens - CONTEXT_SAFETY_TOKENS;
-	return Math.min(maxTokens, Math.max(MIN_MAX_TOKENS, available));
+	if (available < MIN_ANSWER_TOKENS) return Math.max(MIN_MAX_TOKENS, maxTokens);
+	return Math.min(maxTokens, available);
 }
 
 export function buildBaseOptions(

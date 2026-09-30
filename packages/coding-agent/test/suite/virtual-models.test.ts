@@ -391,7 +391,9 @@ describe("AgentSession virtual models", () => {
 
 		expect(result.summary).toContain("summary");
 		expect(reasons()).toEqual(["user", "user", "direct"]);
-		// The router's thinking level applies, and the output budget respects the large model's 4000 tokens.
-		expect(summaries).toEqual(["large:low:4000", "large:low:4000"]);
+		// Fork: the routed model applies and the output budget respects its 4000 tokens, but
+		// persisted compaction checkpoints always request reasoning off (fork #509, re-ported
+		// after the 0.99.0 re-base) so the parent's effort cannot consume the summary budget.
+		expect(summaries).toEqual(["large:off:4000", "large:off:4000"]);
 	});
 });

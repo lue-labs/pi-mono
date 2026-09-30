@@ -9,6 +9,7 @@ import type { AssistantMessage } from "../types.ts";
  * Provider-specific patterns (with example error messages):
  *
  * - Anthropic: "prompt is too long: 213462 tokens > 200000 maximum"
+ * - Anthropic: "input length and `max_tokens` exceed context limit: 196721 + 8000 > 200000, decrease input length or `max_tokens` and try again"
  * - Anthropic: "413 {\"error\":{\"type\":\"request_too_large\",\"message\":\"Request exceeds the maximum size\"}}"
  * - OpenAI: "Your input exceeds the context window of this model"
  * - OpenAI/LiteLLM: "Requested token count exceeds the model's maximum context length of 131072 tokens"
@@ -37,6 +38,7 @@ import type { AssistantMessage } from "../types.ts";
 const OVERFLOW_PATTERNS = [
 	/prompt (?:is )?too long/i, // Anthropic and z.ai token overflow
 	/request_too_large/i, // Anthropic request byte-size overflow (HTTP 413)
+	/input length and .?max_tokens.? exceed context limit/i, // Anthropic prompt + max_tokens overflow
 	/input is too long for requested model/i, // Amazon Bedrock
 	/exceeds the context window/i, // OpenAI (Completions & Responses API)
 	/exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))/i, // OpenAI-compatible proxies (LiteLLM)

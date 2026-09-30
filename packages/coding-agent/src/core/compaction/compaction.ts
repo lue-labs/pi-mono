@@ -960,6 +960,12 @@ Only summarize information explicitly present above. Do not infer or recreate la
  *
  * @param preparation - Pre-calculated preparation from prepareCompaction()
  * @param customInstructions - Optional custom focus for the summary
+ * @param _thinkingLevel - The session's thinking level; accepted for signature compatibility but
+ *   not forwarded. Persisted compaction checkpoints always request reasoning off (fork #509,
+ *   re-ported after the 0.99.0 re-base): the summary output cap is 0.8 x reserveTokens and is
+ *   clamped further near the window, and adaptive Claude at high/xhigh/max has no thinking
+ *   budget cap, so the parent's effort could consume the whole allocation and return
+ *   stopReason "length" ("generation hit the token cap") on every attempt.
  * @param sessionId - Optional routing session ID forwarded without enabling prompt caching
  */
 export async function compact(
@@ -969,13 +975,14 @@ export async function compact(
 	headers?: Record<string, string>,
 	customInstructions?: string,
 	signal?: AbortSignal,
-	thinkingLevel?: ThinkingLevel,
+	_thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
 	env?: Record<string, string>,
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 	sessionId?: string,
 ): Promise<CompactionResult> {
+	const compactionThinkingLevel: ThinkingLevel = "off";
 	const {
 		firstKeptEntryId,
 		messagesToSummarize,
@@ -1004,7 +1011,7 @@ export async function compact(
 				signal,
 				customInstructions,
 				previousSummary,
-				thinkingLevel,
+				compactionThinkingLevel,
 				streamFn,
 				env,
 				retry,
@@ -1022,7 +1029,7 @@ export async function compact(
 			headers,
 			env,
 			signal,
-			thinkingLevel,
+			compactionThinkingLevel,
 			streamFn,
 			retry,
 			callbacks,
@@ -1042,7 +1049,7 @@ export async function compact(
 			signal,
 			customInstructions,
 			previousSummary,
-			thinkingLevel,
+			compactionThinkingLevel,
 			streamFn,
 			env,
 			retry,
