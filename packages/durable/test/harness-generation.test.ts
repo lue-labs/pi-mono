@@ -1,4 +1,12 @@
 import {
+	type AssistantMessage,
+	fauxAssistantMessage,
+	type Message,
+	type Models,
+	type SimpleStreamOptions,
+	type SystemMessage,
+} from "@lue-labs/pi-ai";
+import {
 	AssistantEntry,
 	type CommitPublication,
 	type Conversation,
@@ -13,16 +21,7 @@ import {
 	type RegistrySnapshot,
 	type TaskId,
 	UserEntry,
-} from "@earendil-works/pi-durable";
-import {
-	type AssistantMessage,
-	fauxAssistantMessage,
-	fauxToolCall,
-	type Message,
-	type Models,
-	type SimpleStreamOptions,
-	type SystemMessage,
-} from "@lue-labs/pi-ai";
+} from "@lue-labs/pi-durable";
 import { describe, expect, it } from "vitest";
 import type { SessionImpl } from "../src/session/session.ts";
 import { allEntries, type ChatSetup, chatSetup, openChat, textOf, unanswered, waitFor } from "./chat-support.ts";
@@ -152,16 +151,6 @@ describe("generation", () => {
 		// The earlier settlement stays; the run's own settlement leaves it unchanged.
 		expect(await submission.status(context)).toMatchObject({ status: "unanswered", reason: "withdrawn" });
 		expect(await live(harness, root)).toEqual({});
-		await harness.close(context);
-	});
-
-	it("settles a tool call as the answer until the tool chain exists", async () => {
-		const setup = chatSetup();
-		setup.faux.setResponses([fauxAssistantMessage([fauxToolCall("read", { path: "a" })], { stopReason: "toolUse" })]);
-		const { harness, root } = await openChat(new MemoryStorage(), setup);
-		harness.resume();
-		const settled = await (await root.submit({ type: "input", content: "read a" }, context)).wait(context);
-		expect(settled.status).toBe("done");
 		await harness.close(context);
 	});
 
@@ -446,7 +435,33 @@ describe("generation", () => {
 		await harness.close(context);
 	});
 
-	it("faults a run task, settling its inputs and discarding the committed partial", async () => {
+	it("commits no partial for a response that turns deferred after an empty start event", async () => {
+		const base = chatSetup();
+		const handle = { provider: "faux", modelId: "faux-1", api: "faux", id: "handle-1", pollAfterMs: 60_000 };
+		const deferredStream = (): ReturnType<Models["streamSimple"]> => {
+			const events = async function* () {
+				yield { type: "start", partial: fauxAssistantMessage([], { stopReason: "pending" }) };
+				// Longer than the partial throttle: an empty partial would be committed here.
+				await new Promise((resolve) => setTimeout(resolve, 300));
+			};
+			const final = fauxAssistantMessage([], { stopReason: "deferred", deferred: handle });
+			return { [Symbol.asyncIterator]: events, result: async () => final } as unknown as ReturnType<
+				Models["streamSimple"]
+			>;
+		};
+		const setup: ChatSetup = { ...base, models: withStream(base.models, deferredStream) };
+		const { harness, root } = await openChat(new MemoryStorage(), setup);
+		const values = livePublications(harness);
+		const submission = await root.submit({ type: "input", content: "hi" }, context);
+		await waitFor(async () => (await live(harness, root))?.generation?.deferred !== undefined);
+		expect(values.some((value) => value.generation?.message !== undefined)).toBe(false);
+		await harness.abortTask((await live(harness, root))!.run!.taskId, context);
+		expect(await submission.wait(context)).toMatchObject({ status: "unanswered", reason: "aborted" });
+		expect((await allEntries(root)).map((entry) => entry.kind)).toEqual(["pi.user"]);
+		await harness.close(context);
+	});
+
+	it("faults a run task, settling its inputs and converting the committed partial", async () => {
 		const base = chatSetup();
 		const setup: ChatSetup = { ...base, models: withStream(base.models, invalidFinalStream) };
 		const { harness, root } = await openChat(new MemoryStorage(), setup);
@@ -459,7 +474,10 @@ describe("generation", () => {
 			detail: expect.stringContaining("non-JSON function"),
 		});
 		expect(values.some((value) => textOf(value.generation?.message as Message) === "partial")).toBe(true);
-		expect((await allEntries(root)).map((entry) => entry.kind)).toEqual(["pi.user"]);
+		const entries = await allEntries(root);
+		expect(entries.map((entry) => entry.kind)).toEqual(["pi.user", "pi.assistant"]);
+		expect(entries[1]!.model![0]).toMatchObject({ role: "assistant", stopReason: "aborted" });
+		expect(textOf(entries[1]!.model![0])).toBe("partial");
 		expect(await live(harness, root)).toEqual({});
 		const tasks = await harness.commit((tx) => tx.scanTasks({ conversationId: root.id }, 10), context);
 		expect(tasks.items[0]!.state).toMatchObject({ status: "terminal", outcome: { status: "faulted" } });
@@ -483,13 +501,15 @@ describe("generation", () => {
 			const taskId = await tx.createTask(
 				{ definition: { ...GenerationTask.definition, version: 2 } },
 				{},
-				{ conversationId: root.id },
+				{ ownership: { kind: "conversation" }, conversationId: root.id },
 			);
 			(await tx.doc(LiveDoc, root.id)).run = { taskId, inputs: [submission.id] };
 			return { taskId, submissionId: submission.id };
 		}, context);
 		harness.resume();
-		await expect(root.submit({ type: "input", content: "busy" }, context)).rejects.toThrow("is busy");
+		await expect(root.submit({ type: "input", content: "busy", whenBusy: "reject" }, context)).rejects.toThrow(
+			"is busy",
+		);
 		expect(await harness.abortTask(taskId, context)).toBe("marked");
 		expect((await harness.waitForTask(taskId, context)).state.outcome).toEqual({
 			status: "orphaned",

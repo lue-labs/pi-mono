@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-evals",
-	"version": "0.99.1",
+	"version": "0.99.2",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -11,14 +11,14 @@
 		"test": "vitest run --config vitest.test.config.ts"
 	},
 	"devDependencies": {
-		"@lue-labs/pi-ai": "0.99.1",
-		"@lue-labs/pi-coding-agent": "0.99.1",
+		"@lue-labs/pi-ai": "0.99.2",
+		"@lue-labs/pi-coding-agent": "0.99.2",
+		"@types/node": "22.19.19",
+		"@vitest-evals/core": "0.15.0",
+		"autoevals": "0.3.0",
 		"shx": "0.4.0",
 		"typescript": "5.9.3",
 		"vitest-evals": "0.15.0",
-		"vitest": "4.1.11",
-		"autoevals": "0.3.0",
-		"@vitest-evals/core": "0.15.0",
-		"@types/node": "22.19.19"
+		"vitest": "4.1.11"
 	}
 }

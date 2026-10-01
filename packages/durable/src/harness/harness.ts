@@ -1,6 +1,7 @@
-import type { Context, Draft, JsonValue } from "@earendil-works/chord";
-import { withoutAbortSignal } from "@earendil-works/chord/context";
+import type { AttachedReplicatedState, Context, Draft, JsonValue } from "@earendil-works/chord";
+import { withAbortSignal, withoutAbortSignal } from "@earendil-works/chord/context";
 import type { ModelThinkingLevel } from "@lue-labs/pi-ai";
+import { ResetEntry } from "../entries.ts";
 import { SessionImpl } from "../session/session.ts";
 import type { Transaction } from "../session/transaction.ts";
 import type {
@@ -17,18 +18,30 @@ import type {
 	TaskId,
 	TaskRecord,
 	Tx,
+	WatchHandle,
 } from "../types.ts";
 import { ROOT_CONVERSATION_ID } from "../types.ts";
-import { ConversationConfig, type ConversationConfigState, DEFAULT_RETRY_POLICY } from "./config.ts";
+import { createCompaction } from "./compaction.ts";
+import {
+	ConversationConfig,
+	type ConversationConfigState,
+	DEFAULT_COMPACTION_POLICY,
+	DEFAULT_RETRY_POLICY,
+} from "./config.ts";
 import { readContext } from "./context.ts";
+import { withdrawQueuedInputs } from "./inbox.ts";
 import { settleSchedulerOutcome } from "./live.ts";
 import { BUILTIN_SETUP_KEY, BUILTIN_TASKS } from "./registry.ts";
-import { TaskScheduler } from "./scheduler.ts";
+import { type InvocationBinding, TaskScheduler } from "./scheduler.ts";
 import { Submissions } from "./submissions.ts";
 import type {
+	CompactionPolicy,
+	CompactionResult,
 	ContextView,
 	Conversation,
+	ConversationAbortOptions,
 	ConversationCreateOptions,
+	ConversationHandle,
 	ConversationInit,
 	ConversationRetryPolicy,
 	ConversationStreamOptions,
@@ -36,14 +49,18 @@ import type {
 	HarnessOptions,
 	Harness as HarnessType,
 	ModelRef,
+	QueueMode,
 	RegistryReader,
 	RegistrySnapshot,
 	SettledTask,
 	Submission,
 	SubmissionDraft,
+	ToolExecutionMode,
 	ToolRegistration,
 } from "./types.ts";
+import { addUsageState, UsageDoc, type UsageState } from "./usage.ts";
 import { scanAll } from "./util.ts";
+import { type ConversationView, ConversationViews } from "./view.ts";
 
 const SCAN_PAGE_SIZE = 256;
 
@@ -64,6 +81,8 @@ type ConversationHost<Tool extends ToolRegistration> = {
 	readonly registry: RegistryReader<Tool>;
 	readonly tasks: TaskScheduler;
 	readonly submissions: Submissions;
+	readonly views: ConversationViews;
+	readonly now: () => number;
 	create(target: CreateTarget, init: ConversationInit | undefined, context: Context): Promise<Conversation>;
 };
 
@@ -130,8 +149,67 @@ class ConversationImpl<Tool extends ToolRegistration> implements Conversation {
 		}, context);
 	}
 
+	async getToolExecution(context: Context): Promise<ToolExecutionMode> {
+		return (await this.#config(context)).toolExecution ?? "parallel";
+	}
+
+	setToolExecution(mode: ToolExecutionMode | undefined, context: Context): Promise<void> {
+		return this.#editConfig((config) => {
+			if (mode === undefined) delete config.toolExecution;
+			else config.toolExecution = mode;
+		}, context);
+	}
+
+	async getSteeringMode(context: Context): Promise<QueueMode> {
+		return (await this.#config(context)).steeringMode ?? "one-at-a-time";
+	}
+
+	setSteeringMode(mode: QueueMode | undefined, context: Context): Promise<void> {
+		return this.#editConfig((config) => {
+			if (mode === undefined) delete config.steeringMode;
+			else config.steeringMode = mode;
+		}, context);
+	}
+
+	async getFollowUpMode(context: Context): Promise<QueueMode> {
+		return (await this.#config(context)).followUpMode ?? "one-at-a-time";
+	}
+
+	setFollowUpMode(mode: QueueMode | undefined, context: Context): Promise<void> {
+		return this.#editConfig((config) => {
+			if (mode === undefined) delete config.followUpMode;
+			else config.followUpMode = mode;
+		}, context);
+	}
+
+	async getCompaction(context: Context): Promise<CompactionPolicy> {
+		return (await this.#config(context)).compaction ?? { ...DEFAULT_COMPACTION_POLICY };
+	}
+
+	setCompaction(policy: CompactionPolicy | undefined, context: Context): Promise<void> {
+		return this.#editConfig((config) => {
+			if (policy === undefined) delete config.compaction;
+			else config.compaction = policy;
+		}, context);
+	}
+
 	submit(submission: SubmissionDraft, context: Context): Promise<Submission> {
 		return this.#host.submissions.submit(this.id, submission, context);
+	}
+
+	compact(instructions: string | undefined, context: Context): Promise<TaskId<CompactionResult>> {
+		this.#host.tasks.resume();
+		const input = { reason: "manual", ...(instructions === undefined ? {} : { instructions }) } as const;
+		return this.#host.harness.commitWith((tx) => createCompaction(tx, this.id, input), context);
+	}
+
+	async reset(handoff: string | undefined, context: Context): Promise<void> {
+		const model =
+			handoff === undefined
+				? {}
+				: { model: [{ role: "user", content: handoff, timestamp: this.#host.now() } as const] };
+		const entry = { kind: ResetEntry.kind, head: "self", ...model } as const;
+		await this.#host.submissions.submit(this.id, { type: "write", entry }, context);
 	}
 
 	commit<T>(change: (tx: Tx) => T | Promise<T>, context: Context): Promise<T> {
@@ -164,9 +242,22 @@ class ConversationImpl<Tool extends ToolRegistration> implements Conversation {
 		);
 	}
 
+	abort(context: Context, options?: ConversationAbortOptions): Promise<void> {
+		this.#host.tasks.resume();
+		return this.#host.tasks.abortConversation(this.id, options?.background === true, context);
+	}
+
 	waitForIdle(context: Context): Promise<void> {
 		this.#host.tasks.resume();
 		return this.#host.tasks.waitForIdle(this.id, context);
+	}
+
+	viewState(context: Context): Promise<AttachedReplicatedState<ConversationView>> {
+		return this.#host.views.state(this.id, context);
+	}
+
+	watch(context: Context): Promise<WatchHandle<ConversationView>> {
+		return this.#host.views.watch(this.id, context);
 	}
 
 	async #config(context: Context): Promise<Readonly<ConversationConfigState>> {
@@ -203,9 +294,15 @@ class HarnessImpl<Tool extends ToolRegistration> extends SessionImpl implements 
 			storage,
 			registry: options.registry,
 			models: options.models,
+			env: options.env,
 			now,
 			report: options.onReport ?? (() => {}),
 			settleOutcome: settleSchedulerOutcome,
+			withdrawInputs: withdrawQueuedInputs,
+			conversation: async (id, binding, callContext) => {
+				const record = await this.readOnLine(() => storage.conversation(id, callContext));
+				return record === undefined ? undefined : boundConversation(id, binding, this.#submissions, this.#tasks);
+			},
 			context: withoutAbortSignal(context),
 		});
 		this.#submissions = new Submissions(this, storage, now, () => this.#tasks.resume());
@@ -215,6 +312,8 @@ class HarnessImpl<Tool extends ToolRegistration> extends SessionImpl implements 
 			registry: options.registry,
 			tasks: this.#tasks,
 			submissions: this.#submissions,
+			views: new ConversationViews(this, storage),
+			now,
 			create: (target, init, context) => this.#create(target, init, context),
 		};
 	}
@@ -238,7 +337,7 @@ class HarnessImpl<Tool extends ToolRegistration> extends SessionImpl implements 
 	inspect(context: Context): Promise<HarnessInspection> {
 		return this.readOnLine(async () => {
 			const snapshot = this.#registry.snapshot();
-			const { scheduling, tasks } = this.#tasks.inspect(snapshot);
+			const { scheduling, tasks } = await this.#tasks.inspect(snapshot);
 			const scan = (status: "queued" | "placed") =>
 				scanAll((cursor) => this.#storage.scanSubmissions({ status }, SCAN_PAGE_SIZE, cursor, context));
 			const submissions = [...(await scan("queued")), ...(await scan("placed"))].sort((a, b) => a.id - b.id);
@@ -270,6 +369,19 @@ class HarnessImpl<Tool extends ToolRegistration> extends SessionImpl implements 
 	waitForIdle(context: Context): Promise<void> {
 		this.#tasks.resume();
 		return this.#tasks.waitForIdle(undefined, context);
+	}
+
+	/** Sum every conversation's committed `pi.usage`. Each document is read at its own point; totals only grow. */
+	async usage(context: Context): Promise<UsageState> {
+		const conversations = await this.readOnLine(() =>
+			scanAll((cursor) => this.#storage.scanConversations({}, SCAN_PAGE_SIZE, cursor, context)),
+		);
+		const total = UsageDoc.definition.initial();
+		for (const { id } of conversations) {
+			const state = await this.snapshot(UsageDoc, id, context);
+			if (state !== undefined) addUsageState(total, state);
+		}
+		return total;
 	}
 
 	root(context: Context, options?: { readonly init?: ConversationInit }): Promise<Conversation> {
@@ -341,6 +453,43 @@ class HarnessImpl<Tool extends ToolRegistration> extends SessionImpl implements 
 	#assertOpen(): void {
 		if (this.#closed) throw new Error("Harness is closed");
 	}
+}
+
+/**
+ * Invocation-bound handle for tasks and tools. Every operation, and every operation of a submission it returns, first
+ * checks the invocation and runs under its signal, so it rejects once the invocation ends; admitted work stays durable.
+ */
+function boundConversation(
+	id: ConversationId,
+	binding: InvocationBinding,
+	submissions: Submissions,
+	tasks: TaskScheduler,
+): ConversationHandle {
+	const bind = (context: Context): Context => withAbortSignal(binding.signal, context);
+	const bound = <T>(operation: (context: Context) => Promise<T>) => {
+		return async (context: Context): Promise<T> => {
+			binding.check();
+			return operation(bind(context));
+		};
+	};
+	return {
+		id,
+		submit: async (draft, context) => {
+			binding.check();
+			const submission = await submissions.submit(id, draft, bind(context));
+			return {
+				id: submission.id,
+				status: bound((callContext) => submission.status(callContext)),
+				wait: bound((callContext) => submission.wait(callContext)),
+				abort: bound((callContext) => submission.abort(callContext)),
+			};
+		},
+		abort: async (context, options) => {
+			binding.check();
+			return tasks.abortConversation(id, options?.background === true, bind(context));
+		},
+		waitForIdle: bound((callContext) => tasks.waitForIdle(id, callContext)),
+	};
 }
 
 /** Reject names newly added relative to `previous` that `snapshot` does not register; existing names are never rechecked. */

@@ -38,7 +38,7 @@ const INITIAL_SCHEMA: readonly string[] = [
 		id INTEGER PRIMARY KEY,
 		conversation_id INTEGER NOT NULL,
 		kind TEXT NOT NULL,
-		status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'terminal')),
+		status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'waiting', 'completing', 'terminal')),
 		abort_requested INTEGER NOT NULL CHECK (abort_requested IN (0, 1)),
 		background INTEGER NOT NULL CHECK (background IN (0, 1)),
 		record TEXT NOT NULL CHECK (json_valid(record))

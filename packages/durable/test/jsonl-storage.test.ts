@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Context, JsonValue } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { registerStorageConformance } from "@earendil-works/pi-durable/testing";
+import { registerStorageConformance } from "@lue-labs/pi-durable/testing";
 import { afterEach, describe, expect, it } from "vitest";
 import { err, FileError, type FileSystem, type Result } from "../src/env/index.ts";
 import { NodeExecutionEnv } from "../src/env/node.ts";
@@ -141,7 +141,6 @@ function pendingTask(id: TaskId<JsonValue>, phase = "ready"): StoredTask {
 		version: 1,
 		input: null,
 		state: { status: "pending", checkpoint: { phase } },
-		after: [],
 		background: false,
 		abortRequested: false,
 	};
@@ -155,7 +154,6 @@ function terminalTask(id: TaskId<JsonValue>): StoredTask {
 		version: 1,
 		input: null,
 		state: { status: "terminal", outcome: { status: "completed", result: null } },
-		after: [],
 		background: false,
 		abortRequested: false,
 	};

@@ -52,7 +52,8 @@ describe("Node SEA extension loading", () => {
 		expect(state.jitiModuleLoads).toBe(0);
 		expect(state.virtualModulesLoads).toBe(0);
 
-		const result = await loadExtensions(["/extension.ts"], "/");
+		// Jiti is mocked, but canonical module resolution requires an existing file.
+		const result = await loadExtensions([import.meta.filename], "/");
 
 		expect(result.errors).toEqual([]);
 		expect(state.jitiModuleLoads).toBe(1);

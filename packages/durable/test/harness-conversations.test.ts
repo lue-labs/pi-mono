@@ -15,7 +15,7 @@ import {
 	MemoryStorage,
 	ROOT_CONVERSATION_ID,
 	type TaskId,
-} from "@earendil-works/pi-durable";
+} from "@lue-labs/pi-durable";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqliteStorage } from "../src/storage/sqlite/node.ts";
 import { openHarness, tool, user } from "./harness-support.ts";
@@ -76,9 +76,11 @@ describe("Harness root and conversations", () => {
 		});
 		expect(root.id).toBe(ROOT_CONVERSATION_ID);
 		expect(storage.commits).toHaveLength(1);
-		// Conversation, pi.live, configuration, and the init note.
+		// Conversation, pi.live, pi.inbox, pi.usage, configuration, and the init note.
 		expect(storage.commits[0]!.map((write) => write.type)).toEqual([
 			"conversation",
+			"document.create",
+			"document.create",
 			"document.create",
 			"document.create",
 			"document.create",
@@ -295,12 +297,15 @@ describe("Harness root and conversations", () => {
 			phases: { run: async () => {} },
 			abort: async () => {},
 		});
-		const taskId = await conversation.commit((tx) => tx.createTask(task, { n: 1 }), context);
+		const taskId = await conversation.commit(
+			(tx) => tx.createTask(task, { n: 1 }, { ownership: { kind: "conversation" } }),
+			context,
+		);
 		const record = await harness.commit((tx) => tx.task(taskId), context);
 		expect(record?.conversationId).toBe(conversation.id);
-		await expect(harness.commit((tx) => tx.createTask(task, { n: 2 }), context)).rejects.toThrow(
-			"requires options.conversationId",
-		);
+		await expect(
+			harness.commit((tx) => tx.createTask(task, { n: 2 }, { ownership: { kind: "conversation" } }), context),
+		).rejects.toThrow("requires options.conversationId");
 		await harness.close(context);
 	});
 });

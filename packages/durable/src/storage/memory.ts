@@ -229,7 +229,7 @@ export class MemoryStorage implements Storage {
 		entryCommitSeqs: new Map(),
 		tasks: new Map(),
 		taskIds: [],
-		taskIdsByStatus: { pending: [], running: [], terminal: [] },
+		taskIdsByStatus: { pending: [], running: [], waiting: [], completing: [], terminal: [] },
 		submissions: new Map(),
 		submissionIds: [],
 		submissionIdsByStatus: { queued: [], placed: [], done: [], unanswered: [] },

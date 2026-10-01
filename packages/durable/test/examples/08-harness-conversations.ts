@@ -2,7 +2,7 @@
 // Run from packages/durable:
 //   node --conditions=source --experimental-strip-types test/examples/08-harness-conversations.ts
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { createModels } from "@lue-labs/pi-ai";
+import { createModels } from "@lue-labs/pi-ai/models";
 import { ConversationConfig, createRegistry, defineEntry, Harness, MemoryStorage } from "../../src/index.ts";
 
 const context = BACKGROUND_CONTEXT;

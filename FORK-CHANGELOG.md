@@ -6,6 +6,15 @@ Release numbers track the fork's GitHub Packages releases, versioned in lockstep
 
 ## [Unreleased]
 
+### Fixed
+
+- **Linked extension entries resolve relative imports beside their targets.** Canonicalize the module path before Jiti imports it, matching Node’s default module resolution. This keeps the configured/user-visible link identity while allowing the Tokenjuice policy wrapper to find its existing sibling policy module. A linked-entry regression is red before the fix and green afterward.
+- **Upstream-scoped extensions reuse the fork’s host modules.** Restore `@earendil-works/pi-{coding-agent,agent-core,tui,ai}` aliases (including existing compat/oauth/providers-all entries) in both the unbundled Node loader and embedded virtual modules. Third-party extensions such as the pinned Codex adapter and pi-fff no longer fail to resolve host imports; aliases point at the same module instances, not a second installed runtime.
+
+### Changed
+
+- **Upstream sync (2026-09-30): integrated exact upstream Pi 0.99.2 (`005af57d8`) from reviewed base 0.99.1 (`d86654abb`).** Adopts lazy default-codemode MCP discovery/startup, MCP OAuth client names and provider-token authentication, Anthropic workload identity federation, newly configured tools on reload, image signature validation, bundled codemode worker support, and upstream durable/rendering fixes. Retains fork package identity, exact workspace pins, optional koffi, and reusable release-workflow inputs; chord/codemode/mcp remain upstream-scoped. Existing 0.99.0 fork-seam re-graft limitations are unchanged.
+
 ### Changed
 
 - **Upstream sync (2026-09-29): integrated exact upstream Pi 0.99.1 (`d86654abb`).** GPT-6.1 Sol (Codex default) + ChatGPT login OAuth bundle fix. Fork packages lockstep **0.99.1**; chord/codemode/mcp stay `@earendil-works/*@0.99.1`. Fork-seam re-graft residual from the 0.99.0 green-path reset remains.

@@ -42,7 +42,11 @@ const main = await session.commit((tx) => tx.createConversation({ ownership: { k
 const setup = await session.commit(async (tx) => {
 	// `background: true` means the task is side work: waiting for the main
 	// conversation to finish does not wait for it.
-	const supervisorId = await tx.createTask(Supervisor, null, { conversationId: main.id, background: true });
+	const supervisorId = await tx.createTask(Supervisor, null, {
+		ownership: { kind: "conversation" },
+		conversationId: main.id,
+		background: true,
+	});
 
 	// The child records that it belongs to the supervisor task. The task was
 	// created a few lines above in this same commit, which is allowed.

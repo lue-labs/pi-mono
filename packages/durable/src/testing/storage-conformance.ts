@@ -37,7 +37,6 @@ function pendingTask(id: TaskId<JsonValue>, conversationId: ConversationId, phas
 		version: 1,
 		input: { value: id },
 		state: { status: "pending", checkpoint: { phase } },
-		after: [],
 		background: false,
 		abortRequested: false,
 	} satisfies StoredTask;
@@ -531,7 +530,6 @@ export function createStorageConformance(options: StorageConformanceOptions): re
 				version: first.version,
 				input: first.input,
 				state: { status: "terminal", outcome: { status: "completed", result: { entryId: 99 } } },
-				after: [],
 				background: false,
 				abortRequested: true,
 			};
@@ -550,6 +548,42 @@ export function createStorageConformance(options: StorageConformanceOptions): re
 			expect(
 				(await storage.scanTasks({ background: true }, 10, undefined, context)).items.map(({ id }) => id),
 			).toEqual([secondId]);
+		}),
+
+		createCase(options, "stores owners and scans waiting and completing tasks by status", async (storage) => {
+			const rootId = await createRoot(storage);
+			const ownerId = await storage.mintId<TaskId<JsonValue>>();
+			const waitingId = await storage.mintId<TaskId<JsonValue>>();
+			const completingId = await storage.mintId<TaskId<JsonValue>>();
+			const owner = pendingTask(ownerId, rootId);
+			const waiting: StoredTask = {
+				...pendingTask(waitingId, rootId),
+				owner: ownerId,
+				state: { status: "waiting", checkpoint: { phase: "next" }, on: [ownerId], policy: "allSettled" },
+				memos: { kept: true },
+			};
+			const { state: _state, ...base } = pendingTask(completingId, rootId);
+			const completing: StoredTask = {
+				...base,
+				owner: ownerId,
+				state: { status: "completing", outcome: { status: "failed", error: { message: "held" } } },
+			};
+			const writes = [owner, waiting, completing].map((value) => ({ type: "task", value }) as const);
+			await storage.commit(writes, context);
+			expect(await storage.task(waitingId, context)).toEqual(waiting);
+			expect(await storage.task(completingId, context)).toEqual(completing);
+			const scan = async (status: StoredTask["state"]["status"]) =>
+				(await storage.scanTasks({ status }, 10, undefined, context)).items;
+			expect(await scan("waiting")).toEqual([waiting]);
+			expect(await scan("completing")).toEqual([completing]);
+			expect((await scan("pending")).map(({ id }) => id)).toEqual([ownerId]);
+			const terminal: StoredTask = {
+				...completing,
+				state: { status: "terminal", outcome: completing.state.outcome! },
+			};
+			await storage.commit([{ type: "task", value: terminal }], context);
+			expect(await scan("completing")).toEqual([]);
+			expect(await scan("terminal")).toEqual([terminal]);
 		}),
 
 		createCase(

@@ -40,7 +40,8 @@ describe("extension loader lazy imports", () => {
 		expect(state.jitiStaticModuleLoads).toBe(0);
 		expect(state.virtualModulesLoads).toBe(0);
 
-		const result = await loadExtensions(["/extension.ts"], "/");
+		// Jiti is mocked, but canonical module resolution requires an existing file.
+		const result = await loadExtensions([import.meta.filename], "/");
 
 		expect(result.errors).toEqual([]);
 		expect(result.extensions).toHaveLength(1);

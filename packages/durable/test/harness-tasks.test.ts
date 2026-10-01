@@ -1,4 +1,5 @@
 import type { Context } from "@earendil-works/chord";
+import { createModels } from "@lue-labs/pi-ai";
 import {
 	type Conversation,
 	createRegistry,
@@ -13,8 +14,7 @@ import {
 	StorageRejected,
 	type TaskId,
 	type TaskRuntime,
-} from "@earendil-works/pi-durable";
-import { createModels } from "@lue-labs/pi-ai";
+} from "@lue-labs/pi-durable";
 import { describe, expect, it } from "vitest";
 import { user } from "./harness-support.ts";
 import { ControlledStorage, context, flush } from "./session-support.ts";
@@ -50,9 +50,12 @@ function gated(name: string, gate: Promise<void>) {
 async function start<R>(
 	conversation: Conversation,
 	task: ReturnType<typeof oneStep<R>>,
-	options: { readonly after?: readonly TaskId[]; readonly background?: boolean } = {},
+	options: { readonly background?: boolean } = {},
 ): Promise<TaskId<R>> {
-	return conversation.commit((tx) => tx.createTask(task, null, options), context);
+	return conversation.commit(
+		(tx) => tx.createTask(task, null, { ownership: { kind: "conversation" }, ...options }),
+		context,
+	);
 }
 
 async function openRoot(
@@ -99,7 +102,10 @@ describe("task phases", () => {
 			abort: async () => {},
 		});
 		const { harness, root } = await openRoot([Counter]);
-		const id = await root.commit((tx) => tx.createTask(Counter, { to: 3 }), context);
+		const id = await root.commit(
+			(tx) => tx.createTask(Counter, { to: 3 }, { ownership: { kind: "conversation" } }),
+			context,
+		);
 		harness.resume();
 		const receipt = await harness.waitForTask(id, context);
 		const result: number | undefined =
@@ -166,7 +172,10 @@ describe("task phases", () => {
 			abort: async () => {},
 		});
 		const { harness, root } = await openRoot([Collect]);
-		const id = await root.commit((tx) => tx.createTask(Collect, null), context);
+		const id = await root.commit(
+			(tx) => tx.createTask(Collect, null, { ownership: { kind: "conversation" } }),
+			context,
+		);
 		harness.resume();
 		expect((await harness.waitForTask(id, context)).state.outcome).toEqual({
 			status: "faulted",
@@ -204,7 +213,7 @@ describe("task phases", () => {
 					await runtime.commit(async (tx) => {
 						(await tx.doc(Progress, task.id)).lines.push("wrote");
 						// Task creation defaults to the task's own conversation.
-						childId = await tx.createTask(Child, null);
+						childId = await tx.createTask(Child, null, { ownership: { kind: "conversation" } });
 						return { status: "running", checkpoint: { phase: "answer" } };
 					}, ctx);
 				},
@@ -223,7 +232,10 @@ describe("task phases", () => {
 		});
 		const { harness, root } = await openRoot([Writer, Child]);
 		const conversation = await harness.createConversation({ ownership: { kind: "ownerless" } }, context);
-		const id = await conversation.commit((tx) => tx.createTask(Writer, null), context);
+		const id = await conversation.commit(
+			(tx) => tx.createTask(Writer, null, { ownership: { kind: "conversation" } }),
+			context,
+		);
 		harness.resume();
 		const receipt = await harness.waitForTask(id, context);
 		expect(receipt.state).not.toHaveProperty("checkpoint");
@@ -241,9 +253,29 @@ describe("task phases", () => {
 		await harness.close(context);
 	});
 
-	it("waits for dependencies, which any terminal outcome satisfies", async () => {
+	it("resumes a waiting task once every task in `on` is terminal, whatever the outcome", async () => {
 		const gate = deferred();
 		const order: string[] = [];
+		let on: TaskId[] = [];
+		let outcomes: string[] = [];
+		const Waiter = defineTask<null, { phase: "wait" } | { phase: "resume" }, null>({
+			name: "test.waiter",
+			version: 1,
+			initial: () => ({ phase: "wait" }),
+			phases: {
+				wait: async (_task, runtime, ctx) => {
+					order.push("wait");
+					const checkpoint = { phase: "resume" } as const;
+					await runtime.commit(() => ({ status: "waiting", checkpoint, on, policy: "allSettled" }), ctx);
+				},
+				resume: async (_task, runtime, ctx) => {
+					order.push("resume");
+					outcomes = (await runtime.outcomes(on, ctx)).map((outcome) => outcome.status);
+					await runtime.commit(() => completed(null), ctx);
+				},
+			},
+			abort: async (_task, runtime, ctx) => runtime.commit(() => abortedWith("test"), ctx),
+		});
 		const First = oneStep("test.first", async (_task, runtime, ctx) => {
 			order.push("first");
 			await gate.promise;
@@ -253,23 +285,23 @@ describe("task phases", () => {
 			order.push("faulting");
 			throw new Error("fails");
 		});
-		const Second = oneStep("test.second", async (_task, runtime, ctx) => {
-			order.push("second");
-			await runtime.commit(() => completed(null), ctx);
-		});
-		const { harness, root } = await openRoot([First, Faulting, Second]);
+		const { harness, root } = await openRoot([First, Faulting, Waiter]);
 		const first = await start(root, First);
-		const faulting = await start(root, Faulting, { after: [first] });
-		const second = await start(root, Second, { after: [first, faulting] });
+		const faulting = await start(root, Faulting);
+		on = [first, faulting];
+		const waiter = await root.commit(
+			(tx) => tx.createTask(Waiter, null, { ownership: { kind: "conversation" } }),
+			context,
+		);
 		harness.resume();
-		await eventually(() => order.length === 1);
+		await eventually(() => order.length === 3);
 		await flush();
-		expect(order).toEqual(["first"]);
-		expect((await harness.getTask(second, context))?.state.status).toBe("pending");
+		expect(order.sort()).toEqual(["faulting", "first", "wait"]);
+		expect((await harness.getTask(waiter, context))?.state).toMatchObject({ status: "waiting", on });
 		gate.resolve();
-		await harness.waitForTask(second, context);
-		expect(order).toEqual(["first", "faulting", "second"]);
-		expect((await harness.getTask(faulting, context))?.state).toMatchObject({ outcome: { status: "faulted" } });
+		await harness.waitForTask(waiter, context);
+		expect(order.at(-1)).toBe("resume");
+		expect(outcomes).toEqual(["completed", "faulted"]);
 		await harness.close(context);
 	});
 
@@ -298,7 +330,10 @@ describe("task phases", () => {
 			abort: async () => {},
 		});
 		const { harness, registry, root } = await openRoot([Snapshots]);
-		const id = await root.commit((tx) => tx.createTask(Snapshots, null), context);
+		const id = await root.commit(
+			(tx) => tx.createTask(Snapshots, null, { ownership: { kind: "conversation" } }),
+			context,
+		);
 		harness.resume();
 		await entered.promise;
 		registry.tools.add({
@@ -772,7 +807,7 @@ describe("task abort", () => {
 			},
 		});
 		const { harness, root } = await openRoot([Two]);
-		const id = await root.commit((tx) => tx.createTask(Two, null), context);
+		const id = await root.commit((tx) => tx.createTask(Two, null, { ownership: { kind: "conversation" } }), context);
 		harness.resume();
 		await reached.promise;
 		const { aborting } = await markDurably(harness, id);
@@ -805,26 +840,25 @@ describe("task abort", () => {
 		await harness.close(context);
 	});
 
-	it("aborts pending work regardless of dependencies and faults abort handlers that throw or settle nothing", async () => {
+	it("aborts waiting work before its wait ends and faults abort handlers that throw or settle nothing", async () => {
 		const gate = deferred();
 		const First = gated("test.dependency", gate.promise);
-		const Lazy = oneStep(
-			"test.lazy-abort",
-			async () => {},
-			async () => {},
-		);
-		const Throwing = oneStep(
-			"test.throwing-abort",
-			async () => {},
-			async () => {
-				throw new Error("abort failed");
-			},
-		);
+		let first: TaskId | undefined;
+		const wait = async (_task: unknown, runtime: StepRuntime<null>, ctx: Context): Promise<void> => {
+			const checkpoint = { phase: "run" } as const;
+			await runtime.commit(() => ({ status: "waiting", checkpoint, on: [first!], policy: "allSettled" }), ctx);
+		};
+		const Lazy = oneStep("test.lazy-abort", wait, async () => {});
+		const Throwing = oneStep("test.throwing-abort", wait, async () => {
+			throw new Error("abort failed");
+		});
 		const { harness, root } = await openRoot([First, Lazy, Throwing]);
-		const first = await start(root, First);
-		const lazy = await start(root, Lazy, { after: [first] });
-		const throwing = await start(root, Throwing, { after: [first] });
+		first = await start(root, First);
+		const lazy = await start(root, Lazy);
+		const throwing = await start(root, Throwing);
 		harness.resume();
+		await eventually(async () => (await harness.getTask(throwing, context))?.state.status === "waiting");
+		await eventually(async () => (await harness.getTask(lazy, context))?.state.status === "waiting");
 		await harness.abortTask(lazy, context);
 		await harness.abortTask(throwing, context);
 		expect((await harness.waitForTask(lazy, context)).state.outcome).toEqual({
@@ -976,7 +1010,7 @@ describe("task close", () => {
 		});
 		const storage = new ControlledStorage();
 		const { harness, root } = await openRoot([Two], { storage });
-		const id = await root.commit((tx) => tx.createTask(Two, null), context);
+		const id = await root.commit((tx) => tx.createTask(Two, null, { ownership: { kind: "conversation" } }), context);
 		harness.resume();
 		await reached.promise;
 		const { aborting } = await markDurably(harness, id);
@@ -1153,7 +1187,7 @@ describe("task close", () => {
 		const harness = await Harness.open(new MemoryStorage(), { models: createModels(), registry: reader }, context);
 		harnessRef = harness;
 		const root = await harness.root(context);
-		await root.commit((tx) => tx.createTask(Two, null), context);
+		await root.commit((tx) => tx.createTask(Two, null, { ownership: { kind: "conversation" } }), context);
 		harness.resume();
 		await eventually(() => closing !== undefined);
 		await closing;

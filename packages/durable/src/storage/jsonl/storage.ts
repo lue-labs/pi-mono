@@ -222,7 +222,7 @@ const parseSidecarRecord = (text: string, file: string, line: number): SidecarRe
 			!isObject(value.payload.value) ||
 			!isSafeInteger(value.payload.value.id) ||
 			!isObject(value.payload.value.state) ||
-			(value.payload.value.state.status !== "pending" && value.payload.value.state.status !== "running")
+			value.payload.value.state.status === "terminal"
 		) {
 			throw new JsonlCorruptionError(`Invalid live task record in ${description}`);
 		}

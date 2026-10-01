@@ -19,6 +19,7 @@ import type {
 	ConversationRecord,
 	DocumentAddress,
 	DocumentCommitChange,
+	DocumentRecord,
 	DocumentState,
 	DocumentWatch,
 	EntryId,
@@ -36,7 +37,12 @@ import type {
 	TaskId,
 	Tx,
 } from "../types.ts";
-import { RETIREMENT_OPERATIONS, SessionDocumentSource, SessionDocumentWatch } from "./observation.ts";
+import {
+	CommittedStateSource,
+	CommittedWatch,
+	type ObservedDocumentValue,
+	RETIREMENT_OPERATIONS,
+} from "./observation.ts";
 import { type LoadedDocument, Transaction, type TransactionHost, type TransactionScope } from "./transaction.ts";
 
 /** Open a Session kernel over one storage backend. */
@@ -105,6 +111,24 @@ export class SessionImpl implements Session {
 			this.#assertHealthy();
 			return job();
 		});
+	}
+
+	/**
+	 * Internal: a conversation document's current incarnation and value, for a job already running on the line (see
+	 * `readOnLine()`). Absent documents are `undefined`.
+	 */
+	async conversationDocumentOnLine(
+		token: ConversationDocToken<JsonObject>,
+		conversationId: ConversationId,
+		context: Context,
+	): Promise<{ readonly record: DocumentRecord; readonly version: number; readonly value: JsonObject } | undefined> {
+		const definition = token.definition;
+		const resolved = resolveAddress(definition, [conversationId, context]);
+		const loaded = await this.#loadDocument(definition, resolved.id, resolved.address, context);
+		if (loaded === undefined) return undefined;
+		checkRecordScope(definition, loaded.record);
+		checkRecordVersion(definition, loaded.record, loaded.storedVersion);
+		return { record: loaded.record, version: loaded.valueVersion, value: loaded.tracker.value };
 	}
 
 	snapshot<T extends JsonObject>(token: SessionDocToken<T>, context: Context): Promise<Readonly<T> | undefined>;
@@ -198,7 +222,7 @@ export class SessionImpl implements Session {
 				const { observer: source, detach } = this.#attachDocument(
 					definition,
 					loaded,
-					(value, release) => new SessionDocumentSource(value, release),
+					(value, release) => new CommittedStateSource<ObservedDocumentValue>(value, release),
 				);
 				try {
 					return replicatedState(source) as DocumentState<JsonObject>;
@@ -261,7 +285,7 @@ export class SessionImpl implements Session {
 				return this.#attachDocument(
 					definition,
 					loaded,
-					(value, release) => new SessionDocumentWatch(value, release),
+					(value, release) => new CommittedWatch<ObservedDocumentValue>(value, release),
 				).observer;
 			});
 			if (watch === undefined) return undefined;
@@ -445,7 +469,7 @@ export class SessionImpl implements Session {
 	 * Attach an observer to one committed incarnation: check the definition, then forward this incarnation's committed
 	 * changes and close. `detach` removes both subscriptions.
 	 */
-	#attachDocument<O extends SessionDocumentSource | SessionDocumentWatch>(
+	#attachDocument<O extends CommittedStateSource | CommittedWatch>(
 		definition: AnyDocToken["definition"],
 		loaded: LoadedDocument,
 		create: (value: JsonObject, detach: () => void) => O,
@@ -464,7 +488,7 @@ export class SessionImpl implements Session {
 			for (const change of publication.changes) {
 				if (change.type !== "document" || change.record.id !== loaded.record.id) continue;
 				// A document state's frames carry no caller cancellation; a watch observes its own cancellation.
-				const frameContext = observer instanceof SessionDocumentSource ? withoutAbortSignal(context) : context;
+				const frameContext = observer instanceof CommittedStateSource ? withoutAbortSignal(context) : context;
 				observer.advance(change.value, observedOperations(observed, change), frameContext);
 			}
 		});

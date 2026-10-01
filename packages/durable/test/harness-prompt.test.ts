@@ -1,3 +1,5 @@
+import { type SystemMessage, type Tool, Type } from "@lue-labs/pi-ai";
+import { getCurrentTools, toToolDeclaration } from "@lue-labs/pi-ai/utils/transcript";
 import {
 	type Conversation,
 	createRegistry,
@@ -7,10 +9,9 @@ import {
 	type PromptSection,
 	SystemEntry,
 	type ToolRegistration,
-} from "@earendil-works/pi-durable";
-import type { SystemMessage } from "@lue-labs/pi-ai";
+} from "@lue-labs/pi-durable";
 import { describe, expect, it } from "vitest";
-import { planSystemEntries, renderSections, replaySections } from "../src/harness/prompt.ts";
+import { desiredTools, planSystemEntries, renderSections, replaySections } from "../src/harness/prompt.ts";
 import { openHarness, user } from "./harness-support.ts";
 import { context } from "./session-support.ts";
 
@@ -18,7 +19,7 @@ type Planned = { readonly sections: Record<string, string | null>; readonly omit
 
 /** Plan against the current context, append the plan, and check that replay then yields `desired` in order. */
 async function apply(conversation: Conversation, desired: Record<string, string>): Promise<Planned[]> {
-	const drafts = planSystemEntries(await conversation.context(context), new Map(Object.entries(desired)), 7);
+	const drafts = planSystemEntries(await conversation.context(context), new Map(Object.entries(desired)), [], 7);
 	await conversation.commit(async (tx) => {
 		for (const draft of drafts) await tx.appendEntry(SystemEntry, conversation.id, draft);
 	}, context);
@@ -192,5 +193,94 @@ describe("system prompt preparation", () => {
 		await marker(conversation, "self");
 		expect(await apply(conversation, {})).toEqual([{ sections: {} }]);
 		expect(await apply(conversation, {})).toEqual([]);
+	});
+});
+
+describe("tool loadout preparation", () => {
+	const declaration = (name: string, description = name): Tool => ({
+		name,
+		description,
+		parameters: Type.Object({}),
+	});
+
+	/** Plan tools only, append the plan, check that replay offers `tools` in order, and return each message's changes. */
+	async function applyTools(
+		conversation: Conversation,
+		tools: readonly Tool[],
+		sections: Record<string, string> = {},
+	): Promise<{ removed?: string[]; added?: string[]; sections?: Record<string, string | null> }[]> {
+		const drafts = planSystemEntries(
+			await conversation.context(context),
+			new Map(Object.entries(sections)),
+			tools,
+			7,
+		);
+		await conversation.commit(async (tx) => {
+			for (const draft of drafts) await tx.appendEntry(SystemEntry, conversation.id, draft);
+		}, context);
+		const offered = getCurrentTools((await conversation.context(context)).messages);
+		expect(offered).toEqual(tools.map(toToolDeclaration));
+		return drafts.map((draft) => {
+			const message = draft.model![0] as SystemMessage;
+			return {
+				...(message.toolsRemoved === undefined ? {} : { removed: message.toolsRemoved.map((tool) => tool.name) }),
+				...(message.toolsAdded === undefined ? {} : { added: message.toolsAdded.map((tool) => tool.name) }),
+				...(message.sections === undefined ? {} : { sections: message.sections }),
+			};
+		});
+	}
+
+	it("adds, removes, replaces changed declarations, and rewrites the order when needed", async () => {
+		const conversation = await root();
+		const [a, b, c] = [declaration("a"), declaration("b"), declaration("c")];
+		expect(await applyTools(conversation, [a, b])).toEqual([{ added: ["a", "b"] }]);
+		expect(await applyTools(conversation, [a, b])).toEqual([]);
+		expect(await applyTools(conversation, [a, b, c])).toEqual([{ added: ["c"] }]);
+		expect(await applyTools(conversation, [a, c])).toEqual([{ removed: ["b"] }]);
+		// A changed declaration at the end is removed and re-added in place.
+		const c2 = declaration("c", "changed");
+		expect(await applyTools(conversation, [a, c2])).toEqual([{ removed: ["c"], added: ["c"] }]);
+		// A changed declaration in the middle would move to the end, so the whole order is rewritten.
+		const a2 = declaration("a", "changed");
+		expect(await applyTools(conversation, [a2, c2])).toEqual([{ removed: ["a", "c"], added: ["a", "c"] }]);
+		// Order-only change.
+		expect(await applyTools(conversation, [c2, a2])).toEqual([{ removed: ["a", "c"], added: ["c", "a"] }]);
+		expect(await applyTools(conversation, [])).toEqual([{ removed: ["c", "a"] }]);
+	});
+
+	it("puts tool changes on the last section entry and re-declares every tool after a head cut", async () => {
+		const conversation = await root();
+		const [a, b] = [declaration("a"), declaration("b")];
+		expect(await applyTools(conversation, [a], { x: "1", y: "2" })).toEqual([
+			{ added: ["a"], sections: { x: "1", y: "2" } },
+		]);
+		// Section order changes need two entries; the tool change rides on the second.
+		expect(await applyTools(conversation, [a, b], { y: "2", x: "1" })).toEqual([
+			{ sections: { x: null, y: null } },
+			{ added: ["b"], sections: { y: "2", x: "1" } },
+		]);
+		await marker(conversation, "self");
+		expect(await applyTools(conversation, [a, b], { y: "2", x: "1" })).toEqual([
+			{ added: ["a", "b"], sections: { y: "2", x: "1" } },
+		]);
+	});
+
+	it("offers each active name once, only when registered, as composed by wrappers", () => {
+		const registry = createRegistry();
+		const base = { ...declaration("a"), execute: async () => ({}) };
+		registry.tools.add(base);
+		registry.tools.add({ ...declaration("b"), execute: async () => ({}) });
+		registry.tools.add({ ...declaration("broken"), execute: async () => ({}) });
+		registry.tools.wrap("a", "describe", (tool) => ({ ...tool, description: "wrapped" }));
+		registry.tools.wrap("broken", "fail", () => {
+			throw new Error("wrapper failed");
+		});
+		const snapshot = registry.snapshot();
+		const tools = desiredTools(["b", "missing", "a", "b", "broken"], (name) => snapshot.tool(name));
+		expect(tools.map((tool) => [tool.name, tool.description])).toEqual([
+			["b", "b"],
+			["a", "wrapped"],
+		]);
+		expect(snapshot.failures().map((failure) => failure.name)).toEqual(["broken"]);
 	});
 });

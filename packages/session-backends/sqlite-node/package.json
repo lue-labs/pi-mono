@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-session-backend-sqlite-node",
-	"version": "0.99.1",
+	"version": "0.99.2",
 	"description": "Node sqlite session backend for @earendil-works/pi-agent-core sessions",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -35,8 +35,8 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@lue-labs/pi-ai": "0.99.1",
-		"@lue-labs/pi-agent-core": "0.99.1"
+		"@lue-labs/pi-ai": "0.99.2",
+		"@lue-labs/pi-agent-core": "0.99.2"
 	},
 	"devDependencies": {
 		"@vitest/coverage-v8": "4.1.11",

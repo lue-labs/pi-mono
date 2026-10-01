@@ -1,6 +1,12 @@
 import type { ModelThinkingLevel } from "@lue-labs/pi-ai";
 import { defineDoc } from "../documents.ts";
-import type { ConversationRetryPolicy, ConversationStreamOptions } from "./types.ts";
+import type {
+	CompactionPolicy,
+	ConversationRetryPolicy,
+	ConversationStreamOptions,
+	QueueMode,
+	ToolExecutionMode,
+} from "./types.ts";
 
 /** Durable per-conversation model, thinking level, request options, and desired tool loadout. */
 export type ConversationConfigState = {
@@ -12,6 +18,14 @@ export type ConversationConfigState = {
 	streamOptions?: ConversationStreamOptions;
 	/** Durable generation attempt retries; absent uses `DEFAULT_RETRY_POLICY`. */
 	retry?: ConversationRetryPolicy;
+	/** Whether a round's tools run at once or in call order; absent means `parallel`. */
+	toolExecution?: ToolExecutionMode;
+	/** How many queued steers a boundary places; absent means `one-at-a-time`. */
+	steeringMode?: QueueMode;
+	/** How many queued follow-ups a final boundary places; absent means `one-at-a-time`. */
+	followUpMode?: QueueMode;
+	/** Automatic compaction thresholds; absent uses `DEFAULT_COMPACTION_POLICY`. */
+	compaction?: CompactionPolicy;
 };
 
 export const DEFAULT_RETRY_POLICY: ConversationRetryPolicy = {
@@ -19,6 +33,13 @@ export const DEFAULT_RETRY_POLICY: ConversationRetryPolicy = {
 	maxRetries: 3,
 	baseDelayMs: 2000,
 	maxAgentDelayMs: 60000,
+};
+
+export const DEFAULT_COMPACTION_POLICY: CompactionPolicy = {
+	enabled: true,
+	reserveTokens: 16384,
+	keepRecentTokens: 20000,
+	backgroundTokens: 32768,
 };
 
 /** Built-in configuration document; rewindable so forks start from the configuration at their fork entry. */

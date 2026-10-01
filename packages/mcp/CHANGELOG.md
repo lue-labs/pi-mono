@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.99.2] - 2026-09-30
+
+### Fixed
+
+- Fixed `StreamableHttpTransport` failing every request on Cloudflare Workers with `Illegal invocation` by calling `fetch`, including `UnauthorizedContext.fetch`, without a receiver ([#10188](https://github.com/earendil-works/pi/issues/10188))
+
 ## [0.99.1] - 2026-09-29
 
 ## [0.99.0] - 2026-09-29

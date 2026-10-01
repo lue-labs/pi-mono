@@ -1,11 +1,5 @@
 import type { Draft, JsonValue } from "@earendil-works/chord";
-import {
-	type ConversationId,
-	defineDoc,
-	defineDocFamily,
-	type JsonObject,
-	type TaskId,
-} from "@earendil-works/pi-durable";
+import { type ConversationId, defineDoc, defineDocFamily, type JsonObject, type TaskId } from "@lue-labs/pi-durable";
 import { describe, expect, it } from "vitest";
 import { idFromNumber } from "../src/ids.ts";
 import { context, createConversation, documentChanges, flush, openTestSession } from "./session-support.ts";
@@ -421,7 +415,6 @@ describe("Session document transactions", () => {
 					kind: "missing",
 					version: 1,
 					input: null,
-					after: [],
 					background: false,
 					abortRequested: false,
 					state: { status: "pending", checkpoint: { phase: "start" } },

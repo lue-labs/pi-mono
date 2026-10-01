@@ -128,7 +128,6 @@ it("encodes discriminator-dependent fields", () => {
 			version: 1,
 			input: null,
 			state: { status: "terminal", outcome: { status: "completed", result: 1 } },
-			after: [],
 			background: false,
 			abortRequested: false,
 			memos: { retained: true },

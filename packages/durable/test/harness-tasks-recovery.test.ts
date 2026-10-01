@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context, JsonValue } from "@earendil-works/chord";
+import { createModels } from "@lue-labs/pi-ai";
 import {
 	createRegistry,
 	defineDoc,
@@ -12,8 +13,7 @@ import {
 	type Task,
 	type TaskId,
 	type TaskRuntime,
-} from "@earendil-works/pi-durable";
-import { createModels } from "@lue-labs/pi-ai";
+} from "@lue-labs/pi-durable";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqliteStorage } from "../src/storage/sqlite/node.ts";
 import { ControlledStorage, context, flush } from "./session-support.ts";
@@ -39,7 +39,7 @@ async function createIn<S extends { phase: string }, R>(
 	task: Task<null, S, R, object>,
 ): Promise<TaskId<R>> {
 	const root = await harness.root(context);
-	return root.commit((tx) => tx.createTask(task, null), context);
+	return root.commit((tx) => tx.createTask(task, null, { ownership: { kind: "conversation" } }), context);
 }
 
 /** Fake external service whose operations are idempotent by request key. */
@@ -114,7 +114,10 @@ describe("task recovery", () => {
 
 		const first = await openTasks(await openNodeSqliteStorage(path), [Transfer]);
 		const root = await first.harness.root(context);
-		const id = await root.commit((tx) => tx.createTask(Transfer, { amount: 7 }), context);
+		const id = await root.commit(
+			(tx) => tx.createTask(Transfer, { amount: 7 }, { ownership: { kind: "conversation" } }),
+			context,
+		);
 		first.harness.resume();
 		await eventually(() => service.calls === 1);
 		await first.harness.close(context);
@@ -498,7 +501,7 @@ describe("blocked tasks", () => {
 		const { harness } = await openTasks(new MemoryStorage(), []);
 		const root = await harness.root(context);
 		const id = await root.commit(async (tx) => {
-			const created = await tx.createTask(versioned(1, "x"), null);
+			const created = await tx.createTask(versioned(1, "x"), null, { ownership: { kind: "conversation" } });
 			(await tx.doc(Scratch, created)).n = 1;
 			return created;
 		}, context);

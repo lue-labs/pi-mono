@@ -1,7 +1,10 @@
 import type { ConversationRecord, Tx } from "../types.ts";
+import { CompactionTask } from "./compaction.ts";
 import { ConversationConfig } from "./config.ts";
 import { GenerationTask } from "./generation.ts";
+import { InboxDoc } from "./inbox.ts";
 import { LiveDoc } from "./live.ts";
+import { ToolTask } from "./tool.ts";
 import type {
 	AnyTask,
 	ConversationSetup,
@@ -17,17 +20,23 @@ import type {
 	ToolRegistration,
 	ToolWrapper,
 } from "./types.ts";
+import { UsageDoc } from "./usage.ts";
 
 const SECTION_KEY = /^[a-z][a-z0-9_-]*$/;
 
 /** Built-in task definitions every registry starts with; they cannot be disposed or replaced. */
-export const BUILTIN_TASKS: readonly AnyTask[] = [GenerationTask];
+export const BUILTIN_TASKS: readonly AnyTask[] = [GenerationTask, ToolTask, CompactionTask];
 
 export const BUILTIN_SETUP_KEY = "pi";
 
-/** Built-in documents: an empty `pi.live`, and for a new conversation the default configuration with every registered tool active. */
+/**
+ * Built-in documents: empty `pi.live`, `pi.inbox`, and `pi.usage`, and for a new conversation the default
+ * configuration with every registered tool active.
+ */
 async function builtinSetup(tx: Tx, conversation: ConversationRecord, registry: RegistrySnapshot): Promise<void> {
 	await tx.doc(LiveDoc, conversation.id);
+	await tx.doc(InboxDoc, conversation.id);
+	await tx.doc(UsageDoc, conversation.id);
 	if (conversation.parent !== undefined) return;
 	(await tx.doc(ConversationConfig, conversation.id)).activeTools = [...registry.toolNames()];
 }

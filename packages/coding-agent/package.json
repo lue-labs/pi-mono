@@ -1,6 +1,6 @@
 {
 	"name": "@lue-labs/pi-coding-agent",
-	"version": "0.99.1",
+	"version": "0.99.2",
 	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
 	"type": "module",
 	"piConfig": {
@@ -52,10 +52,13 @@
 	},
 	"dependencies": {
 		"@pierre/diffs": "1.2.12",
+		"@earendil-works/chord": "0.99.2",
+		"@lue-labs/pi-agent-core": "0.99.2",
+		"@lue-labs/pi-ai": "0.99.2",
+		"@earendil-works/pi-codemode": "0.99.2",
+		"@earendil-works/pi-mcp": "0.99.2",
+		"@lue-labs/pi-tui": "0.99.2",
 		"@silvia-odwyer/photon-node": "0.3.4",
-		"@lue-labs/pi-agent-core": "0.99.1",
-		"@lue-labs/pi-ai": "0.99.1",
-		"@lue-labs/pi-tui": "0.99.1",
 		"chalk": "6.0.0",
 		"cross-spawn": "7.0.6",
 		"diff": "8.0.4",
@@ -71,15 +74,15 @@
 		"typebox": "1.3.27",
 		"undici": "8.10.2",
 		"yaml": "2.9.0",
-		"@earendil-works/chord": "^0.99.1",
-		"@earendil-works/pi-codemode": "0.99.1",
-		"@earendil-works/pi-mcp": "0.99.1",
 		"quickjs-wasi": "3.6.2"
 	},
 	"overrides": {
 		"protobufjs": "7.6.6"
 	},
 	"devDependencies": {
+		"@lue-labs/pi-client": "0.99.2",
+		"@lue-labs/pi-protocol": "0.99.2",
+		"@lue-labs/pi-server": "0.99.2",
 		"@types/cross-spawn": "6.0.6",
 		"@types/hosted-git-info": "3.0.5",
 		"@types/node": "22.19.19",
@@ -88,9 +91,6 @@
 		"shx": "0.4.0",
 		"typescript": "7.0.2",
 		"vitest": "4.1.11",
-		"@lue-labs/pi-client": "0.99.1",
-		"@lue-labs/pi-protocol": "0.99.1",
-		"@lue-labs/pi-server": "0.99.1",
 		"marked": "18.0.11"
 	},
 	"keywords": [

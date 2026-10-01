@@ -92,6 +92,10 @@ const sandbox = new CodemodeSandbox({
 });
 ```
 
+`workerUrl` accepts a URL or string. For a Bun compiled executable, include the worker as an
+additional build entrypoint and pass its relative source path as a string, for example
+`"./src/codemode-worker.ts"`; Bun resolves that form from its embedded module graph.
+
 ## Declarations for the model
 
 Tools and globals can carry `description`, `inputSchema`, and `outputSchema` (JSON Schema). `renderDeclarations()` turns them into TypeScript declarations for a model-facing tool description:
@@ -113,7 +117,7 @@ Schemas only shape the declarations; values are not validated against them. Loca
 To give an `Agent` a codemode tool, expose its other tools to the sandbox and wrap `execute()` as an `AgentTool`:
 
 ```ts
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@lue-labs/pi-agent-core";
 import {
 	type CodemodeJsonSchema,
 	CodemodeSandbox,
@@ -154,7 +158,7 @@ const codemodeTool: AgentTool = {
 };
 ```
 
-`result.output` items already have the shape of `@earendil-works/pi-ai`'s `TextContent` and `ImageContent`. Calling `tool.execute()` directly skips the agent's `beforeToolCall` and `afterToolCall` hooks. To apply them to nested calls too, run each call through `runToolCall()` from `@earendil-works/pi-agent-core`, as the [mcp-codemode example](https://github.com/earendil-works/pi/tree/main/packages/agent/examples/mcp-codemode) does. That example also rejects failed nested calls inside the script and combines codemode with MCP tools.
+`result.output` items already have the shape of `@lue-labs/pi-ai`'s `TextContent` and `ImageContent`. Calling `tool.execute()` directly skips the agent's `beforeToolCall` and `afterToolCall` hooks. To apply them to nested calls too, run each call through `runToolCall()` from `@lue-labs/pi-agent-core`, as the [mcp-codemode example](https://github.com/earendil-works/pi/tree/main/packages/agent/examples/mcp-codemode) does. That example also rejects failed nested calls inside the script and combines codemode with MCP tools.
 
 ## Results
 

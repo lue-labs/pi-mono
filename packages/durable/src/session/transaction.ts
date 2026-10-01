@@ -57,14 +57,25 @@ import { prepareForkDocumentCopies } from "./forks.ts";
 
 type AnyTaskRecord = TaskRecord<JsonValue, JsonValue, JsonValue>;
 
-/** Complete record after applying one settlement; only a placed input can be answered. A settled record stays. */
-function settledSubmission(current: SubmissionRecord, settlement: SubmissionSettlement): SubmissionRecord {
+/** A staged submission change: a settlement, or the placement of a queued submission at its entry. */
+type SubmissionChange = SubmissionSettlement | { readonly status: "placed"; readonly entry: EntryId };
+
+/**
+ * Complete record after applying one change. Placement turns a queued input `placed` and a queued write `done`; only a
+ * placed input can be answered. A settled record stays.
+ */
+function applySubmissionChange(current: SubmissionRecord, change: SubmissionChange): SubmissionRecord {
 	if (current.status === "done" || current.status === "unanswered") return current;
-	if (settlement.status === "done" && current.status !== "placed") {
+	if (change.status === "placed") {
+		if (current.status !== "queued") throw new Error(`Submission ${current.id} is not queued`);
+		const status = current.type === "input" ? "placed" : "done";
+		return { ...current, status, entry: change.entry } as SubmissionRecord;
+	}
+	if (change.status === "done" && current.status !== "placed") {
 		throw new Error(`Submission ${current.id} is not a placed input`);
 	}
 	// Queued and placed records carry no answer, reason, or detail; an unanswered input keeps its entry.
-	return { ...current, ...settlement } as SubmissionRecord;
+	return { ...current, ...change } as SubmissionRecord;
 }
 
 const INTERNAL_SCAN_PAGE_SIZE = 256;
@@ -195,8 +206,8 @@ export class Transaction implements Tx {
 	readonly #tasksById = new Map<TaskId, TransactionTask>();
 	/** Submissions created by this transaction, by ID. */
 	readonly #submissions = new Map<SubmissionId, SubmissionRecord>();
-	/** Settlements in staging order; resolved against the latest candidate record during assembly. */
-	readonly #settlements: { readonly id: SubmissionId; readonly settlement: SubmissionSettlement }[] = [];
+	/** Submission settlements and placements in staging order; resolved against the latest candidate record during assembly. */
+	readonly #submissionChanges: { readonly id: SubmissionId; readonly change: SubmissionChange }[] = [];
 
 	/** Write and publication plans of every staged incarnation, built during assembly. */
 	readonly #plans: DocumentPlan[] = [];
@@ -240,6 +251,12 @@ export class Transaction implements Tx {
 
 	scanEntries(query: EntryQuery, limit: number, cursor?: Cursor) {
 		return this.#read("scanEntries", () => this.#host.storage.scanEntries(query, limit, cursor, this.#context));
+	}
+
+	latestHeadMarker(conversationId: ConversationId) {
+		return this.#read("latestHeadMarker", () =>
+			this.#host.storage.findLatestHeadMarker(conversationId, undefined, this.#context),
+		);
 	}
 
 	scanTasks(query: TaskQuery, limit: number, cursor?: Cursor) {
@@ -364,10 +381,22 @@ export class Transaction implements Tx {
 	createTask<I, S extends { phase: string }, R, H extends object>(
 		task: Task<I, S, R, H>,
 		input: I,
-		options?: TaskOptions,
+		options: TaskOptions,
 	): Promise<TaskId<R>> {
 		return this.#write(async () => {
-			const conversationId = options?.conversationId ?? this.#scope.conversationId;
+			const ownership = options.ownership;
+			let owner: AnyTaskRecord | undefined;
+			if (ownership.kind === "task") {
+				// Validated again against the owner's final candidate during assembly.
+				owner = await this.#currentTask(ownership.taskId);
+				this.#assertOpen();
+				if (owner === undefined) throw new Error(`Task owner ${ownership.taskId} does not exist`);
+				if (options.background === true) throw new TypeError("A child task cannot be background");
+				if (options.conversationId !== undefined && options.conversationId !== owner.conversationId) {
+					throw new Error(`A child task lives in its owner's conversation ${owner.conversationId}`);
+				}
+			}
+			const conversationId = owner?.conversationId ?? options.conversationId ?? this.#scope.conversationId;
 			if (conversationId === undefined) throw new TypeError("Tx.createTask() requires options.conversationId");
 			await this.#requireConversation(conversationId);
 			this.#assertOpen();
@@ -382,8 +411,8 @@ export class Transaction implements Tx {
 					kind: definition.name,
 					version: definition.version,
 					input,
-					after: options?.after ?? [],
-					background: options?.background ?? false,
+					...(owner === undefined ? {} : { owner: owner.id }),
+					background: options.background ?? false,
 					abortRequested: false,
 					state: { status: "pending", checkpoint },
 				},
@@ -414,7 +443,14 @@ export class Transaction implements Tx {
 	settleSubmission(id: SubmissionId, settlement: SubmissionSettlement): void {
 		this.#assertOpen();
 		this.#hasTableWrite = true;
-		this.#settlements.push({ id, settlement: copyJson(settlement) as SubmissionSettlement });
+		this.#submissionChanges.push({ id, change: copyJson(settlement) as SubmissionSettlement });
+	}
+
+	/** Place a queued submission at `entry`; resolved during assembly like `settleSubmission()`. */
+	placeSubmission(id: SubmissionId, entry: EntryId): void {
+		this.#assertOpen();
+		this.#hasTableWrite = true;
+		this.#submissionChanges.push({ id, change: { status: "placed", entry } });
 	}
 
 	/** Internal: replace one task record completely. Tasks change their own state through their runtime. */
@@ -433,6 +469,20 @@ export class Transaction implements Tx {
 			kind: task.write?.kind === "create" ? "create" : "replace",
 			record: copyJson(value, TABLE_JSON_COPY_OPTIONS) as unknown as AnyTaskRecord,
 		};
+	}
+
+	/** Internal: candidate records of the tasks this transaction created or replaced so far. */
+	stagedTasks(): AnyTaskRecord[] {
+		const records: AnyTaskRecord[] = [];
+		for (const task of this.#tasksById.values()) if (task.write !== undefined) records.push(task.write.record);
+		return records;
+	}
+
+	/** Internal: conversations this transaction created or forked so far. */
+	stagedConversations(): ConversationRecord[] {
+		const records: ConversationRecord[] = [];
+		for (const write of this.#writes) if (write.type === "conversation") records.push(write.value);
+		return records;
 	}
 
 	// ─── Documents ──────────────────────────────────────────────────────────
@@ -708,7 +758,7 @@ export class Transaction implements Tx {
 			if (plan !== undefined) plans.push(plan);
 		}
 		this.#rejectForkSourceWrites(plans);
-		await this.#validateConversationOwners();
+		await this.#validateOwners();
 		for (const [id, task] of this.#tasksById) {
 			if (task.write?.kind !== "replace") continue;
 			const committed = await this.#committedTask(id);
@@ -766,11 +816,11 @@ export class Transaction implements Tx {
 			plan.conversationId = task.publicationConversationId;
 		}
 
-		for (const { id, settlement } of this.#settlements) {
+		for (const { id, change } of this.#submissionChanges) {
 			const current = this.#submissions.get(id) ?? (await storage.submission(id, this.#context));
 			if (current === undefined) throw new Error(`Submission ${id} does not exist`);
-			const settled = settledSubmission(current, settlement);
-			if (settled !== current) this.#submissions.set(id, settled);
+			const next = applySubmissionChange(current, change);
+			if (next !== current) this.#submissions.set(id, next);
 		}
 
 		const writes = this.#writes;
@@ -796,21 +846,27 @@ export class Transaction implements Tx {
 
 	// ─── Helpers ────────────────────────────────────────────────────────────
 
-	async #validateConversationOwners(): Promise<void> {
+	/**
+	 * New owned work needs a live owner, judged on the owner's final candidate: not `completing`, terminal, or
+	 * abort-marked. A task therefore cannot create owned work in the commit that finishes it (spec §5.5).
+	 */
+	async #validateOwners(): Promise<void> {
+		const owners: { readonly what: string; readonly taskId: TaskId }[] = [];
 		for (const write of this.#writes) {
 			if (write.type !== "conversation" || write.value.owner === undefined) continue;
-			const owner = write.value.owner;
-			const task = await this.#currentTask(owner.taskId);
-			if (task === undefined) throw new Error(`Conversation owner task ${owner.taskId} does not exist`);
-			if (task.conversationId !== owner.conversationId) {
-				throw new Error(`Conversation owner task ${owner.taskId} changed conversations`);
+			owners.push({ what: "Conversation owner task", taskId: write.value.owner.taskId });
+		}
+		for (const task of this.#tasksById.values()) {
+			const record = task.write?.kind === "create" ? task.write.record : undefined;
+			if (record?.owner !== undefined) owners.push({ what: "Task owner", taskId: record.owner });
+		}
+		for (const { what, taskId } of owners) {
+			const task = await this.#currentTask(taskId);
+			if (task === undefined) throw new Error(`${what} ${taskId} does not exist`);
+			if (task.state.status === "terminal" || task.state.status === "completing") {
+				throw new Error(`${what} ${taskId} is ${task.state.status}`);
 			}
-			if (task.state.status === "terminal") {
-				throw new Error(`Conversation owner task ${owner.taskId} is terminal`);
-			}
-			if (task.abortRequested) {
-				throw new Error(`Conversation owner task ${owner.taskId} is abort-marked`);
-			}
+			if (task.abortRequested) throw new Error(`${what} ${taskId} is abort-marked`);
 		}
 	}
 

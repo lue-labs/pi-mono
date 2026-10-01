@@ -1,14 +1,18 @@
-import type { Context, JsonValue } from "@earendil-works/chord";
+import type { AttachedReplicatedState, Context, JsonValue } from "@earendil-works/chord";
 import type {
+	AssistantMessage,
 	CacheRetention,
 	Message,
 	Models,
 	ModelThinkingLevel,
 	Tool,
+	ToolCall,
 	ToolResultMessage,
 	Transport,
+	Usage,
 	UserMessage,
 } from "@lue-labs/pi-ai";
+import type { ExecutionEnv } from "../env/index.ts";
 import type {
 	ConversationId,
 	ConversationOwnership,
@@ -31,7 +35,10 @@ import type {
 	TaskRecord,
 	TaskState,
 	Tx,
+	WatchHandle,
 } from "../types.ts";
+import type { UsageState } from "./usage.ts";
+import type { ConversationView } from "./view.ts";
 
 /** Provider and model ID resolved through pi-ai `Models`. */
 export type ModelRef = {
@@ -90,14 +97,29 @@ export type AnyTask = {
 	};
 };
 
+/** Options of `Conversation.abort()`. */
+export type ConversationAbortOptions = {
+	/**
+	 * Cross background boundaries: mark every live task reached ignoring the background flag when the abort is admitted,
+	 * withdraw the queued inputs of every conversation reached, and wait until those tasks are terminal and the
+	 * conversation is ordinarily idle. Background work created afterwards is neither marked nor awaited.
+	 */
+	readonly background?: boolean;
+};
+
 /** Hook handler map declared by a task definition. */
 export type HooksOf<K> = K extends Task<infer _I, infer _S, infer _R, infer H> ? H : never;
 
-/** Invocation-bound conversation operations available to tools. */
+/**
+ * Invocation-bound conversation operations for tasks and tools. Rejects after the invocation ends; passive entries are
+ * written with ordinary transaction writes instead.
+ */
 export interface ConversationHandle {
 	readonly id: ConversationId;
 	submit(submission: InputSubmissionDraft, context: Context): Promise<Submission>;
-	abort(context: Context): Promise<void>;
+	/** `Conversation.abort()`: withdraw queued inputs, abort the ordinary ownership scope, and wait until it is idle. */
+	abort(context: Context, options?: ConversationAbortOptions): Promise<void>;
+	/** Resolve when the conversation's ordinary ownership scope has no live non-background task. */
 	waitForIdle(context: Context): Promise<void>;
 }
 
@@ -108,20 +130,46 @@ export type ToolControl = {
 	readonly handoff?: string;
 };
 
+/** Remark about a call for the model and the UI, such as truncation or a spill path; never part of the tool's data. */
+export type ToolDiagnostic = {
+	readonly severity: "info" | "warn" | "error";
+	readonly message: string;
+	readonly code?: string;
+};
+
 export type ToolExecutionResult = {
+	/** Omitted: the retained `output()` text becomes the content. */
 	readonly content?: ToolResultMessage["content"];
 	readonly isError?: boolean;
+	/** Omitted: the last `details()` value becomes the details. */
 	readonly details?: JsonValue;
+	/** Added after those recorded through `api.diagnostic()`. */
+	readonly diagnostics?: readonly ToolDiagnostic[];
+	/** Spend of the execution itself, such as a model call; stored on the result and in `pi.usage.tools`. */
+	readonly usage?: Usage;
 	readonly control?: ToolControl;
 };
 
-/** Operations available to one tool invocation. */
+/** Whether the tools of one round run at once or one after another in call order. */
+export type ToolExecutionMode = "parallel" | "sequential";
+
+/** How many queued items of one mode a boundary places: the first, or all of them. */
+export type QueueMode = "all" | "one-at-a-time";
+
+/**
+ * Operations available to one tool invocation. A plain object, so a wrapper can pass `{ ...api, env }` to the tool it
+ * wraps. Every operation rejects after the invocation ends.
+ */
 export interface ToolExecutionApi extends DocumentObserver, DocumentReader {
 	readonly taskId: TaskId;
 	readonly conversationId: ConversationId;
 	readonly callId: string;
+	/** `HarnessOptions.env` unless a wrapper supplies another environment. */
+	readonly env: ExecutionEnv | undefined;
 	/** Append running output; it becomes the result content when the result omits `content`. */
 	output(chunk: string | Uint8Array): void;
+	/** Record a model-visible remark about this call. */
+	diagnostic(diagnostic: ToolDiagnostic): void;
 	/** Replace running details; the last value becomes the result details when the result omits `details`. */
 	details(value: JsonValue, context: Context): Promise<void>;
 	commit<T>(change: (tx: Tx) => T | Promise<T>, context: Context): Promise<T>;
@@ -135,6 +183,7 @@ export interface ToolExecutionApi extends DocumentObserver, DocumentReader {
 	): Promise<TaskId<R>>;
 	getTask<R>(id: TaskId<R>, context: Context): Promise<TaskRecord<JsonValue, JsonValue, R> | undefined>;
 	waitForTask<R>(id: TaskId<R>, context: Context): Promise<SettledTask<R>>;
+	/** Invocation-bound handle of an existing conversation, such as one this tool created in `commit()`. */
 	conversation(id: ConversationId, context: Context): Promise<ConversationHandle | undefined>;
 }
 
@@ -142,6 +191,13 @@ export interface ToolExecutionApi extends DocumentObserver, DocumentReader {
 export type ToolRegistration = Tool & {
 	/** Whether an interrupted execution may rerun on recovery. Default `unsafe`. */
 	readonly replay?: "safe" | "unsafe";
+	/** Default: the conversation's `toolExecution`. One sequential call makes its whole round sequential. */
+	readonly executionMode?: ToolExecutionMode;
+	/**
+	 * Repair arguments models commonly get wrong before validation, such as a JSON string where an array belongs. Must be
+	 * pure and must not mutate `args`: it runs again when a call is retried before its intent is recorded.
+	 */
+	prepareArguments?(args: JsonValue): JsonValue;
 	readonly outputLimits?: {
 		readonly maxBytes?: number;
 		readonly maxLines?: number;
@@ -308,10 +364,33 @@ export type ConversationRetryPolicy = {
 	maxAgentDelayMs?: number;
 };
 
+/** Automatic compaction thresholds (spec §8.7); manual compaction ignores `enabled`. */
+export type CompactionPolicy = {
+	/** Threshold and overflow compaction. */
+	enabled: boolean;
+	/** Room kept free for the answer: generation blocks to compact above `contextWindow - reserveTokens`. */
+	reserveTokens: number;
+	/** Approximate size of the recent context a summary keeps verbatim. */
+	keepRecentTokens: number;
+	/** Background compaction starts `backgroundTokens` below the blocking threshold; `0` disables it. */
+	backgroundTokens: number;
+};
+
+/** Why a compaction runs: `compact()`, a threshold in generation preparation, or a context overflow. */
+export type CompactionReason = "manual" | "threshold" | "overflow";
+
+/**
+ * `entryId` of a blocking compaction's summary, or the `submissionId` of a conversation-owned compaction's summary
+ * write; both absent when nothing was compacted.
+ */
+export type CompactionResult = { entryId?: EntryId; submissionId?: SubmissionId };
+
 export type HarnessOptions<Tool extends ToolRegistration = ToolRegistration> = {
 	/** pi-ai model access used by generation. */
 	readonly models: Models;
 	readonly registry: RegistryReader<Tool>;
+	/** Default execution environment offered to tools as `api.env`. */
+	readonly env?: ExecutionEnv;
 	readonly now?: () => number;
 	/** Receives extension failures that do not fail the calling operation. Must not throw. */
 	readonly onReport?: (error: unknown) => void;
@@ -324,8 +403,13 @@ export type TaskInspection = {
 		| { readonly kind: "running" }
 		/** The next scheduling pass reserves it; `migrates` when its definition is newer and has `migrate`. */
 		| { readonly kind: "ready"; readonly migrates: boolean }
-		/** Pending until these tasks are terminal. */
+		/**
+		 * Waits for these live tasks: the live part of its `on`, or, when abort-marked, its live ordinary owned work, which
+		 * must end before its abort handler starts.
+		 */
 		| { readonly kind: "waiting"; readonly on: readonly TaskId[] }
+		/** Outcome held until its ordinary owned work drains. */
+		| { readonly kind: "completing" }
 		/** No registered definition can take it; aborting it settles it as `orphaned`. */
 		| {
 				readonly kind: "blocked";
@@ -350,6 +434,8 @@ export type ContextView = {
 	readonly head: EntryRecord | undefined;
 	/** Raw active entries: the head marker followed by non-head entries from its head through the tail. */
 	readonly entries: readonly EntryRecord[];
+	/** Per entry of `entries`, its model messages after edits and excluded stop reasons, before tool result ordering. */
+	readonly contributions: readonly (readonly Message[])[];
 	/** Model context for the next provider request. */
 	readonly messages: readonly Message[];
 };
@@ -371,12 +457,38 @@ export interface Conversation {
 	getRetryPolicy(context: Context): Promise<ConversationRetryPolicy>;
 	/** `undefined` removes the configured policy. */
 	setRetryPolicy(policy: ConversationRetryPolicy | undefined, context: Context): Promise<void>;
+	/** `parallel` when unset. */
+	getToolExecution(context: Context): Promise<ToolExecutionMode>;
+	/** `undefined` removes the configured mode. */
+	setToolExecution(mode: ToolExecutionMode | undefined, context: Context): Promise<void>;
+	/** `one-at-a-time` when unset. */
+	getSteeringMode(context: Context): Promise<QueueMode>;
+	/** `undefined` removes the configured mode. */
+	setSteeringMode(mode: QueueMode | undefined, context: Context): Promise<void>;
+	/** `one-at-a-time` when unset. */
+	getFollowUpMode(context: Context): Promise<QueueMode>;
+	/** `undefined` removes the configured mode. */
+	setFollowUpMode(mode: QueueMode | undefined, context: Context): Promise<void>;
+	/** `DEFAULT_COMPACTION_POLICY` when unset. */
+	getCompaction(context: Context): Promise<CompactionPolicy>;
+	/** `undefined` removes the configured policy. */
+	setCompaction(policy: CompactionPolicy | undefined, context: Context): Promise<void>;
 
 	/**
-	 * Durably admit user input or a passive entry write. Until the inbox exists, a busy conversation rejects every
-	 * submission with `ConversationBusy`.
+	 * Durably admit user input or a passive entry write. A busy conversation, or one with queued items, queues it in
+	 * `pi.inbox`; `whenBusy: "reject"` rejects with `ConversationBusy` instead and writes nothing.
 	 */
 	submit(submission: SubmissionDraft, context: Context): Promise<Submission>;
+	/**
+	 * Admit a write of a `pi.reset` entry that starts a new context, carrying `handoff` as a user message when given.
+	 * Resolves after admission; while busy, it is placed at the next boundary.
+	 */
+	reset(handoff: string | undefined, context: Context): Promise<void>;
+	/**
+	 * Admit a manual compaction task and return its ID. It summarizes while the conversation keeps working and places its
+	 * summary through a write submission: at once when idle, otherwise at the next boundary (spec §8.7).
+	 */
+	compact(instructions: string | undefined, context: Context): Promise<TaskId<CompactionResult>>;
 
 	/** Session commit whose `tx.createTask()` defaults to this conversation. */
 	commit<T>(change: (tx: Tx) => T | Promise<T>, context: Context): Promise<T>;
@@ -389,8 +501,20 @@ export interface Conversation {
 		context: Context,
 	): Promise<Page<EntryRecord, Cursor>>;
 	fork(at: EntryId, options: ConversationCreateOptions, context: Context): Promise<Conversation>;
-	/** Resolve when no live non-background task belongs to this conversation. */
+	/**
+	 * Withdraw queued inputs (queued writes stay), mark every live non-background task of the ordinary ownership scope,
+	 * signal them, and resolve once the scope is idle. Background subtrees survive unless `background` is set.
+	 */
+	abort(context: Context, options?: ConversationAbortOptions): Promise<void>;
+	/**
+	 * Resolve when the ordinary ownership scope has no live non-background task: this conversation and the conversations
+	 * owned, transitively, by its non-background tasks.
+	 */
 	waitForIdle(context: Context): Promise<void>;
+	/** The structural view (spec §9.3) as a disposable read-only Chord state. */
+	viewState(context: Context): Promise<AttachedReplicatedState<ConversationView>>;
+	/** The structural view as a serialized exact-frame watch with bounded pending frames. */
+	watch(context: Context): Promise<WatchHandle<ConversationView>>;
 }
 
 // TODO: decide how Harness exposes subscribeCommits() and subscribeClose(). Their listeners run on the Session line
@@ -405,7 +529,6 @@ export interface Harness extends Session {
 
 	/** Return the reserved root conversation, creating it with `init` in one commit when absent. */
 	root(context: Context, options?: { readonly init?: ConversationInit }): Promise<Conversation>;
-	// Conversation activity (active/idle notifications) is specified with run control in Package 17.
 	conversation(id: ConversationId, context: Context): Promise<Conversation | undefined>;
 	createConversation(options: ConversationCreateOptions, context: Context): Promise<Conversation>;
 
@@ -427,6 +550,71 @@ export interface Harness extends Session {
 	abortTask(id: TaskId, context: Context): Promise<"marked" | "terminal">;
 	/** Resolve with the terminal receipt; cancelling `context` cancels only this wait. */
 	waitForTask<R>(id: TaskId<R>, context: Context): Promise<SettledTask<R>>;
-	/** Resolve when no live non-background task exists. */
+	/** Resolve when the ordinary ownership scope of every ownerless conversation has no live non-background task. */
 	waitForIdle(context: Context): Promise<void>;
+	/** Session total: every conversation's `pi.usage` summed. */
+	usage(context: Context): Promise<UsageState>;
+}
+
+/** What a hook may use: committed reads and the asking task's memos, which hooks and the task share. */
+export interface HookApi extends DocumentReader {
+	readonly taskId: TaskId;
+	readonly conversationId: ConversationId;
+	memo<T extends JsonValue>(name: string, context: Context): Promise<T | undefined>;
+	memo<T extends JsonValue>(name: string, candidate: T, context: Context): Promise<T>;
+}
+
+export type HookResult<T> = T | undefined | Promise<T | undefined>;
+
+/** Hooks of the built-in generation task. */
+export interface GenerationHooks {
+	/** Before every request attempt, including recovery; the result is used for that request only. */
+	beforeRequest(
+		request: { readonly messages: readonly Message[] },
+		api: HookApi,
+		context: Context,
+	): HookResult<{ readonly messages: readonly Message[] }>;
+	/** Every terminal provider message, before classification. */
+	afterResponse(message: AssistantMessage, api: HookApi, context: Context): void | Promise<void>;
+	/** A final answer; the first `continue` appends a user message and continues the run. */
+	onYield(answer: AssistantMessage, api: HookApi, context: Context): HookResult<{ readonly continue: UserInput }>;
+	/** After every tool of the round is terminal; `results` are the round's result entries in call order. */
+	afterTools(assistant: EntryId, results: readonly EntryId[], api: HookApi, context: Context): void | Promise<void>;
+}
+
+/** Hooks of the built-in tool task. */
+export interface ToolHooks {
+	/** Before intent; the first `block` wins, otherwise `arguments` replace the call's arguments. A throw blocks. */
+	beforeTool(
+		call: ToolCall,
+		api: HookApi,
+		context: Context,
+	): HookResult<{ readonly arguments?: JsonObject; readonly block?: string }>;
+	/** After execution, before the result entry; replaces the result. */
+	afterTool(
+		call: ToolCall,
+		result: ToolExecutionResult,
+		api: HookApi,
+		context: Context,
+	): HookResult<ToolExecutionResult>;
+}
+
+/** Hooks of the built-in compaction task. */
+export interface CompactionHooks {
+	/**
+	 * After range selection, before summarizing; the first decision wins. `entries` are the active entries the summary
+	 * replaces, the head marker first, and `messages` their model context, the summarizer's source; `firstKept` is the
+	 * first entry kept verbatim.
+	 */
+	beforeCompact(
+		compaction: {
+			readonly reason: CompactionReason;
+			readonly entries: readonly EntryRecord[];
+			readonly messages: readonly Message[];
+			readonly firstKept: EntryId;
+			readonly instructions?: string;
+		},
+		api: HookApi,
+		context: Context,
+	): HookResult<{ readonly decline: true } | { readonly summary: string }>;
 }
