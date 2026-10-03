@@ -1,3 +1,5 @@
+> **leo-labs** — brand name (Leonardo + leopard). GitHub org slug is **[`leo-labs-ai`](https://github.com/leo-labs-ai)** as of 2026-10-03. Repository web and git URLs under `lue-labs` redirect; the org API name does not. npm `@lue-labs/*` and `ghcr.io/lue-labs/*` are unchanged in this pass. Decision `leo-labs-rename-20261003`.
+
 <p align="center">
   <a href="https://pi.dev">
     <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
